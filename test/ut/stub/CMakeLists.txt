@@ -243,6 +243,7 @@ target_include_directories(hccl_llt  PRIVATE
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/communicator
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/dfx/profiling/aicpu
+    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/dfx/cluster_monitor/stuck_detect_counter
     ${HCCL_CODE_ROOT}/src/base_comm/dfx/aicpu
     ${HCCL_CODE_ROOT}/src/base_comm/dfx/aicpu/common
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/dfx/taskException/common

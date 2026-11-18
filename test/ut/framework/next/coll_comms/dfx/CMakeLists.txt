@@ -18,6 +18,7 @@ set(src_to_test_list
     ut_dpuTaskException.cc
     ut_dpu_taskexp_dev_mem_registry.cc
     ut_cluster_monitor.cc
+    ut_stuck_detect_counter_test.cc
     ut_ccuTaskexception_test.cc
     ut_ccuTaskException_InitChannelMap_test.cc
     ut_ccuTaskException_GetChannelByHandle_test.cc

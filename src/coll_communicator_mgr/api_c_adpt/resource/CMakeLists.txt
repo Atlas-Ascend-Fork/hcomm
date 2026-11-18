@@ -14,6 +14,7 @@ set(src_list
     engine_ctx_c_adpt.cc
     thread_c_adpt.cc
     legacy_thread_c_adapt.cc
+    stuck_detect_counter_c_adpt.cc
 )
 
 if(TARGET hcomm_coll_comm_obj)

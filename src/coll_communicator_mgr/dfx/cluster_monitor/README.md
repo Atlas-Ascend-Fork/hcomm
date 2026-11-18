@@ -12,8 +12,9 @@
 2. **双Ring建链**：在每个 `netLayer` 平面内，对节点按 `localId` 或 `netInstId` 排序后构成Ring拓扑；每个Rank与环上"左手"和"右手"两个邻居建立心跳socket连接（仅2个节点时只连一个邻居）。
 3. **异步建链**：每个远端UID启动独立线程 `CreateLinkWithRemotePonit` 进行 `SocketCreate` + 状态轮询，受 `HCCL_CONNECT_TIMEOUT` 控制超时。
 4. **周期心跳收发**：后台 `MonitorThread` 以 `BROADCAST_INTERVAL` 周期遍历所有socket，先 `SocketSendNb` 发心跳再 `SocketRecvNb` 收心跳；每 `HEARTBEAT_COUNT` 个周期累加 `lostNum`，达到 `HCCL_LOST_THRESHOLD`（30s）即判定 `LOST`。
-5. **异常状态传播**：节点 `LOST` 或 `CQE_ERR` 状态通过Ring链路向其他邻居广播（`SetStatus` → `errRankQueue_` → `ProcessExceptionEvent` → `SendFrame`）。
-6. **错误信息上抛**：通过 `__attribute__((constructor))` 注册的 `GetCqeErrInfoFromTaskException` 回调，将AICPU/CCU任务的CQE错误信息记录为局部变量并格式化日志，并以 `SetStatus(..., CLUSTER_MONITOR_CQE_ERR, true)` 触发广播；查询接口 `GetErrStatusVecFromCluserMonitor` 先经 `IsKeyEvent` 按事件到达时间过滤非关键事件，再按优先级（CQE_ERR > LOST）格式化错误描述返回给上层。
+5. **异常状态传播**：节点 `LOST`、`CQE_ERR` 或 `STUCK` 状态通过Ring链路向其他邻居广播（`SetStatus` → `errRankQueue_` → `ProcessExceptionEvent` → `SendFrame`）。
+6. **错误信息上抛**：通过 `__attribute__((constructor))` 注册的 `GetCqeErrInfoFromTaskException` 回调，将AICPU/CCU任务的CQE错误信息记录为局部变量并格式化日志，并以 `SetStatus(..., CLUSTER_MONITOR_CQE_ERR, true)` 触发广播；查询接口 `GetErrStatusVecFromCluserMonitor` 先经 `IsKeyEvent` 按事件到达时间过滤非关键事件，再按优先级（CQE_ERR > STUCK > LOST）格式化错误描述返回给上层。
+7. **进程卡住检测**：`MonitorThread` 按 `STUCK_CHECK_INTERVAL`（60s）节流调用 `ProcessStuckDetect`，由 `StuckDetectCounterManager` 读取各通信域 head/tail 计数，累计 `stuckReportThreshold_` 轮后通过 `SetStatus(..., CLUSTER_MONITOR_STUCK, true)` 广播；检测到恢复时仅本地 `SetStatus(..., CLUSTER_MONITOR_OK, false)`，当前不向对端广播。阈值由 `max(2, execTimeout/3*2/60)` 轮计算，打印采用指数退避。
 
 模块整体属于DFX（Design For X）范畴，是HCCL在集群级提供"网络断连 / 对端CoreDump"可观测性的关键组件。
 
@@ -23,15 +24,17 @@
 
 ```text
 cluster_monitor/
-├── CMakeLists.txt          # 构建脚本，仅将 cluster_monitor.cc 加入 hcomm 目标
+├── CMakeLists.txt          # 构建脚本，将 cluster_monitor.cc 和 stuck_detect_counter 子目录加入 hcomm 目标
 ├── cluster_monitor.h       # 类与数据结构定义（ClusterMonitor、Frame、SockCtx、UID 等）
-└── cluster_monitor.cc      # 模块实现，包含心跳主线程、异步建链、收发帧、异常处理
+├── cluster_monitor.cc      # 模块实现，包含心跳主线程、异步建链、收发帧、异常处理
+└── stuck_detect_counter/   # 心跳线程的进程卡住检测子功能
 ```
 
 **目录特征**：
 
 - 位于 `coll_communicator_mgr/dfx/`，隶属DFX监控类功能；
-- 模块实例由 `CollCommMgr` 经 `clusterMonitor_` 数组持有，按 `GetClusterMonitor(deviceId)` 访问；不依赖目录内其它文件；
+- `stuck_detect_counter/` 是心跳监控的子功能，随 `ClusterMonitor` 注册和检测流程使用；
+- 模块实例由 `CollCommMgr` 经 `clusterMonitor_` 数组持有，按 `GetClusterMonitor(deviceId)` 访问；卡住检测通过 `stuck_detect_counter/` 子功能完成；
 - 依赖外部：`ring_buffer`、`reference_map`、`hcclCommSocket`、`hccl_communicator`、`hcclCommDfx`、`coll_comm`、`log`、`comm_addr_logger` 等。
 
 ---
@@ -147,7 +150,7 @@ sequenceDiagram
 
     rect rgb(245, 245, 245)
     Note over CM: 上层查询错误
-    Note right of CM: GetErrStatusVecFromCluserMonitor()<br/>先经 IsKeyEvent 过滤非关键事件<br/>再按 CQE_ERR > LOST 优先级格式化字符串
+    Note right of CM: GetErrStatusVecFromCluserMonitor()<br/>先经 IsKeyEvent 过滤非关键事件<br/>再按 CQE_ERR > STUCK > LOST 优先级格式化字符串
     end
 ```
 
@@ -250,6 +253,11 @@ classDiagram
         +GetConnectRank(comm, needConnectRank, uidCtxs, netLayersVector)
         +CreateHBLinksAsync()
         +SetStatus(crimer, informer, status, needBroadcast)
+        +ProcessStuckDetect()
+        +FreeStuckDetectCounter(commId)
+        +ResetStuckDetectCounter(commId)
+        +GetStuckDetectCounter(commId, counterAddress)
+        +IsStuckDetectionEnabled()
         -AllowEventForward()
         -IsKeyEvent(event, curTime)
         +MonitorThread()
@@ -279,6 +287,10 @@ classDiagram
         -eventTimeWindow_ deque~time_point~
         -stormSuppressedFlag_ bool
         -stormResumeTime_ HcclUs
+        -stuckDetectManager_ shared_ptr~StuckDetectCounterManager~
+        -stuckDetectManagerMutex_ mutex
+        -stuckReportThreshold_ uint32_t
+        -lastStuckDetectTime_ time_point
     }
 
     %% ===== 关系 =====
@@ -310,10 +322,14 @@ classDiagram
 | `HcclResult RegisterToClusterMonitor(HcclComm comm)` | 注册一个通信域：建立UID上下文、计算Ring待连接集合、推入 `clusterLinkContext_` 等待后台建链；首次注册会启动 `MonitorThread`。 |
 | `HcclResult UnRegisterToClusterMonitor(hccl::CollComm* collComm)` | 注销一个通信域：清空该commId在 `clusterLinkContext_`、`commIdMap_`、`monitorLinkStatusMap_`、`uid2SocketRefMap_` 中的引用计数；最后一个commId注销时触发 `DeInit`。 |
 | `void GetCqeErrInfoFromTaskException(u32 remoteLocalId, uint16_t status, std::string localEid, std::string remoteEid, std::string remoteInsId)` | 由AICPU/CCU CQE错误回调调用，记录CQE错误并以广播形式扩散。 |
-| `std::vector<std::string> GetErrStatusVecFromCluserMonitor()` | 排空 `errStatusQueue_`，先经 `IsKeyEvent` 按事件到达时间过滤非关键事件，再按优先级（CQE_ERR > LOST）格式化错误描述，供上层查询。 |
+| `std::vector<std::string> GetErrStatusVecFromCluserMonitor()` | 排空 `errStatusQueue_`，先经 `IsKeyEvent` 按事件到达时间过滤非关键事件，再按优先级（CQE_ERR > STUCK > LOST）格式化错误描述，供上层查询。 |
 | `HcclResult RunMonitorThread()` | 显式启动后台心跳线程（`MonitorThread`）。 |
 | `HcclResult DeInit()` | 停止心跳线程、销毁socket、清理所有内部容器；幂等。 |
 | `void SetStatus(crimer, informer, status, needBroadcast=true)` | 设置 / 更新某节点的状态；去重后经 `AllowEventForward` 防风暴门控决定是否压入 `errRankQueue_` 触发广播。 |
+| `HcclResult ProcessStuckDetect()` | 按 60s 节流执行卡住检测；达到阈值时广播 STUCK，恢复时仅本地置 OK（`needBroadcast=false`）。 |
+| `HcclResult FreeStuckDetectCounter(commId)` / `ResetStuckDetectCounter(commId)` | 注销通信域时释放计数 slot，Resume 时重置 head/tail 和检测状态。 |
+| `HcclResult GetStuckDetectCounter(commId, counterAddress)` | 注册阶段预分配计数 slot，供算子获取 device 地址；对外 C API 也可按需触发分配。 |
+| `bool IsStuckDetectionEnabled()` | 返回 `HCCL_DFS_CONFIG.stuck_detection` 是否开启。 |
 | `ClusterUIDType FormatUID(ClusterUIDCxt cxt)` | 用 `netInstId/localId` 拼装UID。 |
 | `std::string FormatConnTag(role, uidPair)` | 生成形如 `HeartBeat_<src>_to_<dst>` 的socket tag。 |
 
@@ -333,7 +349,7 @@ classDiagram
 | `DelErrorSocket` | 销毁 `errorSocket_` 中标记为异常的socket。 |
 | `ProcessExceptionEvent` | 消费 `errRankQueue_`，对所有"非informer且状态OK"的邻居广播异常帧。 |
 | `AllowEventForward` | 事件防风暴抑制：以 `EVENT_STORM_WINDOW`（10s）滑窗统计去重后待广播事件总量，超过 `EVENT_STORM_THRESHOLD`（50次）则置抑制标志并拒绝入队，抑制时长 `EVENT_STORM_COOLDOWN`（60s）；抑制期间事件仅记录（`errStatusQueue_`）与打印，期满后下一个事件到达时自动恢复正常转发。 |
-| `IsKeyEvent` | 关键事件判定：事件到达时间落在 `(Notify超时时间 - HCCL_EXEC_TIMEOUT + detectionTime - JITTER_TIME(5min), Notify超时时间 - HCCL_EXEC_TIMEOUT + detectionTime + JITTER_TIME)` 区间内视为关键事件，`detectionTime` 用于补偿事件到达晚于异常发生的偏移（LOST 为 `lostThreshold_ * HEARTBEAT_INTERVAL`（30s）、CQE_ERR 为 0）；供 `GetErrStatusVecFromCluserMonitor` 过滤非关键历史事件。 |
+| `IsKeyEvent` | 关键事件判定：事件到达时间落在 `(Notify超时时间 - HCCL_EXEC_TIMEOUT + detectionTime - JITTER_TIME(5min), Notify超时时间 - HCCL_EXEC_TIMEOUT + detectionTime + JITTER_TIME)` 区间内视为关键事件，`detectionTime` 用于补偿事件到达晚于异常发生的偏移（LOST 为 `lostThreshold_ * HEARTBEAT_INTERVAL`（30s）、STUCK 为 `stuckReportThreshold_ * STUCK_CHECK_INTERVAL`、CQE_ERR 为 0）；供 `GetErrStatusVecFromCluserMonitor` 过滤非关键历史事件。 |
 | `PrintEvents / MakeErrMsg` | 把 `ClusterMonitorFrame` 队列格式化为可读字符串向量。 |
 
 ### 跨模块回调注册（`__attribute__((constructor))`）
@@ -358,10 +374,11 @@ ClusterMonitorCallBackInit() {
 1. **多Rank通信域**：rankSize >= 2的通信域；rankSize == 1时 `RegisterToClusterMonitor` 直接返回 `HCCL_SUCCESS` 并打 `WARNING`，不会建链。
 2. **多平面拓扑**：支持 `netLayer = 0`（同server/device内，按 `localId` 排序）与 `netLayer >= 1`（跨server/pod/superPod，按 `netInstId` 排序）的双Ring建链。
 3. **跨通信域共享socket**：通过 `hccl::ReferenceMap` 计数，多个通信域连接同一远端时只创建一份socket；注销时引用计数 `--`，归零才真正销毁。
-4. **环形故障传播**：单点 `LOST` / `CQE_ERR` 状态可沿Ring链路向其他节点扩散，便于在任意节点上查询到全集群异常。
+4. **环形故障传播**：单点 `LOST` / `CQE_ERR` / `STUCK` 状态可沿Ring链路向其他节点扩散，便于在任意节点上查询到全集群异常。
 5. **CQE错误捕获**：通过AICPU/CCU回调接收 `Task` 异常，格式化为带本地 / 远端 `instanceId / localId / Eid` 的可读日志。
-6. **可关闭开关**：通过环境变量 `HCCL_DFS_CONFIG.cluster_heartbeat` 关闭心跳注册 / CQE错误捕获链路。
+6. **可关闭开关**：通过环境变量 `HCCL_DFS_CONFIG.cluster_heartbeat` 关闭心跳注册 / CQE错误捕获链路；关闭后不会建立心跳链路，也不向对端广播，但监控线程仍可能启动或复用，并执行本地卡住检测。
 7. **HCCL v2通信域**：依赖 `HcclCommunicator::GetRankGraphV2` 与 `RankGraph`，仅当 `CommunicatorV2` 存在时生效；否则在 `GetRemEndpointDescs` 中 `CHK_PTR_NULL` 失败。
+8. **进程卡住检测**：通过 `HCCL_DFS_CONFIG` 的 `stuck_detection:on/off` 控制；`StuckDetectCounterManager` 读取 head/tail 计数，`ClusterMonitor` 按 `STUCK_CHECK_INTERVAL=60s` 节流并在连续达到 `stuckReportThreshold_` 后广播 `CLUSTER_MONITOR_STUCK`。该检测随 `MonitorThread` 启动，因此单 rank 通信域不会启动检测线程。
 
 ### 约束规格
 
@@ -375,10 +392,14 @@ ClusterMonitorCallBackInit() {
 | **UID长度** | `HcclClusterMonitorUID.id` 固定2048字节，要求 `netInstId + "/" + localId` 不超过2048字节。 |
 | **角色决策** | SERVER/CLIENT由 `localIpAddr < remoteIpAddr` 决定；本地为SERVER时填本地 `listenPort`，否则填对端 `rmtPort`，需与SocketConfig中监听方策略一致。 |
 | **广播策略** | `ProcessExceptionEvent` 仅向 "`rem != informer` 且 `status == OK`" 的邻居广播，避免回环风暴；非OK邻居已自感知。 |
-| **状态优先级** | 错误查询顺序：CQE_ERR > LOST（`PrintEvents` 内调用顺序）。 |
+| **状态优先级** | 错误查询顺序：CQE_ERR > STUCK > LOST（`PrintEvents` 内调用顺序）。 |
+| **卡住检测** | 检测周期 `STUCK_CHECK_INTERVAL=60s`；阈值 `stuckReportThreshold_=max(2, execTimeout/3*2/60)` 轮；计数池 128KB；检测开启/关闭由 `HCCL_DFS_CONFIG.stuck_detection` 控制（默认开启）。 |
+| **FROZEN 语义** | 当前与 910 一致：`head == tail` 且当前采样与上一轮均不推进时进入 `FROZEN`；`head != tail` 的在途卡死不会进入 `FROZEN`。因此空闲通信域可能被误判，在途卡死可能漏报，使用前需确认该限制。 |
+| **STUCK 恢复** | 恢复时仅本地置 `CLUSTER_MONITOR_OK`（`needBroadcast=false`），不向对端广播；对端可能继续保留本节点的 STUCK 状态。 |
+| **单 rank** | `rankSize == 1` 时 `RegisterToClusterMonitor` 直接返回，纯单 rank 进程不会启动 `MonitorThread`，卡住检测不生效。若同设备已有其他多 rank 通信域启动线程，单 rank 通信域懒分配的计数可能被该线程采样，但不保证。对外 C API 仍可能返回有效地址，不能据此认为检测已开启。 |
 | **设备范围** | 仅按device维护单例；多device场景下每个device独立心跳，互不影响。 |
 | **平台依赖** | 依赖 `HcclCommunicator`（v2）、`RankGraph`、Socket抽象层（`SocketCreate/SendNb/RecvNb/GetStatus/Destroy`）；v1 communicator路径不受支持。 |
-| **环境开关** | `clusterHeartBeatEnable = false` 时，注册阶段不发起新socket（保留commIdMap_标记），CQE错误回调直接 `return`。 |
+| **环境开关** | `clusterHeartBeatEnable = false` 时，注册阶段不发起新socket（保留commIdMap_标记），CQE错误回调直接 `return`；不会建立心跳链路，但监控线程仍可能启动或复用，并执行本地卡住检测。 |
 | **错误传播路径** | 异常帧通过Ring链路逐步扩散，传播延迟 ≈ `BROADCAST_INTERVAL` × Ring跳数；非即时同步。 |
 | **资源释放** | `DeInit` / `UnRegister` 中均会 `SocketDestroy` 并清空引用映射；多次调用安全（`isDeInit_` 守护、`while(uid2SocketRefMap_.erase(rem)) {}` 自旋）。 |
 

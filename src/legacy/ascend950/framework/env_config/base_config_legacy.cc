@@ -423,11 +423,11 @@ void EnvLogConfig::Parse()
     HCCL_RUN_INFO(
         "[HCCL_ENV] HCCL_DFS_CONFIG task_exception set by %s to [%d], cluster_heartbeat set by %s to [%d], "
         "rankConsistentState set by %s to [%d], task_monitor_interval set by %s to [%u ms], "
-        "connection_fault_detection_time set by %s to [%d]s",
+        "connection_fault_detection_time set by %s to [%d]s, stuck_detection set by %s to [%d]",
         dfsConfig.GetSource(), GetDfsConfig().taskExceptionEnable, dfsConfig.GetSource(),
         GetDfsConfig().clusterHeartBeatEnable, dfsConfig.GetSource(), GetDfsConfig().rankConsistentState,
         dfsConfig.GetSource(), GetDfsConfig().taskMonitorInterval, dfsConfig.GetSource(),
-        GetDfsConfig().connectionFaultDetectionTime);
+        GetDfsConfig().connectionFaultDetectionTime, dfsConfig.GetSource(), GetDfsConfig().stuckDetectionEnable);
 }
 
 bool EnvLogConfig::GetEntryLogEnable() const { return entryLogEnable.Get(); }

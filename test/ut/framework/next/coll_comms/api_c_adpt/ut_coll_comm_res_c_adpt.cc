@@ -16,12 +16,15 @@
 #include "independent_op_context_manager.h"
 #include "log.h"
 #include "hccl_comm_pub.h"
+#include "rank_info_detect/root_handle_v2.h"
 #include "independent_op.h"
 #include "llt_hccl_stub_rank_graph.h"
 #include <cstring>
+#include <stdexcept>
 #include <string>
 #include "mockcpp/mockcpp.hpp"
 #include "dfx/cluster_monitor/cluster_monitor.h"
+#include "dfx/cluster_monitor/stuck_detect_counter/stuck_detect_counter_types.h"
 #include "host/host_cpu_roce_channel.h"
 #include "param_check_pub.h"
 #include "hccl/hccl_types.h"
@@ -91,6 +94,15 @@ HcclResult StubGetDevicePhyIdForHostMultiQp(u32 deviceLogicId, u32& devicePhyId,
 uint32_t StubGetHostMultiQpCount(hccl::HostMultiQpConfig*, uint32_t devicePhyId)
 {
     return devicePhyId == HOST_MULTI_QP_DEVICE_PHY_ID ? g_hostMultiQpQpCount : 0U;
+}
+
+HcclResult
+StubGetStuckDetectCounter(hcomm::ClusterMonitor*, const std::string&, hcomm::StuckDetectCounterAddress& address)
+{
+    address.headAddr = 0x1000;
+    address.tailAddr = 0x1004;
+    address.addOneAddr = 0x1008;
+    return HCCL_SUCCESS;
 }
 
 } // namespace
@@ -1096,4 +1108,119 @@ TEST_F(HcclChannelDescTest, Ut_HcclChannelAcquireWithConfig_When_SharedJettyChan
     EXPECT_EQ(ret, HCCL_E_PARA);
 
     HcclChannelConfigDestroy(config);
+}
+
+TEST_F(HcclChannelDescTest, Ut_HcclStuckDetectGetCounterAddr_When_OutputPointerNull_Expect_PtrError)
+{
+    uint64_t head = 1;
+    uint64_t tail = 1;
+    uint64_t addOne = 1;
+
+    EXPECT_EQ(HcclStuckDetectGetCounterAddr(comm, nullptr, &tail, &addOne), HCCL_E_PTR);
+    EXPECT_EQ(HcclStuckDetectGetCounterAddr(comm, &head, nullptr, &addOne), HCCL_E_PTR);
+    EXPECT_EQ(HcclStuckDetectGetCounterAddr(comm, &head, &tail, nullptr), HCCL_E_PTR);
+}
+
+TEST_F(HcclChannelDescTest, Ut_HcclStuckDetectGetCounterAddr_When_CommNull_Expect_PtrError)
+{
+    uint64_t head = 1;
+    uint64_t tail = 1;
+    uint64_t addOne = 1;
+
+    EXPECT_EQ(HcclStuckDetectGetCounterAddr(nullptr, &head, &tail, &addOne), HCCL_E_PTR);
+}
+
+TEST_F(HcclChannelDescTest, Ut_HcclStuckDetectGetCounterAddr_When_LegacyComm_Expect_NotSupport)
+{
+    MOCKER_CPP(&hccl::hcclComm::IsCommunicatorV2).stubs().will(returnValue(false));
+
+    uint64_t head = 1;
+    uint64_t tail = 1;
+    uint64_t addOne = 1;
+    EXPECT_EQ(HcclStuckDetectGetCounterAddr(comm, &head, &tail, &addOne), HCCL_E_NOT_SUPPORT);
+    EXPECT_EQ(head, 0U);
+    EXPECT_EQ(tail, 0U);
+    EXPECT_EQ(addOne, 0U);
+}
+
+TEST_F(HcclChannelDescTest, Ut_HcclStuckDetectGetCounterAddr_When_CollCommNull_Expect_PtrError)
+{
+    MOCKER_CPP(&hccl::hcclComm::GetCollComm).stubs().will(returnValue(static_cast<hccl::CollComm*>(nullptr)));
+
+    uint64_t head = 1;
+    uint64_t tail = 1;
+    uint64_t addOne = 1;
+    EXPECT_EQ(HcclStuckDetectGetCounterAddr(comm, &head, &tail, &addOne), HCCL_E_PTR);
+    EXPECT_EQ(head, 0U);
+    EXPECT_EQ(tail, 0U);
+    EXPECT_EQ(addOne, 0U);
+}
+
+TEST_F(HcclChannelDescTest, Ut_HcclStuckDetectGetCounterAddr_When_Normal_Expect_Success)
+{
+    const_cast<std::string&>(hcclCommPtr->GetCollComm()->GetCommId()) = "ut_stuck_comm";
+    MOCKER_CPP(&hcomm::ClusterMonitor::GetStuckDetectCounter).stubs().will(invoke(StubGetStuckDetectCounter));
+
+    uint64_t head = 0;
+    uint64_t tail = 0;
+    uint64_t addOne = 0;
+    EXPECT_EQ(HcclStuckDetectGetCounterAddr(comm, &head, &tail, &addOne), HCCL_SUCCESS);
+    EXPECT_EQ(head, 0x1000U);
+    EXPECT_EQ(tail, 0x1004U);
+    EXPECT_EQ(addOne, 0x1008U);
+}
+
+TEST_F(HcclChannelDescTest, Ut_HcclStuckDetectGetCounterAddr_When_DetectionDisabled_Expect_SuccessAndZero)
+{
+    const_cast<std::string&>(hcclCommPtr->GetCollComm()->GetCommId()) = "ut_stuck_comm";
+    MOCKER_CPP(&hcomm::ClusterMonitor::GetStuckDetectCounter).stubs().will(returnValue(HCCL_SUCCESS));
+
+    uint64_t head = 1;
+    uint64_t tail = 1;
+    uint64_t addOne = 1;
+    EXPECT_EQ(HcclStuckDetectGetCounterAddr(comm, &head, &tail, &addOne), HCCL_SUCCESS);
+    EXPECT_EQ(head, 0U);
+    EXPECT_EQ(tail, 0U);
+    EXPECT_EQ(addOne, 0U);
+}
+
+TEST_F(HcclChannelDescTest, Ut_HcclStuckDetectGetCounterAddr_When_GetCounterFailed_Expect_ErrorAndZero)
+{
+    const_cast<std::string&>(hcclCommPtr->GetCollComm()->GetCommId()) = "ut_stuck_comm";
+    MOCKER_CPP(&hcomm::ClusterMonitor::GetStuckDetectCounter).stubs().will(returnValue(HCCL_E_MEMORY));
+
+    uint64_t head = 1;
+    uint64_t tail = 1;
+    uint64_t addOne = 1;
+    EXPECT_EQ(HcclStuckDetectGetCounterAddr(comm, &head, &tail, &addOne), HCCL_E_MEMORY);
+    EXPECT_EQ(head, 0U);
+    EXPECT_EQ(tail, 0U);
+    EXPECT_EQ(addOne, 0U);
+}
+
+TEST_F(HcclChannelDescTest, Ut_HcclStuckDetectGetCounterAddr_When_CommIdEmpty_Expect_InternalErrorAndZero)
+{
+    const_cast<std::string&>(hcclCommPtr->GetCollComm()->GetCommId()).clear();
+
+    uint64_t head = 1;
+    uint64_t tail = 1;
+    uint64_t addOne = 1;
+    EXPECT_EQ(HcclStuckDetectGetCounterAddr(comm, &head, &tail, &addOne), HCCL_E_INTERNAL);
+    EXPECT_EQ(head, 0U);
+    EXPECT_EQ(tail, 0U);
+    EXPECT_EQ(addOne, 0U);
+}
+
+TEST_F(HcclChannelDescTest, Ut_HcclStuckDetectGetCounterAddr_When_GetCounterThrows_Expect_InternalErrorAndZero)
+{
+    const_cast<std::string&>(hcclCommPtr->GetCollComm()->GetCommId()) = "ut_stuck_comm";
+    MOCKER_CPP(&hcomm::ClusterMonitor::GetStuckDetectCounter).stubs().will(throws(std::runtime_error("ut exception")));
+
+    uint64_t head = 1;
+    uint64_t tail = 1;
+    uint64_t addOne = 1;
+    EXPECT_EQ(HcclStuckDetectGetCounterAddr(comm, &head, &tail, &addOne), HCCL_E_INTERNAL);
+    EXPECT_EQ(head, 0U);
+    EXPECT_EQ(tail, 0U);
+    EXPECT_EQ(addOne, 0U);
 }

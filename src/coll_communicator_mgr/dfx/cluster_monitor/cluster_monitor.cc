@@ -9,6 +9,10 @@
  */
 
 #include "cluster_monitor.h"
+
+#include <algorithm>
+
+#include "stuck_detect_counter_manager.h"
 #include "hccl_types.h"
 #include "hccl_comm_pub.h"
 #include "env_config/env_config_v2.h"
@@ -744,6 +748,8 @@ void ClusterMonitor::MonitorThread()
         ProcessExceptionEvent(); // 处理error cqe
         threadLock_.unlock();
 
+        ProcessStuckDetect();
+
         std::this_thread::sleep_for(std::chrono::milliseconds(hccl::BROADCAST_INTERVAL));
     }
 
@@ -762,6 +768,12 @@ void ClusterMonitor::MonitorThread()
 HcclResult ClusterMonitor::RunMonitorThread()
 {
     HCCL_INFO("[%s] Start ClusterMonitorThread.", __func__);
+    uint32_t execTimeout = Hccl::EnvConfig::GetInstance().GetRtsConfig().GetExecTimeOut();
+    const uint32_t twoThirds = execTimeout / 3 * 2 / STUCK_CHECK_INTERVAL;
+    stuckReportThreshold_ = std::max(STUCK_REPORT_THRESHOLD, twoThirds);
+    lastStuckDetectTime_ = std::chrono::steady_clock::now();
+    HCCL_DEBUG(
+        "[%s] stuck report threshold[%u rounds], execTimeout[%us].", __func__, stuckReportThreshold_, execTimeout);
     clusterMonitorThreadFlag_ = true;
     clusterMonitorThread_.reset(new (std::nothrow) std::thread(&ClusterMonitor::MonitorThread, this));
     CHK_SMART_PTR_NULL(clusterMonitorThread_);
@@ -830,6 +842,15 @@ HcclResult ClusterMonitor::RegisterToClusterMonitor(HcclComm comm)
     // 处理双ring环的连接（入队、更新状态、更新引用计数等）
     CHK_RET(ProcessConnectRanks(commId, needConnectRank));
 
+    // 心跳注册成功的通信域立即分配计数slot，避免业务卡在获取计数地址之前时脱离检测范围。
+    hcomm::StuckDetectCounterAddress counterAddress;
+    HcclResult stuckDetectRet = GetStuckDetectCounter(commId, counterAddress);
+    if (stuckDetectRet != HCCL_SUCCESS) {
+        HCCL_WARNING(
+            "[%s] pre-allocate stuck detect counter failed, commId[%s], ret[%d].", __func__, commId.c_str(),
+            stuckDetectRet);
+    }
+
     HCCL_INFO("[%s] commId[%s] RegisterRanks Completed", __func__, commId.c_str());
     return HCCL_SUCCESS;
 }
@@ -849,6 +870,10 @@ HcclResult ClusterMonitor::DeInit()
         if (clusterMonitorThread_->joinable()) {
             clusterMonitorThread_->join();
         }
+    }
+    {
+        std::lock_guard<std::mutex> stuckDetectManagerLock(stuckDetectManagerMutex_);
+        stuckDetectManager_.reset();
     }
     {
         std::unique_lock<std::mutex> lock(threadLock_);
@@ -953,13 +978,28 @@ bool ClusterMonitor::UnregisterCommIdFromMaps(const std::string& commId, const s
 
 HcclResult ClusterMonitor::UnRegisterToClusterMonitor(const hccl::CollComm* collComm)
 {
-    CHK_PRT_RET(initialized_ == false, HCCL_WARNING("Heartbeat has been destroyed, or not initialized"), HCCL_SUCCESS);
     const std::string& commId = collComm->GetCommId();
+    HcclResult freeRet = FreeStuckDetectCounter(commId);
+    if (freeRet != HCCL_SUCCESS) {
+        HCCL_WARNING("[%s] free stuck detect counter failed, commId[%s], ret[%d].", __func__, commId.c_str(), freeRet);
+    }
+
+    CHK_PRT_RET(initialized_ == false, HCCL_WARNING("Heartbeat has been destroyed, or not initialized"), HCCL_SUCCESS);
     std::set<ClusterUIDType> remInQueue;
     ClearClusterLinkContext(commId, remInQueue);
     if (!UnregisterCommIdFromMaps(commId, remInQueue)) {
         return HCCL_SUCCESS;
     }
+
+    bool isLastComm = false;
+    {
+        std::unique_lock<std::mutex> lock(threadLock_);
+        isLastComm = commIdMap_.empty();
+    }
+    if (!isLastComm) {
+        return HCCL_SUCCESS;
+    }
+
     HCCL_RUN_INFO("[%s]Entry HeartBeat DeInit.", __func__);
     CHK_RET(DeInit());
     return HCCL_SUCCESS;
@@ -1087,6 +1127,11 @@ void ClusterMonitor::MakeErrMsg(
                 reasonStr = reasonStr + "1.Network Disconnected, 2.Remote Rank Coredown";
                 errStr = headStr + crimerStr + "]" + timeStr + errStr + reasonStr;
                 break;
+            case ClusterMonitorStatus::CLUSTER_MONITOR_STUCK:
+                errStr = errStr + "[Stuck Occurred]";
+                reasonStr = reasonStr + "1.Host process is stuck, 2.Device task is stuck";
+                errStr = headStr + crimerStr + "]" + timeStr + errStr + reasonStr;
+                break;
             default:
                 errStr = " Unknown";
         }
@@ -1101,6 +1146,7 @@ ClusterMonitor::PrintEvents(std::map<ClusterMonitorStatus, std::queue<ClusterMon
     std::vector<std::string> errStatusVec;
     // 打印优先级 opretry not support > error cqe > stuck > lost
     MakeErrMsg(keyEvents[ClusterMonitorStatus::CLUSTER_MONITOR_CQE_ERR], errStatusVec);
+    MakeErrMsg(keyEvents[ClusterMonitorStatus::CLUSTER_MONITOR_STUCK], errStatusVec);
     MakeErrMsg(keyEvents[ClusterMonitorStatus::CLUSTER_MONITOR_LOST], errStatusVec);
     return errStatusVec;
 }
@@ -1116,6 +1162,9 @@ bool ClusterMonitor::IsKeyEvent(const ClusterMonitorFrame& event, const HcclUs& 
             break;
         case ClusterMonitorStatus::CLUSTER_MONITOR_CQE_ERR:
             detectionTime = 0;
+            break;
+        case ClusterMonitorStatus::CLUSTER_MONITOR_STUCK:
+            detectionTime = static_cast<s64>(stuckReportThreshold_) * STUCK_CHECK_INTERVAL;
             break;
         default:
             return false; // 当前不支持的事件，不做处理和展现
@@ -1137,6 +1186,140 @@ std::vector<std::string> ClusterMonitor::GetErrStatusVecFromCluserMonitor()
         errStatusQueue_.pop();
     }
     return PrintEvents(keyEvents);
+}
+
+// ---------- 卡住检测 ----------
+HcclResult ClusterMonitor::ProcessStuckDetect()
+{
+    if (!IsStuckDetectionEnabled()) {
+        return HCCL_SUCCESS;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    if (now - lastStuckDetectTime_ < std::chrono::seconds(STUCK_CHECK_INTERVAL)) {
+        return HCCL_SUCCESS;
+    }
+    lastStuckDetectTime_ = now;
+
+    std::shared_ptr<StuckDetectCounterManager> stuckDetectManager;
+    {
+        std::lock_guard<std::mutex> lock(stuckDetectManagerMutex_);
+        if (isDeInit_.load()) {
+            return HCCL_SUCCESS;
+        }
+        stuckDetectManager = stuckDetectManager_;
+    }
+    if (stuckDetectManager == nullptr) {
+        return HCCL_SUCCESS;
+    }
+
+    bool needReportStuck = false;
+    HcclResult ret = stuckDetectManager->CheckProcessStuck(stuckReportThreshold_, needReportStuck);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_WARNING("[%s] check process stuck failed, deviceLogicId[%d], ret[%d].", __func__, deviceLogicId_, ret);
+        return ret;
+    }
+
+    {
+        std::unique_lock<std::mutex> lock(threadLock_);
+        const bool wasStuck = (uid2FrameStatusMap_[myRankUID_].status == ClusterMonitorStatus::CLUSTER_MONITOR_STUCK);
+        if (needReportStuck) {
+            SetStatus(myRankUID_, myRankUID_, ClusterMonitorStatus::CLUSTER_MONITOR_STUCK, true);
+        } else if (wasStuck) {
+            SetStatus(myRankUID_, myRankUID_, ClusterMonitorStatus::CLUSTER_MONITOR_OK, false);
+        }
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult ClusterMonitor::FreeStuckDetectCounter(const std::string& commId)
+{
+    std::shared_ptr<StuckDetectCounterManager> stuckDetectManager;
+    {
+        std::lock_guard<std::mutex> lock(stuckDetectManagerMutex_);
+        stuckDetectManager = stuckDetectManager_;
+    }
+    if (stuckDetectManager == nullptr) {
+        return HCCL_SUCCESS;
+    }
+    HcclResult ret = stuckDetectManager->FreeCounter(commId);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_WARNING("[%s] free stuck detect counter failed, commId[%s], ret[%d].", __func__, commId.c_str(), ret);
+        return ret;
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult ClusterMonitor::ResetStuckDetectCounter(const std::string& commId)
+{
+    std::shared_ptr<StuckDetectCounterManager> stuckDetectManager;
+    {
+        std::lock_guard<std::mutex> lock(stuckDetectManagerMutex_);
+        stuckDetectManager = stuckDetectManager_;
+    }
+    if (stuckDetectManager == nullptr) {
+        return HCCL_SUCCESS;
+    }
+    HcclResult ret = stuckDetectManager->ResetCounter(commId);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_WARNING("[%s] reset stuck detect counter failed, commId[%s], ret[%d].", __func__, commId.c_str(), ret);
+        return ret;
+    }
+    return HCCL_SUCCESS;
+}
+
+std::shared_ptr<StuckDetectCounterManager> ClusterMonitor::GetOrCreateStuckDetectManager()
+{
+    if (!IsStuckDetectionEnabled()) {
+        HCCL_DEBUG(
+            "[%s] stuck detection is off, skip stuck detect manager, deviceLogicId[%d].", __func__, deviceLogicId_);
+        return nullptr;
+    }
+
+    std::lock_guard<std::mutex> lock(stuckDetectManagerMutex_);
+    if (isDeInit_.load()) {
+        HCCL_WARNING(
+            "[%s] cluster monitor is deinit, skip stuck detect manager, deviceLogicId[%d].", __func__, deviceLogicId_);
+        return nullptr;
+    }
+    if (stuckDetectManager_ == nullptr) {
+        EXCEPTION_CATCH(
+            stuckDetectManager_ = std::make_shared<StuckDetectCounterManager>(deviceLogicId_), return nullptr);
+    }
+    return stuckDetectManager_;
+}
+
+HcclResult
+ClusterMonitor::GetStuckDetectCounter(const std::string& commId, hcomm::StuckDetectCounterAddress& counterAddress)
+{
+    if (!IsStuckDetectionEnabled()) {
+        counterAddress = hcomm::StuckDetectCounterAddress{};
+        return HCCL_SUCCESS;
+    }
+
+    auto stuckDetectManager = GetOrCreateStuckDetectManager();
+    if (stuckDetectManager == nullptr) {
+        HCCL_WARNING("[%s] stuck detect manager is null, commId[%s].", __func__, commId.c_str());
+        return HCCL_E_PTR;
+    }
+
+    HcclResult ret = HCCL_SUCCESS;
+    EXCEPTION_CATCH(ret = stuckDetectManager->AllocCounter(commId, counterAddress), ret = HCCL_E_INTERNAL);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_WARNING("[%s] alloc stuck detect counter failed, commId[%s], ret[%d].", __func__, commId.c_str(), ret);
+        return ret;
+    }
+
+    if (counterAddress.headAddr == 0 || counterAddress.tailAddr == 0 || counterAddress.addOneAddr == 0) {
+        HCCL_WARNING("[%s] invalid counter address, commId[%s].", __func__, commId.c_str());
+        return HCCL_E_INTERNAL;
+    }
+    return HCCL_SUCCESS;
+}
+
+bool ClusterMonitor::IsStuckDetectionEnabled() const
+{
+    return Hccl::EnvConfig::GetInstance().GetLogConfig().GetDfsConfig().stuckDetectionEnable;
 }
 
 std::vector<std::string> GetErrStatusVecFromCluserMonitor(s32 deviceLogicID)

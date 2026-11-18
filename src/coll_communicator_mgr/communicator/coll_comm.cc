@@ -1475,6 +1475,14 @@ HcclResult CollComm::Resume()
             }
         }
 
+        HcclResult stuckRet
+            = hccl::CollCommMgr::GetInstance().GetClusterMonitor(deviceLogicId_).ResetStuckDetectCounter(commId_);
+        if (stuckRet != HCCL_SUCCESS) {
+            HCCL_WARNING(
+                "[CollComm][NsRecovery][%s] reset stuck detect counter failed, commId[%s], ret[%d].", __func__,
+                commId_.c_str(), stuckRet);
+        }
+
         commStatus_ = HcclCommStatus::HCCL_COMM_STATUS_READY;
         isCleaned_ = false;
     }

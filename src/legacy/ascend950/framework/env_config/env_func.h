@@ -82,15 +82,17 @@ struct DfsConfig {
     uint32_t taskMonitorInterval{0};                          // task执行耗时监控阈值，单位ms，0表示关闭
     // DCA 探测窗口（秒），0=关闭，合法范围 [20,7200]
     int32_t connectionFaultDetectionTime{HCCL_MIN_CONNECT_FAULT_DETECTION_TIME};
+    bool stuckDetectionEnable{true}; // 算子卡死检测开关
     DfsConfig() = default;
     DfsConfig(
         bool taskException, bool clusterHeartBeatEnable, int32_t consistentState, uint32_t taskMonitorInterval = 0,
-        int32_t connFaultTime = HCCL_MIN_CONNECT_FAULT_DETECTION_TIME)
+        int32_t connFaultTime = HCCL_MIN_CONNECT_FAULT_DETECTION_TIME, bool stuckDetection = true)
         : taskExceptionEnable(taskException),
           clusterHeartBeatEnable(clusterHeartBeatEnable),
           rankConsistentState(consistentState),
           taskMonitorInterval(taskMonitorInterval),
-          connectionFaultDetectionTime(connFaultTime) {};
+          connectionFaultDetectionTime(connFaultTime),
+          stuckDetectionEnable(stuckDetection) {};
 };
 
 enum class NpuProtoType {

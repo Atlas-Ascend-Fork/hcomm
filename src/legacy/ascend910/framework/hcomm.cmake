@@ -170,6 +170,7 @@ target_include_directories(hcomm PRIVATE
     ${HCOMM_DIR}/src/coll_communicator_mgr/config_mgr
     ${HCOMM_DIR}/src/coll_communicator_mgr/dfx
     ${HCOMM_DIR}/src/coll_communicator_mgr/dfx/cluster_monitor
+    ${HCOMM_DIR}/src/coll_communicator_mgr/dfx/cluster_monitor/stuck_detect_counter
     ${HCOMM_DIR}/src/coll_communicator_mgr/dfx/inconsistentCheck
     ${HCOMM_DIR}/src/coll_communicator_mgr/dfx/profiling/host
     ${HCOMM_DIR}/src/coll_communicator_mgr/rank_info_detect

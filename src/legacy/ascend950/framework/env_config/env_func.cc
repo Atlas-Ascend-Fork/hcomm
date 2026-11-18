@@ -949,17 +949,36 @@ void CastDfsConfigParseConnFaultTime(int32_t& connFaultTime, const std::string c
     connFaultTime = static_cast<int32_t>(parsed);
 }
 
+void CastDfsConfigParseStuckDetectionEnable(bool& stuckDetectionEnable, const std::string& configValue)
+{
+    // 与其余配置子项保持一致，取值区分大小写。
+    if (configValue == "off") {
+        stuckDetectionEnable = false;
+        HCCL_WARNING("env[HCCL_DFS_CONFIG] stuck_detection was configured to [%s]", configValue.c_str());
+    } else if (configValue == "on") {
+        stuckDetectionEnable = true;
+    } else {
+        THROW<InvalidParamsException>(StringFormat(
+            "env[HCCL_DFS_CONFIG] stuck_detection value[%s] is invalid, please set it to 'on' or 'off'.",
+            configValue.c_str()));
+    }
+}
+
 DfsConfig CastDfsConfig(const std::string& dfsConfigEnv)
 {
-    constexpr std::size_t DFS_CONFIG_ITEM_NUM = 5;
-    const std::array<std::string, DFS_CONFIG_ITEM_NUM> dfsItemName
-        = {"task_exception", "cluster_heartbeat", "inconsistent_check", "task_monitor_interval",
-           "connection_fault_detection_time"};
+    constexpr std::size_t DFS_CONFIG_ITEM_NUM = 6;
+    const std::array<std::string, DFS_CONFIG_ITEM_NUM> dfsItemName = {"task_exception",
+                                                                      "cluster_heartbeat",
+                                                                      "inconsistent_check",
+                                                                      "task_monitor_interval",
+                                                                      "connection_fault_detection_time",
+                                                                      "stuck_detection"};
     bool taskExceptionEnable = true;
     bool clusterHeartBeatEnable = true;
     int32_t rankConsistentState = RANK_CONSISTENT_STATE_FIRST;
     uint32_t taskMonitorInterval = 0;
     int32_t connectionFaultDetectionTime = HCCL_MIN_CONNECT_FAULT_DETECTION_TIME;
+    bool stuckDetectionEnable = true;
     std::string dfsConfigEnvCopy = dfsConfigEnv;
     dfsConfigEnvCopy.erase(std::remove(dfsConfigEnvCopy.begin(), dfsConfigEnvCopy.end(), ' '), dfsConfigEnvCopy.end());
     auto items = SplitDfsConfig(dfsConfigEnvCopy, ',');
@@ -983,11 +1002,12 @@ DfsConfig CastDfsConfig(const std::string& dfsConfigEnv)
             CastDfsConfigParseTaskMonitorInterval(taskMonitorInterval, itemPair[1]);
         } else if (itemPair[0] == dfsItemName[4]) {
             CastDfsConfigParseConnFaultTime(connectionFaultDetectionTime, itemPair[1]);
+        } else if (itemPair[0] == dfsItemName[5]) {
+            CastDfsConfigParseStuckDetectionEnable(stuckDetectionEnable, itemPair[1]);
         }
     }
-    return DfsConfig{
-        taskExceptionEnable, clusterHeartBeatEnable, rankConsistentState, taskMonitorInterval,
-        connectionFaultDetectionTime};
+    return DfsConfig{taskExceptionEnable, clusterHeartBeatEnable,       rankConsistentState,
+                     taskMonitorInterval, connectionFaultDetectionTime, stuckDetectionEnable};
 }
 
 /*----------------------------- validate functions -------------------------*/

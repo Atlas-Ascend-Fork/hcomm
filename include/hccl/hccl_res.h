@@ -218,6 +218,20 @@ typedef aclrtStream ThreadResTypeStream;
 extern HcclResult
 HcclThreadResGetInfo(HcclComm comm, ThreadHandle thread, ThreadResType resType, uint32_t infoLen, void** info);
 
+/**
+ * @brief 获取卡住检测计数器的 device 地址
+ * @param[in] comm 通信域句柄
+ * @param[out] headOpCounterAddr 头计数器 device 地址（未开启返回 0）
+ * @param[out] tailOpCounterAddr 尾计数器 device 地址（未开启返回 0）
+ * @param[out] addOneMemAddr 常量 1 的 device 地址（未开启返回 0）
+ * @return HcclResult 执行结果状态码
+ * @note 未开启或者获取异常时全部返回 0
+ * @warning 返回的地址仅在 comm 存活期间有效，comm 销毁后不得继续使用。
+ * @warning 不得与 HcclCommDestroy 并发调用。
+ */
+extern HcclResult HcclStuckDetectGetCounterAddr(
+    HcclComm comm, uint64_t* headOpCounterAddr, uint64_t* tailOpCounterAddr, uint64_t* addOneMemAddr);
+
 #ifdef __cplusplus
 }
 #endif // __cplusplus

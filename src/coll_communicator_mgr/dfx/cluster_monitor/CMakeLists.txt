@@ -20,3 +20,5 @@ if(TARGET hcomm_coll_comm_obj)
         ${CMAKE_CURRENT_SOURCE_DIR}
     )
 endif()
+
+add_subdirectory(stuck_detect_counter)

@@ -8,6 +8,7 @@
 - [HcclDedicatedThreadAcquire](HcclDedicatedThreadAcquire.md)
 - [ThreadConfigInit](ThreadConfigInit.md)
 - [HcclThreadResGetInfo](HcclThreadResGetInfo.md)
+- [HcclStuckDetectGetCounterAddr](HcclStuckDetectGetCounterAddr.md)
 - [HcclChannelDescInit](HcclChannelDescInit.md)
 - [HcclChannelAcquire](HcclChannelAcquire.md)
 - [HcclChannelConfigCreate](HcclChannelConfigCreate.md)

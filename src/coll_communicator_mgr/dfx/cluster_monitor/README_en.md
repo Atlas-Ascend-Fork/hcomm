@@ -12,8 +12,9 @@ Core capabilities include:
 2. **Dual Ring link establishment**: Within each `netLayer` plane, nodes are sorted by `localId` or `netInstId` to form a Ring topology; each Rank establishes heartbeat socket connections with the "left" and "right" neighbors on the ring (only one neighbor when there are only 2 nodes).
 3. **Async link establishment**: Each remote UID starts an independent thread `CreateLinkWithRemotePonit` for `SocketCreate` + status polling, controlled by `HCCL_CONNECT_TIMEOUT`.
 4. **Periodic heartbeat send/receive**: The background `MonitorThread` traverses all sockets at `BROADCAST_INTERVAL` intervals, first `SocketSendNb` to send heartbeats then `SocketRecvNb` to receive heartbeats; `lostNum` accumulates every `HEARTBEAT_COUNT` cycles, and when `HCCL_LOST_THRESHOLD` (30s) is reached, the status is determined as `LOST`.
-5. **Abnormal status propagation**: Node `LOST` or `CQE_ERR` status is broadcast to other neighbors via the Ring link (`SetStatus` → `errRankQueue_` → `ProcessExceptionEvent` → `SendFrame`).
-6. **Error information reporting**: Through the `GetCqeErrInfoFromTaskException` callback registered via `__attribute__((constructor))`, CQE errors from AICPU/CCU tasks are recorded as local variables and formatted for logging, and triggered via `SetStatus(..., CLUSTER_MONITOR_CQE_ERR, true)` to broadcast; the query interface `GetErrStatusVecFromCluserMonitor` first filters non-key events by arrival time via `IsKeyEvent`, then formats error descriptions by priority (CQE_ERR > LOST) and returns them to the upper layer.
+5. **Abnormal status propagation**: Node `LOST`, `CQE_ERR`, or `STUCK` status is broadcast to other neighbors via the Ring link (`SetStatus` → `errRankQueue_` → `ProcessExceptionEvent` → `SendFrame`).
+6. **Error information reporting**: Through the `GetCqeErrInfoFromTaskException` callback registered via `__attribute__((constructor))`, CQE errors from AICPU/CCU tasks are recorded as local variables and formatted for logging, and triggered via `SetStatus(..., CLUSTER_MONITOR_CQE_ERR, true)` to broadcast; the query interface `GetErrStatusVecFromCluserMonitor` first filters non-key events by arrival time via `IsKeyEvent`, then formats error descriptions by priority (CQE_ERR > STUCK > LOST) and returns them to the upper layer.
+7. **Process stuck detection**: `MonitorThread` throttles calls to `ProcessStuckDetect` at `STUCK_CHECK_INTERVAL` (60s). `StuckDetectCounterManager` reads head/tail counters and broadcasts `CLUSTER_MONITOR_STUCK` via `SetStatus(..., true)` after `stuckReportThreshold_` consecutive rounds; on recovery it only sets `CLUSTER_MONITOR_OK` locally (`needBroadcast=false`) and does not broadcast it. The threshold is `max(2, execTimeout/3*2/60)` rounds, and counter printing uses exponential backoff.
 
 The module belongs to the DFX (Design For X) category and is a key component of HCCL for providing "network disconnection / peer CoreDump" observability at the cluster level.
 
@@ -23,15 +24,17 @@ The module belongs to the DFX (Design For X) category and is a key component of 
 
 ```text
 cluster_monitor/
-├── CMakeLists.txt          # Build script, only adds cluster_monitor.cc to the hcomm target
+├── CMakeLists.txt          # Build script, adds cluster_monitor.cc and the stuck_detect_counter subdirectory to the hcomm target
 ├── cluster_monitor.h       # Class and data structure definitions (ClusterMonitor, Frame, SockCtx, UID, etc.)
-└── cluster_monitor.cc      # Module implementation, including heartbeat main thread, async link establishment, frame send/receive, exception handling
+├── cluster_monitor.cc      # Module implementation, including heartbeat main thread, async link establishment, frame send/receive, exception handling
+└── stuck_detect_counter/   # Process stuck detection sub-feature of the heartbeat thread
 ```
 
 **Directory features**:
 
 - Located in `coll_communicator_mgr/dfx/`, belongs to DFX monitoring functionality;
-- Module instances held by `CollCommMgr` via `clusterMonitor_` array, accessed via `GetClusterMonitor(deviceId)`; does not depend on other files in the directory;
+- `stuck_detect_counter/` is a sub-feature of heartbeat monitoring and is used during `ClusterMonitor` registration and detection;
+- Module instances held by `CollCommMgr` via `clusterMonitor_` array, accessed via `GetClusterMonitor(deviceId)`; stuck detection is implemented by the `stuck_detect_counter/` sub-feature;
 - External dependencies: `ring_buffer`, `reference_map`, `hcclCommSocket`, `hccl_communicator`, `hcclCommDfx`, `coll_comm`, `log`, `comm_addr_logger`, etc.
 
 ---
@@ -147,7 +150,7 @@ sequenceDiagram
 
     rect rgb(245, 245, 245)
     Note over CM: Upper Layer Error Query
-    Note right of CM: GetErrStatusVecFromCluserMonitor()<br/>Filters non-key events via IsKeyEvent first<br/>then formats by CQE_ERR > LOST priority
+    Note right of CM: GetErrStatusVecFromCluserMonitor()<br/>Filters non-key events via IsKeyEvent first<br/>then formats by CQE_ERR > STUCK > LOST priority
     end
 ```
 
@@ -250,6 +253,11 @@ classDiagram
         +GetConnectRank(comm, needConnectRank, uidCtxs, netLayersVector)
         +CreateHBLinksAsync()
         +SetStatus(crimer, informer, status, needBroadcast)
+        +ProcessStuckDetect()
+        +FreeStuckDetectCounter(commId)
+        +ResetStuckDetectCounter(commId)
+        +GetStuckDetectCounter(commId, counterAddress)
+        +IsStuckDetectionEnabled()
         -AllowEventForward()
         -IsKeyEvent(event, curTime)
         +MonitorThread()
@@ -279,6 +287,10 @@ classDiagram
         -eventTimeWindow_ deque~time_point~
         -stormSuppressedFlag_ bool
         -stormResumeTime_ HcclUs
+        -stuckDetectManager_ shared_ptr~StuckDetectCounterManager~
+        -stuckDetectManagerMutex_ mutex
+        -stuckReportThreshold_ uint32_t
+        -lastStuckDetectTime_ time_point
     }
 
     %% ===== Relationships =====
@@ -310,10 +322,14 @@ classDiagram
 | `HcclResult RegisterToClusterMonitor(HcclComm comm)` | Register a communicator: build UID context, calculate Ring connection set, push into `clusterLinkContext_` waiting for background link establishment; first registration starts `MonitorThread`. |
 | `HcclResult UnRegisterToClusterMonitor(hccl::CollComm* collComm)` | Deregister a communicator: clear reference counts for that commId in `clusterLinkContext_`, `commIdMap_`, `monitorLinkStatusMap_`, `uid2SocketRefMap_`; triggers `DeInit` when the last commId is deregistered. |
 | `void GetCqeErrInfoFromTaskException(u32 remoteLocalId, uint16_t status, std::string localEid, std::string remoteEid, std::string remoteInsId)` | Called by the AICPU/CCU CQE error callback, records CQE errors and propagates them via broadcast. |
-| `std::vector<std::string> GetErrStatusVecFromCluserMonitor()` | Drain `errStatusQueue_`, first filter non-key events by arrival time via `IsKeyEvent`, then format error descriptions by priority (CQE_ERR > LOST), for upper layer queries. |
+| `std::vector<std::string> GetErrStatusVecFromCluserMonitor()` | Drain `errStatusQueue_`, first filter non-key events by arrival time via `IsKeyEvent`, then format error descriptions by priority (CQE_ERR > STUCK > LOST), for upper layer queries. |
 | `HcclResult RunMonitorThread()` | Explicitly start the background heartbeat thread (`MonitorThread`). |
 | `HcclResult DeInit()` | Stop the heartbeat thread, destroy sockets, clean up all internal containers; idempotent. |
 | `void SetStatus(crimer, informer, status, needBroadcast=true)` | Set / update a node's status; after deduplication, the `AllowEventForward` storm-suppression gate decides whether to push into `errRankQueue_` for broadcast. |
+| `HcclResult ProcessStuckDetect()` | Executes stuck detection at a 60s interval; broadcasts STUCK when the threshold is reached, and only sets OK locally on recovery (`needBroadcast=false`). |
+| `HcclResult FreeStuckDetectCounter(commId)` / `ResetStuckDetectCounter(commId)` | Releases the counter slot on deregistration and resets head/tail and detection state on Resume. |
+| `HcclResult GetStuckDetectCounter(commId, counterAddress)` | Pre-allocates a counter slot during registration so operators can obtain device addresses; the public C API can also trigger allocation on demand. |
+| `bool IsStuckDetectionEnabled()` | Returns whether stuck detection is enabled by `HCCL_DFS_CONFIG.stuck_detection`. |
 | `ClusterUIDType FormatUID(ClusterUIDCxt cxt)` | Assemble UID using `netInstId/localId`. |
 | `std::string FormatConnTag(role, uidPair)` | Generate a socket tag in the format `HeartBeat_<src>_to_<dst>`. |
 
@@ -333,7 +349,7 @@ classDiagram
 | `DelErrorSocket` | Destroy sockets marked as abnormal in `errorSocket_`. |
 | `ProcessExceptionEvent` | Consume `errRankQueue_`, broadcast abnormal frames to all neighbors where "rem != informer and status == OK". |
 | `AllowEventForward` | Event storm suppression: counts deduplicated broadcast-eligible events in an `EVENT_STORM_WINDOW` (10s) sliding window; when exceeding `EVENT_STORM_THRESHOLD` (50), sets the suppression flag and rejects enqueueing, with a suppression duration of `EVENT_STORM_COOLDOWN` (60s); during suppression, events are only recorded (`errStatusQueue_`) and logged; normal forwarding resumes on the first event arriving after expiry. |
-| `IsKeyEvent` | Key-event determination: an event is a key event if its arrival time falls within the interval `(Notify timeout - HCCL_EXEC_TIMEOUT + detectionTime - JITTER_TIME(5min), Notify timeout - HCCL_EXEC_TIMEOUT + detectionTime + JITTER_TIME)`, `detectionTime` compensates for the offset that the event arrival is later than the actual anomaly occurrence (LOST: `lostThreshold_ * HEARTBEAT_INTERVAL` (30s), CQE_ERR: 0); used by `GetErrStatusVecFromCluserMonitor` to filter non-key historical events. |
+| `IsKeyEvent` | Key-event determination: an event is a key event if its arrival time falls within the interval `(Notify timeout - HCCL_EXEC_TIMEOUT + detectionTime - JITTER_TIME(5min), Notify timeout - HCCL_EXEC_TIMEOUT + detectionTime + JITTER_TIME)`, `detectionTime` compensates for the offset that the event arrival is later than the actual anomaly occurrence (LOST: `lostThreshold_ * HEARTBEAT_INTERVAL` (30s), STUCK: `stuckReportThreshold_ * STUCK_CHECK_INTERVAL`, CQE_ERR: 0); used by `GetErrStatusVecFromCluserMonitor` to filter non-key historical events. |
 | `PrintEvents / MakeErrMsg` | Format `ClusterMonitorFrame` queue into readable string vectors. |
 
 ### Cross-module Callback Registration (`__attribute__((constructor))`)
@@ -358,10 +374,11 @@ The module registers two callbacks with the AICPU/CCU framework at load time: **
 1. **Multi-Rank communicator**: rankSize >= 2 communicators; when rankSize == 1, `RegisterToClusterMonitor` directly returns `HCCL_SUCCESS` with a `WARNING` log and no link establishment.
 2. **Multi-plane topology**: Supports dual Ring link establishment for `netLayer = 0` (within same server/device, sorted by `localId`) and `netLayer >= 1` (cross-server/pod/superPod, sorted by `netInstId`).
 3. **Cross-communicator shared socket**: Via `hccl::ReferenceMap` counting, only one socket is created when multiple communicators connect to the same remote node; reference count `--` on deregistration, truly destroyed only when it reaches zero.
-4. **Ring fault propagation**: Single node `LOST` / `CQE_ERR` status can spread to other nodes along the Ring link, enabling querying cluster-wide exceptions from any node.
+4. **Ring fault propagation**: Single node `LOST` / `CQE_ERR` / `STUCK` status can spread to other nodes along the Ring link, enabling querying cluster-wide exceptions from any node.
 5. **CQE error capture**: Receives `Task` exceptions via AICPU/CCU callbacks, formatted as readable logs with local / remote `instanceId / localId / Eid`.
-6. **Toggle switch**: The environment variable `HCCL_DFS_CONFIG.cluster_heartbeat` can disable heartbeat registration / CQE error capture chain.
+6. **Toggle switch**: The environment variable `HCCL_DFS_CONFIG.cluster_heartbeat` can disable heartbeat registration / CQE error capture chain; when disabled, heartbeat links are not established and events are not broadcast to peers, but the monitor thread may still start or be reused and perform local stuck detection.
 7. **HCCL v2 communicator**: Depends on `HcclCommunicator::GetRankGraphV2` and `RankGraph`, only effective when `CommunicatorV2` exists; otherwise fails with `CHK_PTR_NULL` in `GetRemEndpointDescs`.
+8. **Process stuck detection**: Controlled by `stuck_detection:on/off` in `HCCL_DFS_CONFIG`; `StuckDetectCounterManager` reads head/tail counters, and `ClusterMonitor` throttles checks at `STUCK_CHECK_INTERVAL=60s` and broadcasts `CLUSTER_MONITOR_STUCK` after consecutive rounds reach `stuckReportThreshold_`. Detection runs with `MonitorThread`, so a single-rank communicator does not start the detection thread.
 
 ### Constraint Specifications
 
@@ -375,10 +392,14 @@ The module registers two callbacks with the AICPU/CCU framework at load time: **
 | **UID length** | `HcclClusterMonitorUID.id` is fixed at 2048 bytes, requiring `netInstId + "/" + localId` to not exceed 2048 bytes. |
 | **Role decision** | SERVER/CLIENT is determined by `localIpAddr < remoteIpAddr`; when local is SERVER, fill local `listenPort`, otherwise fill peer `rmtPort`, must be consistent with SocketConfig's listener strategy. |
 | **Broadcast strategy** | `ProcessExceptionEvent` only broadcasts to neighbors where "`rem != informer` and `status == OK`", avoiding loop storms; non-OK neighbors are already self-aware. |
-| **Status priority** | Error query order: CQE_ERR > LOST (call order within `PrintEvents`). |
+| **Status priority** | Error query order: CQE_ERR > STUCK > LOST (call order within `PrintEvents`). |
+| **Stuck detection** | Check interval `STUCK_CHECK_INTERVAL=60s`; threshold `stuckReportThreshold_=max(2, execTimeout/3*2/60)` rounds; counter pool 128KB; enabled/disabled by `HCCL_DFS_CONFIG.stuck_detection` (enabled by default). |
+| **FROZEN semantics** | Currently aligned with 910: `FROZEN` is entered when `head == tail` and neither the current nor the previous sample advances; an in-flight stuck communicator (`head != tail`) does not enter `FROZEN`. Idle communicators may therefore be misreported and in-flight stuck tasks may be missed. |
+| **STUCK recovery** | Recovery only sets `CLUSTER_MONITOR_OK` locally (`needBroadcast=false`) and does not broadcast it; peers may retain the STUCK state for this node. |
+| **Single rank** | When `rankSize == 1`, `RegisterToClusterMonitor` returns early and a pure single-rank process does not start `MonitorThread`, so stuck detection is not active. If another multi-rank communicator on the same device has already started the thread, counters allocated on demand for the single-rank communicator may be sampled by that thread, but this is not guaranteed. The public C API may still return valid addresses; do not use that as evidence that detection is enabled. |
 | **Device scope** | Singleton maintained per device; each device has independent heartbeats in multi-device scenarios without mutual interference. |
 | **Platform dependencies** | Depends on `HcclCommunicator` (v2), `RankGraph`, and Socket abstraction layer (`SocketCreate/SendNb/RecvNb/GetStatus/Destroy`); v1 communicator path is not supported. |
-| **Environment switch** | When `clusterHeartBeatEnable = false`, no new sockets are created during registration (commIdMap_ markers are retained), CQE error callbacks directly `return`. |
+| **Environment switch** | When `clusterHeartBeatEnable = false`, no new sockets are created during registration (commIdMap_ markers are retained) and CQE error callbacks directly `return`; heartbeat links are not established, but the monitor thread may still start or be reused and perform local stuck detection. |
 | **Error propagation path** | Abnormal frames spread gradually through the Ring link; propagation delay ≈ `BROADCAST_INTERVAL` × Ring hops; not instantaneous synchronization. |
 | **Resource release** | `DeInit` / `UnRegister` both perform `SocketDestroy` and clear reference mappings; multiple calls are safe (guarded by `isDeInit_`, `while(uid2SocketRefMap_.erase(rem)) {}` spin). |
 

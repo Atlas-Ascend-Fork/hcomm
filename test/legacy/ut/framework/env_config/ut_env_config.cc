@@ -144,6 +144,19 @@ TEST_F(EnvConfigTest, Ut_CastDeterministic_WhenEnvValueIsValidOrInvalid_ExpectMa
     EXPECT_THROW(CastDeterministic("invalid"), InvalidParamsException);
 }
 
+TEST_F(EnvConfigTest, Ut_CastDfsConfig_When_StuckDetectionOnOffCaseSensitive_ExpectMapped)
+{
+    EXPECT_TRUE(CastDfsConfig("stuck_detection:on").stuckDetectionEnable);
+    EXPECT_FALSE(CastDfsConfig("stuck_detection:off").stuckDetectionEnable);
+    EXPECT_THROW(CastDfsConfig("stuck_detection:ON"), InvalidParamsException);
+    EXPECT_THROW(CastDfsConfig("stuck_detection:oFf"), InvalidParamsException);
+}
+
+TEST_F(EnvConfigTest, Ut_CastDfsConfig_When_StuckDetectionInvalid_ExpectThrow)
+{
+    EXPECT_THROW(CastDfsConfig("stuck_detection:invalid"), InvalidParamsException);
+}
+
 TEST_F(EnvConfigTest, Ut_EnvAlgoConfigParse_WhenDeterministicSetByEnv_ExpectEnvironmentSource)
 {
     MOCKER(getenv).stubs().with(mockcpp::any()).will(invoke(getenv_stub));

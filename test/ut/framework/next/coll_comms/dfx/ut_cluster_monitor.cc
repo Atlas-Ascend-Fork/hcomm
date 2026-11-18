@@ -16,8 +16,10 @@
 #include <string>
 #include <cstring>
 #include "hccl_types.h"
+#include "hccl/hccl_res.h"
 #define private public
 #include "dfx/cluster_monitor/cluster_monitor.h"
+#include "dfx/cluster_monitor/stuck_detect_counter/stuck_detect_counter_manager.h"
 #include "hccl_comm_pub.h"
 #include "rank_graph_v2.h"
 #include "new_rank_info.h"
@@ -50,6 +52,15 @@ public:
         g_monitor.eventTimeWindow_.clear();
         g_monitor.stormSuppressedFlag_ = false;
         g_monitor.stormResumeTime_ = std::chrono::steady_clock::time_point{};
+        g_monitor.stuckReportThreshold_ = STUCK_REPORT_THRESHOLD;
+    }
+
+    static void StopMonitorThread()
+    {
+        g_monitor.clusterMonitorThreadFlag_ = false;
+        if (g_monitor.clusterMonitorThread_ != nullptr && g_monitor.clusterMonitorThread_->joinable()) {
+            g_monitor.clusterMonitorThread_->join();
+        }
     }
 
     static ClusterMonitor g_monitor;
@@ -1350,4 +1361,97 @@ TEST_F(ClusterMonitorTest, Ut_GetUID_When_NormalInput_Expect_ReturnString)
     ClusterUIDType uid = g_monitor.FormatUID(cxt);
     std::string uidStr = g_monitor.GetUID(uid);
     EXPECT_FALSE(uidStr.empty());
+}
+
+TEST_F(ClusterMonitorTest, Ut_FreeStuckDetectCounter_When_ManagerNull_Expect_Success)
+{
+    g_monitor.stuckDetectManager_.reset();
+    EXPECT_EQ(g_monitor.FreeStuckDetectCounter("comm-null"), HCCL_SUCCESS);
+}
+
+TEST_F(ClusterMonitorTest, Ut_ResetStuckDetectCounter_When_ManagerNull_Expect_Success)
+{
+    g_monitor.stuckDetectManager_.reset();
+    EXPECT_EQ(g_monitor.ResetStuckDetectCounter("comm-null"), HCCL_SUCCESS);
+}
+
+TEST_F(ClusterMonitorTest, Ut_IsKeyEvent_When_StuckEventAgeAtThreshold_Expect_Key)
+{
+    MOCKER_CPP(&Hccl::EnvRtsConfig::GetExecTimeOut).stubs().with(mockcpp::any()).will(returnValue((u32)(1000)));
+    g_monitor.stuckReportThreshold_ = 8;
+    std::string crimerStr = "stuckCrimer";
+    ClusterUIDCxt crimerCxt(crimerStr, 1);
+    ClusterUIDType crimerUid = g_monitor.FormatUID(crimerCxt);
+    std::string informerStr = "stuckInformer";
+    ClusterUIDCxt informerCxt(informerStr, 2);
+    ClusterUIDType informerUid = g_monitor.FormatUID(informerCxt);
+    HcclUs curTime = std::chrono::steady_clock::now();
+
+    ClusterMonitorFrame keyFrame(
+        crimerUid, informerUid, ClusterMonitorStatus::CLUSTER_MONITOR_STUCK, curTime - std::chrono::seconds(520),
+        std::chrono::system_clock::now());
+    EXPECT_TRUE(g_monitor.IsKeyEvent(keyFrame, curTime));
+
+    ClusterMonitorFrame nonKeyFrame(
+        crimerUid, informerUid, ClusterMonitorStatus::CLUSTER_MONITOR_STUCK, curTime - std::chrono::seconds(100),
+        std::chrono::system_clock::now());
+    EXPECT_FALSE(g_monitor.IsKeyEvent(nonKeyFrame, curTime));
+}
+
+TEST_F(ClusterMonitorTest, Ut_ProcessStuckDetect_When_DetectionDisabled_Expect_Success)
+{
+    MOCKER_CPP(&ClusterMonitor::IsStuckDetectionEnabled).stubs().will(returnValue(false));
+    EXPECT_EQ(g_monitor.ProcessStuckDetect(), HCCL_SUCCESS);
+}
+
+TEST_F(ClusterMonitorTest, Ut_ProcessStuckDetect_When_NeedReportStuck_ExpectStuckStatus)
+{
+    StopMonitorThread();
+    g_monitor.isDeInit_ = false;
+    MOCKER_CPP(&ClusterMonitor::IsStuckDetectionEnabled).stubs().will(returnValue(true));
+    g_monitor.stuckDetectManager_ = std::make_shared<hcomm::StuckDetectCounterManager>(0);
+    std::string netInstId = "stuck-local";
+    g_monitor.myRankUID_ = g_monitor.FormatUID(ClusterUIDCxt(netInstId, 1));
+    g_monitor.lastStuckDetectTime_ = std::chrono::steady_clock::now() - std::chrono::seconds(61);
+    MOCKER_CPP(&hcomm::StuckDetectCounterManager::CheckProcessStuck)
+        .stubs()
+        .with(mockcpp::any(), outBound(true))
+        .will(returnValue(HCCL_SUCCESS));
+
+    EXPECT_EQ(g_monitor.ProcessStuckDetect(), HCCL_SUCCESS);
+    EXPECT_EQ(g_monitor.uid2FrameStatusMap_[g_monitor.myRankUID_].status, ClusterMonitorStatus::CLUSTER_MONITOR_STUCK);
+    g_monitor.stuckDetectManager_.reset();
+}
+
+TEST_F(ClusterMonitorTest, Ut_ProcessStuckDetect_When_WasStuckAndRecovered_ExpectOkStatus)
+{
+    StopMonitorThread();
+    g_monitor.isDeInit_ = false;
+    MOCKER_CPP(&ClusterMonitor::IsStuckDetectionEnabled).stubs().will(returnValue(true));
+    g_monitor.stuckDetectManager_ = std::make_shared<hcomm::StuckDetectCounterManager>(0);
+    std::string netInstId = "stuck-recover";
+    g_monitor.myRankUID_ = g_monitor.FormatUID(ClusterUIDCxt(netInstId, 2));
+    g_monitor.lastStuckDetectTime_ = std::chrono::steady_clock::now() - std::chrono::seconds(61);
+    g_monitor.uid2FrameStatusMap_[g_monitor.myRankUID_].status = ClusterMonitorStatus::CLUSTER_MONITOR_STUCK;
+    MOCKER_CPP(&hcomm::StuckDetectCounterManager::CheckProcessStuck)
+        .stubs()
+        .with(mockcpp::any(), outBound(false))
+        .will(returnValue(HCCL_SUCCESS));
+
+    EXPECT_EQ(g_monitor.ProcessStuckDetect(), HCCL_SUCCESS);
+    EXPECT_EQ(g_monitor.uid2FrameStatusMap_[g_monitor.myRankUID_].status, ClusterMonitorStatus::CLUSTER_MONITOR_OK);
+    EXPECT_FALSE(g_monitor.uid2FrameStatusMap_[g_monitor.myRankUID_].needBroadcast);
+    g_monitor.stuckDetectManager_.reset();
+}
+
+TEST_F(ClusterMonitorTest, Ut_DeInit_When_CommIdMapNotEmpty_Expect_StuckDetectManagerReleased)
+{
+    ClusterMonitor monitor;
+    monitor.isDeInit_ = false;
+    monitor.initialized_ = true;
+    monitor.stuckDetectManager_ = std::make_shared<hcomm::StuckDetectCounterManager>(0);
+    monitor.commIdMap_["dummy"] = {};
+
+    EXPECT_EQ(monitor.DeInit(), HCCL_SUCCESS);
+    EXPECT_EQ(monitor.stuckDetectManager_, nullptr);
 }

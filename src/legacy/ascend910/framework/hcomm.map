@@ -236,6 +236,7 @@ global:
     HcclSendInner;
     HcclSetConfig;
     HcclSetOpCommEngine; # symbol for MC2
+    HcclStuckDetectGetCounterAddr;
     HcclTaskRegister;
     HcclTaskUnRegister;
     HcclTeamCreate;

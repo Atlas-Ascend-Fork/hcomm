@@ -74,6 +74,7 @@ target_include_directories(hcomm_coll_comm_obj PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/config_mgr
     ${CMAKE_CURRENT_SOURCE_DIR}/dfx
     ${CMAKE_CURRENT_SOURCE_DIR}/dfx/cluster_monitor
+    ${CMAKE_CURRENT_SOURCE_DIR}/dfx/cluster_monitor/stuck_detect_counter
     ${CMAKE_CURRENT_SOURCE_DIR}/dfx/profiling/host
     ${CMAKE_CURRENT_SOURCE_DIR}/dfx/taskException/host
     ${CMAKE_CURRENT_SOURCE_DIR}/rank_graph

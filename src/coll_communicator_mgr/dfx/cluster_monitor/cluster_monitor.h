@@ -11,8 +11,10 @@
 #ifndef CLUSTER_MONITOR_H
 #define CLUSTER_MONITOR_H
 #include <atomic>
+#include <chrono>
 #include <thread>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <deque>
@@ -29,9 +31,14 @@
 #include "common/comm_addr_logger_pub.h"
 
 namespace hcomm {
+class StuckDetectCounterManager;
+struct StuckDetectCounterAddress;
+
 constexpr u32 EVENT_STORM_WINDOW = 10000;   // 事件防风暴统计滑窗长度 10s
 constexpr u32 EVENT_STORM_THRESHOLD = 50;   // 事件统计滑窗内事件阈值
 constexpr u32 EVENT_STORM_COOLDOWN = 60000; // 转发抑制冷却时长 1min
+constexpr u32 STUCK_CHECK_INTERVAL = 60;    // 卡住检测间隔（秒）
+constexpr u32 STUCK_REPORT_THRESHOLD = 2;   // 卡住上报最小轮数
 
 using ClusterUIDType = struct HcclClusterMonitorUID {
     char id[2048] = {0}; // netInstanceId + localId 最大不超过2048字节
@@ -73,7 +80,8 @@ const std::map<ClusterMonitorStatus, std::string> CLUSTER_MONITOR_STATUS_STR_MAP
     {ClusterMonitorStatus::CLUSTER_MONITOR_OK, "OK"},
     {ClusterMonitorStatus::CLUSTER_MONITOR_LOST, "LOST"},
     {ClusterMonitorStatus::CLUSTER_MONITOR_NOTIFY, "NOTIFY"},
-    {ClusterMonitorStatus::CLUSTER_MONITOR_CQE_ERR, "CQE ERROR"}};
+    {ClusterMonitorStatus::CLUSTER_MONITOR_CQE_ERR, "CQE ERROR"},
+    {ClusterMonitorStatus::CLUSTER_MONITOR_STUCK, "STUCK"}};
 
 inline std::string GetClusterMonitorStatusStr(ClusterMonitorStatus status)
 {
@@ -203,6 +211,14 @@ public:
     ClusterMonitor() = default;
     ~ClusterMonitor();
 
+    // ---------- 进程卡住检测 ----------
+    std::shared_ptr<StuckDetectCounterManager> GetOrCreateStuckDetectManager();
+    bool IsStuckDetectionEnabled() const;
+    HcclResult ProcessStuckDetect();
+    HcclResult FreeStuckDetectCounter(const std::string& commId);
+    HcclResult ResetStuckDetectCounter(const std::string& commId);
+    HcclResult GetStuckDetectCounter(const std::string& commId, hcomm::StuckDetectCounterAddress& counterAddress);
+
 private:
     HcclResult GetRemEndpointDescs(
         HcclComm comm, std::map<uint32_t, std::vector<UIDContext>>& uidCtxs, std::vector<uint32_t>& netLayersVector);
@@ -288,6 +304,12 @@ private:
     std::deque<std::chrono::steady_clock::time_point> eventTimeWindow_; // 事件统计滑窗，记录异常事件的产生时间戳
     bool stormSuppressedFlag_ = false;                                  // 转发抑制标识
     HcclUs stormResumeTime_{};                                          // 转发恢复时刻
+
+    // ---------- 进程卡住检测 ----------
+    std::shared_ptr<StuckDetectCounterManager> stuckDetectManager_;
+    std::mutex stuckDetectManagerMutex_;
+    uint32_t stuckReportThreshold_{STUCK_REPORT_THRESHOLD};
+    std::chrono::steady_clock::time_point lastStuckDetectTime_{};
 };
 } // namespace hcomm
 #endif // CLUSTER_MONITOR_H
