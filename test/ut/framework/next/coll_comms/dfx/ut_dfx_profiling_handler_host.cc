@@ -31,6 +31,8 @@
 
 #include "task_info.h"
 #include "task_param.h"
+#include "circular_queue.h"
+#include "vector_queue.h"
 // SetLaunchKernelMode/IsLaunchKernelMode：UT链接hccl_llt内真实workflow.cc，用例可直接操控生产代码
 // 读取的GE下发开关（进程级全局）
 #include "workflow_pub.h"
@@ -336,6 +338,25 @@ HcclResult StubRecordReportHostApi(
 }
 
 void ResetReportHostApiRecord() { g_reportHostApiLastOpType = OpType(); }
+
+// 打桩计数DfxProfilingHandler::ReportHcclTaskApi调用次数，供ReportAllTasks遍历行为断言
+int g_reportTaskApiCallCount = 0;
+
+HcclResult StubCountReportTaskApi(
+    DfxProfilingHandler* self, TaskParamType taskType, uint64_t beginTime, uint64_t endTime, bool isMasterStream,
+    bool cachedReq, bool ignoreLevel, uint32_t threadId)
+{
+    (void)self;
+    (void)taskType;
+    (void)beginTime;
+    (void)endTime;
+    (void)isMasterStream;
+    (void)cachedReq;
+    (void)ignoreLevel;
+    (void)threadId;
+    g_reportTaskApiCallCount++;
+    return HCCL_SUCCESS;
+}
 } // namespace
 
 class DfxProfilingReporterTest : public testing::Test {
@@ -346,6 +367,7 @@ protected:
         mgr_ = std::make_unique<MirrorTaskManager>(0, &GlobalMirrorTasks::Instance(), false);
         reporter_ = std::make_unique<DfxProfilingReporter>(mgr_.get(), handlerPtr_);
         SetLaunchKernelMode(false); // GE下发开关为进程级全局，用例间复位，防跨用例/跨文件泄漏
+        g_reportTaskApiCallCount = 0;
     }
     void TearDown() override
     {
@@ -356,6 +378,39 @@ protected:
     DfxProfilingHandler* handlerPtr_ = nullptr;
     std::unique_ptr<MirrorTaskManager> mgr_;
     std::unique_ptr<DfxProfilingReporter> reporter_;
+    std::vector<std::unique_ptr<TaskInfoQueue>> queues_;
+
+    // 直接向MirrorTaskManager注册一个（可为空的）本地队列，绕过AddTaskInfo的建队逻辑，
+    // 以便独立构造"队列存在但为空/半填槽"等异常形态。
+    // 注意：不可经GlobalMirrorTasks::CreateQueue建队——UT桩(llt_next_orion_stub.cc)忽略
+    // devId/streamId，恒返回同一个static队列，会造成用例间状态串扰
+    TaskInfoQueue& RegisterQueue(u32 streamId, QueueType type)
+    {
+        if (type == QueueType::Circular_Queue) {
+            queues_.push_back(std::make_unique<CircularQueue<std::unique_ptr<TaskInfo>>>(MAX_CIRCULAR_QUEUE_LENGTH));
+        } else {
+            queues_.push_back(std::make_unique<VectorQueue<std::unique_ptr<TaskInfo>>>());
+        }
+        TaskInfoQueue& queue = *queues_.back();
+        mgr_->streamQueues_[streamId] = MirrorStreamQueueEntry{&queue, type, 0};
+        return queue;
+    }
+
+    static std::unique_ptr<TaskInfo> MakeTask(u32 streamId, u32 taskId)
+    {
+        TaskParam param{}; // 匿名union成员非平凡导致默认构造被删除，须聚合初始化
+        param.taskType = TaskParamType::TASK_SDMA;
+        param.beginTime = 100;
+        param.endTime = 200;
+        param.tid = 42;
+        return std::make_unique<TaskInfo>(streamId, taskId, 0, param, nullptr, true);
+    }
+
+    bool HasCursor(u32 streamId) const
+    {
+        auto it = reporter_->curLastPoses_.find(streamId);
+        return it != reporter_->curLastPoses_.end() && it->second != nullptr;
+    }
 };
 
 TEST_F(DfxProfilingReporterTest, Ut_Init_When_AlreadyInit_Expect_Success)
@@ -466,4 +521,153 @@ TEST_F(DfxProfilingReporterTest, Ut_UpdateProfStat_When_StateChanged_Expect_NoTh
     reporter_->enableHcclL1_.store(false);
     handlerPtr_->enableHcclL1_.store(true);
     EXPECT_NO_THROW(reporter_->UpdateProfStat());
+}
+
+TEST_F(DfxProfilingReporterTest, Ut_ReportAllTasksLog_When_CircularQueueEmpty_Expect_NoThrow)
+{
+    constexpr u32 streamId = 9101;
+    TaskInfoQueue& queue = RegisterQueue(streamId, QueueType::Circular_Queue);
+    ASSERT_TRUE(queue.IsEmpty());
+
+    MOCKER_CPP(&DfxProfilingHandler::ReportHcclTaskApi).expects(never());
+    EXPECT_NO_THROW(reporter_->ReportAllTasksLog());
+    GlobalMockObject::verify();
+}
+
+// 日志路径空游标：按无游标处理直接跳过，不得解引用空shared_ptr游标
+TEST_F(DfxProfilingReporterTest, Ut_ReportAllTasksLog_When_CursorNullptr_Expect_NoThrow)
+{
+    constexpr u32 streamId = 9111;
+    TaskInfoQueue& queue = RegisterQueue(streamId, QueueType::Vector_Queue);
+    queue.Append(MakeTask(streamId, 1));
+    reporter_->curLastPoses_[streamId] = nullptr; // 模拟异常残留的空游标
+
+    MOCKER_CPP(&DfxProfilingHandler::ReportHcclTaskApi).expects(never());
+    EXPECT_NO_THROW(reporter_->ReportAllTasksLog());
+    GlobalMockObject::verify();
+}
+
+// 日志路径半填槽：pastLastPos游标之后的空槽不得触发Describe空指针调用
+TEST_F(DfxProfilingReporterTest, Ut_ReportAllTasksLog_When_MidSlotNullptr_Expect_SkipNullTask)
+{
+    constexpr u32 streamId = 9112;
+    TaskInfoQueue& queue = RegisterQueue(streamId, QueueType::Vector_Queue);
+    queue.Append(MakeTask(streamId, 1));
+    (void)queue.GetAndUpdate(); // 游标之后构造size_+1且槽内容为nullptr的半填槽
+    ASSERT_EQ(queue.Size(), 2U);
+
+    reporter_->curLastPoses_[streamId] = queue.Begin(); // 游标指向首槽，pastLastPos后即遇到空槽
+    MOCKER_CPP(&DfxProfilingHandler::ReportHcclTaskApi).expects(never());
+    EXPECT_NO_THROW(reporter_->ReportAllTasksLog());
+    GlobalMockObject::verify();
+}
+
+// 空VectorQueue且残留旧游标时，ReportAllTasks应跳过该流并清理游标（而非解引用Begin()触发越界）
+TEST_F(DfxProfilingReporterTest, Ut_ReportAllTasks_When_QueueEmpty_Expect_SuccessAndCursorErased)
+{
+    constexpr u32 streamId = 9102;
+    TaskInfoQueue& queue = RegisterQueue(streamId, QueueType::Vector_Queue);
+    ASSERT_TRUE(queue.IsEmpty());
+
+    reporter_->curLastPoses_[streamId] = queue.Begin(); // 模拟上一轮残留游标
+    MOCKER_CPP(&DfxProfilingHandler::ReportHcclTaskApi).expects(never());
+    EXPECT_EQ(reporter_->ReportAllTasks(false), HCCL_SUCCESS);
+    GlobalMockObject::verify();
+
+    // 空队列游标必须被erase，而非被更新为空队列的Tail()（归一化end()游标）
+    EXPECT_TRUE(reporter_->curLastPoses_.find(streamId) == reporter_->curLastPoses_.end());
+}
+
+// 空CircularQueue（无游标）下ReportAllTasks应直接跳过，不得触发迭代器越界
+TEST_F(DfxProfilingReporterTest, Ut_ReportAllTasks_When_CircularQueueEmpty_Expect_Success)
+{
+    constexpr u32 streamId = 9103;
+    TaskInfoQueue& queue = RegisterQueue(streamId, QueueType::Circular_Queue);
+    ASSERT_TRUE(queue.IsEmpty());
+
+    MOCKER_CPP(&DfxProfilingHandler::ReportHcclTaskApi).expects(never());
+    EXPECT_EQ(reporter_->ReportAllTasks(false), HCCL_SUCCESS);
+    GlobalMockObject::verify();
+    EXPECT_FALSE(HasCursor(streamId));
+}
+
+// 正常任务上报：首个任务经first-report路径上报一次，重复调用不重复上报（增量语义）
+TEST_F(DfxProfilingReporterTest, Ut_ReportAllTasks_When_TaskValid_Expect_ReportOnceAndCursorSaved)
+{
+    constexpr u32 streamId = 9104;
+    TaskInfoQueue& queue = RegisterQueue(streamId, QueueType::Vector_Queue);
+    queue.Append(MakeTask(streamId, 1));
+    ASSERT_EQ(queue.Size(), 1U);
+
+    MOCKER_CPP(&DfxProfilingHandler::ReportHcclTaskApi).expects(exactly(1)).will(invoke(StubCountReportTaskApi));
+    EXPECT_EQ(reporter_->ReportAllTasks(false), HCCL_SUCCESS);
+    EXPECT_EQ(g_reportTaskApiCallCount, 1);
+    EXPECT_TRUE(HasCursor(streamId)); // 游标推进到Tail
+
+    // 队列无新增任务时再次上报，不产生新的ReportHcclTaskApi调用
+    EXPECT_EQ(reporter_->ReportAllTasks(false), HCCL_SUCCESS);
+    EXPECT_EQ(g_reportTaskApiCallCount, 1);
+    GlobalMockObject::verify();
+}
+
+// 增量上报：新任务入队后仅上报新增部分
+TEST_F(DfxProfilingReporterTest, Ut_ReportAllTasks_When_TaskAppended_Expect_IncrementalReport)
+{
+    constexpr u32 streamId = 9105;
+    TaskInfoQueue& queue = RegisterQueue(streamId, QueueType::Vector_Queue);
+    queue.Append(MakeTask(streamId, 1));
+
+    MOCKER_CPP(&DfxProfilingHandler::ReportHcclTaskApi).expects(exactly(2)).will(invoke(StubCountReportTaskApi));
+    EXPECT_EQ(reporter_->ReportAllTasks(false), HCCL_SUCCESS);
+    EXPECT_EQ(g_reportTaskApiCallCount, 1);
+
+    queue.Append(MakeTask(streamId, 2));
+    EXPECT_EQ(reporter_->ReportAllTasks(false), HCCL_SUCCESS);
+    EXPECT_EQ(g_reportTaskApiCallCount, 2); // 第二轮仅上报新增的task2
+    EXPECT_TRUE(HasCursor(streamId));
+    GlobalMockObject::verify();
+}
+
+// 半填槽：首槽有效、中间槽unique_ptr为空（写入窗口期状态），遍历应跳过空槽而非空指针解引用
+TEST_F(DfxProfilingReporterTest, Ut_ReportAllTasks_When_MidSlotNullptr_Expect_SkipNullTask)
+{
+    constexpr u32 streamId = 9106;
+    TaskInfoQueue& queue = RegisterQueue(streamId, QueueType::Vector_Queue);
+    queue.Append(MakeTask(streamId, 1));
+    (void)queue.GetAndUpdate(); // 占用下一槽但不赋值，构造size_+1且槽内容为nullptr的半填槽
+    ASSERT_EQ(queue.Size(), 2U);
+
+    MOCKER_CPP(&DfxProfilingHandler::ReportHcclTaskApi).expects(exactly(1)).will(invoke(StubCountReportTaskApi));
+    EXPECT_EQ(reporter_->ReportAllTasks(false), HCCL_SUCCESS);
+    EXPECT_EQ(g_reportTaskApiCallCount, 1); // 仅task1被上报，nullptr槽被跳过
+    EXPECT_TRUE(HasCursor(streamId));
+    GlobalMockObject::verify();
+}
+
+// 游标为nullptr（异常残留）时不应解引用游标，应重置为当前Tail后跳过
+TEST_F(DfxProfilingReporterTest, Ut_ReportAllTasks_When_CursorNullptr_Expect_ResetToTail)
+{
+    constexpr u32 streamId = 9107;
+    TaskInfoQueue& queue = RegisterQueue(streamId, QueueType::Vector_Queue);
+    queue.Append(MakeTask(streamId, 1));
+    reporter_->curLastPoses_[streamId] = nullptr; // 模拟异常残留的空游标
+
+    MOCKER_CPP(&DfxProfilingHandler::ReportHcclTaskApi).expects(never());
+    EXPECT_EQ(reporter_->ReportAllTasks(false), HCCL_SUCCESS);
+    GlobalMockObject::verify();
+    EXPECT_TRUE(HasCursor(streamId)); // 游标被重置为Tail，不再是nullptr
+}
+
+// 首槽unique_ptr为空（半填槽在队首）：整条流跳过，不进入遍历
+TEST_F(DfxProfilingReporterTest, Ut_ReportAllTasks_When_FirstSlotNullptr_Expect_SkipStream)
+{
+    constexpr u32 streamId = 9108;
+    TaskInfoQueue& queue = RegisterQueue(streamId, QueueType::Vector_Queue);
+    (void)queue.GetAndUpdate(); // 首槽即为nullptr
+    ASSERT_EQ(queue.Size(), 1U);
+
+    MOCKER_CPP(&DfxProfilingHandler::ReportHcclTaskApi).expects(never());
+    EXPECT_EQ(reporter_->ReportAllTasks(false), HCCL_SUCCESS);
+    GlobalMockObject::verify();
+    EXPECT_FALSE(HasCursor(streamId));
 }
