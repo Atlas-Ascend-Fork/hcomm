@@ -2143,8 +2143,9 @@ HcclResult HostCpuRoceChannel::FindLocalBuffer(const uint64_t addr, const uint64
         }
     }
     HCCL_ERROR(
-        "[HostCpuRoceChannel::%s] FAIL. Can not Found Target Buffer addr[0x%llx], len[0x%llx], addr+len[0x%llx].",
-        __func__, addr, len, endAddr);
+        "[HostCpuRoceChannel::%s] FAIL. Can not Found Target Buffer addr[0x%llx], len[0x%llx], addr+len[0x%llx]. "
+        "channel[0x%llx], localIp[%s].",
+        __func__, addr, len, endAddr, reinterpret_cast<uint64_t>(this), local_.ip.GetIpStr().c_str());
     return HCCL_E_NOT_FOUND;
 }
 
@@ -2162,8 +2163,9 @@ HcclResult HostCpuRoceChannel::FindRemoteBuffer(const uint64_t addr, const uint6
         }
     }
     HCCL_ERROR(
-        "[HostCpuRoceChannel::%s] FAIL. Can not Found Target Buffer addr[0x%llx], len[0x%llx], addr+len[0x%llx].",
-        __func__, addr, len, endAddr);
+        "[HostCpuRoceChannel::%s] FAIL. Can not Found Target Buffer addr[0x%llx], len[0x%llx], addr+len[0x%llx]. "
+        "channel[0x%llx], remoteIp[%s].",
+        __func__, addr, len, endAddr, reinterpret_cast<uint64_t>(this), remote_.ip.GetIpStr().c_str());
     return HCCL_E_NOT_FOUND;
 }
 
