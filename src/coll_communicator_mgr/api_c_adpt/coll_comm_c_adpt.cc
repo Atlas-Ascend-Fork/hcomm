@@ -287,7 +287,7 @@ uint64_t HcommGetProfilingSysCycleTime()
 }
 
 HcclResult HcclCommShrink(
-    HcclComm comm, const uint32_t* excludeRanksList, uint32_t excludeRanksCount, const HcclCommConfig* config,
+    HcclComm comm, const uint32_t* excludeRanksList, const uint32_t excludeRanksCount, const HcclCommConfig* config,
     uint32_t shrinkFlags, HcclComm* newComm)
 {
     HcclUs startut = TIME_NOW();

@@ -23,7 +23,6 @@
 #include "timeout_exception.h"
 #include "socket_exception.h"
 #include "socket_agent.h"
-#include "root_handle_v2.h"
 #include "ip_address.h"
 
 namespace Hccl {

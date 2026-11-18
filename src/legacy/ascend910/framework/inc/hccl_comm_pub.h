@@ -401,6 +401,7 @@ public:
         void* commV2, void* rankGraph, uint32_t userRank, HcclMem cclBuffer, const std::string& commName,
         const HcclCommConfig* config, CollCommInitMode initMode = CollCommInitMode::fullMode);
     HcclResult InitCollCommInner(uint32_t userRank);
+    HcclResult SetCollCommInitSource(CommInitSource initSource);
 #endif
     // Shrink/Grow 场景：接收已创建好的 CollComm 所有权，跳过 InitCollComm
     HcclResult AdoptCollComm(std::unique_ptr<CollComm> collComm);

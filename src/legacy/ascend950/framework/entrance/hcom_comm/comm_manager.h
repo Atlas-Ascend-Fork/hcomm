@@ -64,7 +64,7 @@ using HcclCommInfoV2 = struct HcclCommInfoCtxV2 {
     std::shared_ptr<Hccl::HcclCommunicator> pComm{nullptr};
     Hccl::CommParams commParams;
     std::map<std::string, HcclGroupParamsV2> hcclGroupMap;
-    std::mutex groupParamsLock; // 操作hcclGroupMap前加锁
+    std::mutex groupParamsLock{}; // 操作hcclGroupMap前加锁
     bool isUsed{false};
     DeviceStatus status{DeviceStatus::DEVICE_IDLE}; // Device状态
     u64 step{0};                                    // 新增
@@ -72,7 +72,7 @@ using HcclCommInfoV2 = struct HcclCommInfoCtxV2 {
 
     // HcclGetRootInfo 创建的 server detect 暂存于此
     std::map<std::string, std::shared_ptr<void>> pendingDetectMap;
-    std::mutex pendingDetectMutex;
+    std::mutex pendingDetectMutex{};
 
     ~HcclCommInfoCtxV2()
     {

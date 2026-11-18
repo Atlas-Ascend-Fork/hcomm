@@ -36,6 +36,13 @@
 using namespace std;
 using namespace hccl;
 
+static HcclResult SetClusterInfoCollCommSource(HcclComm comm)
+{
+    auto* hcclCommPtr = static_cast<hccl::hcclComm*>(comm);
+    CHK_PTR_NULL(hcclCommPtr);
+    return hcclCommPtr->SetCollCommInitSource(hccl::CommInitSource::clusterInfo);
+}
+
 HcclResult GetCaptureInfo(aclrtStream stream, aclmdlRICaptureStatus& captureStatus, uint64_t& modelId, bool& isCapture)
 {
     isCapture = false;
@@ -310,6 +317,7 @@ HcclResult HcclCommInitClusterInfoWrapper([[maybe_unused]] struct hcclAsyncJob* 
             *comm = nullptr;
             return ret;
         }
+        CHK_RET(SetClusterInfoCollCommSource(*comm));
         return HCCL_SUCCESS;
     }());
     HcclResult ret = InitExternalInput();
@@ -384,6 +392,7 @@ HcclResult HcclCommInitClusterInfo(
             *comm = nullptr;
             return ret;
         }
+        CHK_RET(SetClusterInfoCollCommSource(*comm));
         return HCCL_SUCCESS;
     }());
     HcclResult ret = InitExternalInput();
@@ -464,6 +473,7 @@ HcclResult HcclCommInitClusterInfoConfigWrapper([[maybe_unused]] struct hcclAsyn
                 *comm = nullptr;
                 return ret;
             }
+            CHK_RET(SetClusterInfoCollCommSource(*comm));
             return HCCL_SUCCESS;
         }(),
         socNamePtr);
@@ -554,6 +564,7 @@ HcclResult HcclCommInitClusterInfoConfig(
             *comm = nullptr;
             return ret;
         }
+        CHK_RET(SetClusterInfoCollCommSource(*comm));
         return HCCL_SUCCESS;
     }());
     HcclResult ret = InitExternalInput();

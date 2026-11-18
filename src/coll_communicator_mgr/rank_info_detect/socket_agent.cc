@@ -32,7 +32,7 @@ HcclResult SocketAgent::SendMsg(const void* data, u64 dataLen) const
     return HCCL_SUCCESS;
 }
 
-bool SocketAgent::RecvMsg(void* msg, u64& revMsgLen, u64 maxLen)
+bool SocketAgent::RecvMsg(void* msg, u64& revMsgLen, u64 maxLen) const
 {
     HCCL_INFO("[SocketAgent::%s] start.", __func__);
 

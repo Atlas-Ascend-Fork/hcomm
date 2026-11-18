@@ -231,8 +231,8 @@ private:
     bool IsRemoteIpInWhiteList(const IpAddress& remoteIp) const;
 
     // DFX相关方法
-    void DisplayConnectingStatus(u32 totalSockets, u32 waitSockets, u32 firstRank = 0);
-    void DisplayConnectedRanks();
+    void DisplayConnectingStatus(u32 totalSockets, u32 waitSockets, u32 firstRank = 0) const;
+    void DisplayConnectedRanks() const;
 };
 
 } // namespace Hccl

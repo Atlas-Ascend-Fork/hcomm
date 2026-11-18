@@ -33,6 +33,9 @@
 #include "hccl/hccl_comm.h"
 #include "securec.h"
 #include <cstring>
+#include <cctype>
+#include "common/cast_utils_pub.h"
+#include "sal_pub.h"
 
 #include <algorithm>
 #include <atomic>
@@ -69,19 +72,14 @@ namespace {
         if (devPhyIdSep == std::string::npos || devPhyIdSep + 1 >= timestampSep) {
             return false;
         }
-        u64 parsed = 0;
-        for (size_t i = devPhyIdSep + 1; i < timestampSep; ++i) {
-            const char ch = identifier[i];
-            if (ch < '0' || ch > '9') {
-                return false;
-            }
-            parsed = parsed * 10 + static_cast<u64>(ch - '0');
-            if (parsed > UINT32_MAX) {
-                return false;
-            }
+        const std::string devPhyIdStr = identifier.substr(devPhyIdSep + 1, timestampSep - devPhyIdSep - 1);
+        const bool isAllDigits = std::all_of(devPhyIdStr.begin(), devPhyIdStr.end(), [](char ch) {
+            return std::isdigit(static_cast<unsigned char>(ch)) != 0;
+        });
+        if (!isAllDigits) {
+            return false;
         }
-        rootDevPhyId = static_cast<u32>(parsed);
-        return true;
+        return SalStrToULong(devPhyIdStr, HCCL_BASE_DECIMAL, rootDevPhyId) == HCCL_SUCCESS;
     }
 
     // 注册本 rank 的 host RDMA flush handle：flush 只在 host 网卡参与通信时才需排空，故只挑 rank graph
@@ -1593,7 +1591,7 @@ HcclResult CollComm::InitDerivationFields()
 
 HcclResult CollComm::BuildDerivedCommParams(
     const std::vector<uint32_t>& survivorRanks, uint32_t myNewRankId, const std::string& commName,
-    const DerivationInfo& derivationInfo, const Hccl::RankTableInfo& mergedRankTable, DerivedCommContext& ctx)
+    const DerivationInfo& derivationInfo, const Hccl::RankTableInfo& mergedRankTable, DerivedCommContext& ctx) const
 {
     Hccl::HcclCommunicator* parentCommunicator = static_cast<Hccl::HcclCommunicator*>(comm_);
     CHK_PTR_NULL(parentCommunicator);
@@ -1617,7 +1615,7 @@ HcclResult CollComm::BuildDerivedCommParams(
 
 HcclResult CollComm::CreateDerivedComm(
     const std::vector<uint32_t>& survivorRanks, const HcclCommConfig& subConfig, const DerivationInfo& derivationInfo,
-    const Hccl::RankTableInfo& mergedRankTable, DerivedCommContext& ctx)
+    const Hccl::RankTableInfo& mergedRankTable, DerivedCommContext& ctx) const
 {
     Hccl::HcclCommunicator* parentCommunicator = static_cast<Hccl::HcclCommunicator*>(comm_);
     CHK_PTR_NULL(parentCommunicator);
@@ -1637,11 +1635,11 @@ HcclResult CollComm::CreateDerivedComm(
     size_t cclBufferSize = 0;
     HcclMemType cclBufferMemType = HcclMemType::HCCL_MEM_TYPE_DEVICE;
     CHK_RET(ctx.drivedHcclComm->HcclGetCclBuffer(cclBufferAddr, cclBufferSize, cclBufferMemType));
-    ctx.cclBuffer = HcclMem{cclBufferMemType, reinterpret_cast<void*>(cclBufferAddr), cclBufferSize};
+    ctx.cclBuffer = HcclMem{cclBufferMemType, ReinterpretAs<void*>(cclBufferAddr), cclBufferSize};
     ctx.opExpansionMode = subConfig.hcclOpExpansionMode;
     HCCL_INFO(
         "[CollComm][%s][Grow] newComm cclBuffer addr[%p] cclBufferSize[%llu] opExpansionMode[%u]", __func__,
-        reinterpret_cast<void*>(cclBufferAddr), cclBufferSize, ctx.opExpansionMode);
+        ReinterpretAs<void*>(cclBufferAddr), cclBufferSize, ctx.opExpansionMode);
     return HCCL_SUCCESS;
 }
 
@@ -1749,7 +1747,7 @@ HcclResult CollComm::CreateDerivedComm(std::unique_ptr<CollComm>& collComm, cons
 }
 
 // 在业务逻辑层校验 Shrink 流程中 rankId 和 ranksCount 等参数的合法性
-HcclResult CollComm::ValidateShrinkParams(const uint32_t* excludeRanksList, uint32_t excludeRanksCount)
+HcclResult CollComm::ValidateShrinkParams(const uint32_t* excludeRanksList, uint32_t excludeRanksCount) const
 {
     CHK_PRT_RET(
         excludeRanksCount == 0, HCCL_ERROR("[ValidateShrinkParams] excludeRanksCount must be greater than 0."),
@@ -1785,7 +1783,7 @@ HcclResult CollComm::ValidateShrinkParams(const uint32_t* excludeRanksList, uint
     return HCCL_SUCCESS;
 }
 
-HcclResult CollComm::ValidateGrowParams(uint32_t nRanks, uint32_t rank, const HcclRootInfo* rootInfo)
+HcclResult CollComm::ValidateGrowParams(uint32_t nRanks, uint32_t rank, const HcclRootInfo*) const
 {
     CHK_PRT_RET(nRanks == 0, HCCL_ERROR("[ValidateGrowParams] nRanks must be greater than 0."), HCCL_E_PARA);
     CHK_PRT_RET(
@@ -1807,7 +1805,7 @@ HcclResult CollComm::ValidateGrowParams(uint32_t nRanks, uint32_t rank, const Hc
 
 // 从父域 rank 列表中过滤掉被剔除的 rank，构建存活 rank 列表，并计算自身在新域中的 rank 编号
 HcclResult CollComm::BuildShrinkSurvivorRanks(
-    const uint32_t* excludeRanksList, uint32_t excludeRanksCount, ShrinkSurvivorResult& result)
+    const uint32_t* excludeRanksList, uint32_t excludeRanksCount, ShrinkSurvivorResult& result) const
 {
     uint32_t rankSize = GetRankSize();
     uint32_t myRank = GetMyRankId();
@@ -2048,7 +2046,7 @@ HcclResult CollComm::CommShrink(
 }
 
 HcclResult CollComm::HandleGrowRootReselect(
-    uint32_t nRanks, uint32_t rank, const HcclRootInfo* rootInfo, const HcclCommConfig* config,
+    uint32_t nRanks, uint32_t rank, const HcclRootInfo* rootInfo, const HcclCommConfig*,
     Hccl::RankTableInfo& mergedRankTable)
 {
     Hccl::HcclRootHandleV2 newRootHandle{};
@@ -2106,7 +2104,7 @@ HcclResult CollComm::HandleGrowRootReselect(
     return HCCL_SUCCESS;
 }
 
-HcclResult CollComm::HandleGrowNormal(uint32_t nRanks, Hccl::RankTableInfo& mergedRankTable)
+HcclResult CollComm::HandleGrowNormal(uint32_t nRanks, Hccl::RankTableInfo& mergedRankTable) const
 {
     auto detect = GetRankInfoDetect();
     CHK_PRT_RET(detect == nullptr, HCCL_ERROR("[%s] rankInfoDetect_ is null.", __func__), HCCL_E_INTERNAL);
@@ -2320,7 +2318,7 @@ HcclResult CollComm::CreateCommunicatorForNewRank(
     size_t cclBufferSize = 0;
     HcclMemType cclBufferMemType = HcclMemType::HCCL_MEM_TYPE_DEVICE;
     CHK_RET(result.drivedHcclComm->HcclGetCclBuffer(cclBufferAddr, cclBufferSize, cclBufferMemType));
-    result.cclBuffer = HcclMem{cclBufferMemType, reinterpret_cast<void*>(cclBufferAddr), cclBufferSize};
+    result.cclBuffer = HcclMem{cclBufferMemType, ReinterpretAs<void*>(cclBufferAddr), cclBufferSize};
 
     result.opExpansionMode = result.subConfig.hcclOpExpansionMode;
     return HCCL_SUCCESS;

@@ -701,6 +701,9 @@ HcclCommInitClusterInfoMemConfig(const char* rankTableString, uint32_t rank, Hcc
             *comm = nullptr;
             return ret;
         }
+        auto* createdComm = static_cast<hccl::hcclComm*>(*comm);
+        CHK_PTR_NULL(createdComm);
+        CHK_RET(createdComm->SetCollCommInitSource(CommInitSource::clusterInfo));
         return HCCL_SUCCESS;
     }());
 #endif
@@ -832,6 +835,7 @@ HcclResult HcclCreateSubCommConfig(
         CHK_PTR_NULL(commV2);
         HcclComm subCommV2 = nullptr;
         CHK_RET(HcclCreateSubCommConfigV2(&commV2, rankNum, rankIds, subCommId, subCommRankId, config, &subCommV2));
+        const auto* parentCollComm = globalComm->GetCollComm();
         HcclResult ret = HcclCommInitCollComm(subCommRankId, &subCommV2, config, subComm);
         if (ret != HCCL_SUCCESS) {
             HCCL_ERROR("[HcclCommInitCollComm]HcclCommInitCollComm failed. Destroy subCommV2");
@@ -839,6 +843,11 @@ HcclResult HcclCreateSubCommConfig(
             subCommV2 = nullptr;
             *subComm = nullptr;
             return ret;
+        }
+        if (parentCollComm != nullptr) {
+            auto* subCommPtr = static_cast<hccl::hcclComm*>(*subComm);
+            CHK_PTR_NULL(subCommPtr);
+            CHK_RET(subCommPtr->SetCollCommInitSource(parentCollComm->GetInitSource()));
         }
         return HCCL_SUCCESS;
     }());

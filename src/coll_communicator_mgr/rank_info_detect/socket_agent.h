@@ -22,7 +22,7 @@ public:
     explicit SocketAgent(Socket* socket) : socket_(socket) {}
 
     HcclResult SendMsg(const void* data, u64 dataLen) const;
-    bool RecvMsg(void* msg, u64& revMsgLen, u64 maxLen = MAX_BUFFER_LEN);
+    bool RecvMsg(void* msg, u64& revMsgLen, u64 maxLen = MAX_BUFFER_LEN) const;
 
 private:
     Socket* socket_{nullptr};

@@ -574,6 +574,13 @@ HcclCommunicator* hcclComm::GetHcclCommunicator() { return communicator_.get(); 
 
 CollComm* hcclComm::GetCollComm() { return collComm_ != nullptr ? collComm_.get() : nullptr; }
 
+HcclResult hcclComm::SetCollCommInitSource(CommInitSource initSource)
+{
+    CHK_PRT_RET(collComm_ == nullptr, HCCL_ERROR("[SetCollCommInitSource] collComm is nullptr."), HCCL_E_PTR);
+    collComm_->SetInitSource(initSource);
+    return HCCL_SUCCESS;
+}
+
 HcclResult hcclComm::AdoptCollComm(std::unique_ptr<CollComm> collComm)
 {
     CHK_PRT_RET(collComm == nullptr, HCCL_ERROR("[AdoptCollComm] collComm is nullptr."), HCCL_E_PTR);

@@ -298,13 +298,15 @@ HcclResult HcomCreateGroupImplV2(const std::string& group, u32 rankNum, const st
         HCCL_E_PTR);
 
     /* 已经存在的group不允许再次创建 */
-    std::unique_lock<std::mutex> groupParaLock(hcomCommInfoV2.groupParamsLock);
-    if (hcomCommInfoV2.hcclGroupMap.find(group) != hcomCommInfoV2.hcclGroupMap.end()) {
-        HCCL_ERROR(
-            "[Create][Group]errNo[0x%016llx] group[%s] already exists", HCOM_ERROR_CODE(HCCL_E_PARA), group.c_str());
-        return HCCL_E_PARA;
+    {
+        std::lock_guard<std::mutex> groupParaLock(hcomCommInfoV2.groupParamsLock);
+        if (hcomCommInfoV2.hcclGroupMap.find(group) != hcomCommInfoV2.hcclGroupMap.end()) {
+            HCCL_ERROR(
+                "[Create][Group]errNo[0x%016llx] group[%s] already exists", HCOM_ERROR_CODE(HCCL_E_PARA),
+                group.c_str());
+            return HCCL_E_PARA;
+        }
     }
-    groupParaLock.unlock();
 
     /* 创建groupParamsV2Tem */
     HcclGroupParamsV2 groupParamsV2Tem;
@@ -334,9 +336,10 @@ HcclResult HcomCreateGroupImplV2(const std::string& group, u32 rankNum, const st
     CHK_RET(CommManager::GetInstance(logicDevId)
                 .SetCommAcceleratorV2(groupParamsV2Tem.pComm.get(), 0)); // 子通信域创建，设置默认accelerator
 
-    groupParaLock.lock();
-    hcomCommInfoV2.hcclGroupMap.insert(std::make_pair(group, groupParamsV2Tem));
-    groupParaLock.unlock();
+    {
+        std::lock_guard<std::mutex> groupParaLock(hcomCommInfoV2.groupParamsLock);
+        hcomCommInfoV2.hcclGroupMap.insert(std::make_pair(group, groupParamsV2Tem));
+    }
 
     groupParamsV2Tem.pComm->RegisterPrintChannelInfoCallback(
         CommManager::GetInstance(logicDevId).GetPrintChannelInfoCallback());
@@ -353,18 +356,19 @@ HcclResult HcomDestroyGroupImplV2(const std::string& group)
     /* 接口交互信息日志 */
     HCCL_RUN_INFO("Entry-HcomDestroyGroup:group[%s]", group.c_str());
 
-    std::unique_lock<std::mutex> groupParaLock(hcomCommInfoV2.groupParamsLock);
-    auto iter = hcomCommInfoV2.hcclGroupMap.find(group);
-    if (iter == hcomCommInfoV2.hcclGroupMap.end()) {
-        HCCL_ERROR(
-            "[Destroy][Group]errNo[0x%016llx] group[%s] does not exist", HCOM_ERROR_CODE(HCCL_E_PARA), group.c_str());
-        return HCCL_E_PARA;
+    {
+        std::lock_guard<std::mutex> groupParaLock(hcomCommInfoV2.groupParamsLock);
+        auto iter = hcomCommInfoV2.hcclGroupMap.find(group);
+        if (iter == hcomCommInfoV2.hcclGroupMap.end()) {
+            HCCL_ERROR(
+                "[Destroy][Group]errNo[0x%016llx] group[%s] does not exist", HCOM_ERROR_CODE(HCCL_E_PARA),
+                group.c_str());
+            return HCCL_E_PARA;
+        }
+        hcomCommInfoV2.hcclGroupMap.erase(group);
+        // 通信域销毁，更新ccu使用情况
+        hcomCommInfoV2.ccuStatus.RemoveCommId(group);
     }
-    hcomCommInfoV2.hcclGroupMap.erase(group);
-    // 通信域销毁，更新ccu使用情况
-    hcomCommInfoV2.ccuStatus.RemoveCommId(group);
-
-    groupParaLock.unlock();
 
     HCCL_RUN_INFO("hcom destroy group[%s] success.", group.c_str());
     return HCCL_SUCCESS;
@@ -484,17 +488,19 @@ HcclResult HcomGetRankSizeV2(const char* group, u32* rankSize)
         HCCL_INFO("hcom get world rank size success, rankSize[%u]", *rankSize);
         return HCCL_SUCCESS;
     }
-    std::unique_lock<std::mutex> groupParaLock(hcomCommInfoV2.groupParamsLock);
-    auto iter = hcomCommInfoV2.hcclGroupMap.find(strGroup);
-    if (iter == hcomCommInfoV2.hcclGroupMap.end()) {
-        HCCL_ERROR(
-            "[Get][RankSize]errNo[0x%016llx] group[%s] is not exist", HCOM_ERROR_CODE(HCCL_E_PARA), strGroup.c_str());
-        return HCCL_E_PARA;
+    {
+        std::lock_guard<std::mutex> groupParaLock(hcomCommInfoV2.groupParamsLock);
+        auto iter = hcomCommInfoV2.hcclGroupMap.find(strGroup);
+        if (iter == hcomCommInfoV2.hcclGroupMap.end()) {
+            HCCL_ERROR(
+                "[Get][RankSize]errNo[0x%016llx] group[%s] is not exist", HCOM_ERROR_CODE(HCCL_E_PARA),
+                strGroup.c_str());
+            return HCCL_E_PARA;
+        }
+        CHK_SMART_PTR_NULL((iter->second).pComm);
+        HcclResult ret = (iter->second).pComm->GetRankSize(rankSize);
+        CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[Get][RankSize]GetRankSize failed."), HCCL_E_PTR);
     }
-    CHK_SMART_PTR_NULL((iter->second).pComm);
-    HcclResult ret = (iter->second).pComm->GetRankSize(rankSize);
-    CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[Get][RankSize]GetRankSize failed."), HCCL_E_PTR);
-    groupParaLock.unlock();
 
     HCCL_INFO("hcom get rank size success, group[%s], rankSize[%u]", strGroup.c_str(), *rankSize);
     return HCCL_SUCCESS;
@@ -655,9 +661,10 @@ HcclResult HcomInitByFileV2(const char* rankTablePath, const char* identify)
 
     HcclGroupParamsV2 params;
     params.pComm = hcomCommInfoV2.pComm;
-    std::unique_lock<std::mutex> groupParaLock(hcomCommInfoV2.groupParamsLock);
-    hcomCommInfoV2.hcclGroupMap[commId] = params;
-    groupParaLock.unlock();
+    {
+        std::lock_guard<std::mutex> groupParaLock(hcomCommInfoV2.groupParamsLock);
+        hcomCommInfoV2.hcclGroupMap[commId] = params;
+    }
 
     hcomCommInfoV2.pComm->RegisterPrintChannelInfoCallback(
         CommManager::GetInstance(logicDevId).GetPrintChannelInfoCallback());
@@ -726,9 +733,10 @@ HcclResult HcomInitByStringV2(const char* rankTableM, const char* identify)
 
     HcclGroupParamsV2 params;
     params.pComm = hcomCommInfoV2.pComm;
-    std::unique_lock<std::mutex> groupParaLock(hcomCommInfoV2.groupParamsLock);
-    hcomCommInfoV2.hcclGroupMap[commId] = params;
-    groupParaLock.unlock();
+    {
+        std::lock_guard<std::mutex> groupParaLock(hcomCommInfoV2.groupParamsLock);
+        hcomCommInfoV2.hcclGroupMap[commId] = params;
+    }
 
     hcomCommInfoV2.pComm->RegisterPrintChannelInfoCallback(
         CommManager::GetInstance(logicDevId).GetPrintChannelInfoCallback());

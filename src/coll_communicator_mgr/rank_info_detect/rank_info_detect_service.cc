@@ -817,7 +817,7 @@ bool RankInfoDetectService::VerifyRemoteRankSize(u32& previousRankSize, u32 remo
 }
 
 // DFX相关方法
-void RankInfoDetectService::DisplayConnectedRanks()
+void RankInfoDetectService::DisplayConnectedRanks() const
 {
     vector<std::string> ranksInfo;
     auto sockets = SnapshotConnSockets();
@@ -844,7 +844,7 @@ void RankInfoDetectService::DisplayConnectedRanks()
     }
 }
 
-void RankInfoDetectService::DisplayConnectingStatus(u32 totalSockets, u32 waitSockets, u32 firstRank)
+void RankInfoDetectService::DisplayConnectingStatus(u32 totalSockets, u32 waitSockets, u32 firstRank) const
 {
     if (totalSockets == 0 && waitSockets == 1) {
         HCCL_INFO("[RankInfoDetectService::%s] wait for first connection.", __func__);

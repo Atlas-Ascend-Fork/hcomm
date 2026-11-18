@@ -206,8 +206,8 @@ public:
         uint32_t nRanks, uint32_t rank, const HcclRootInfo* rootInfo, const HcclCommConfig* config,
         std::unique_ptr<CollComm>& newCollComm);
 
-    HcclResult ValidateShrinkParams(const uint32_t* excludeRanksList, uint32_t excludeRanksCount);
-    HcclResult ValidateGrowParams(uint32_t nRanks, uint32_t rank, const HcclRootInfo* rootInfo);
+    HcclResult ValidateShrinkParams(const uint32_t* excludeRanksList, uint32_t excludeRanksCount) const;
+    HcclResult ValidateGrowParams(uint32_t nRanks, uint32_t rank, const HcclRootInfo*) const;
 
     // CommGrowNewRank 内部 helper：新 rank 拓扑探测 + 全量收集
     struct GrowNewRankDetectResult {
@@ -356,20 +356,22 @@ private:
     };
     HcclResult BuildDerivedCommParams(
         const std::vector<uint32_t>& survivorRanks, uint32_t myNewRankId, const std::string& commName,
-        const DerivationInfo& derivationInfo, const Hccl::RankTableInfo& mergedRankTable, DerivedCommContext& ctx);
+        const DerivationInfo& derivationInfo, const Hccl::RankTableInfo& mergedRankTable,
+        DerivedCommContext& ctx) const;
     HcclResult CreateDerivedComm(
         const std::vector<uint32_t>& survivorRanks, const HcclCommConfig& subConfig,
-        const DerivationInfo& derivationInfo, const Hccl::RankTableInfo& mergedRankTable, DerivedCommContext& ctx);
+        const DerivationInfo& derivationInfo, const Hccl::RankTableInfo& mergedRankTable,
+        DerivedCommContext& ctx) const;
     HcclResult SetupDerivedCollComm(
         std::unique_ptr<CollComm>& collComm, const DerivedCommParams& derivedParams, DerivedCommContext& ctx);
     // 静态扩容 root 重选路径，抽取为独立方法
     HcclResult HandleGrowRootReselect(
-        uint32_t nRanks, uint32_t rank, const HcclRootInfo* rootInfo, const HcclCommConfig* config,
+        uint32_t nRanks, uint32_t rank, const HcclRootInfo* rootInfo, const HcclCommConfig*,
         Hccl::RankTableInfo& mergedRankTable);
     // 静态扩容正常 Grow 路径
-    HcclResult HandleGrowNormal(uint32_t nRanks, Hccl::RankTableInfo& mergedRankTable);
+    HcclResult HandleGrowNormal(uint32_t nRanks, Hccl::RankTableInfo& mergedRankTable) const;
     HcclResult BuildShrinkSurvivorRanks(
-        const uint32_t* excludeRanksList, uint32_t excludeRanksCount, ShrinkSurvivorResult& result);
+        const uint32_t* excludeRanksList, uint32_t excludeRanksCount, ShrinkSurvivorResult& result) const;
     // Grow/Shrink 前在本地解析当前域 rootRankId，不依赖 root 侧 socket 交互。
     HcclResult ResolveRootRankIdForDerivation();
 
