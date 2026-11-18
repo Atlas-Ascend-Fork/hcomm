@@ -18,7 +18,6 @@
 #include "port.h"
 #include "iterator.h"
 #include "dev_type.h"
-#include "log.h"
 namespace Hccl {
 
 using namespace std;

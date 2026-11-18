@@ -15,7 +15,7 @@
 #include <map>
 #include <unordered_map>
 #include "../utils/enum_factory.h"
-#include "log.h"
+#include "hccl_types.h"
 
 namespace Hccl {
 

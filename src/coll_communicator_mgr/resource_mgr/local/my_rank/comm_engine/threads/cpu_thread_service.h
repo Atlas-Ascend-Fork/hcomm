@@ -30,15 +30,15 @@ class CpuThreadService {
 public:
     explicit CpuThreadService(ThreadMgr* threadMgr, aclrtBinHandle binHandle);
 
-    HcclResult
-    EnsureCpuKernelLaunched(HcclComm commV2, uint32_t devId, std::shared_ptr<CpuThread>& cpuThread, bool* newCreated);
-    HcclResult StopTaskexpService();
+    HcclResult EnsureCpuKernelLaunched(
+        const HcclComm commV2, uint32_t devId, std::shared_ptr<CpuThread>& cpuThread, bool* newCreated);
+    HcclResult StopTaskexpService() const;
     // 终止 DPU kernel 的 WaitKernelTerminate 握手；须在 ~CollComm 释放 dfx 之前调用（kernel 错误路径经回调读 dfx）
-    HcclResult StopCpuKernel();
-    HcclResult AcquireCpuTagShmem(HcclComm commV2, uint32_t devId, uint64_t* size, void** addr, bool* newCreated);
+    HcclResult StopCpuKernel() const;
+    HcclResult AcquireCpuTagShmem(HcclComm commV2, uint32_t devId, const uint64_t* size, void** addr, bool* newCreated);
 
     // 只查不拉起：挂起路径不应因取地址而新建 DPU 线程；本通信域未拉起 DPU 时 addr 置 nullptr
-    HcclResult GetCpuTagAddrIfLaunched(void*& addr);
+    HcclResult GetCpuTagAddrIfLaunched(void*& addr) const;
 
     // 取 DPUTASKEXCEPTION 共享内存 host 侧地址，供 dfx 异常链路读回错误码；
     // 异常区随 DPU 线程实体释放，keepAlive 是类型擦除的保活引用，持有期间 addr 才有效
@@ -49,7 +49,8 @@ public:
 private:
     // acquire 之后任一失败都要把线程从池中摘除并释放：池中残留「有条目但未拉起」的条目后，
     // 后续调用的查链命中会被当成已拉起而假成功，且同参数 acquire 会复用该条目、Init 再无重试机会。
-    HcclResult RollbackAcquiredThread(ThreadHandle handle, std::shared_ptr<CpuThread>& cpuThread, HcclResult cause);
+    HcclResult
+    RollbackAcquiredThread(ThreadHandle handle, std::shared_ptr<CpuThread>& cpuThread, HcclResult cause) const;
     // 停止握手共性收口：非 dpu 场景（无 CPU thread / 无 legacy 实体）视为无监控可停，返回成功
     static HcclResult StopTaskexpServiceByCpuThread(const std::shared_ptr<CpuThread>& cpuThread);
 

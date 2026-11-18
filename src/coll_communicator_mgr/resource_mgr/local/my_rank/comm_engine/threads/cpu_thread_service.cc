@@ -36,8 +36,8 @@ HcclResult CpuThreadService::StopTaskexpServiceByCpuThread(const std::shared_ptr
     return legacy->StopTaskexpService();
 }
 
-HcclResult
-CpuThreadService::RollbackAcquiredThread(ThreadHandle handle, std::shared_ptr<CpuThread>& cpuThread, HcclResult cause)
+HcclResult CpuThreadService::RollbackAcquiredThread(
+    ThreadHandle handle, std::shared_ptr<CpuThread>& cpuThread, HcclResult cause) const
 {
     cpuThread = nullptr; // 先断开本地持有，句柄才能真正在 HcommThreadFree 内析构
     HcclResult freeRet = threadMgr_->RollbackThread(handle);
@@ -50,7 +50,7 @@ CpuThreadService::RollbackAcquiredThread(ThreadHandle handle, std::shared_ptr<Cp
 }
 
 HcclResult CpuThreadService::EnsureCpuKernelLaunched(
-    HcclComm commV2, uint32_t devId, std::shared_ptr<CpuThread>& cpuThread, bool* newCreated)
+    const HcclComm commV2, uint32_t devId, std::shared_ptr<CpuThread>& cpuThread, bool* newCreated)
 {
     cpuThread = nullptr;
     // 仅创建成功路径会置 true，中途失败保持 false
@@ -148,7 +148,7 @@ HcclResult CpuThreadService::EnsureCpuKernelLaunched(
     return HCCL_SUCCESS;
 }
 
-HcclResult CpuThreadService::StopTaskexpService()
+HcclResult CpuThreadService::StopTaskexpService() const
 {
     const std::string& commId = threadMgr_->GetCommId();
     // 三条收编期观测点：请求进入 / 查链落空 / 握手返回，用于在日志里分辨究竟哪个时机真的发出了握手。
@@ -167,7 +167,7 @@ HcclResult CpuThreadService::StopTaskexpService()
     return stopRet;
 }
 
-HcclResult CpuThreadService::StopCpuKernel()
+HcclResult CpuThreadService::StopCpuKernel() const
 {
     const std::string& commId = threadMgr_->GetCommId();
     std::shared_ptr<CpuThread> cpuThread;
@@ -186,8 +186,8 @@ HcclResult CpuThreadService::StopCpuKernel()
     return deinitRet;
 }
 
-HcclResult
-CpuThreadService::AcquireCpuTagShmem(HcclComm commV2, uint32_t devId, uint64_t* size, void** addr, bool* newCreated)
+HcclResult CpuThreadService::AcquireCpuTagShmem(
+    HcclComm commV2, uint32_t devId, const uint64_t* size, void** addr, bool* newCreated)
 {
     if (size == nullptr || addr == nullptr) {
         HCCL_ERROR("[%s] size/addr is nullptr", __func__);
@@ -224,7 +224,7 @@ CpuThreadService::AcquireCpuTagShmem(HcclComm commV2, uint32_t devId, uint64_t* 
     return HCCL_SUCCESS;
 }
 
-HcclResult CpuThreadService::GetCpuTagAddrIfLaunched(void*& addr)
+HcclResult CpuThreadService::GetCpuTagAddrIfLaunched(void*& addr) const
 {
     addr = nullptr;
     std::shared_ptr<CpuThread> cpuThread;

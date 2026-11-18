@@ -111,8 +111,8 @@ HcclResult DpuTaskExceptionLite::HandleDpuCq(CollCommAicpu* aicpuComm, const hcc
 
     // CQ 有一格回执：消费一格并上报。游标走 acquire：生产侧是「先写 CQE 再 release 发布 pi」，
     // 这里先 acquire 读 pi 才能保证随后读到的 CQE 内容是完整的
-    const uint32_t pi = __atomic_load_n(reinterpret_cast<const uint32_t*>(cqDesc.piAddr), __ATOMIC_ACQUIRE);
-    const uint32_t ci = __atomic_load_n(reinterpret_cast<const uint32_t*>(cqDesc.ciAddr), __ATOMIC_ACQUIRE);
+    const uint32_t pi = __atomic_load_n(ReinterpretAs<const uint32_t*>(cqDesc.piAddr), __ATOMIC_ACQUIRE);
+    const uint32_t ci = __atomic_load_n(ReinterpretAs<const uint32_t*>(cqDesc.ciAddr), __ATOMIC_ACQUIRE);
     errno_t ret = EOK;
     if (pi == ci) {
         return HCCL_SUCCESS;
@@ -120,7 +120,7 @@ HcclResult DpuTaskExceptionLite::HandleDpuCq(CollCommAicpu* aicpuComm, const hcc
 
     hccl::DpuCqe cqe{};
     const uint64_t slotAddr = cqDesc.base + static_cast<uint64_t>(ci % cqDesc.depth) * cqDesc.elemSize;
-    ret = memcpy_s(&cqe, sizeof(cqe), reinterpret_cast<const void*>(slotAddr), sizeof(cqe));
+    ret = memcpy_s(&cqe, sizeof(cqe), ReinterpretAs<const void*>(slotAddr), sizeof(cqe));
     if (ret != EOK) {
         HCCL_ERROR(
             "[DpuTaskExceptionLite::%s] memcpy_s failed on cqe, comm[%s], ci[%u], return[%d].", __func__,
@@ -140,7 +140,7 @@ HcclResult DpuTaskExceptionLite::HandleDpuCq(CollCommAicpu* aicpuComm, const hcc
     }
     // release 推进：本侧已读完该格，生产侧见到新 ci 后才可复用
     const uint32_t nextCi = ci + 1U;
-    __atomic_store_n(reinterpret_cast<uint32_t*>(cqDesc.ciAddr), nextCi, __ATOMIC_RELEASE);
+    __atomic_store_n(ReinterpretAs<uint32_t*>(cqDesc.ciAddr), nextCi, __ATOMIC_RELEASE);
     return HCCL_SUCCESS;
 }
 
