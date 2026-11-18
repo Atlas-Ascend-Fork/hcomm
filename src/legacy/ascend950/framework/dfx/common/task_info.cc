@@ -75,13 +75,14 @@ string TaskInfo::GetParaInfo() const
         case TaskParamType::TASK_UB_INLINE_WRITE:
         case TaskParamType::TASK_UB:
         case TaskParamType::TASK_WRITE_WITH_NOTIFY:
-        case TaskParamType::TASK_WRITE_REDUCE_WITH_NOTIFY:
         case TaskParamType::TASK_DPU_INLINE_WRITE:
         case TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY:
             return GetParaDMA();
         case TaskParamType::TASK_REDUCE_INLINE:
         case TaskParamType::TASK_UB_REDUCE_INLINE:
         case TaskParamType::TASK_REDUCE_TBE:
+        case TaskParamType::TASK_WRITE_REDUCE_WITH_NOTIFY:
+        case TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY:
             return GetParaReduce();
         case TaskParamType::TASK_NOTIFY_RECORD:
         case TaskParamType::TASK_NOTIFY_WAIT:
@@ -171,6 +172,7 @@ string TaskInfo::GetTaskConciseName() const
         {TaskParamType::TASK_DPU_NOTIFY_WAIT, "DPU_NW"},
         {TaskParamType::TASK_DPU_INLINE_WRITE, "DPU_IW"},
         {TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY, "DPU_WWN"},
+        {TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY, "DPU_WRN"},
         {TaskParamType::TASK_DPU_CHANNEL_FENCE, "DPU_CF"},
         {TaskParamType::TASK_DPU_CHANNEL_DRAIN, "DPU_CD"},
         {TaskParamType::TASK_DPU_THREAD_FENCE, "DPU_TF"}};
@@ -190,6 +192,7 @@ string TaskInfo::GetNotifyInfo() const
     switch (this->taskParam_.taskType) {
         case TaskParamType::TASK_RDMA:
         case TaskParamType::TASK_UB_INLINE_WRITE:
+        case TaskParamType::TASK_DPU_INLINE_WRITE:
         case TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY:
             notifyInfo = taskPara.DMA.notifyID;
             break;
@@ -197,10 +200,14 @@ string TaskInfo::GetNotifyInfo() const
         case TaskParamType::TASK_NOTIFY_WAIT:
         case TaskParamType::TASK_SEND_NOTIFY:
         case TaskParamType::TASK_WRITE_WITH_NOTIFY:
-        case TaskParamType::TASK_WRITE_REDUCE_WITH_NOTIFY:
-        case TaskParamType::TASK_DPU_INLINE_WRITE:
         case TaskParamType::TASK_DPU_NOTIFY_WAIT:
             notifyInfo = taskPara.Notify.notifyID;
+            break;
+        // WRN 类任务的参数按 ParaReduce 填写（notifyID 在偏移 24），不能按 ParaNotify 读：
+        // taskPara 是 union，ParaNotify.notifyID 位于偏移 0，取到的是 Reduce.src 的低 8 字节
+        case TaskParamType::TASK_WRITE_REDUCE_WITH_NOTIFY:
+        case TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY:
+            notifyInfo = taskPara.Reduce.notifyID;
             break;
         default:
             return "/";
@@ -225,7 +232,8 @@ string TaskInfo::GetConciseBaseInfo() const
         || taskType == TaskParamType::TASK_NOTIFY_WAIT || taskType == TaskParamType::TASK_SEND_NOTIFY
         || taskType == TaskParamType::TASK_WRITE_WITH_NOTIFY || taskType == TaskParamType::TASK_WRITE_REDUCE_WITH_NOTIFY
         || taskType == TaskParamType::TASK_UB_INLINE_WRITE || taskType == TaskParamType::TASK_DPU_NOTIFY_WAIT
-        || taskType == TaskParamType::TASK_DPU_INLINE_WRITE || taskType == TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY) {
+        || taskType == TaskParamType::TASK_DPU_INLINE_WRITE || taskType == TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY
+        || taskType == TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY) {
         taskConciseInfo << "," << this->GetNotifyInfo();
     }
     taskConciseInfo << ")";
@@ -302,7 +310,6 @@ void PrintTaskLog(u32 streamId, u32 taskId, const TaskParam& taskParam, u32 remo
             break;
         case TaskParamType::TASK_UB_INLINE_WRITE:
         case TaskParamType::TASK_WRITE_WITH_NOTIFY:
-        case TaskParamType::TASK_WRITE_REDUCE_WITH_NOTIFY:
         case TaskParamType::TASK_DPU_INLINE_WRITE:
         case TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY:
             PLF_CONFIG_INFO(
@@ -316,6 +323,8 @@ void PrintTaskLog(u32 streamId, u32 taskId, const TaskParam& taskParam, u32 remo
         case TaskParamType::TASK_REDUCE_INLINE:
         case TaskParamType::TASK_UB_REDUCE_INLINE:
         case TaskParamType::TASK_REDUCE_TBE:
+        case TaskParamType::TASK_WRITE_REDUCE_WITH_NOTIFY:
+        case TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY:
             PLF_CONFIG_INFO(
                 PLF_TASK,
                 "[AddTaskInfo] streamId=%u, taskId=%u, taskType=%s, "

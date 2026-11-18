@@ -462,42 +462,47 @@ int32_t HcommWriteReduceWithNotifyOnThread(
     HcommReduceOp reduceOp, uint32_t remoteNotifyIdx)
 {
     LogAddrAlignCheck512B(__func__, dst, src);
+    HCCL_INFO(
+        "[%s] ENTER. thread[0x%llx], channel[0x%llx], dst[0x%llx], src[0x%llx], count[%llu], dataType[%d], "
+        "reduceOp[%d], remoteNotifyIdx[%u].",
+        __func__, thread, channel, dst, src, count, dataType, reduceOp, remoteNotifyIdx);
     if (IS_PLUGIN_HANDLE(channel)) {
+        HCCL_INFO("[%s] ENTER plugin channel path.", __func__);
         auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
         CHK_PTR_NULL(ch);
         return ch->GetNicOps()->writeReduceWithNotifyOnThread(
             ch->GetNicCtx(), thread, dst, src, count, dataType, reduceOp, remoteNotifyIdx);
     }
 
-    HCCL_INFO(
-        "[%s] START. thread[0x%llx], channel[0x%llx], dst[0x%llx], src[0x%llx], count[%llu], dataType[%d], "
-        "reduceOp[%d], remoteNotifyIdx[%u].",
-        __func__, thread, channel, dst, src, count, dataType, reduceOp, remoteNotifyIdx);
-
-    CHK_PTR_NULL(dst);
+    // 内置（非插件）通道：数据面 inline-reduce 写由通道自身实现（如 HostCpuRoceChannel）
     CHK_PTR_NULL(src);
-
-    AddThreadWithTag(thread);
-
-    Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
-    CHK_PTR_NULL(threadPtr);
-
-    uint64_t len = count * SIZE_TABLE[dataType];
-
-    HcclResult ret = HCCL_SUCCESS;
-
-    ret = HCCL_E_NOT_SUPPORT;
-    (void)len;
-
+    CHK_PTR_NULL(dst);
     CHK_PRT_RET(
-        ret != HCCL_SUCCESS,
+        (IsSupportReduce(dataType, reduceOp) == false),
+        HCCL_ERROR(
+            "[%s] Not support reduce, dst[%p], src[%p], count[%llu], dataType[%d], reduceOp[%d]", __func__, dst, src,
+            count, dataType, reduceOp),
+        HCCL_E_PARA);
+    auto* ch = CHANNEL_FROM_HANDLE(channel);
+    CHK_PTR_NULL(ch);
+    DevType devType;
+    CHK_RET(hrtGetDeviceType(devType));
+    if (devType != DevType::DEV_TYPE_950 && devType != DevType::DEV_TYPE_960) {
+        HCCL_ERROR(
+            "[%s] write-reduce-with-notify is not supported on devType[%d].", __func__, static_cast<int>(devType));
+        return HCCL_E_NOT_SUPPORT;
+    }
+    HCCL_INFO("[%s] ENTER builtin channel path, devType[%d].", __func__, static_cast<int>(devType));
+    const uint64_t len = count * SIZE_TABLE[static_cast<u32>(dataType)];
+    HcclResult ret = ch->WriteReduceWithNotify(
+        dst, src, len, static_cast<HcclDataType>(dataType), static_cast<HcclReduceOp>(reduceOp), remoteNotifyIdx);
+    if (ret != HCCL_SUCCESS && ret != HCCL_E_AGAIN) {
         HCCL_ERROR(
             "[%s] FAIL. thread[0x%llx], channel[0x%llx], dst[0x%llx], src[0x%llx], count[%llu], dataType[%d], "
             "reduceOp[%d], remoteNotifyIdx[%u].",
-            __func__, thread, channel, dst, src, count, dataType, reduceOp, remoteNotifyIdx),
-        ret);
-    HCCL_INFO("[%s] SUCCESS.", __func__);
-    return HCCL_SUCCESS;
+            __func__, thread, channel, dst, src, count, dataType, reduceOp, remoteNotifyIdx);
+    }
+    return ret;
 }
 
 int32_t HcommReadOnThread(ThreadHandle thread, ChannelHandle channel, void* dst, const void* src, uint64_t len)

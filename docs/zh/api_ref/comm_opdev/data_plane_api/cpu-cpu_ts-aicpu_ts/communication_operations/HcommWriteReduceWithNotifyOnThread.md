@@ -38,13 +38,17 @@ int32_t HcommWriteReduceWithNotifyOnThread(ThreadHandle thread, ChannelHandle ch
 | src | 输入 | 源内存地址，使用通信域中本端rank的HCCL通信内存。 |
 | count | 输入 | 元素个数。 |
 | dataType | 输入 | 数据类型。<br>HcommDataType类型的定义请参见[HcommDataType](../../../datatype_definition/HcommDataType.md)。<br>不同产品型号支持的数据类型定义不同，详细请参见[dataType说明](#datatype说明)。|
-| reduceOp | 输入 | 归约操作类型，支持：sum、max、min。<br>HcommReduceOp类型的定义请参见[HcommReduceOp](../../../datatype_definition/HcommReduceOp.md)。 |
+| reduceOp | 输入 | 归约操作类型。AICPU_TS路径支持：sum、max、min、prod；内置Host通道路径仅支持：sum、max、min。<br>HcommReduceOp类型的定义请参见[HcommReduceOp](../../../datatype_definition/HcommReduceOp.md)。 |
 | remoteNotifyIdx | 输入 | 通信通道另一端的Notify索引。<br>取值范围：[0, [HcclChannelAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclChannelAcquire.md)接口传入的channelDescs参数中的notifyNum)。 |
 
 ### dataType说明
 
+本接口的支持范围与调用引擎相关。
+
 <!-- npu="950" id6 -->
-针对Ascend 950PR&950DT系列产品，支持的数据类型：int8、int16、int32、uint8、uint16、uint32、float16、float32、bfp16。
+针对Ascend 950PR&950DT系列产品：
+- AICPU_TS路径：支持int8、int16、int32、uint8、uint16、uint32、int64、uint64、float16、float32、float64、bfp16，以及int128、hif8、fp8e4m3、fp8e5m2、fp8e8m0（部分类型按产品形态裁剪）；归约操作支持sum、max、min、prod。
+- 内置Host通道路径（COMM_ENGINE_CPU，HostCpuRoceChannel）：支持int8、int16、int32、float16、float32、bfp16；归约操作支持sum、max、min。不满足该矩阵时返回HCCL_E_PARA。
 <!-- end id6 -->
 
 ## 返回值
@@ -54,7 +58,8 @@ int32_t：接口成功返回0，其他失败。
 ## 约束说明
 
 - 该接口需要配合[HcommChannelNotifyWaitOnThread](HcommChannelNotifyWaitOnThread.md)使用。
-- 在Ascend 950PR&950DT系列产品上，仅支持AICPU_TS模式下、在Device侧调用该接口。
+- AICPU_TS路径：在Ascend 950PR&950DT系列产品上，仅支持AICPU_TS模式下、在Device侧调用该接口。
+- 内置Host通道路径：在Ascend 950PR&950DT系列产品上，支持COMM_ENGINE_CPU（Host DPU代理线程）在Host侧调用，由HostCpuRoceChannel通过hns驱动扩展接口下发inline-reduce，需保证Host侧已加载驱动扩展库（libhrn5.so），否则返回HCCL_E_NOT_SUPPORT。
 
 - 同一个`ThreadHandle`不支持多线程并发访问。
 - 同一个`ChannelHandle`不支持多线程并发访问。
@@ -104,4 +109,19 @@ HcommWriteReduceWithNotifyOnThread(thread, channel, remoteBuffer, localBuffer, c
 uint32_t lclNotifyIdx = 0;
 uint32_t notifyTimeout = 0;
 HcommChannelNotifyWaitOnThread(thread, channel, lclNotifyIdx, notifyTimeout);
+```
+
+内置Host通道路径（COMM_ENGINE_CPU）调用示例（接续上一示例，`comm`、`channelDesc`、`remoteBuffer`、`localBuffer`、`count` 沿用上方定义）：
+
+```c
+// 申请COMM_ENGINE_CPU的线程与通道资源
+CommEngine engine = CommEngine::COMM_ENGINE_CPU;
+ThreadHandle thread;
+HcclThreadAcquire(comm, engine, 1, 1, &thread);
+ChannelHandle channel;
+HcclChannelAcquire(comm, engine, &channelDesc, 1, &channel);
+
+// Host侧直接下发inline-reduce写（支持的dataType/reduceOp矩阵见“dataType说明”）
+uint32_t rmtNotifyIdx = 0;
+HcommWriteReduceWithNotifyOnThread(thread, channel, remoteBuffer, localBuffer, count, HCOMM_DATA_TYPE_FP32, HCOMM_REDUCE_SUM, rmtNotifyIdx);
 ```

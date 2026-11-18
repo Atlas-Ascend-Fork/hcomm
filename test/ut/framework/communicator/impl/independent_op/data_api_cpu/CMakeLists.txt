@@ -15,6 +15,7 @@ set(src_to_test_list
     ut_cpu_HcommChannelNotifyWaitOnThread.cc
     ut_cpu_HcommWriteNbiOnThread.cc
     ut_cpu_HcommWriteWithNotifyNbiOnThread.cc
+    ut_cpu_HcommWriteReduceWithNotifyOnThread.cc
     ut_cpu_HcommReadNbiOnThread.cc
     ut_cpu_HcommFenceOnThread.cc
     ut_cpu_HcommChannelFenceOnThread.cc

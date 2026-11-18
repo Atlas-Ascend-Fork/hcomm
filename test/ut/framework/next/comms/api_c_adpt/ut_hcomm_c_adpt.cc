@@ -174,6 +174,12 @@ public:
     {
         return HCCL_SUCCESS;
     }
+    HcclResult WriteReduceWithNotify(
+        void* dst, const void* src, const uint64_t len, HcclDataType dataType, HcclReduceOp reduceOp,
+        const uint32_t remoteNotifyIdx) override
+    {
+        return HCCL_SUCCESS;
+    }
     HcclResult Write(void* dst, const void* src, uint64_t len) override { return HCCL_SUCCESS; }
     HcclResult Read(void* dst, const void* src, uint64_t len) override { return HCCL_SUCCESS; }
     HcclResult ChannelFence() override { return HCCL_SUCCESS; }

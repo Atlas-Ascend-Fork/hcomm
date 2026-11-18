@@ -234,6 +234,7 @@ void DpuTaskException::PrintDpuTaskContextInfo(
     HCCL_ERROR(
         "%s Task run failed, context sequence before error task is "
         "[DpuNotifyWait:DPU_NW(rank,id), DpuInlineWrite:DPU_IW(rank,id), DpuWriteWithNotify:DPU_WWN(rank,id), "
+        "DpuWriteReduceWithNotify:DPU_WRN(rank,id), "
         "DpuChannelFence:DPU_CF(rank), DpuThreadFence:DPU_TF(rank)]:",
         stageErrInfo.c_str());
 

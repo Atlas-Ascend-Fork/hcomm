@@ -40,6 +40,18 @@ public:
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;
     HcclResult GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, char*** memInfos) override;
     ChannelStatus GetStatus() override;
+    HcclResult WriteReduceWithNotify(
+        void* dst, const void* src, const uint64_t len, HcclDataType dataType, HcclReduceOp reduceOp,
+        const uint32_t remoteNotifyIdx) override
+    {
+        (void)dst;
+        (void)src;
+        (void)len;
+        (void)dataType;
+        (void)reduceOp;
+        (void)remoteNotifyIdx;
+        return HCCL_E_NOT_SUPPORT;
+    }
 
     std::shared_ptr<hccl::Transport> GetTransport() { return transport_; }
 

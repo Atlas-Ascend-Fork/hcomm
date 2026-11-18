@@ -176,6 +176,7 @@ struct DfxTaskInfo {
             case TaskParamTypeVal::TASK_UB_REDUCE_INLINE:
             case TaskParamTypeVal::TASK_WRITE_REDUCE_WITH_NOTIFY:
             case TaskParamTypeVal::TASK_REDUCE_INLINE:
+            case TaskParamTypeVal::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY:
                 result += taskPara.Reduce.Describe();
                 break;
             case TaskParamTypeVal::TASK_SDMA:

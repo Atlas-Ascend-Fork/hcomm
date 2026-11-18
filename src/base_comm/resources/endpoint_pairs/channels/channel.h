@@ -206,6 +206,11 @@ public:
     virtual HcclResult NotifyRecord(const uint32_t remoteNotifyIdx);
     virtual HcclResult NotifyWait(const uint32_t localNotifyIdx, const uint32_t timeout);
     virtual HcclResult WriteWithNotify(void* dst, const void* src, const uint64_t len, uint32_t remoteNotifyIdx);
+    // DPU 代理线程场景下数据面 inline-reduce 写语义：远端 reduce 写并携带 notify。
+    // 默认不支持，由具备该能力的通道（如 HostCpuRoceChannel）重写。
+    virtual HcclResult WriteReduceWithNotify(
+        void* dst, const void* src, const uint64_t len, HcclDataType dataType, HcclReduceOp reduceOp,
+        const uint32_t remoteNotifyIdx);
     virtual HcclResult Write(void* dst, const void* src, uint64_t len);
     virtual HcclResult Read(void* dst, const void* src, uint64_t len);
     virtual HcclResult ChannelFence();

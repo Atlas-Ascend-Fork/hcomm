@@ -10,6 +10,7 @@
 
 #include "common/cast_utils_pub.h"
 #include "host_cpu_roce_channel.h"
+#include "ibv_ext_post_send_abi.h"
 #include "endpoint.h"
 #include "dpu_notify/dpu_notify_manager.h"
 #include "base_comm_node_accessors.h"
@@ -36,6 +37,7 @@
 #include "dfx/prof_utils_pub.h"
 #include "user_remote_mem_getter.h"
 #include "env_config/env_config_v2.h"
+#include "hccl_dl.h"
 
 namespace hcomm {
 constexpr u32 MEM_BLOCK_SIZE = 128;
@@ -43,6 +45,112 @@ constexpr u32 SEND_RQE_COUNT = 16;
 constexpr u32 DEFAULT_NOTIFY_WAIT_TIMEOUT_S = 30; // NotifyWait超时默认值（单位：秒）
 
 namespace {
+    // notify record 的 immediate 编码：低 24bit 为 notify 偏移，bit24 置位表示 record 语义
+    constexpr uint32_t WRITE_NOTIFY_OFFSET_MASK = 0xffffff;
+    constexpr uint32_t WRITE_NOTIFY_VALUE_RECORD = 0x1000000;
+
+    // reduce 数据类型/操作映射非法值
+    constexpr uint8_t REDUCE_MAPPING_INVALID = 0xFF;
+
+// 以下 inline-reduce 的 opcode 宏取自 RoCE 驱动 ULD 接口 ibv_ext_post_send。
+// 扩展属性结构体与函数指针类型统一由 ibv_ext_post_send_abi.h 定义，并含 sizeof 静态断言。
+#define ROCE_WR_OVERLAY_INLINE_REDUCE_OP 1
+#define ROCE_WR_OPCODE_OVERLAY_OFFSET 8
+#define ROCE_WR_OPCODE_OVERLAY_SET(overlay_op) ((overlay_op) << ROCE_WR_OPCODE_OVERLAY_OFFSET)
+
+#define ROCE_WR_INLINE_REDUCE_OVER_WRITE \
+    (ROCE_WR_OPCODE_OVERLAY_SET(ROCE_WR_OVERLAY_INLINE_REDUCE_OP) | IBV_WR_RDMA_WRITE)
+#define ROCE_WR_INLINE_REDUCE_OVER_WRITE_WITH_IMM \
+    (ROCE_WR_OPCODE_OVERLAY_SET(ROCE_WR_OVERLAY_INLINE_REDUCE_OP) | IBV_WR_RDMA_WRITE_WITH_IMM)
+
+    using IbvExtPostSendFunc = ibvExtPostSend::PostSendFunc;
+
+    // RoCE 驱动 ULD 扩展库，需先 dlopen 再 dlsym 取扩展接口符号，
+    // 避免对驱动库产生链接期硬依赖（加载方式与 dl_ibverbs_function.c 的 RsOpenHrnSo 保持一致）。
+    constexpr const char* IBV_EXTEND_LIB_NAME = "libhrn5.so";
+
+    // 懒加载 RoCE 驱动扩展接口 ibv_ext_post_send，进程内仅加载一次。
+    // 本函数在逐 WR 下发路径上被高频调用，日志只在首次加载时打一次，避免热路径刷屏
+    IbvExtPostSendFunc GetIbvExtPostSendFunc()
+    {
+        static IbvExtPostSendFunc extPostSend = []() -> IbvExtPostSendFunc {
+            void* handle = HcclDlopen(IBV_EXTEND_LIB_NAME, RTLD_NOW | RTLD_GLOBAL);
+            if (handle == nullptr) {
+                HCCL_WARNING(
+                    "[HostCpuRoceChannel] HcclDlopen[%s] doesn't exist, inline-reduce is unavailable.",
+                    IBV_EXTEND_LIB_NAME);
+                return nullptr;
+            }
+
+            void* symbol = HcclDlsym(handle, "ibv_ext_post_send");
+            if (symbol == nullptr) {
+                HCCL_ERROR("[HostCpuRoceChannel] HcclDlsym[ibv_ext_post_send] is null.");
+                (void)HcclDlclose(handle);
+                return nullptr;
+            }
+            HCCL_INFO("[HostCpuRoceChannel] ibv_ext_post_send is available.");
+            return reinterpret_cast<IbvExtPostSendFunc>(symbol);
+        }();
+        return extPostSend;
+    }
+
+    // HcclDataType -> 硬件 reduce 数据类型映射表（对齐 RDMA_REDUCE_DATA_TYPE_TABLE）
+    constexpr std::pair<HcclDataType, uint8_t> REDUCE_DATA_TYPE_TABLE[] = {
+        {HCCL_DATA_TYPE_INT8, 0}, {HCCL_DATA_TYPE_INT16, 1}, {HCCL_DATA_TYPE_INT32, 2},
+        {HCCL_DATA_TYPE_FP16, 6}, {HCCL_DATA_TYPE_FP32, 7},  {HCCL_DATA_TYPE_BFP16, 8},
+    };
+
+    uint8_t MapReduceDataType(HcclDataType dataType)
+    {
+        for (const auto& entry : REDUCE_DATA_TYPE_TABLE) {
+            if (entry.first == dataType) {
+                return entry.second;
+            }
+        }
+        return REDUCE_MAPPING_INVALID;
+    }
+
+    // HcclReduceOp -> 硬件 reduce 操作映射表。
+    // 本表为 Ascend950 DPU 硬件的 reduce op 编码：MAX=0x8/MIN=0x9/SUM=0xA，已与驱动侧确认。
+    // 注意与 legacy 侧 RDMA_REDUCE_OP_TYPE_TABLE（MAX=0/MIN=1/SUM=2，见
+    // src/legacy/ascend910/platform/resource/transport/host/transport_ibverbs_pub.h）不一致：
+    // 两代硬件编码不同，虽同经 ibv_ext_post_send 的 ext_attr.reduce_op 下发，但不可直接复用。
+    constexpr std::pair<HcclReduceOp, uint8_t> REDUCE_OP_TYPE_TABLE[] = {
+        {HCCL_REDUCE_SUM, 0xA},
+        {HCCL_REDUCE_MAX, 0x8},
+        {HCCL_REDUCE_MIN, 0x9},
+    };
+
+    uint8_t MapReduceOpType(HcclReduceOp reduceOp)
+    {
+        for (const auto& entry : REDUCE_OP_TYPE_TABLE) {
+            if (entry.first == reduceOp) {
+                return entry.second;
+            }
+        }
+        return REDUCE_MAPPING_INVALID;
+    }
+
+    // 硬件 reduce 数据类型 -> 元素字节数映射表，用于按元素对齐切分传输，避免跨 WR 撕裂元素
+    constexpr std::pair<uint8_t, uint32_t> REDUCE_ELEM_SIZE_TABLE[] = {
+        {0, 1}, // INT8
+        {1, 2}, // INT16
+        {2, 4}, // INT32
+        {6, 2}, // FP16
+        {7, 4}, // FP32
+        {8, 2}, // BF16
+    };
+
+    uint32_t GetReduceElemSize(uint8_t mappedReduceType)
+    {
+        for (const auto& entry : REDUCE_ELEM_SIZE_TABLE) {
+            if (entry.first == mappedReduceType) {
+                return entry.second;
+            }
+        }
+        return 0;
+    }
+
     // 整型上取整除法 ceil(dividend / divisor)，divisor 必须非 0
     constexpr uint64_t DivCeil(uint64_t dividend, uint64_t divisor)
     {
@@ -513,7 +621,9 @@ HcclResult HostCpuRoceChannel::NotifyWait(const uint32_t localNotifyIdx, const u
                     (void)ReportDfxTaskEnd(taskParam, true);
                     return ReportWcStatusError(wc.status);
                 }
-                if (wc.imm_data != dpuNotifyId) {
+                // 对端 imm_data 低 24bit 为 notifyId、bit24 为 record 标志位；按 notifyId 位域比较，
+                // 兼容 write-with-notify（不带标志）与 inline-reduce write-with-notify（带标志）两种来源
+                if ((wc.imm_data & WRITE_NOTIFY_OFFSET_MASK) != (dpuNotifyId & WRITE_NOTIFY_OFFSET_MASK)) {
                     HCCL_ERROR(
                         "[HostCpuRoceChannel::%s] polled cq unexpected. imm_data[%u] != dpuNotifyId[%u], "
                         "qpInfo[%u].qp->qp_num[%u], qp_state[%u]=[%u], remoteInfo{server[%u], deviceId[%u], "
@@ -523,7 +633,14 @@ HcclResult HostCpuRoceChannel::NotifyWait(const uint32_t localNotifyIdx, const u
                     (void)ReportDfxTaskEnd(taskParam, true);
                     return HCCL_E_NETWORK;
                 }
-                HCCL_INFO("[%s::%s] poll cq success", channelClassName_, __func__);
+                HCCL_INFO(
+                    "[%s::%s] poll cq success. actualNum[%d], qpInfo[%u].qp->qp_num[%u], wc.status[%d], "
+                    "wc.opcode[%d], wc.imm_data[0x%x], wc.byteLen[%u], wc.wrId[%llu], wc.wcFlags[%u], wc.sl[%u], "
+                    "localNotifyIdx[%u], dpuNotifyId[%u], qp_state[%u]=[%u], remoteInfo{server[%u], deviceId[%u], "
+                    "deviceIp[%s]}",
+                    channelClassName_, __func__, actualNum, i, qpInfo[i].qp->qp_num, wc.status, wc.opcode, wc.imm_data,
+                    wc.byte_len, wc.wr_id, wc.wc_flags, wc.sl, localNotifyIdx, dpuNotifyId, i, qpInfo[i].qp->state,
+                    remote_.ep.loc.device.serverIdx, remote_.ep.loc.device.devPhyId, remoteIp.GetIpStr().c_str());
                 break;
             }
 
@@ -1712,6 +1829,303 @@ HcclResult HostCpuRoceChannel::PrepareNotifyWrResource(
     taskParam.taskPara.DMA.notifyValue = 1;
     taskParam.taskPara.DMA.linkType = Hccl::DfxLinkType::ROCE;
     taskParam.taskPara.DMA.dmaOp = Hccl::DmaOp::HCCL_DMA_WRITE;
+    return HCCL_SUCCESS;
+}
+
+HcclResult HostCpuRoceChannel::PrepareReduceWrResource(
+    const void* dst, const void* src, const uint64_t len, const bool withNotify, const uint32_t dpuNotifyId,
+    const size_t localIdx, const size_t rmtIdx, struct ibv_send_wr& reduceWr) const
+{
+    CHK_PRT_RET(
+        len > UINT32_MAX, HCCL_ERROR("[HostCpuRoceChannel::%s] the len[%llu] exceeds the size of u32.", __func__, len),
+        HCCL_E_PARA);
+
+    reduceWr.sg_list->addr = ReinterpretAs<uint64_t>(src); // 本端起始地址
+    reduceWr.sg_list->length = static_cast<uint32_t>(len);
+    reduceWr.sg_list->lkey = localRmaBuffers_[localIdx]->GetLkey(); // 本端的访问秘钥
+
+    // inline-reduce write 的 opcode 定义见文件头部（取自 RoCE 驱动 ULD 接口）
+    reduceWr.opcode = static_cast<ibv_wr_opcode>(
+        withNotify ? ROCE_WR_INLINE_REDUCE_OVER_WRITE_WITH_IMM : ROCE_WR_INLINE_REDUCE_OVER_WRITE);
+    // 同一 QP 内 WR 天然保序，中间片无需完成通知；只有携带 notify 的尾片置 SIGNALED|FENCE，
+    // 逐片置标志会让 CQE 数随分片数线性增长，放大 WaitForWqeCompletion 的轮询开销
+    reduceWr.send_flags = withNotify ? static_cast<int>(IBV_SEND_SIGNALED | IBV_SEND_FENCE) : 0;
+    reduceWr.next = nullptr;
+    reduceWr.num_sge = 1;
+    reduceWr.wr_id = 0;
+    // 字节序由驱动 ibv_ext_post_send 内部统一转换，此处只做位域打包
+    reduceWr.imm_data = withNotify ? ((dpuNotifyId & WRITE_NOTIFY_OFFSET_MASK) | WRITE_NOTIFY_VALUE_RECORD) : 0;
+    reduceWr.wr.rdma.rkey = rmtRmaBuffers_[rmtIdx]->GetRkey();
+    reduceWr.wr.rdma.remote_addr = ReinterpretAs<uint64_t>(dst);
+    return HCCL_SUCCESS;
+}
+
+HcclResult HostCpuRoceChannel::PostReduceOp(const ReduceOpCtx& ctx)
+{
+    // elemSize 为 0 时下方除法会先触发异常，校验必须前移
+    CHK_PRT_RET(
+        ctx.elemSize == 0, HCCL_ERROR("[HostCpuRoceChannel::%s] elemSize is 0, invalid reduce param.", ctx.caller),
+        HCCL_E_PARA);
+    // 单 WR 长度按元素对齐，避免把一个 reduce 元素拆到两个 WR
+    const uint64_t maxReduceChunk = (maxMsgSize_ / ctx.elemSize) * ctx.elemSize;
+    CHK_PRT_RET(
+        maxReduceChunk == 0,
+        HCCL_ERROR(
+            "[HostCpuRoceChannel::%s] maxMsgSize_[%llu] is smaller than elemSize[%llu].", ctx.caller, maxMsgSize_,
+            ctx.elemSize),
+        HCCL_E_INTERNAL);
+
+    // 调用方保证 len > 0（len 为 0 在 WriteReduceWithNotify 参数校验中已拦截）
+    const uint64_t wrNum = DivCeil(ctx.len, maxReduceChunk);
+
+    for (uint64_t i = 0; i < wrNum; ++i) {
+        const uint64_t offset = i * maxReduceChunk;
+        const uint64_t wrLen = std::min(maxReduceChunk, ctx.len - offset);
+        const bool isTail = (i + 1 == wrNum);
+
+        struct ibv_send_wr reduceWr {};
+        struct ibv_sge sgList {};
+        reduceWr.sg_list = &sgList;
+        CHK_RET(PrepareReduceWrResource(
+            static_cast<const char*>(ctx.remoteAddr) + offset, static_cast<const char*>(ctx.localAddr) + offset, wrLen,
+            isTail, ctx.dpuNotifyId, ctx.localIdx, ctx.rmtIdx, reduceWr));
+
+        const PostExtAttr extAttr{ctx.mappedReduceOp, ctx.mappedReduceType, isTail};
+        HcclResult sendRet = PostAndCheckSendExt(ctx.qpRef.qp, ctx.qpRef.idx, ctx.caller, reduceWr, extAttr);
+        if (sendRet != HCCL_SUCCESS) {
+            if (sendRet == HCCL_E_AGAIN) {
+                HCCL_WARNING("[%s::%s] call trace: hcclRet -> %d", channelClassName_, ctx.caller, sendRet);
+            } else {
+                HCCL_ERROR("[%s::%s] call trace: hcclRet -> %d", channelClassName_, ctx.caller, sendRet);
+            }
+            return sendRet;
+        }
+        ctx.anyPosted = true;
+        HCCL_DEBUG(
+            "[HostCpuRoceChannel::%s] SUCCESS. qpIdx[%u], offset[0x%llx], wrLen[0x%llx], isTail[%d].", __func__,
+            ctx.qpRef.idx, offset, wrLen, static_cast<int>(isTail));
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult HostCpuRoceChannel::WriteReduceWithNotify(
+    void* dst, const void* src, const uint64_t len, const HcclDataType dataType, const HcclReduceOp reduceOp,
+    const uint32_t remoteNotifyIdx)
+{
+    CHK_PTR_NULL(src);
+    CHK_PTR_NULL(dst);
+
+    const std::vector<Hccl::QpInfo> qpInfo = GetQpInfos();
+    uint32_t dpuNotifyId = 0;
+    CHK_RET(CheckWriteReducePrecondition(__func__, qpInfo, remoteNotifyIdx, dpuNotifyId));
+
+    // 映射并校验 reduce 数据类型/操作；长度需按元素大小对齐，非法参数直接返回
+    uint8_t mappedReduceType = 0;
+    uint8_t mappedReduceOp = 0;
+    uint32_t elemSize = 0;
+    CHK_RET(MapAndCheckReduceParam(__func__, dataType, reduceOp, len, mappedReduceType, mappedReduceOp, elemSize));
+
+    // 整段 [src, len)/[dst, len) 必须在同一个已注册 buffer 内，循环前一次性校验，
+    // 避免部分分片已下发后才因 buffer 归属失败（残留 WR 未 drain 且 notify 缺失）
+    size_t localIdx = 0;
+    size_t rmtIdx = 0;
+    CHK_RET(FindLocalBuffer(ReinterpretAs<uint64_t>(src), len, localIdx));
+    CHK_RET(FindRemoteBuffer(ReinterpretAs<uint64_t>(dst), len, rmtIdx));
+
+    // 整个 write-reduce-with-notify 任务只上报一次 DFX
+    Hccl::TaskParam taskParam = BuildWriteReduceTaskParam(dst, src, len, dpuNotifyId, reduceOp, dataType);
+    const HcclResult ret = PostWriteReduceChunks(
+        __func__, qpInfo, src, dst, len, elemSize, mappedReduceOp, mappedReduceType, dpuNotifyId, localIdx, rmtIdx);
+    (void)ReportDfxTaskEnd(taskParam, ret != HCCL_SUCCESS);
+    return ret;
+}
+
+HcclResult HostCpuRoceChannel::CheckWriteReducePrecondition(
+    const char* caller, const std::vector<Hccl::QpInfo>& qpInfo, const uint32_t remoteNotifyIdx,
+    uint32_t& dpuNotifyId) const
+{
+    CHK_PRT_RET(
+        maxMsgSize_ == 0, HCCL_ERROR("[HostCpuRoceChannel::%s] maxMsgSize_ is 0, channel not initialized", caller),
+        HCCL_E_INTERNAL);
+    CHK_PRT_RET(qpInfo.empty(), HCCL_ERROR("[HostCpuRoceChannel::%s] qpInfos is Empty", caller), HCCL_E_ROCE_CONNECT);
+    CHK_PRT_RET(
+        isHybridMode_,
+        HCCL_ERROR("[HostCpuRoceChannel::%s] hybrid mode does not support write-reduce-with-notify.", caller),
+        HCCL_E_NOT_SUPPORT);
+    CHK_PRT_RET(
+        localRmaBuffers_.empty(), HCCL_ERROR("[HostCpuRoceChannel::%s] localRmaBuffer is Empty", caller),
+        HCCL_E_ROCE_CONNECT);
+    CHK_PRT_RET(
+        rmtRmaBuffers_.empty(), HCCL_ERROR("[HostCpuRoceChannel::%s] rmtRmaBuffers is Empty", caller),
+        HCCL_E_ROCE_CONNECT);
+    CHK_PRT_RET(
+        remoteNotifyIdx >= remoteDpuNotifyIds_.size(),
+        HCCL_ERROR(
+            "[HostCpuRoceChannel::%s] remoteNotifyIdx[%u] out of the range of remoteDpuNotifyIds_[%zu].", caller,
+            remoteNotifyIdx, remoteDpuNotifyIds_.size()),
+        HCCL_E_PARA);
+    dpuNotifyId = remoteDpuNotifyIds_[remoteNotifyIdx];
+    return HCCL_SUCCESS;
+}
+
+HcclResult HostCpuRoceChannel::MapAndCheckReduceParam(
+    const char* caller, const HcclDataType dataType, const HcclReduceOp reduceOp, const uint64_t len,
+    uint8_t& mappedReduceType, uint8_t& mappedReduceOp, uint32_t& elemSize) const
+{
+    mappedReduceType = MapReduceDataType(dataType);
+    mappedReduceOp = MapReduceOpType(reduceOp);
+    elemSize = GetReduceElemSize(mappedReduceType);
+    CHK_PRT_RET(
+        elemSize == 0 || mappedReduceOp == REDUCE_MAPPING_INVALID || len == 0 || (len % elemSize) != 0,
+        HCCL_ERROR(
+            "[HostCpuRoceChannel::%s] invalid reduce param, dataType[%d], reduceOp[%d], len[%llu], elemSize[%u].",
+            caller, dataType, reduceOp, len, elemSize),
+        HCCL_E_PARA);
+    const uint64_t maxReduceChunk = (maxMsgSize_ / elemSize) * elemSize; // 按元素对齐的单块最大长度
+    CHK_PRT_RET(
+        maxReduceChunk == 0,
+        HCCL_ERROR(
+            "[HostCpuRoceChannel::%s] maxMsgSize_[%llu] is smaller than elemSize[%u].", caller, maxMsgSize_, elemSize),
+        HCCL_E_INTERNAL);
+    return HCCL_SUCCESS;
+}
+
+Hccl::TaskParam HostCpuRoceChannel::BuildWriteReduceTaskParam(
+    void* dst, const void* src, const uint64_t len, const uint32_t dpuNotifyId, const HcclReduceOp reduceOp,
+    const HcclDataType dataType) const
+{
+    Hccl::TaskParam taskParam{};
+    taskParam.beginTime = hcomm::GetProfCycleTime();
+    taskParam.taskType = Hccl::TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY;
+    taskParam.taskPara.Reduce.src = src;
+    taskParam.taskPara.Reduce.dst = dst;
+    taskParam.taskPara.Reduce.size = len;
+    taskParam.taskPara.Reduce.notifyID = dpuNotifyId;
+    taskParam.taskPara.Reduce.notifyValue = 1;
+    taskParam.taskPara.Reduce.linkType = Hccl::DfxLinkType::ROCE;
+    taskParam.taskPara.Reduce.reduceOp = reduceOp;
+    taskParam.taskPara.Reduce.dataType = dataType;
+    return taskParam;
+}
+
+HcclResult HostCpuRoceChannel::PostWriteReducePerQp(
+    const char* caller, const QpRef& qpRef, const void* localAddr, void* remoteAddr, const uint64_t chunkLen,
+    const uint32_t elemSize, const uint8_t mappedReduceOp, const uint8_t mappedReduceType, const uint32_t dpuNotifyId,
+    const size_t localIdx, const size_t rmtIdx, bool& anyPosted)
+{
+    if (chunkLen != 0) {
+        // 第二级切片：本 QP 内按 maxReduceChunk 切分，尾片携带 notify
+        ReduceOpCtx ctx{caller,           qpRef,       localAddr, remoteAddr, chunkLen, elemSize, mappedReduceOp,
+                        mappedReduceType, dpuNotifyId, localIdx,  rmtIdx,     anyPosted};
+        return PostReduceOp(ctx);
+    }
+    // 分配不到数据的 QP 改走普通 WRITE_WITH_IMM（原始 opcode），只传递 notify；整段 len==0 已在前置校验返回
+    const HcclResult sendRet
+        = PostRdmaMemOp(caller, IBV_WR_RDMA_WRITE_WITH_IMM, qpRef, localAddr, remoteAddr, 0, dpuNotifyId);
+    if (sendRet == HCCL_SUCCESS) {
+        anyPosted = true;
+    }
+    return sendRet;
+}
+
+HcclResult HostCpuRoceChannel::PostWriteReduceChunks(
+    const char* caller, const std::vector<Hccl::QpInfo>& qpInfo, const void* localAddr, void* remoteAddr,
+    const uint64_t len, const uint32_t elemSize, const uint8_t mappedReduceOp, const uint8_t mappedReduceType,
+    const uint32_t dpuNotifyId, const size_t localIdx, const size_t rmtIdx)
+{
+    // 第一级切片：每个 QP 承担 max(qpThreshold, ceil(len/qpNum)) 的数据量，按元素上取整对齐；
+    // 若此处向下取整，各 QP 容量之和可能小于 len，尾部数据被静默丢弃（notify 却已下发），
+    // 因此必须上取整到元素边界，保证 qpNum * chunkElemsPerQp * elemSize >= len。
+    // 分配不到数据的 QP 仍下发空 WR（携带 notify），保证每个 QP 都能收到一次 notify
+    const uint64_t chunkSizePerQp
+        = std::max(static_cast<uint64_t>(channelDesc_.roceAttr.qpThreshold), DivCeil(len, qpInfo.size()));
+    const uint64_t chunkElemsPerQp = std::max<uint64_t>(1, DivCeil(chunkSizePerQp, elemSize));
+    uint64_t offset = 0;
+    // inline-reduce 不是幂等操作：一旦有 WR 成功下发，后续失败不能再向上返回 E_AGAIN，
+    // 否则上层重放会对同一区间重复规约并重复递增 notify
+    bool anyPosted = false;
+    for (uint32_t i = 0; i < qpInfo.size(); ++i) {
+        const uint64_t chunkLen = std::min(chunkElemsPerQp * elemSize, len - offset);
+        const QpRef qpRef{i, qpInfo[i].qp};
+        const HcclResult sendRet = PostWriteReducePerQp(
+            caller, qpRef, static_cast<const char*>(localAddr) + offset, static_cast<char*>(remoteAddr) + offset,
+            chunkLen, elemSize, mappedReduceOp, mappedReduceType, dpuNotifyId, localIdx, rmtIdx, anyPosted);
+        if (sendRet != HCCL_SUCCESS) {
+            if (sendRet == HCCL_E_AGAIN && anyPosted) {
+                HCCL_ERROR(
+                    "[%s::%s] post send returns HCCL_E_AGAIN after partial WRs posted, "
+                    "inline-reduce is not replayable, return HCCL_E_NETWORK. qpIdx[%u], offset[0x%llx].",
+                    channelClassName_, caller, i, offset);
+                return HCCL_E_NETWORK;
+            }
+            return sendRet;
+        }
+        offset += chunkLen;
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult HostCpuRoceChannel::ExtPostSend(
+    struct ibv_qp* qp, struct ibv_send_wr& wr, uint8_t mappedReduceOp, uint8_t mappedReduceType,
+    struct ibv_send_wr** badWr, int& driverRet)
+{
+    IbvExtPostSendFunc extPostSend = GetIbvExtPostSendFunc();
+    if (extPostSend == nullptr) {
+        return HCCL_E_NOT_SUPPORT;
+    }
+
+    ibvExtPostSend::ExtAttr extAttr{};
+    extAttr.reduceOp = mappedReduceOp;
+    extAttr.reduceType = mappedReduceType;
+    driverRet = extPostSend(qp, &wr, badWr, &extAttr);
+    return HCCL_SUCCESS;
+}
+
+HcclResult HostCpuRoceChannel::PostAndCheckSendExt(
+    struct ibv_qp* qp, const uint32_t qpIdx, const char* caller, struct ibv_send_wr& wr, const PostExtAttr& attr)
+{
+    // 本函数按 WR 逐个调用，日志保持 DEBUG，避免大消息分片时 INFO 洪泛
+    HCCL_DEBUG(
+        "[HostCpuRoceChannel::%s] ENTER. caller[%s], qpIdx[%u], mappedReduceOp[%u], mappedReduceType[%u].", __func__,
+        caller, qpIdx, static_cast<unsigned int>(attr.reduceOp), static_cast<unsigned int>(attr.reduceType));
+    struct ibv_send_wr* badWr = nullptr;
+    s32 ret = 0;
+    HcclResult callRet = ExtPostSend(qp, wr, attr.reduceOp, attr.reduceType, &badWr, ret);
+    CHK_PRT_RET(
+        callRet != HCCL_SUCCESS, HCCL_ERROR("[HostCpuRoceChannel::%s] ibv_ext_post_send is not available.", caller),
+        callRet);
+
+    HCCL_DEBUG(
+        "[HostCpuRoceChannel::%s] ibv_ext_post_send ret[%d], caller[%s], qpIdx[%u].", __func__, ret, caller, qpIdx);
+    if (ret != 0 && badWr == nullptr) {
+        HCCL_ERROR("[HostCpuRoceChannel::%s] ibv_ext_post_send failed while badWr is nullptr", caller);
+        return HCCL_E_INTERNAL;
+    }
+    CHK_PRT_RET(
+        ret == ENOMEM,
+        HCCL_WARNING(
+            "[HostCpuRoceChannel::%s] post send wqe overflow. ret:%d, "
+            "badWr->wr_id[%llu], badWr->sg_list->addr[%llu], badWr->wr.rdma.remote_addr[%llu]",
+            caller, ret, badWr->wr_id, badWr->sg_list->addr, badWr->wr.rdma.remote_addr),
+        HCCL_E_AGAIN);
+    CHK_PRT_RET(
+        ret != 0,
+        HCCL_ERROR(
+            "[HostCpuRoceChannel::%s] ibv_ext_post_send failed. ret:%d, "
+            "badWr->wr_id[%llu], badWr->sg_list->addr[%llu], badWr->wr.rdma.remote_addr[%llu], reduceOp[%u], "
+            "reduceType[%u]",
+            caller, ret, badWr->wr_id, badWr->sg_list->addr, badWr->wr.rdma.remote_addr, attr.reduceOp,
+            attr.reduceType),
+        HCCL_E_NETWORK);
+    // 只有置了 SIGNALED 的 WR 才产生 CQE，wqeNums_ 必须与 CQE 数保持一致
+    if (!attr.signaled) {
+        return HCCL_SUCCESS;
+    }
+    CHK_PRT_RET(
+        wqeNums_[qpIdx] == INT32_MAX,
+        HCCL_ERROR("[HostCpuRoceChannel::%s] wqeNums_[%u] has reached the maximum value of uint32_t.", caller, qpIdx),
+        HCCL_E_INTERNAL);
+    wqeNums_[qpIdx]++;
     return HCCL_SUCCESS;
 }
 

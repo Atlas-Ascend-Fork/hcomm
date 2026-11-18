@@ -148,6 +148,71 @@ int CaptureIbvPostSendStub(
     g_capturedPosts.push_back(std::move(post));
     return 0;
 }
+
+// ==================== WriteReduceWithNotify 逐片捕获 ====================
+struct CapturedExtPost {
+    struct ibv_qp* qp{nullptr};
+    uint32_t qpIdx{0};
+    uint8_t reduceOp{0};
+    uint8_t reduceType{0};
+    ibv_send_wr wr{};
+    ibv_sge sge{};
+    bool signaled{false};
+};
+std::vector<CapturedExtPost> g_capturedExtPosts;
+// 1-based 下标控制第几次 ibv_ext_post_send 下发失败；-1 表示不注入失败
+int g_extFailAtPost{-1};
+HcclResult g_extFailRet{HCCL_E_NETWORK};
+// 直接放行驱动扩展下发的桩捕获，用于覆盖真实 PostAndCheckSendExt 的 wqeNums_ 记账
+struct CapturedExtSend {
+    ibv_send_wr wr{};
+    uint8_t reduceOp{0};
+    uint8_t reduceType{0};
+};
+std::vector<CapturedExtSend> g_capturedExtSends;
+
+HcclResult CapturePostAndCheckSendExtStub(
+    HostCpuRoceChannel* channel, struct ibv_qp* qp, uint32_t qpIdx, const char* caller, struct ibv_send_wr& wr,
+    const HostCpuRoceChannel::PostExtAttr& attr)
+{
+    (void)channel;
+    (void)caller;
+    CapturedExtPost post;
+    post.qp = qp;
+    post.qpIdx = qpIdx;
+    post.reduceOp = attr.reduceOp;
+    post.reduceType = attr.reduceType;
+    post.signaled = attr.signaled;
+    post.wr = wr;
+    post.sge = *wr.sg_list;
+    // 浅拷贝后指针指向生产栈帧，置空避免长期持有悬垂指针；断言只用 sge 的独立拷贝
+    post.wr.sg_list = nullptr;
+    post.wr.next = nullptr;
+    g_capturedExtPosts.push_back(post);
+    if (g_extFailAtPost == static_cast<int>(g_capturedExtPosts.size())) {
+        return g_extFailRet;
+    }
+    return HCCL_SUCCESS;
+}
+
+// 驱动扩展接口桩：直接返回成功，使真实 PostAndCheckSendExt 执行到 wqeNums_ 记账
+HcclResult CaptureExtPostSendStub(
+    HostCpuRoceChannel* channel, struct ibv_qp* qp, struct ibv_send_wr& wr, uint8_t mappedReduceOp,
+    uint8_t mappedReduceType, struct ibv_send_wr** badWr, int& driverRet)
+{
+    (void)channel;
+    (void)qp;
+    (void)badWr;
+    CapturedExtSend send;
+    send.wr = wr;
+    send.wr.sg_list = nullptr;
+    send.wr.next = nullptr;
+    send.reduceOp = mappedReduceOp;
+    send.reduceType = mappedReduceType;
+    g_capturedExtSends.push_back(send);
+    driverRet = 0;
+    return HCCL_SUCCESS;
+}
 } // namespace
 
 // 拆拍 I* 成功桩：mockcpp returnValue 不写引用出参，须 invoke 显式回填进度
@@ -260,6 +325,11 @@ protected:
         channelDesc.memHandles = &memHandle_;
         channelDesc.memHandleNum = 1;
         channelDesc.exchangeAllMems = false;
+        g_capturedPosts.clear();
+        g_capturedExtPosts.clear();
+        g_capturedExtSends.clear();
+        g_extFailAtPost = -1;
+        g_extFailRet = HCCL_E_NETWORK;
     }
 
     virtual void TearDown()
@@ -1237,6 +1307,482 @@ TEST_F(HostCpuRoceChannelTest, Ut_WriteWithNotify_When_LenExceedsMaxWriteSize_Ex
     EXPECT_EQ(g_capturedPosts[2].wrs[0].opcode, IBV_WR_RDMA_WRITE_WITH_IMM);
     EXPECT_EQ(g_capturedPosts[2].wrs[0].imm_data, 1u);
     EXPECT_EQ(g_capturedPosts[2].wrs[0].send_flags, static_cast<int>(IBV_SEND_SIGNALED | IBV_SEND_FENCE));
+}
+
+// ==================== WriteReduceWithNotify UT Test Cases ====================
+
+// 参数校验：未 Init（maxMsgSize_ == 0）→ HCCL_E_INTERNAL
+TEST_F(HostCpuRoceChannelTest, Ut_WriteReduceWithNotify_When_MaxWriteSizeIsZero_Expect_HCCL_E_INTERNAL)
+{
+    DevType devType = DevType::DEV_TYPE_950;
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
+    // construct,不调用 Init,maxMsgSize_ 保持默认值 0
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    EXPECT_EQ(impl_->maxMsgSize_, 0u);
+    EXPECT_EQ(
+        impl_->WriteReduceWithNotify((void*)0x2, (void*)0x1, 32, HCCL_DATA_TYPE_FP32, HCCL_REDUCE_SUM, 0),
+        HCCL_E_INTERNAL);
+}
+
+// 参数校验：src 为空 → HCCL_E_PTR
+TEST_F(HostCpuRoceChannelTest, Ut_WriteReduceWithNotify_When_SrcIsNull_Expect_HCCL_E_PTR)
+{
+    DevType devType = DevType::DEV_TYPE_950;
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    EXPECT_EQ(
+        impl_->WriteReduceWithNotify((void*)0x2, nullptr, 32, HCCL_DATA_TYPE_FP32, HCCL_REDUCE_SUM, 0), HCCL_E_PTR);
+}
+
+// 参数校验：dst 为空 → HCCL_E_PTR
+TEST_F(HostCpuRoceChannelTest, Ut_WriteReduceWithNotify_When_DstIsNull_Expect_HCCL_E_PTR)
+{
+    DevType devType = DevType::DEV_TYPE_950;
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    EXPECT_EQ(
+        impl_->WriteReduceWithNotify(nullptr, (void*)0x1, 32, HCCL_DATA_TYPE_FP32, HCCL_REDUCE_SUM, 0), HCCL_E_PTR);
+}
+
+// 参数校验：qpInfos 为空 → HCCL_E_ROCE_CONNECT
+TEST_F(HostCpuRoceChannelTest, Ut_WriteReduceWithNotify_When_QpInfosEmpty_Expect_HCCL_E_ROCE_CONNECT)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    std::vector<Hccl::QpInfo> emptyQpInfos;
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(emptyQpInfos));
+    EXPECT_EQ(
+        impl_->WriteReduceWithNotify((void*)0x2, (void*)0x1, 32, HCCL_DATA_TYPE_FP32, HCCL_REDUCE_SUM, 0),
+        HCCL_E_ROCE_CONNECT);
+}
+
+// 参数校验：hybrid 模式 → HCCL_E_NOT_SUPPORT
+TEST_F(HostCpuRoceChannelTest, Ut_WriteReduceWithNotify_When_HybridMode_Expect_HCCL_E_NOT_SUPPORT)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    MockGetQpInfos(1);
+    impl_->isHybridMode_ = true;
+    EXPECT_EQ(
+        impl_->WriteReduceWithNotify((void*)0x2, (void*)0x1, 32, HCCL_DATA_TYPE_FP32, HCCL_REDUCE_SUM, 0),
+        HCCL_E_NOT_SUPPORT);
+}
+
+// 参数校验：rmtRmaBuffers_ 为空 → HCCL_E_ROCE_CONNECT
+TEST_F(HostCpuRoceChannelTest, Ut_WriteReduceWithNotify_When_RmtBuffersEmpty_Expect_HCCL_E_ROCE_CONNECT)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    MockGetQpInfos(1);
+    impl_->localRmaBuffers_.clear();
+    impl_->localRmaBuffers_.emplace_back(localRdmaRmaBuffer.get());
+    impl_->rmtRmaBuffers_.clear();
+    impl_->remoteDpuNotifyIds_ = {0};
+    EXPECT_EQ(
+        impl_->WriteReduceWithNotify((void*)0x2, (void*)0x1, 32, HCCL_DATA_TYPE_FP32, HCCL_REDUCE_SUM, 0),
+        HCCL_E_ROCE_CONNECT);
+}
+
+// 参数校验：remoteNotifyIdx 越界 → HCCL_E_PARA
+TEST_F(HostCpuRoceChannelTest, Ut_WriteReduceWithNotify_When_RemoteNotifyIdxOutOfRange_Expect_HCCL_E_PARA)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    MockGetQpInfos(1);
+    impl_->rmtRmaBuffers_.emplace_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->remoteDpuNotifyIds_ = {0};
+    EXPECT_EQ(
+        impl_->WriteReduceWithNotify((void*)0x2, (void*)0x1, 32, HCCL_DATA_TYPE_FP32, HCCL_REDUCE_SUM, 5), HCCL_E_PARA);
+}
+
+// 参数校验：不支持的 dataType（FP64 不在 reduce 映射表）→ HCCL_E_PARA
+TEST_F(HostCpuRoceChannelTest, Ut_WriteReduceWithNotify_When_UnsupportedDataType_Expect_HCCL_E_PARA)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    MockGetQpInfos(1);
+    impl_->rmtRmaBuffers_.emplace_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->remoteDpuNotifyIds_ = {0};
+    EXPECT_EQ(
+        impl_->WriteReduceWithNotify((void*)0x2, (void*)0x1, 32, HCCL_DATA_TYPE_FP64, HCCL_REDUCE_SUM, 0), HCCL_E_PARA);
+}
+
+// 参数校验：不支持的 reduceOp（PROD 不在 reduce 映射表）→ HCCL_E_PARA
+TEST_F(HostCpuRoceChannelTest, Ut_WriteReduceWithNotify_When_UnsupportedReduceOp_Expect_HCCL_E_PARA)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    MockGetQpInfos(1);
+    impl_->rmtRmaBuffers_.emplace_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->remoteDpuNotifyIds_ = {0};
+    EXPECT_EQ(
+        impl_->WriteReduceWithNotify((void*)0x2, (void*)0x1, 32, HCCL_DATA_TYPE_FP32, HCCL_REDUCE_PROD, 0),
+        HCCL_E_PARA);
+}
+
+// 参数校验：len 未按元素大小对齐（FP32 elem=4, len=30）→ HCCL_E_PARA
+TEST_F(HostCpuRoceChannelTest, Ut_WriteReduceWithNotify_When_LenNotElementAligned_Expect_HCCL_E_PARA)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    MockGetQpInfos(1);
+    impl_->rmtRmaBuffers_.emplace_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->remoteDpuNotifyIds_ = {0};
+    EXPECT_EQ(
+        impl_->WriteReduceWithNotify((void*)0x2, (void*)0x1, 30, HCCL_DATA_TYPE_FP32, HCCL_REDUCE_SUM, 0), HCCL_E_PARA);
+}
+
+// 正常分片下发：len = 252B(FP32) > maxMsgSize_=100 → 100 + 100 + 52 三片
+// 校验每片的 qpIdx/opcode/imm/sge.addr/sge.length/remote_addr 与 ext_attr，仅尾片携带 notify
+TEST_F(HostCpuRoceChannelTest, Ut_WriteReduceWithNotify_When_LenExceedsMaxWriteSize_Expect_SlicingPerWr)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxMsgSize_ = 100;
+    impl_->remoteDpuNotifyIds_ = {0};
+
+    // 使用真实注册的本地 buffer，移除 FindLocalBuffer/FindRemoteBuffer 打桩
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    ASSERT_GE(bufInfo.second, 253u);
+    const uint64_t remoteAddr = 0x100000;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = remoteAddr;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(1);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::PostAndCheckSendExt).stubs().will(invoke(CapturePostAndCheckSendExtStub));
+
+    ASSERT_EQ(
+        impl_->WriteReduceWithNotify(
+            reinterpret_cast<void*>(remoteAddr), reinterpret_cast<void*>(localAddr), 252, HCCL_DATA_TYPE_FP32,
+            HCCL_REDUCE_SUM, 0),
+        HCCL_SUCCESS);
+
+    ASSERT_EQ(g_capturedExtPosts.size(), 3u);
+    const uint64_t expectLens[3] = {100, 100, 52};
+    const uint64_t expectOffsets[3] = {0, 100, 200};
+    for (uint32_t i = 0; i < 3; ++i) {
+        const auto& post = g_capturedExtPosts[i];
+        EXPECT_EQ(post.qp, qpInfos[0].qp);
+        EXPECT_EQ(post.qpIdx, 0u);
+        // FP32 → reduceType 7；SUM → reduceOp 0xA
+        EXPECT_EQ(post.reduceType, 7u);
+        EXPECT_EQ(post.reduceOp, 0xAu);
+        EXPECT_EQ(post.sge.length, expectLens[i]);
+        EXPECT_EQ(post.sge.addr, localAddr + expectOffsets[i]);
+        EXPECT_EQ(post.wr.wr.rdma.remote_addr, remoteAddr + expectOffsets[i]);
+        EXPECT_EQ(post.wr.num_sge, 1u);
+        // inline-reduce opcode：bit8 为 inline-reduce 语义位，低 8bit 保留原始 RDMA opcode
+        const bool isTail = (i == 2);
+        // 同 QP 内 WR 保序，中间片无需完成通知；只有携带 notify 的尾片置 SIGNALED|FENCE 并产生 CQE
+        EXPECT_EQ(post.signaled, isTail);
+        EXPECT_EQ(post.wr.send_flags, isTail ? static_cast<int>(IBV_SEND_SIGNALED | IBV_SEND_FENCE) : 0);
+        EXPECT_EQ(
+            static_cast<uint32_t>(post.wr.opcode),
+            (1u << 8) | static_cast<uint32_t>(isTail ? IBV_WR_RDMA_WRITE_WITH_IMM : IBV_WR_RDMA_WRITE));
+        EXPECT_EQ(post.wr.imm_data, isTail ? 0x01000000u : 0u);
+    }
+}
+
+// 中间片不置 SIGNALED、不产生 CQE，wqeNums_ 只按尾片记账；
+// 此处只打桩驱动调用点，真实 PostAndCheckSendExt 执行，可覆盖 signaled=false 早退分支
+TEST_F(HostCpuRoceChannelTest, Ut_WriteReduceWithNotify_When_MultiSlices_Expect_WqeNumsCountedOnlyForTail)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxMsgSize_ = 100;
+    impl_->remoteDpuNotifyIds_ = {0};
+    impl_->wqeNums_ = {0};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    ASSERT_GE(bufInfo.second, 253u);
+    const uint64_t remoteAddr = 0x100000;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = remoteAddr;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(1);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::ExtPostSend).stubs().will(invoke(CaptureExtPostSendStub));
+
+    ASSERT_EQ(
+        impl_->WriteReduceWithNotify(
+            reinterpret_cast<void*>(remoteAddr), reinterpret_cast<void*>(localAddr), 252, HCCL_DATA_TYPE_FP32,
+            HCCL_REDUCE_SUM, 0),
+        HCCL_SUCCESS);
+
+    // 252B / 单 WR 100B = 3 片，真实 PostAndCheckSendExt 逐片执行
+    ASSERT_EQ(g_capturedExtSends.size(), 3u);
+    for (uint32_t i = 0; i < 3; ++i) {
+        const bool isTail = (i == 2);
+        EXPECT_EQ(
+            g_capturedExtSends[i].wr.send_flags, isTail ? static_cast<int>(IBV_SEND_SIGNALED | IBV_SEND_FENCE) : 0);
+        // FP32 → reduceType 7；SUM → reduceOp 0xA，校验 PostExtAttr 透传到驱动参数
+        EXPECT_EQ(g_capturedExtSends[i].reduceType, 7u);
+        EXPECT_EQ(g_capturedExtSends[i].reduceOp, 0xAu);
+    }
+    // 仅尾片产生 CQE；中间片若被误置 SIGNALED，会累加为 3
+    EXPECT_EQ(impl_->wqeNums_[0], 1u);
+}
+
+// 多 QP 且 len 不是 qpNum*elemSize 整数倍：每 QP 容量必须上取整到元素边界，
+// 否则尾部元素被静默丢弃（notify 却已下发）。len=252B/FP32/2 QP → QP0 128B、QP1 124B
+TEST_F(HostCpuRoceChannelTest, Ut_WriteReduceWithNotify_When_TwoQpsAndLenNotAligned_Expect_AllBytesPosted)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxMsgSize_ = 4096;
+    impl_->channelDesc_.roceAttr.qpThreshold = 0;
+    impl_->wqeNums_ = {0, 0};
+    impl_->remoteDpuNotifyIds_ = {0};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    ASSERT_GE(bufInfo.second, 253u);
+    const uint64_t localAddr = bufInfo.first + 1;
+    const uint64_t remoteAddr = 0x100000;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = remoteAddr;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(2);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    qpInfos[1].qp = reinterpret_cast<struct ibv_qp*>(0x2001);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::PostAndCheckSendExt).stubs().will(invoke(CapturePostAndCheckSendExtStub));
+
+    EXPECT_EQ(
+        impl_->WriteReduceWithNotify(
+            reinterpret_cast<void*>(remoteAddr), reinterpret_cast<void*>(localAddr), 252, HCCL_DATA_TYPE_FP32,
+            HCCL_REDUCE_SUM, 0),
+        HCCL_SUCCESS);
+
+    // ceil(252/2)=126B → 上取整到 128B；QP0 128B、QP1 124B，合计 252B 全部下发
+    ASSERT_EQ(g_capturedExtPosts.size(), 2u);
+    const uint64_t expectLens[2] = {128, 124};
+    const uint64_t expectOffsets[2] = {0, 128};
+    uint64_t postedTotal = 0;
+    for (uint32_t i = 0; i < 2; ++i) {
+        const auto& post = g_capturedExtPosts[i];
+        EXPECT_EQ(post.qp, qpInfos[i].qp);
+        EXPECT_EQ(post.qpIdx, i);
+        EXPECT_EQ(post.sge.length, expectLens[i]);
+        EXPECT_EQ(post.sge.addr, localAddr + expectOffsets[i]);
+        EXPECT_EQ(post.wr.wr.rdma.remote_addr, remoteAddr + expectOffsets[i]);
+        // 每个 QP 只有一片，均作为尾片携带 notify
+        EXPECT_EQ(static_cast<uint32_t>(post.wr.opcode), (1u << 8) | static_cast<uint32_t>(IBV_WR_RDMA_WRITE_WITH_IMM));
+        EXPECT_EQ(post.wr.imm_data, 0x01000000u);
+        postedTotal += post.sge.length;
+    }
+    EXPECT_EQ(postedTotal, 252u);
+}
+
+// 异常路径：第 2 片返回 HCCL_E_AGAIN（已有 WR 成功下发）→ inline-reduce 不可重放，转 HCCL_E_NETWORK
+TEST_F(HostCpuRoceChannelTest, Ut_WriteReduceWithNotify_When_PostExtAgainAfterPartial_Expect_Network)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxMsgSize_ = 100;
+    impl_->remoteDpuNotifyIds_ = {0};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    ASSERT_GE(bufInfo.second, 253u);
+    const uint64_t remoteAddr = 0x100000;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = remoteAddr;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(1);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::PostAndCheckSendExt).stubs().will(invoke(CapturePostAndCheckSendExtStub));
+    g_extFailAtPost = 2;
+    g_extFailRet = HCCL_E_AGAIN;
+
+    Hccl::TaskParam capturedParam{};
+    uint32_t callbackCount = 0;
+    impl_->SetDfxCallback([&capturedParam, &callbackCount](const Hccl::TaskParam& param, u64) -> HcclResult {
+        capturedParam = param;
+        ++callbackCount;
+        return HCCL_SUCCESS;
+    });
+    // UT 环境 prof 未初始化时 GetProfCycleTime 返回 0，桩非 0 时间戳用于校验 DFX endTime
+    MOCKER(hcomm::GetProfCycleTime).stubs().will(returnValue(static_cast<uint64_t>(0x1234)));
+
+    EXPECT_EQ(
+        impl_->WriteReduceWithNotify(
+            reinterpret_cast<void*>(remoteAddr), reinterpret_cast<void*>(localAddr), 252, HCCL_DATA_TYPE_FP32,
+            HCCL_REDUCE_SUM, 0),
+        HCCL_E_NETWORK);
+    // 第 1 片成功、第 2 片失败，后续分片不再下发
+    EXPECT_EQ(g_capturedExtPosts.size(), 2u);
+    EXPECT_EQ(callbackCount, 1u);
+    EXPECT_TRUE(capturedParam.isFailed);
+    EXPECT_NE(capturedParam.endTime, 0u);
+    EXPECT_EQ(capturedParam.taskType, Hccl::TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY);
+}
+
+// 异常路径：第 1 片即返回 HCCL_E_AGAIN（尚无 WR 下发）→ 原样透传，交给上层重试
+TEST_F(HostCpuRoceChannelTest, Ut_WriteReduceWithNotify_When_PostExtAgainBeforeAnyPost_Expect_Again)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxMsgSize_ = 100;
+    impl_->remoteDpuNotifyIds_ = {0};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    ASSERT_GE(bufInfo.second, 253u);
+    const uint64_t remoteAddr = 0x100000;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = remoteAddr;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(1);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::PostAndCheckSendExt).stubs().will(invoke(CapturePostAndCheckSendExtStub));
+    g_extFailAtPost = 1;
+    g_extFailRet = HCCL_E_AGAIN;
+
+    EXPECT_EQ(
+        impl_->WriteReduceWithNotify(
+            reinterpret_cast<void*>(remoteAddr), reinterpret_cast<void*>(localAddr), 252, HCCL_DATA_TYPE_FP32,
+            HCCL_REDUCE_SUM, 0),
+        HCCL_E_AGAIN);
+    EXPECT_EQ(g_capturedExtPosts.size(), 1u);
+}
+
+// 异常路径：PostAndCheckSendExt 返回非 EAGAIN 错误（HCCL_E_NETWORK）时错误码透传
+TEST_F(HostCpuRoceChannelTest, Ut_WriteReduceWithNotify_When_PostExtFails_Expect_ErrorPropagated)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxMsgSize_ = 100;
+    impl_->remoteDpuNotifyIds_ = {0};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    const uint64_t remoteAddr = 0x100000;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = remoteAddr;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(1);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::PostAndCheckSendExt).stubs().will(invoke(CapturePostAndCheckSendExtStub));
+    g_extFailAtPost = 1;
+    g_extFailRet = HCCL_E_NETWORK;
+
+    EXPECT_EQ(
+        impl_->WriteReduceWithNotify(
+            reinterpret_cast<void*>(remoteAddr), reinterpret_cast<void*>(localAddr), 32, HCCL_DATA_TYPE_FP32,
+            HCCL_REDUCE_SUM, 0),
+        HCCL_E_NETWORK);
+}
+
+// len==0 属于非法参数：在参数校验中直接拦截，不下发任何 WR
+TEST_F(HostCpuRoceChannelTest, Ut_WriteReduceWithNotify_When_LenZero_Expect_ParaError)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxMsgSize_ = 4096;
+    impl_->channelDesc_.roceAttr.qpThreshold = 0;
+    impl_->wqeNums_ = {0, 0};
+    impl_->remoteDpuNotifyIds_ = {3};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    const uint64_t remoteAddr = 0x100000;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = remoteAddr;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(2);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    qpInfos[1].qp = reinterpret_cast<struct ibv_qp*>(0x2001);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::IbvPostSend).stubs().will(invoke(CaptureIbvPostSendStub));
+    g_capturedPosts.clear();
+
+    EXPECT_EQ(
+        impl_->WriteReduceWithNotify(
+            reinterpret_cast<void*>(remoteAddr), reinterpret_cast<void*>(localAddr), 0, HCCL_DATA_TYPE_FP32,
+            HCCL_REDUCE_SUM, 0),
+        HCCL_E_PARA);
+
+    // 参数拦截，无任何 WR 下发、无 wqe 计数
+    EXPECT_TRUE(g_capturedPosts.empty());
+    EXPECT_EQ(impl_->wqeNums_[0], 0);
+    EXPECT_EQ(impl_->wqeNums_[1], 0);
+}
+
+// qpThreshold 大于单 QP 负载：有数据 QP 走 inline-reduce 尾片并携带 notify，
+// 无数据 QP 下发 length=0 的普通 WRITE_WITH_IMM，二者各产生 1 个 CQE
+TEST_F(HostCpuRoceChannelTest, Ut_WriteReduceWithNotify_When_QpThresholdExceedsLoad_Expect_IdleQpEmptyWr)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxMsgSize_ = 4096;
+    impl_->channelDesc_.roceAttr.qpThreshold = 1024;
+    impl_->wqeNums_ = {0, 0};
+    impl_->remoteDpuNotifyIds_ = {2};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    ASSERT_GE(bufInfo.second, 33u);
+    const uint64_t remoteAddr = 0x100000;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = remoteAddr;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(2);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    qpInfos[1].qp = reinterpret_cast<struct ibv_qp*>(0x2001);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::IbvPostSend).stubs().will(invoke(CaptureIbvPostSendStub));
+    MOCKER_CPP(&HostCpuRoceChannel::PostAndCheckSendExt).stubs().will(invoke(CapturePostAndCheckSendExtStub));
+    g_capturedPosts.clear();
+
+    // 32B/FP32 = 8 元素，qpThreshold=1024B 远大于单 QP 负载，QP1 分配不到数据
+    EXPECT_EQ(
+        impl_->WriteReduceWithNotify(
+            reinterpret_cast<void*>(remoteAddr), reinterpret_cast<void*>(localAddr), 32, HCCL_DATA_TYPE_FP32,
+            HCCL_REDUCE_SUM, 0),
+        HCCL_SUCCESS);
+
+    // QP0 有数据：1 片 inline-reduce 尾片，携带 notify
+    ASSERT_EQ(g_capturedExtPosts.size(), 1u);
+    EXPECT_EQ(g_capturedExtPosts[0].qp, qpInfos[0].qp);
+    EXPECT_EQ(g_capturedExtPosts[0].sge.length, 32u);
+    EXPECT_EQ(g_capturedExtPosts[0].wr.imm_data, 0x01000002u);
+    EXPECT_TRUE(g_capturedExtPosts[0].signaled);
+
+    // QP1 无数据：length=0 的普通 WRITE_WITH_IMM，仅传递 notify（imm 为原始 dpuNotifyId）
+    ASSERT_EQ(g_capturedPosts.size(), 1u);
+    EXPECT_EQ(g_capturedPosts[0].qp, qpInfos[1].qp);
+    ASSERT_EQ(g_capturedPosts[0].wrs.size(), 1u);
+    EXPECT_EQ(g_capturedPosts[0].wrs[0].opcode, IBV_WR_RDMA_WRITE_WITH_IMM);
+    EXPECT_EQ(g_capturedPosts[0].wrs[0].imm_data, 2u);
+    ASSERT_EQ(g_capturedPosts[0].sges.size(), 1u);
+    EXPECT_EQ(g_capturedPosts[0].sges[0].length, 0u);
+
+    // 无数据 QP 走真实 PostAndCheckSend，尾片计入 wqeNums_
+    EXPECT_EQ(impl_->wqeNums_[1], 1);
 }
 
 // WriteWithNotify: 下发失败时返回错误码，且 DFX 回调收到非 0 endTime 与 isFailed=true
@@ -2729,6 +3275,10 @@ TEST_F(HostCpuRoceChannelTest, Ut_PrepareNotifyWrResource_Success_Expect_HCCL_SU
 
     HcclResult ret = impl_->PrepareNotifyWrResource(0, 64, 0, notifyRecordWr, taskParam);
     EXPECT_EQ(ret, HCCL_SUCCESS);
+    // notify imm 为原始 dpuNotifyId（remoteDpuNotifyIds_[0] == 1）
+    EXPECT_EQ(notifyRecordWr.opcode, IBV_WR_RDMA_WRITE_WITH_IMM);
+    EXPECT_EQ(notifyRecordWr.imm_data, 1u);
+    EXPECT_EQ(notifyRecordWr.sg_list->length, 0u);
 }
 
 TEST_F(HostCpuRoceChannelTest, Ut_GetNotifyNum_Success_Expect_HCCL_SUCCESS)

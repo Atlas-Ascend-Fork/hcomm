@@ -74,6 +74,7 @@ static const std::map<TaskParamTypeVal, std::string> TASK_PARAM_TYPE_NAME_MAP = 
     {TaskParamTypeVal::TASK_DPU_INLINE_WRITE, "Dpu_Notify_Record"},
     {TaskParamTypeVal::TASK_DPU_NOTIFY_WAIT, "Dpu_Notify_Wait"},
     {TaskParamTypeVal::TASK_DPU_WRITE_WITH_NOTIFY, "Dpu_Write_With_Notify"},
+    {TaskParamTypeVal::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY, "Dpu_Write_Reduce_With_Notify"},
     {TaskParamTypeVal::TASK_CCORE_NOTIFY_WAIT, "CCore_Wait"},
     {TaskParamTypeVal::TASK_CCORE_NOTIFY_RECORD, "CCore_Record"},
 };
@@ -375,6 +376,7 @@ void DfxProfilingHandlerLite::GetTaskDetailInfosFromDfxTaskInfo(
             FillSdmaRdmaDetail(it, taskDetailsInfos);
             break;
         case TaskParamTypeVal::TASK_REDUCE_INLINE:
+        case TaskParamTypeVal::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY:
             FillReduceInlineDetail(it, taskDetailsInfos);
             break;
         case TaskParamTypeVal::TASK_UB:

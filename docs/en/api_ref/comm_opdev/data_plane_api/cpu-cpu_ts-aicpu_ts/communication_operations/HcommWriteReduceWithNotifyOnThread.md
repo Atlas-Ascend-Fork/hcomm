@@ -50,14 +50,18 @@ int32_t HcommWriteReduceWithNotifyOnThread(ThreadHandle thread, ChannelHandle ch
 | **src** | Input | Source memory address. The HCCL communication memory of the local rank in the communicator is used. |
 | **count** | Input | Number of elements. |
 | **dataType** | Input | Data type.<br>For the definition of the HcommDataType type, see [HcommDataType](../../../datatype_definition/HcommDataType.md).<br>Different product models support different data type definitions. For details, see [dataType Description](#datatype-description). |
-| **reduceOp** | Input | Reduce operation type. Supported types: sum, max, min.<br>For the definition of the HcommReduceOp type, see [HcommReduceOp](../../../datatype_definition/HcommReduceOp.md). |
+| **reduceOp** | Input | Reduce operation type. The AICPU_TS path supports sum, max, min, and prod; the built-in Host channel path supports only sum, max, and min.<br>For the definition of the HcommReduceOp type, see [HcommReduceOp](../../../datatype_definition/HcommReduceOp.md). |
 | **remoteNotifyIdx** | Input | Notify index of the other end of the communication channel.<br>Value range: [0, notifyNum in the channelDescs parameter passed to [HcclChannelAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclChannelAcquire.md)). |
 
 ### dataType Description
 
+The supported range of this API depends on the calling engine.
+
 <!-- npu="950" id6 -->
 
-For the Ascend 950PR&950DT products, the supported data types are **int8**, **int16**, **int32**, **uint8**, **uint16**, **uint32**, **float16**, **float32**, and **bfp16**.
+For the Ascend 950PR&950DT products:
+- AICPU_TS path: supports int8, int16, int32, uint8, uint16, uint32, int64, uint64, float16, float32, float64, and bfp16, as well as int128, hif8, fp8e4m3, fp8e5m2, and fp8e8m0 (some types are trimmed by product form); reduce operations support sum, max, min, and prod.
+- Built-in Host channel path (COMM_ENGINE_CPU, HostCpuRoceChannel): supports int8, int16, int32, float16, float32, and bfp16; reduce operations support sum, max, and min. `HCCL_E_PARA` is returned when the matrix is not satisfied.
 
 <!-- end id6 -->
 
@@ -69,7 +73,9 @@ For the Ascend 950PR&950DT products, the supported data types are **int8**, **in
 
 This API must be used together with [HcommChannelNotifyWaitOnThread](HcommChannelNotifyWaitOnThread.md).
 
-On the Ascend 950PR&950DT products, this API can be called only in AICPU_TS mode and on the device side.
+AICPU_TS path: on the Ascend 950PR&950DT products, this API can be called only in AICPU_TS mode and on the device side.
+
+Built-in Host channel path: on the Ascend 950PR&950DT products, this API can be called on the host side in COMM_ENGINE_CPU mode (host DPU proxy thread). `HostCpuRoceChannel` posts the inline-reduce through the hns driver extension interface, so the driver extension library (`libhrn5.so`) must be loaded on the host; otherwise `HCCL_E_NOT_SUPPORT` is returned.
 
 ## Example
 
@@ -116,4 +122,19 @@ HcommWriteReduceWithNotifyOnThread(thread, channel, remoteBuffer, localBuffer, c
 uint32_t lclNotifyIdx = 0;
 uint32_t notifyTimeout = 0;
 HcommChannelNotifyWaitOnThread(thread, channel, lclNotifyIdx, notifyTimeout);
+```
+
+Example for the built-in Host channel path (COMM_ENGINE_CPU), continuing from the previous example with the same `comm`, `channelDesc`, `remoteBuffer`, `localBuffer`, and `count`:
+
+```c
+// Allocate thread and channel resources for COMM_ENGINE_CPU.
+CommEngine engine = CommEngine::COMM_ENGINE_CPU;
+ThreadHandle thread;
+HcclThreadAcquire(comm, engine, 1, 1, &thread);
+ChannelHandle channel;
+HcclChannelAcquire(comm, engine, &channelDesc, 1, &channel);
+
+// Post the inline-reduce write directly on the host (see "dataType Description" for the supported matrix).
+uint32_t rmtNotifyIdx = 0;
+HcommWriteReduceWithNotifyOnThread(thread, channel, remoteBuffer, localBuffer, count, HCOMM_DATA_TYPE_FP32, HCOMM_REDUCE_SUM, rmtNotifyIdx);
 ```

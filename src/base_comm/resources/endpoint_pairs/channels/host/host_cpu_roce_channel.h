@@ -41,7 +41,8 @@ class HostCpuRoceChannel final : public Channel {
 public:
     MAKE_ENUM(RdmaStatus, INIT, SOCKET_OK, CAP_EXCHANGED, QP_CREATED, DATA_EXCHANGE, QP_MODIFIED, CONN_OK)
 
-    HostCpuRoceChannel(EndpointHandle endpointHandle, HcommChannelDesc channelDesc, CommEngine engine);
+    HostCpuRoceChannel(
+        EndpointHandle endpointHandle, HcommChannelDesc channelDesc, CommEngine engine = COMM_ENGINE_RESERVED);
     ~HostCpuRoceChannel();
 
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;
@@ -60,6 +61,9 @@ public:
     HcclResult NotifyRecord(const uint32_t remoteNotifyIdx) override;
     HcclResult NotifyWait(const uint32_t localNotifyIdx, const uint32_t timeout) override;
     HcclResult WriteWithNotify(void* dst, const void* src, const uint64_t len, const uint32_t remoteNotifyIdx) override;
+    HcclResult WriteReduceWithNotify(
+        void* dst, const void* src, const uint64_t len, HcclDataType dataType, HcclReduceOp reduceOp,
+        const uint32_t remoteNotifyIdx) override;
     HcclResult Write(void* dst, const void* src, const uint64_t len) override;
     HcclResult Read(void* dst, const void* src, const uint64_t len) override;
     HcclResult ChannelFence() override;
@@ -118,6 +122,10 @@ private:
     HcclResult PrepareNotifyWrResource(
         uint32_t qpIdx, const uint64_t len, const uint32_t remoteNotifyIdx, struct ibv_send_wr& notifyRecordWr,
         Hccl::TaskParam& taskParam) const;
+    // 构造单块 inline-reduce WR，buffer 索引由 WriteReduceWithNotify 整段预校验后传入
+    HcclResult PrepareReduceWrResource(
+        const void* dst, const void* src, const uint64_t len, const bool withNotify, const uint32_t dpuNotifyId,
+        const size_t localIdx, const size_t rmtIdx, struct ibv_send_wr& reduceWr) const;
 
     // 将整段数据按 max(qpThreshold, ceil(len/qpNum)) 分配到各 QP，再由每个 QP 内部按硬件单 WR
     // 上限逐片下发。分配不到数据的 QP 仍下发空 WR，保证每个 QP 都有 CQE。
@@ -135,6 +143,46 @@ private:
     HcclResult PostRdmaMemOp(
         const char* caller, ibv_wr_opcode opcode, const QpRef& qpRef, const void* localAddr, const void* remoteAddr,
         const uint64_t len, uint32_t immData);
+    // 单次 reduce 下发的上下文，收敛 PostReduceOp 的入参
+    struct ReduceOpCtx {
+        const char* caller;
+        QpRef qpRef;
+        const void* localAddr;
+        const void* remoteAddr;
+        uint64_t len;
+        uint64_t elemSize;
+        uint8_t mappedReduceOp;
+        uint8_t mappedReduceType;
+        uint32_t dpuNotifyId;
+        size_t localIdx;
+        size_t rmtIdx;
+        // 标记本次操作是否已有 WR 成功下发（inline-reduce 不可重放）
+        bool& anyPosted;
+    };
+    // 将本 QP 上的一段 reduce 数据按硬件单 WR 上限做元素对齐切片并逐 WR 下发；
+    // 仅尾片携带 notify。
+    HcclResult PostReduceOp(const ReduceOpCtx& ctx);
+    // WriteReduceWithNotify 前置校验：通道就绪、QP/注册 buffer 非空、notify 索引合法，输出 DPU notify id
+    HcclResult CheckWriteReducePrecondition(
+        const char* caller, const std::vector<Hccl::QpInfo>& qpInfo, uint32_t remoteNotifyIdx,
+        uint32_t& dpuNotifyId) const;
+    // 映射并校验 reduce 数据类型/操作，长度需按元素大小对齐，输出映射结果与元素大小
+    HcclResult MapAndCheckReduceParam(
+        const char* caller, HcclDataType dataType, HcclReduceOp reduceOp, uint64_t len, uint8_t& mappedReduceType,
+        uint8_t& mappedReduceOp, uint32_t& elemSize) const;
+    Hccl::TaskParam BuildWriteReduceTaskParam(
+        void* dst, const void* src, uint64_t len, uint32_t dpuNotifyId, HcclReduceOp reduceOp,
+        HcclDataType dataType) const;
+    // 单个 QP 的下发：无数据时下发空 WRITE_WITH_IMM 传递 notify，否则按 maxReduceChunk 切片 reduce
+    HcclResult PostWriteReducePerQp(
+        const char* caller, const QpRef& qpRef, const void* localAddr, void* remoteAddr, uint64_t chunkLen,
+        uint32_t elemSize, uint8_t mappedReduceOp, uint8_t mappedReduceType, uint32_t dpuNotifyId, size_t localIdx,
+        size_t rmtIdx, bool& anyPosted);
+    // 第一级切片：按 QP 分配数据量并逐 QP 下发；任一 QP 失败即终止（inline-reduce 不可重放）
+    HcclResult PostWriteReduceChunks(
+        const char* caller, const std::vector<Hccl::QpInfo>& qpInfo, const void* localAddr, void* remoteAddr,
+        uint64_t len, uint32_t elemSize, uint8_t mappedReduceOp, uint8_t mappedReduceType, uint32_t dpuNotifyId,
+        size_t localIdx, size_t rmtIdx);
     void BuildRdmaWr(
         const char* caller, ibv_wr_opcode opcode, const void* localAddr, const void* remoteAddr, uint64_t len,
         size_t localIdx, size_t rmtIdx, int sendFlags, uint32_t immData, struct ibv_send_wr& wr,
@@ -142,6 +190,21 @@ private:
     // signaled 为 true 时该次 post 会产生 CQE，才计入 wqeNums_（逐 WR 下发时仅尾片计数）。
     HcclResult PostAndCheckSend(
         struct ibv_qp* qp, const uint32_t qpIdx, const char* caller, struct ibv_send_wr& wr, bool signaled = true);
+    // 单次扩展 WR 下发的属性，收敛 PostAndCheckSendExt 的入参
+    struct PostExtAttr {
+        uint8_t reduceOp;
+        uint8_t reduceType;
+        // true 表示该 WR 会产生 CQE，需要计入 wqeNums_
+        bool signaled;
+    };
+    // 通过 hns 驱动扩展接口 ibv_ext_post_send 下发带 inline-reduce 属性的 WR。
+    HcclResult PostAndCheckSendExt(
+        struct ibv_qp* qp, const uint32_t qpIdx, const char* caller, struct ibv_send_wr& wr, const PostExtAttr& attr);
+    // 驱动扩展接口的实际调用点，抽出为成员函数便于 UT 打桩；
+    // 返回 HCCL_E_NOT_SUPPORT 表示扩展库或符号不可用，driverRet 透传驱动原始返回值。
+    HcclResult ExtPostSend(
+        struct ibv_qp* qp, struct ibv_send_wr& wr, uint8_t mappedReduceOp, uint8_t mappedReduceType,
+        struct ibv_send_wr** badWr, int& driverRet);
     HcclResult FindLocalBuffer(const uint64_t addr, const uint64_t len, size_t& targetIdx) const;
     HcclResult FindRemoteBuffer(const uint64_t addr, const uint64_t len, size_t& targetIdx) const;
     HcclResult ReportWcStatusError(enum ibv_wc_status status);

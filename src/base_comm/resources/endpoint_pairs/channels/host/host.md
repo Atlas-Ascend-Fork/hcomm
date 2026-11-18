@@ -13,12 +13,12 @@ host模块是HCOMM基础通信层（`src/base_comm`）的 **Host CPU侧通道实
 **使用场景**
 
 - 上层通过`CommEngine = COMM_ENGINE_CPU`创建通道时，由`Channel::CreateChannel`按远端协议分派（源码：`src/base_comm/resources/endpoint_pairs/channels/channel.cc:461-487`）：`COMM_PROTOCOL_ROCE`创建`HostCpuRoceChannel`，`COMM_PROTOCOL_UB_CTP`/`COMM_PROTOCOL_UBC_TP`创建`HostCpuUrmaChannel`。
-- 通信域管理、算子与通信库通过`Channel`虚接口发起建链（`Init`/`GetStatus`）和数据面操作（`Write`/`Read`/`WriteWithNotify`/`NotifyRecord`/`NotifyWait`/`ChannelFence`/`ChannelDrain`）。
+- 通信域管理、算子与通信库通过`Channel`虚接口发起建链（`Init`/`GetStatus`）和数据面操作（`Write`/`Read`/`WriteWithNotify`/`WriteReduceWithNotify`/`NotifyRecord`/`NotifyWait`/`ChannelFence`/`ChannelDrain`）。
 - HIXL等需要交换全部用户内存的场景通过`channelDesc.exchangeAllMems = true`使用RoCE通道，此时本端内存句柄从Endpoint全量获取。
 
 **与周边模块的关系**
 
-- 依赖Endpoint：`CpuRoceEndpoint::GetCapabilities`提供`maxReadSize`/`maxWriteSize`/`lbMax`（源码：`src/base_comm/resources/endpoints/cpu_roce_endpoint.cc:183-193`，能力最终来自`RaRdevGetAttr`）。
+- 依赖Endpoint：`CpuRoceEndpoint::GetCapabilities`提供`maxMsgSize`/`lbMax`（源码：`src/base_comm/resources/endpoints/cpu_roce_endpoint.cc:164-191`，能力最终来自`RaRdevGetAttr`）。
 - 依赖Socket与SocketMgr：建链阶段交换QP、内存、notify描述，并完成QP改配后的同步握手。
 - 依赖HCCP RA：`RaCreateCompChannel`、`HrtRaCreateQpWithCq`、`RaSetQpAttrQos`、`RaSetQpAttrTimeout`、`RaSetQpAttrRetryCnt`、`RaGetQpAttr`、`RaTypicalQpModify`、`RaSetQpLbValue`、`HrtRaQpConnectAsync`。
 - 依赖verbs与URMA：RoCE数据面使用`ibv_post_send`/`ibv_poll_cq`；URMA数据面使用`HrtUrmaPostJettySendWr`/`HrtUrmaPollJfc`。
@@ -29,12 +29,13 @@ host模块是HCOMM基础通信层（`src/base_comm`）的 **Host CPU侧通道实
 1. 建立Host RoCE通道并推进建链状态机（socket状态、能力协商、QP创建、信息交换、QP改配）。
 2. 按QP-first两级切片实现`Write`/`Read`：先按QP划分数据，再按硬件单WR上限逐片单次下发。
 3. 实现`WriteWithNotify`：每个QP的尾片使用`IBV_WR_RDMA_WRITE_WITH_IMM`，保证对端每个QP收到一个通知。
-4. 实现`NotifyRecord`/`NotifyWait`：基于DPU notify id与CQE的`imm_data`完成通知记录与等待。
-5. 实现`ChannelFence`/`ChannelDrain`：按`wqeNums_`等待尾片CQE。
-6. 支持混合模式（Hybrid）：与`TransportIbverbs`通过`RoCECapability`协商，切换为Notify内存轮询语义。
-7. 实现Host URMA通道的`Write`/`Read`/`ChannelFence`/`ChannelDrain`与按URMA单WR上限切片。
-8. 通过`DpuNotifyManager`位图池化分配/回收DPU notify id。
-9. 通过`SetDfxCallback`/`ReportDfxTaskEnd`上报数据面任务耗时。
+4. 实现`WriteReduceWithNotify`：QP-first两级切片并按元素大小对齐，尾片通过hns驱动扩展接口`ibv_ext_post_send`下发inline-reduce WR，同时携带notify。
+5. 实现`NotifyRecord`/`NotifyWait`：原生模式基于DPU notify id与CQE的`imm_data`完成通知记录与等待；Hybrid模式基于对端notify内存轮询。
+6. 实现`ChannelFence`/`ChannelDrain`：按`wqeNums_`等待尾片CQE。
+7. 支持混合模式（Hybrid）：与`TransportIbverbs`通过`RoCECapability`协商，切换为Notify内存轮询语义。
+8. 实现Host URMA通道的`Write`/`Read`/`ChannelFence`/`ChannelDrain`与按URMA单WR上限切片。
+9. 通过`DpuNotifyManager`位图池化分配/回收DPU notify id。
+10. 通过`SetDfxCallback`/`ReportDfxTaskEnd`上报数据面任务耗时。
 
 ## 目录描述
 
@@ -147,7 +148,7 @@ sequenceDiagram
 
 ### RoCE建链状态推进（`HostCpuRoceChannel::GetStatus`）
 
-建链由调用方轮询`GetStatus`推进；`rdmaStatus_`每次调用向前推进，`DATA_EXCHANGE`会在同一次调用内经`QP_MODIFIED`直接推进到`CONN_OK`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:264-316`）。
+建链由调用方轮询`GetStatus`推进，`rdmaStatus_`每次调用向前推进一个状态（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:371-434`）。
 
 ```mermaid
 sequenceDiagram
@@ -189,13 +190,13 @@ sequenceDiagram
 
 **关键分支**
 
-- 原生模式交换数据包长度上限`MAX_EXCHANGE_DATA_SIZE = 64MB`，对端声明为0或超限时返回`HCCL_E_PARA`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:924-929`）。
-- 对端buffer数量上限`MAX_BUFFER_NUM`，超限返回`HCCL_E_PARA`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1094-1097`）。
-- 两端`connNum_`、`queueNum`必须一致，否则返回`HCCL_E_ROCE_CONNECT`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1127-1131`）。
+- 原生模式交换数据包长度上限`MAX_EXCHANGE_DATA_SIZE = 64MB`，对端声明为0或超限时返回`HCCL_E_PARA`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1052-1055`）。
+- 对端buffer数量上限`MAX_BUFFER_NUM`，超限返回`HCCL_E_PARA`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1222-1223`）。
+- 两端`connNum_`、`queueNum`必须一致，否则返回`HCCL_E_ROCE_CONNECT`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1254-1267`）。
 
 ### QP-first两级切片读写（`Write`/`Read`/`WriteWithNotify`）
 
-数据面入口统一走`PostRdmaOpAllQps`，第一级按QP划分数据，第二级在每个QP内按硬件单WR上限逐片单次下发（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:674-702`、`704-784`）。
+数据面入口统一走`PostRdmaOpAllQps`，第一级按QP划分数据，第二级在每个QP内按硬件单WR上限逐片单次下发（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:801-829`、`831-911`）。
 
 ```mermaid
 sequenceDiagram
@@ -232,11 +233,51 @@ sequenceDiagram
 
 **切片与标志规则**
 
-- 第一级：`chunkSizePerQp = max(qpThreshold, ceil(len/qpNum))`；分配不到数据的QP仍需下发一个空WR，保证每个QP都有CQE（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:688-696`）。
-- 第二级：`wrNum = (len == 0) ? 1 : DivCeil(len, maxMsgSize_)`；尾片使用入口传入的`opcode`，中间片统一为普通`IBV_WR_RDMA_WRITE`/`IBV_WR_RDMA_READ`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:743-780`）。
-- 标志位：尾片固定`IBV_SEND_SIGNALED | IBV_SEND_FENCE`；`fenceFlag_`为true时首片额外加`IBV_SEND_FENCE`；中间片无标志（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:749-755`）。
-- CQE契约：只有尾片产生CQE，`PostAndCheckSend`仅在`signaled == true`时累加`wqeNums_`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:637-672`）。
-- `len == 0`：通道已初始化（`maxMsgSize_`非0）时`Write`/`Read`直接返回成功，不产生WR/CQE，也不清`fenceFlag_`；上限为0时返回`HCCL_E_INTERNAL`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:786-816`）；`WriteWithNotify`的`len == 0`仍按每QP空WR下发。
+- 第一级：`chunkSizePerQp = max(qpThreshold, ceil(len/qpNum))`；分配不到数据的QP仍需下发一个空WR，保证每个QP都有CQE（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:811-816`）。
+- 第二级：`wrNum = (len == 0) ? 1 : DivCeil(len, maxMsgSize_)`；尾片使用入口传入的`opcode`，中间片统一为普通`IBV_WR_RDMA_WRITE`/`IBV_WR_RDMA_READ`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:864-905`）。
+- 标志位：尾片固定`IBV_SEND_SIGNALED | IBV_SEND_FENCE`；`fenceFlag_`为true时首片额外加`IBV_SEND_FENCE`；中间片无标志（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:876-881`）。
+- CQE契约：只有尾片产生CQE，`PostAndCheckSend`仅在`signaled == true`时累加`wqeNums_`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:762-800`）。
+- `len == 0`：通道已初始化（`maxMsgSize_`非0）时`Write`/`Read`直接返回成功，不产生WR/CQE，也不清`fenceFlag_`；上限为0时返回`HCCL_E_INTERNAL`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:913-944`）；`WriteWithNotify`的`len == 0`仍按每QP空WR下发。
+- `imm_data`编码（仅原生模式的notify WR）：`WriteWithNotify`/`WriteReduceWithNotify`/`NotifyRecord`在原生模式下携带的notify WR直接用原始`dpuNotifyId`作为`imm_data`；仅`WriteReduceWithNotify`的尾片在原始值上置bit24表示record语义（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1875`）。`NotifyWait`原生模式仅比较低24bit（忽略bit24与驱动高位）。Hybrid模式的`NotifyRecord`/`WriteWithNotify`走内存语义（普通`IBV_WR_RDMA_WRITE`写对端notify内存），不携带immediate。
+
+### inline-reduce 写（`WriteReduceWithNotify`）
+
+`WriteReduceWithNotify`在QP-first两级切片的基础上做元素对齐，并通过hns驱动扩展接口`ibv_ext_post_send`下发带inline-reduce属性的WR（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1929-2054`）。
+
+```mermaid
+sequenceDiagram
+    participant UP as 上层调用者
+    participant HR as HostCpuRoceChannel
+    participant PR as PrepareReduceWrResource
+    participant PS as PostAndCheckSendExt
+    participant VB as ibv_ext_post_send
+
+    UP->>HR: WriteReduceWithNotify(dst, src, len, dataType, reduceOp, remoteNotifyIdx)
+    HR->>HR: 校验指针/建链状态/Hybrid/reduce 映射与 len（len == 0 或 len % elemSize != 0 返回 HCCL_E_PARA）
+    HR->>HR: FindLocalBuffer 与 FindRemoteBuffer 整段预校验
+    HR->>HR: chunkSizePerQp = max(qpThreshold, ceil(len/qpNum))，按元素上取整
+    loop 每个 QP
+        alt 本 QP 无数据
+            HR->>HR: 复用 PostRdmaMemOp 下发空 WRITE_WITH_IMM（仅传 notify）
+        else 有数据
+            loop 本 QP 内按 maxReduceChunk 切片
+                HR->>PR: PrepareReduceWrResource(..., withNotify = isTail)
+                HR->>PS: PostAndCheckSendExt(...)
+                PS->>VB: ibv_ext_post_send(qp, wr, extAttr{reduce_op, reduce_type})
+                PS->>PS: wqeNums_[qpIdx]++（仅尾片置 SIGNALED）
+            end
+        end
+    end
+    HR-->>UP: HCCL_SUCCESS（失败时整任务上报一次 DFX 并返回错误）
+```
+
+**inline-reduce 规则**
+
+- 切片：第一级每QP承担`max(qpThreshold, ceil(len/qpNum))`字节，并按`elemSize`上取整到元素边界，保证各QP容量之和覆盖全部`len`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:2001-2003`）；第二级在本QP内按`maxReduceChunk = (maxMsgSize_ / elemSize) * elemSize`切片（源码：`...:1888-1926`）。
+- opcode：中间片为`IBV_WR_RDMA_WRITE`，尾片为`IBV_WR_RDMA_WRITE_WITH_IMM`，两者的bit8同时置inline-reduce语义位；`reduce_op`/`reduce_type`经`ibv_post_send_ext_attr`传入驱动（源码：`...:1853-1878`、`...:2055-2111`）。
+- 完成标志：仅尾片（`withNotify == true`）置`IBV_SEND_SIGNALED | IBV_SEND_FENCE`并计入`wqeNums_`，中间片无完成标志、不计入，保证`wqeNums_`与CQE数一致（源码：`...:1870`、`...:2107-2115`）。
+- 不可重放：只要已有WR成功下发，后续`HCCL_E_AGAIN`统一转为`HCCL_E_NETWORK`，避免上层重放导致同一区间重复规约与重复递增notify（源码：`...:2038-2045`）。
+- 驱动依赖：`ibv_ext_post_send`按`libhrn5.so`懒加载（`RTLD_NOW | RTLD_GLOBAL`），库缺失时返回`HCCL_E_NOT_SUPPORT`（源码：`...:84-105`）。
 
 ### 通知记录与等待（`NotifyRecord`/`NotifyWait`）
 
@@ -275,14 +316,14 @@ sequenceDiagram
     else 原生模式
         loop 每个 QP
             HR->>RCQ: ibv_poll_cq(recvCq, 1)
-            Note right of HR: 校验 wc.status 与 wc.imm_data == dpuNotifyId
+            Note right of HR: 校验 wc.status，且 (wc.imm_data & 0xffffff) == (dpuNotifyId & 0xffffff)
         end
         HR->>VB: IbvPostRecv() 补充 RQE
     end
 ```
 
-- `NotifyRecord`：原生模式WR为`IBV_WR_RDMA_WRITE_WITH_IMM`、`send_flags = IBV_SEND_SIGNALED`、`length = 0`、`imm_data`为远端DPU notify id（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1683-1724`（`PrepareNotifyWrResource`））；Hybrid模式WR为`IBV_WR_RDMA_WRITE`、长度取自`localMemMsg_[NOTIFY_SRC_MEM]`（非0），由`BuildNotifyWrHybird`构造（源码：`...:1380-1396`）。
-- `NotifyWait`原生模式按QP轮询`recvCq`，CQE的`imm_data`必须等于`dpuNotifyId`；超时时间在`timeout > 5`时减5秒（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:435-539`）。
+- 原生模式下`NotifyRecord`的WR为`IBV_WR_RDMA_WRITE_WITH_IMM`，`send_flags = IBV_SEND_SIGNALED`、`length = 0`，`imm_data`为远端DPU notify id原始值（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:498-552`（`NotifyRecord`本体）、原生模式 WR 构造见 `...:1810-1852`（`PrepareNotifyWrResource`））。Hybrid模式下`NotifyRecord`由`...:1507-1525`（`BuildNotifyWrHybird`）构造普通`IBV_WR_RDMA_WRITE`写入对端notify内存（长度取自`localMemMsg_[NOTIFY_SRC_MEM]`，非0），不携带immediate。
+- `NotifyWait`原生模式按QP轮询`recvCq`，CQE的`imm_data`低24bit必须等于`dpuNotifyId`的低24bit（`(wc.imm_data & 0xffffff) == (dpuNotifyId & 0xffffff)`，忽略bit24 record标志与驱动高位）；超时时间在`timeout > 5`时减5秒（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:553-667`）。
 
 ### 完成等待（`ChannelFence`/`ChannelDrain`）
 
@@ -315,8 +356,8 @@ sequenceDiagram
     HR->>HR: ChannelFence 成功时置 fenceFlag_ = true
 ```
 
-- `ChannelDrain`只等待并返回`WaitForWqeCompletion`的结果（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:834-846`）。
-- `WaitForWqeCompletion`的超时取`ExecTimeOut`减5秒（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1764-1787`）。
+- `ChannelDrain`只等待并返回`WaitForWqeCompletion`的结果（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:961-974`）。
+- `WaitForWqeCompletion`的超时取`ExecTimeOut`减5秒（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:2172-2175`）。
 
 ### Hybrid模式建链与数据面
 
@@ -347,7 +388,7 @@ sequenceDiagram
 ```
 
 - 能力协商结构`RoCECapability`使用魔数`EXCHANGE_DATA_MAGIC = 0x48434C52`、版本`ROCE_CAPABILITY_VERSION = 1`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/exchange_data_format.h:22-24`、`45-125`）。
-- Hybrid模式仅使用`connections_[0]`（单QP）；`WriteWithNotifyHybrid`一次下发data+notify两条WR（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1399-1474`）。
+- Hybrid模式仅使用`connections_[0]`（单QP）；`WriteWithNotifyHybrid`一次下发data+notify两条WR（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1526-1602`）。
 
 ### URMA数据面（`HostCpuUrmaChannel::Write`/`Read`）
 
@@ -373,8 +414,8 @@ sequenceDiagram
     HU->>UJ: HrtUrmaPollJfc(jfc, wqeNum_) 直到 wqeNum_ == 0 或超时
 ```
 
-- URMA切片上限来自`devBaseAttr_.maxWriteSize`/`maxReadSize`；`len == 0`或上限为0返回`HCCL_E_PARA`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_urma_channel.cc:243-250`）。
-- `ChannelFence`在`wqeNum_ == 0`时直接返回成功，否则等待完成后置`fenceFlag_ = true`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_urma_channel.cc:160-171`）。
+- URMA切片上限来自`devBaseAttr_.maxWriteSize`/`maxReadSize`；`len == 0`或上限为0返回`HCCL_E_PARA`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_urma_channel.cc:255-268`）。
+- `ChannelFence`在`wqeNum_ == 0`时直接返回成功，否则等待完成后置`fenceFlag_ = true`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_urma_channel.cc:172-189`）。
 - URMA数据面只使用`connections_[0]`的jetty与CQ（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_urma_channel.cc:203-244`、`312-358`）。
 
 ### DPU notify id分配与回收（`DpuNotifyManager`）
@@ -414,6 +455,7 @@ classDiagram
         +Write(void*, const void*, uint64_t) HcclResult
         +Read(void*, const void*, uint64_t) HcclResult
         +WriteWithNotify(void*, const void*, uint64_t, uint32_t) HcclResult
+        +WriteReduceWithNotify(void*, const void*, uint64_t, HcclDataType, HcclReduceOp, uint32_t) HcclResult
         +NotifyRecord(uint32_t) HcclResult
         +NotifyWait(uint32_t, uint32_t) HcclResult
         +ChannelFence() HcclResult
@@ -436,13 +478,17 @@ classDiagram
         +Write() HcclResult
         +Read() HcclResult
         +WriteWithNotify() HcclResult
+        +WriteReduceWithNotify() HcclResult
         +NotifyRecord() HcclResult
         +NotifyWait() HcclResult
         +ChannelFence() HcclResult
         +ChannelDrain() HcclResult
         -PostRdmaOpAllQps() HcclResult
         -PostRdmaMemOp() HcclResult
+        -PrepareReduceWrResource() HcclResult
+        -PostReduceOp(ReduceOpCtx) HcclResult
         -PostAndCheckSend() HcclResult
+        -PostAndCheckSendExt() HcclResult
         -WaitForWqeCompletion() HcclResult
     }
 
@@ -541,6 +587,7 @@ classDiagram
 | `HostCpuRoceChannel::Write` | `host_cpu_roce_channel.h` | 上层通信库 | QP-first两级切片写 |
 | `HostCpuRoceChannel::Read` | `host_cpu_roce_channel.h` | 上层通信库 | QP-first两级切片读 |
 | `HostCpuRoceChannel::WriteWithNotify` | `host_cpu_roce_channel.h` | 上层通信库 | 写数据并在每QP尾片携带立即数通知 |
+| `HostCpuRoceChannel::WriteReduceWithNotify` | `host_cpu_roce_channel.h` | 上层通信库 | 写数据并在每QP尾片携带立即数通知，对端按inline-reduce累加 |
 | `HostCpuRoceChannel::NotifyRecord` | `host_cpu_roce_channel.h` | 上层通信库 | 向对端记录DPU notify |
 | `HostCpuRoceChannel::NotifyWait` | `host_cpu_roce_channel.h` | 上层通信库 | 等待本地DPU notify |
 | `HostCpuRoceChannel::ChannelFence`/`ChannelDrain` | `host_cpu_roce_channel.h` | 上层通信库 | 等待已计数尾片CQE |
@@ -559,6 +606,7 @@ classDiagram
 | `Read` | 公有（对外） | [out] `dst`、[in] `src`、[in] `len` | `HcclResult` | `len==0`且通道已初始化时直接成功（上限为0返回`HCCL_E_INTERNAL`）；否则按`maxMsgSize_`两级切片下发READ |
 | `Write` | 公有（对外） | [in] `dst`、[in] `src`、[in] `len` | `HcclResult` | `len==0`且通道已初始化时直接成功（上限为0返回`HCCL_E_INTERNAL`）；否则按`maxMsgSize_`两级切片下发WRITE |
 | `WriteWithNotify` | 公有（对外） | [in] `dst`、[in] `src`、[in] `len`、[in] `remoteNotifyIdx` | `HcclResult` | 每QP尾片使用`WRITE_WITH_IMM`；`len==0`且`src`/`dst`非空时按每QP空WR下发（空指针返回`HCCL_E_PTR`） |
+| `WriteReduceWithNotify` | 公有（对外） | [in] `dst`、[in] `src`、[in] `len`、[in] `dataType`、[in] `reduceOp`、[in] `remoteNotifyIdx` | `HcclResult` | QP-first两级切片并按元素对齐，尾片经`ibv_ext_post_send`下发inline-reduce WR并携带notify；分配不到数据的QP复用`PostRdmaMemOp`下发空`WRITE_WITH_IMM`（仅传notify），整段`len==0`返回`HCCL_E_PARA`；Hybrid模式、参数映射失败、`len % elemSize != 0`分别返回`HCCL_E_NOT_SUPPORT`/`HCCL_E_PARA` |
 | `NotifyRecord` | 公有（对外） | [in] `remoteNotifyIdx` | `HcclResult` | 原生模式每QP下发length=0的`WRITE_WITH_IMM`；Hybrid模式每QP下发`RDMA_WRITE`（长度取`NOTIFY_SRC_MEM`）；`ENOMEM`返回`HCCL_E_AGAIN` |
 | `NotifyWait` | 公有（对外） | [in] `localNotifyIdx`、[in] `timeout` | `HcclResult` | 原生模式轮询`recvCq`校验`imm_data`；Hybrid模式委托`NotifyWaitHybrid` |
 | `ChannelFence` | 公有（对外） | 无 | `HcclResult` | 等待尾片CQE，成功后置`fenceFlag_ = true` |
@@ -572,6 +620,10 @@ classDiagram
 | `PostRdmaOpAllQps` | 私有 | [in] `caller`、`opcode`、`localAddr`、`remoteAddr`、`len`、`immData` | `HcclResult` | 第一级按QP划分数据并逐QP调用`PostRdmaMemOp` |
 | `PostRdmaMemOp` | 私有 | [in] `caller`、`opcode`、`qpRef`、`localAddr`、`remoteAddr`、`len`、`immData` | `HcclResult` | 第二级按`maxMsgSize_`切片并逐WR下发；`qpRef`复用`PostRdmaOpAllQps`已取的QP句柄，避免每QP重复`GetQpInfos()` |
 | `PostAndCheckSend` | 私有 | [in] `qp`、`qpIdx`、`caller`、`wr`、`signaled` | `HcclResult` | 封装`ibv_post_send`；仅在`signaled`为true时累加`wqeNums_` |
+| `PrepareReduceWrResource` | 私有 | [in] `dst`、`src`、`len`、`withNotify`、`dpuNotifyId`、`localIdx`、`rmtIdx`、[out] `reduceWr` | `HcclResult` | 构造inline-reduce WR：尾片（`withNotify`）用`WRITE_WITH_IMM`并编码notify imm且置`SIGNALED\|FENCE`；中间片为普通`WRITE`、无完成标志 |
+| `PostReduceOp` | 私有 | [in] `ctx`（`ReduceOpCtx`：caller/qpRef/地址/len/elemSize/reduce映射/notifyId/buffer索引/anyPosted） | `HcclResult` | 在单QP内按`maxReduceChunk`元素对齐切片并逐WR通过`PostAndCheckSendExt`下发；`elemSize==0`前置校验 |
+| `PostAndCheckSendExt` | 私有 | [in] `qp`、`qpIdx`、`caller`、`wr`、`attr`（`PostExtAttr`：`reduceOp`/`reduceType`/`signaled`） | `HcclResult` | 按 `PostExtAttr` 携带 inline-reduce 属性经 `ExtPostSend` 下发；`ENOMEM`→`HCCL_E_AGAIN`，其他失败→`HCCL_E_NETWORK`；仅在 `attr.signaled` 为 true（尾片）时累加 `wqeNums_` |
+| `ExtPostSend` | 私有 | [in] `qp`、`wr`、`mappedReduceOp`、`mappedReduceType`；[out] `badWr`、`driverRet` | `HcclResult` | 懒加载 `ibv_ext_post_send` 并携带 `ibv_post_send_ext_attr` 下发；符号不可用返回 `HCCL_E_NOT_SUPPORT`，驱动原始返回值经 `driverRet` 透传；抽为成员函数便于 UT 打桩 |
 | `BuildRdmaWr` | 私有 | [in] `caller`、`opcode`、`localAddr`、`remoteAddr`、`len`、`localIdx`、`rmtIdx`、`sendFlags`、`immData`、[out] `wr`、[out] `sg` | 无 | 填充单个`ibv_send_wr`与`ibv_sge` |
 | `WaitForWqeCompletion`/`WaitForSingleQpWqeCompletion` | 私有 | 见实现 | `HcclResult` | 按`wqeNums_`轮询每个QP的`sendCq` |
 | `FindLocalBuffer`/`FindRemoteBuffer` | 私有 | [in] `addr`、`len`、[out] `targetIdx` | `HcclResult` | 在已注册/远端buffer中定位整段地址范围 |
@@ -599,7 +651,7 @@ classDiagram
 | `ChannelDrain` | 公有（对外） | 无 | `HcclResult` | 等待所有URMA完成 |
 | `GetRemoteMems` | 公有（对外） | [out] `memNum`、`remoteMem`、`memInfos` | `HcclResult` | 委托`UbMemTransport::GetRemoteMems` |
 | `GetStatus` | 公有（对外） | 无 | `ChannelStatus` | 由`UbMemTransport`状态转换 |
-| `Clean`/`Resume` | 继承基类默认实现 | 无 | `HcclResult` | 返回`HCCL_E_NOT_SUPPORT`（`channel.h:194-195`） |
+| `Clean`/`Resume` | 公有（对外） | 无 | `HcclResult` | 未覆写，继承基类`Channel`默认实现，返回`HCCL_E_NOT_SUPPORT` |
 | `GetNotifyNum` | 公有（对外） | [out] `notifyNum` | `HcclResult` | 当前未使用，返回成功 |
 | `UrmaPostJettySendWr` | 私有 | [in] `opcode`、`dst`、`src`、`len` | `HcclResult` | 构造URMA WR并按`devBaseAttr_`上限切片下发 |
 | `GetSplitNum` | 私有 | [in] `len`、`maxJettyWrDataLen`、[out] `splitNum` | `HcclResult` | `len==0`或上限为0返回`HCCL_E_PARA` |
@@ -627,25 +679,29 @@ classDiagram
 
 **规格约束**
 
-1. **单WR上限**：Read/Write/WRITE_WITH_IMM共用`maxMsgSize_`；来自`CpuRoceEndpoint::GetCapabilities`（最终由`RaRdevGetAttr`查询），为0时`ParseInputParam`返回`HCCL_E_PARA`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:143-150`）。
-2. **QP数量**：`lbMax_ > 0`且`queueNum == 1`时按`lbMax_`建立连接，否则按`queueNum`建立；`wqeNums_`初始化为`connNum_`个0（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:185-224`）。
-3. **第一级切片**：`chunkSizePerQp = max(qpThreshold, ceil(len/qpNum))`，分配到0长度的QP仍下发空WR（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:688-696`）。
-4. **第二级切片**：`wrNum = DivCeil(len, maxMsgSize_)`；`len == 0`时`wrNum = 1`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:737`）。
-5. **尾片标志**：尾片固定`IBV_SEND_SIGNALED | IBV_SEND_FENCE`；强制保序时（`fenceFlag_ == true`）首片额外加`IBV_SEND_FENCE`；中间片无标志（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:749-755`）。
-6. **CQE记账**：`wqeNums_`只统计会产生CQE的尾片WR；`ChannelFence`/`ChannelDrain`按该计数轮询`sendCq`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:637-672`、`1742-1793`、`796-824`）。
-7. **零长度语义**：`Write`/`Read`的`len == 0`在通道已初始化（`maxMsgSize_`非0）时为no-op（不post、不产生CQE、不清`fenceFlag_`），上限为0时返回`HCCL_E_INTERNAL`；`WriteWithNotify`的`len == 0`仍按每QP空WR下发（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:786-816`、`566-611`）。
-8. **交换数据上限**：`MAX_EXCHANGE_DATA_SIZE = 64MB`；对端buffer数量上限为`MAX_BUFFER_NUM`；对端`connNum_`、`queueNum`必须与本端一致（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:924-929`、`1094-1097`、`1127-1131`、`1133-1139`）。
-9. **URMA切片**：单WR上限为`devBaseAttr_.maxWriteSize`/`maxReadSize`；`len == 0`或上限为0返回`HCCL_E_PARA`；默认`place_order = RELAX_ORDER`、`fence = 0`，`fenceFlag_ == true`时所有切片`place_order = STRONG_ORDER`、`fence = 1`；最后一片固定`complete_enable = 1`且`place_order = STRONG_ORDER`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_urma_channel.cc:193-268`）。
-10. **URMA单连接**：数据面固定使用`connections_[0]`的jetty与CQ（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_urma_channel.cc:203-244`、`312-358`）。
-11. **Hybrid单QP**：`WriteWithNotifyHybrid`仅使用`qpInfo[0]`，一次下发data+notify两条WR，`wqeNums_[0] += 2`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1399-1474`）。
-12. **通知超时**：原生`NotifyWait`在`timeout > 5`时减5秒；Hybrid默认超时为`DEFAULT_NOTIFY_WAIT_TIMEOUT_S = 30`秒（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:43`、`470-473`、`1454-1490`）。
-13. **DPU notify池**：`DpuNotifyManager`使用位图管理notify id，分配失败会回滚本次已申请项（源码：`src/base_comm/resources/endpoint_pairs/channels/host/dpu_notify/dpu_notify_manager.cc:53-84`）。
+1. **单WR上限**：Read/Write/WRITE_WITH_IMM共用`maxMsgSize_`；来自`CpuRoceEndpoint::GetCapabilities`（最终由`RaRdevGetAttr`查询），为0时`ParseInputParam`返回`HCCL_E_PARA`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:263-266`）。
+2. **QP数量**：`lbMax_ > 0`且`queueNum == 1`时按`lbMax_`建立连接，否则按`queueNum`建立；`wqeNums_`初始化为`connNum_`个0（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:338-339`）。
+3. **第一级切片**：`chunkSizePerQp = max(qpThreshold, ceil(len/qpNum))`，分配到0长度的QP仍下发空WR（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:811-816`）。
+4. **第二级切片**：`wrNum = DivCeil(len, maxMsgSize_)`；`len == 0`时`wrNum = 1`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:864`）。
+5. **尾片标志**：尾片固定`IBV_SEND_SIGNALED | IBV_SEND_FENCE`；强制保序时（`fenceFlag_ == true`）首片额外加`IBV_SEND_FENCE`；中间片无标志（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:876-881`）。
+6. **CQE记账**：`wqeNums_`只统计会产生CQE的尾片WR；`ChannelFence`/`ChannelDrain`按该计数轮询`sendCq`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:797`、`2157-2208`、`945-974`）。
+7. **零长度语义**：`Write`/`Read`的`len == 0`在通道已初始化（`maxMsgSize_`非0）时为no-op（不post、不产生CQE、不清`fenceFlag_`），上限为0时返回`HCCL_E_INTERNAL`；`WriteWithNotify`的`len == 0`仍按每QP空WR下发；`WriteReduceWithNotify`的`len == 0`视为非法参数返回`HCCL_E_PARA`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:913-944`、`864`、`1963-1967`）。
+8. **inline-reduce切片**：`elemSize`由`dataType`映射得到，`len % elemSize != 0`返回`HCCL_E_PARA`；第一级每QP字节数按`elemSize`上取整，第二级按`maxReduceChunk = (maxMsgSize_ / elemSize) * elemSize`对齐，保证各QP容量之和覆盖全部`len`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1959-1961`、`2001-2003`、`1888-1926`）。
+9. **inline-reduce完成记账**：仅尾片置`IBV_SEND_SIGNALED | IBV_SEND_FENCE`并计入`wqeNums_`，中间片无完成标志、不计入；`inline-reduce`不可重放，已下发WR后的`E_AGAIN`转为`HCCL_E_NETWORK`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1870`、`2107-2115`、`2038-2045`）。
+10. **交换数据上限**：`MAX_EXCHANGE_DATA_SIZE = 64MB`；对端buffer数量上限为`MAX_BUFFER_NUM`；对端`connNum_`、`queueNum`必须与本端一致（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1052-1055`、`1222-1223`、`1254-1267`）。
+11. **URMA切片**：单WR上限为`devBaseAttr_.maxWriteSize`/`maxReadSize`；`len == 0`或上限为0返回`HCCL_E_PARA`；默认`place_order = RELAX_ORDER`、`fence = 0`，`fenceFlag_ == true`时所有切片`place_order = STRONG_ORDER`、`fence = 1`；最后一片固定`complete_enable = 1`且`place_order = STRONG_ORDER`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_urma_channel.cc:193-268`）。
+12. **URMA单连接**：数据面固定使用`connections_[0]`的jetty与CQ（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_urma_channel.cc:203-244`、`312-358`）。
+13. **Hybrid单QP**：`WriteWithNotifyHybrid`仅使用`qpInfo[0]`，一次下发data+notify两条WR，`wqeNums_[0] += 2`（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1526-1602`）。
+14. **通知超时**：原生`NotifyWait`在`timeout > 5`时减5秒；Hybrid默认超时为`DEFAULT_NOTIFY_WAIT_TIMEOUT_S = 30`秒（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:44`、`553-667`、`1603-1643`）。
+15. **DPU notify池**：`DpuNotifyManager`使用位图管理notify id，分配失败会回滚本次已申请项（源码：`src/base_comm/resources/endpoint_pairs/channels/host/dpu_notify/dpu_notify_manager.cc:53-84`）。
 
 **已知限制**
 
-1. `HostCpuRoceChannel::Clean`/`Resume`当前为空实现（直接返回成功），不支持通道资源清理与恢复（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:318-320`）。
-2. `HostCpuUrmaChannel`未覆写`Clean`/`Resume`，继承`Channel`基类默认实现并返回`HCCL_E_NOT_SUPPORT`（源码：`src/base_comm/resources/endpoint_pairs/channels/channel.h:194-195`）。
-3. Hybrid模式仅支持单QP，不支持多QP扩展（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1399-1474`）。
+1. `HostCpuRoceChannel::Clean`/`Resume`当前为空实现（直接返回成功），不支持通道资源清理与恢复（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:436-438`）。
+2. `HostCpuUrmaChannel`未覆写`Clean`/`Resume`，继承基类`Channel`的默认实现，返回`HCCL_E_NOT_SUPPORT`（源码：`src/base_comm/resources/endpoint_pairs/channels/channel.h:194-195`）。
+3. Hybrid模式仅支持单QP，不支持多QP扩展（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1526-1602`）。
 4. `Channel`基类声明不支持多线程并发访问，调用方需串行化（源码：`src/base_comm/resources/endpoint_pairs/channels/channel.h:180`）。
-5. 逐WR下发引入部分下发失败状态：已下发的非尾片WR不产生CQE且不计入`wqeNums_`，失败后`ChannelDrain`/`ChannelFence`无法等待这些WR完成，需上层按错误路径终止。
-6. RoCE建链状态机由调用方轮询`GetStatus`推进，模块内无后台线程代为推进（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:264-316`）。
+5. 逐WR下发引入部分下发失败状态：失败时已下发的WR中仅尾片（置了`IBV_SEND_SIGNALED`）计入`wqeNums_`，中间片无CQE、不计入；剩余分片不再下发、notify可能缺失，需上层按错误路径终止。
+6. RoCE建链状态机由调用方轮询`GetStatus`推进，模块内无后台线程代为推进（源码：`src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:371-434`）。
+7. `WriteReduceWithNotify`依赖hns驱动ULD扩展库提供`ibv_ext_post_send`（按`libhrn5.so`懒加载），库缺失或符号缺失时返回`HCCL_E_NOT_SUPPORT`；Hybrid模式不支持该接口。该接口为驱动侧确认的独立ABI（4参数、扩展属性1字节），结构体与函数指针统一收敛于`ibv_ext_post_send_abi.h`并以`sizeof`静态断言约束。
+8. DFX上`TASK_DPU_WRITE_REDUCE_WITH_NOTIFY`不参与`DpuCommDfx`的W+Notify聚合缓存（`taskPara.Reduce`与`taskPara.DMA`布局不同），入队前会先刷出该通道已缓存的W+Notify，保证任务顺序与实际下发一致（源码：`src/coll_communicator_mgr/dfx/dpu_comm_dfx.cc`）。

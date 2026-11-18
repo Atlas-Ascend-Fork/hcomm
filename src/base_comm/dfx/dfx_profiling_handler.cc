@@ -19,6 +19,7 @@
 #include "aprof_pub.h"
 #include "orion_adapter_rts.h"
 #include "data_type.h"
+#include "common/cast_utils_pub.h"
 namespace Hccl {
 constexpr uint16_t CCU_TYPE = 2;
 constexpr uint32_t DPU_DEV_ID_MASK = (1U << 12);
@@ -158,6 +159,7 @@ uint32_t DfxProfilingHandler::GetTaskTypeValue(TaskParamType taskType) const
         case TaskParamType::TASK_DPU_INLINE_WRITE:
         case TaskParamType::TASK_DPU_NOTIFY_WAIT:
         case TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY:
+        case TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY:
         case TaskParamType::TASK_DPU_CHANNEL_FENCE:
             return static_cast<uint32_t>(ProfTaskType::TASK_DPU_HCCL_INFO);
         default:
@@ -171,6 +173,7 @@ bool DfxProfilingHandler::IsSkipReportTaskType(TaskParamType taskType) const
         case TaskParamType::TASK_DPU_INLINE_WRITE:
         case TaskParamType::TASK_DPU_NOTIFY_WAIT:
         case TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY:
+        case TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY:
         case TaskParamType::TASK_DPU_CHANNEL_FENCE:
         case TaskParamType::TASK_DPU_KERNEL:
         case TaskParamType::TASK_AICPU_KERNEL:
@@ -190,6 +193,7 @@ HcclResult DfxProfilingHandler::FillTaskAdditionInfo(const TaskInfo& taskInfo, M
         case TaskParamType::TASK_DPU_INLINE_WRITE:
         case TaskParamType::TASK_DPU_NOTIFY_WAIT:
         case TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY:
+        case TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY:
         case TaskParamType::TASK_DPU_CHANNEL_FENCE:
             reporterData.type = static_cast<uint32_t>(ProfTaskType::TASK_DPU_HCCL_INFO);
             FillDpuProfInfo(taskInfo, reporterData);
@@ -402,6 +406,12 @@ void DfxProfilingHandler::FillDpuTaskParaDetails(const TaskInfo& taskInfo, Mspro
             dpuProfInfo->dataSize = static_cast<u32>(taskPara.DMA.size);
             dpuProfInfo->notifyID = taskPara.DMA.notifyID;
             break;
+        case TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY:
+            dpuProfInfo->srcAddr = ReinterpretAs<u64>(taskPara.Reduce.src);
+            dpuProfInfo->dstAddr = ReinterpretAs<u64>(taskPara.Reduce.dst);
+            dpuProfInfo->dataSize = static_cast<u32>(taskPara.Reduce.size);
+            dpuProfInfo->notifyID = taskPara.Reduce.notifyID;
+            break;
         case TaskParamType::TASK_DPU_NOTIFY_WAIT:
         case TaskParamType::TASK_DPU_CHANNEL_FENCE:
             dpuProfInfo->notifyID = taskPara.Notify.notifyID;
@@ -427,7 +437,9 @@ void DfxProfilingHandler::FillDpuProfInfo(const TaskInfo& taskInfo, MsprofAdditi
     dpuProfInfo->npuDevId = taskInfo.taskParam_.npuDevId;
     dpuProfInfo->dpuDevId = DPU_DEV_ID_MASK;
     const auto& taskPara = taskInfo.taskParam_.taskPara;
-    dpuProfInfo->linkType = static_cast<uint16_t>(taskPara.DMA.linkType);
+    dpuProfInfo->linkType = (taskInfo.taskParam_.taskType == TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY) ?
+                                static_cast<uint16_t>(taskPara.Reduce.linkType) :
+                                static_cast<uint16_t>(taskPara.DMA.linkType);
     if (dpuProfInfo->remoteRank == INVALID_VALUE_RANKID) {
         dpuProfInfo->transportType = static_cast<uint32_t>(SimpleTaskType::LOCAL);
         dpuProfInfo->remoteRank = dpuProfInfo->localRank;

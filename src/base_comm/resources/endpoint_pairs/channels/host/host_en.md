@@ -13,12 +13,12 @@ The host module is the **Host CPU side channel implementation** of the HCOMM bas
 **Usage scenarios**
 
 - When the upper layer creates a channel with `CommEngine = COMM_ENGINE_CPU`, `Channel::CreateChannel` dispatches by remote protocol (source: `src/base_comm/resources/endpoint_pairs/channels/channel.cc:461-487`): `COMM_PROTOCOL_ROCE` creates `HostCpuRoceChannel`, and `COMM_PROTOCOL_UB_CTP`/`COMM_PROTOCOL_UBC_TP` creates `HostCpuUrmaChannel`.
-- The communicator manager, operators, and communication libraries initiate link establishment (`Init`/`GetStatus`) and data-plane operations (`Write`/`Read`/`WriteWithNotify`/`NotifyRecord`/`NotifyWait`/`ChannelFence`/`ChannelDrain`) through the `Channel` virtual interface.
+- The communicator manager, operators, and communication libraries initiate link establishment (`Init`/`GetStatus`) and data-plane operations (`Write`/`Read`/`WriteWithNotify`/`WriteReduceWithNotify`/`NotifyRecord`/`NotifyWait`/`ChannelFence`/`ChannelDrain`) through the `Channel` virtual interface.
 - Scenarios such as HIXL that need to exchange all user memory use the RoCE channel with `channelDesc.exchangeAllMems = true`; in this case local memory handles are obtained from the Endpoint in full.
 
 **Relationships with surrounding modules**
 
-- Depends on the Endpoint: `CpuRoceEndpoint::GetCapabilities` provides `maxReadSize`/`maxWriteSize`/`lbMax` (source: `src/base_comm/resources/endpoints/cpu_roce_endpoint.cc:183-193`; the capabilities ultimately come from `RaRdevGetAttr`).
+- Depends on the Endpoint: `CpuRoceEndpoint::GetCapabilities` provides `maxMsgSize`/`lbMax` (source: `src/base_comm/resources/endpoints/cpu_roce_endpoint.cc:164-191`; the capabilities ultimately come from `RaRdevGetAttr`).
 - Depends on Socket and SocketMgr: exchanges QP, memory, and notify descriptions during link establishment, and completes the synchronization handshake after QP modification.
 - Depends on HCCP RA: `RaCreateCompChannel`, `HrtRaCreateQpWithCq`, `RaSetQpAttrQos`, `RaSetQpAttrTimeout`, `RaSetQpAttrRetryCnt`, `RaGetQpAttr`, `RaTypicalQpModify`, `RaSetQpLbValue`, `HrtRaQpConnectAsync`.
 - Depends on verbs and URMA: the RoCE data plane uses `ibv_post_send`/`ibv_poll_cq`; the URMA data plane uses `HrtUrmaPostJettySendWr`/`HrtUrmaPollJfc`.
@@ -29,12 +29,13 @@ The host module is the **Host CPU side channel implementation** of the HCOMM bas
 1. Establish Host RoCE channels and advance the link-establishment state machine (socket status, capability negotiation, QP creation, information exchange, QP modification).
 2. Implement `Write`/`Read` with QP-first two-level slicing: first partition data by QP, then post each hardware single-WR chunk individually.
 3. Implement `WriteWithNotify`: the tail slice of each QP uses `IBV_WR_RDMA_WRITE_WITH_IMM`, ensuring that each peer QP receives one notification.
-4. Implement `NotifyRecord`/`NotifyWait`: record and wait for notifications based on DPU notify IDs and the CQE `imm_data`.
-5. Implement `ChannelFence`/`ChannelDrain`: wait for tail-slice CQEs according to `wqeNums_`.
-6. Support Hybrid mode: negotiate with `TransportIbverbs` through `RoCECapability` and switch to the notify-memory polling semantics.
-7. Implement `Write`/`Read`/`ChannelFence`/`ChannelDrain` for the Host URMA channel, with slicing by the URMA single-WR limit.
-8. Allocate and release DPU notify IDs through the bitmap pool in `DpuNotifyManager`.
-9. Report data-plane task duration through `SetDfxCallback`/`ReportDfxTaskEnd`.
+4. Implement `WriteReduceWithNotify`: QP-first two-level slicing aligned to the element size; the tail slice posts an inline-reduce WR through the hns driver extension `ibv_ext_post_send` and carries the notification.
+5. Implement `NotifyRecord`/`NotifyWait`: in native mode, record and wait for notifications based on DPU notify IDs and the CQE `imm_data`; in Hybrid mode, poll the peer notify memory.
+6. Implement `ChannelFence`/`ChannelDrain`: wait for tail-slice CQEs according to `wqeNums_`.
+7. Support Hybrid mode: negotiate with `TransportIbverbs` through `RoCECapability` and switch to the notify-memory polling semantics.
+8. Implement `Write`/`Read`/`ChannelFence`/`ChannelDrain` for the Host URMA channel with slicing by the URMA single-WR limit.
+9. Allocate and release DPU notify IDs through the bitmap pool in `DpuNotifyManager`.
+10. Report data-plane task latency through `SetDfxCallback`/`ReportDfxTaskEnd`.
 
 ## Directory Description
 
@@ -147,7 +148,7 @@ The difference of `HostCpuUrmaChannel` under the same template: `BuildConnection
 
 ### RoCE Link-Establishment State Progression (`HostCpuRoceChannel::GetStatus`)
 
-Link establishment is advanced by the caller polling `GetStatus`; `rdmaStatus_` advances on each call, and `DATA_EXCHANGE` can advance directly to `CONN_OK` through `QP_MODIFIED` within the same call (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:264-316`).
+Link establishment is advanced by the caller polling `GetStatus`; each call advances `rdmaStatus_` by one state (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:371-434`).
 
 ```mermaid
 sequenceDiagram
@@ -189,13 +190,13 @@ sequenceDiagram
 
 **Key branches**
 
-- The maximum length of the exchange data packet in native mode is `MAX_EXCHANGE_DATA_SIZE = 64MB`; if the peer declares 0 or an over-limit length, `HCCL_E_PARA` is returned (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:924-929`).
-- The maximum number of peer buffers is `MAX_BUFFER_NUM`; exceeding it returns `HCCL_E_PARA` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1094-1097`).
-- The `connNum_` and `queueNum` of both ends must match; otherwise `HCCL_E_ROCE_CONNECT` is returned (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1127-1131`).
+- The maximum length of the exchange data packet in native mode is `MAX_EXCHANGE_DATA_SIZE = 64MB`; if the peer declares 0 or an over-limit length, `HCCL_E_PARA` is returned (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1052-1055`).
+- The maximum number of peer buffers is `MAX_BUFFER_NUM`; exceeding it returns `HCCL_E_PARA` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1222-1223`).
+- The `connNum_` and `queueNum` of both ends must match; otherwise `HCCL_E_ROCE_CONNECT` is returned (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1254-1267`).
 
 ### QP-First Two-Level Sliced Read/Write (`Write`/`Read`/`WriteWithNotify`)
 
-The data-plane entry points all go through `PostRdmaOpAllQps`: the first level partitions data by QP, and the second level posts each hardware single-WR chunk individually within each QP (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:674-702`, `704-784`).
+The data-plane entry points all go through `PostRdmaOpAllQps`: the first level partitions data by QP, and the second level posts each hardware single-WR chunk individually within each QP (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:801-829`, `831-911`).
 
 ```mermaid
 sequenceDiagram
@@ -232,11 +233,51 @@ sequenceDiagram
 
 **Slicing and flag rules**
 
-- First level: `chunkSizePerQp = max(qpThreshold, ceil(len/qpNum))`; a QP that receives no data still posts an empty WR so that every QP has a CQE (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:688-696`).
-- Second level: `wrNum = (len == 0) ? 1 : DivCeil(len, maxMsgSize_)`; the tail slice uses the `opcode` passed to the entry point, while intermediate slices uniformly use ordinary `IBV_WR_RDMA_WRITE`/`IBV_WR_RDMA_READ` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:743-780`).
-- Flags: the tail slice always uses `IBV_SEND_SIGNALED | IBV_SEND_FENCE`; when `fenceFlag_` is true, the first slice additionally sets `IBV_SEND_FENCE`; intermediate slices have no flags (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:749-755`).
-- CQE contract: only the tail slice generates a CQE, and `PostAndCheckSend` increments `wqeNums_` only when `signaled == true` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:637-672`).
-- `len == 0`: when the channel is initialized (`maxMsgSize_` non-zero), `Write`/`Read` return success directly without generating WRs/CQEs or clearing `fenceFlag_`; a zero limit returns `HCCL_E_INTERNAL` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:786-816`); for `WriteWithNotify`, `len == 0` still posts an empty WR per QP.
+- First level: `chunkSizePerQp = max(qpThreshold, ceil(len/qpNum))`; a QP that receives no data still posts an empty WR so that every QP has a CQE (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:811-816`).
+- Second level: `wrNum = (len == 0) ? 1 : DivCeil(len, maxMsgSize_)`; the tail slice uses the `opcode` passed to the entry point, while intermediate slices uniformly use ordinary `IBV_WR_RDMA_WRITE`/`IBV_WR_RDMA_READ` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:864-905`).
+- Flags: the tail slice always uses `IBV_SEND_SIGNALED | IBV_SEND_FENCE`; when `fenceFlag_` is true, the first slice additionally sets `IBV_SEND_FENCE`; intermediate slices have no flags (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:876-881`).
+- CQE contract: only the tail slice generates a CQE, and `PostAndCheckSend` increments `wqeNums_` only when `signaled == true` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:762-800`).
+- `len == 0`: when the channel is initialized (`maxMsgSize_` non-zero), `Write`/`Read` return success directly without generating WRs/CQEs or clearing `fenceFlag_`; a zero limit returns `HCCL_E_INTERNAL` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:913-944`); for `WriteWithNotify`, `len == 0` still posts an empty WR per QP.
+- `imm_data` encoding (native-mode notify WRs only): in native mode, the notify WRs carried by `WriteWithNotify`/`NotifyRecord` use the raw `dpuNotifyId` as `imm_data`; only the tail slice of `WriteReduceWithNotify` sets bit 24 on the raw value to mark the record semantics (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1875`). Native-mode `NotifyWait` compares only the low 24 bits (ignoring bit 24 and driver high bits). In Hybrid mode, `NotifyRecord`/`WriteWithNotify` use memory semantics (a plain `IBV_WR_RDMA_WRITE` to the peer notify memory) and carry no immediate.
+
+### Inline-Reduce Write (`WriteReduceWithNotify`)
+
+`WriteReduceWithNotify` extends the QP-first two-level slicing with element alignment and posts inline-reduce WRs through the hns driver extension `ibv_ext_post_send` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1929-2054`).
+
+```mermaid
+sequenceDiagram
+    participant UP as Upper Layer
+    participant HR as HostCpuRoceChannel
+    participant PR as PrepareReduceWrResource
+    participant PS as PostAndCheckSendExt
+    participant VB as ibv_ext_post_send
+
+    UP->>HR: WriteReduceWithNotify(dst, src, len, dataType, reduceOp, remoteNotifyIdx)
+    HR->>HR: Validate pointers/link status/Hybrid/reduce mapping and len (len == 0 or len % elemSize != 0 returns HCCL_E_PARA)
+    HR->>HR: Pre-validate the whole range with FindLocalBuffer and FindRemoteBuffer
+    HR->>HR: chunkSizePerQp = max(qpThreshold, ceil(len/qpNum)), rounded up per element
+    loop Each QP
+        alt This QP has no data
+            HR->>HR: Reuse PostRdmaMemOp to post an empty WRITE_WITH_IMM (notify only)
+        else Data present
+            loop Slice by maxReduceChunk inside this QP
+                HR->>PR: PrepareReduceWrResource(..., withNotify = isTail)
+                HR->>PS: PostAndCheckSendExt(...)
+                PS->>VB: ibv_ext_post_send(qp, wr, extAttr{reduce_op, reduce_type})
+                PS->>PS: wqeNums_[qpIdx]++ (only the tail slice is SIGNALED)
+            end
+        end
+    end
+    HR-->>UP: HCCL_SUCCESS (on failure, report DFX once for the whole task and return the error)
+```
+
+**Inline-reduce rules**
+
+- Slicing: at the first level each QP carries `max(qpThreshold, ceil(len/qpNum))` bytes rounded up to an `elemSize` boundary so that the sum of QP capacities covers the whole `len` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:2001-2003`); at the second level the QP chunk is split by `maxReduceChunk = (maxMsgSize_ / elemSize) * elemSize` (source: `...:1888-1926`).
+- Opcode: intermediate slices use `IBV_WR_RDMA_WRITE` and the tail slice uses `IBV_WR_RDMA_WRITE_WITH_IMM`; both set the inline-reduce semantic bit at bit 8, and `reduce_op`/`reduce_type` are passed to the driver through `ibv_post_send_ext_attr` (source: `...:1853-1878`, `...:2055-2111`).
+- Completion flags: only the tail slice (`withNotify == true`) sets `IBV_SEND_SIGNALED | IBV_SEND_FENCE` and is counted in `wqeNums_`; intermediate slices carry no completion flag and are not counted, keeping `wqeNums_` consistent with the number of CQEs (source: `...:1870`, `...:2107-2115`).
+- No replay: once any WR has been posted successfully, a later `HCCL_E_AGAIN` is converted to `HCCL_E_NETWORK` to prevent the upper layer from replaying and reducing the same range twice or incrementing the notify twice (source: `...:2038-2045`).
+- Driver dependency: `ibv_ext_post_send` is lazily loaded from `libhrn5.so` (`RTLD_NOW | RTLD_GLOBAL`); when the library is missing the API returns `HCCL_E_NOT_SUPPORT` (source: `...:84-105`).
 
 ### Notification Record and Wait (`NotifyRecord`/`NotifyWait`)
 
@@ -275,14 +316,14 @@ sequenceDiagram
     else Native mode
         loop Each QP
             HR->>RCQ: ibv_poll_cq(recvCq, 1)
-            Note right of HR: Verify wc.status and wc.imm_data == dpuNotifyId
+            Note right of HR: Verify wc.status and (wc.imm_data & 0xffffff) == (dpuNotifyId & 0xffffff)
         end
         HR->>VB: IbvPostRecv() to replenish RQEs
     end
 ```
 
-- `NotifyRecord`: in native mode the WR is `IBV_WR_RDMA_WRITE_WITH_IMM` with `send_flags = IBV_SEND_SIGNALED`, `length = 0`, and `imm_data` set to the remote DPU notify ID (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1683-1724` (`PrepareNotifyWrResource`)); in Hybrid mode the WR is `IBV_WR_RDMA_WRITE` with the length taken from `localMemMsg_[NOTIFY_SRC_MEM]` (non-zero), built by `BuildNotifyWrHybird` (source: `...:1380-1396`).
-- In native mode, `NotifyWait` polls `recvCq` per QP, and the CQE `imm_data` must equal `dpuNotifyId`; the timeout is reduced by 5 seconds when `timeout > 5` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:435-539`).
+- In native mode, the `NotifyRecord` WR is `IBV_WR_RDMA_WRITE_WITH_IMM` with `send_flags = IBV_SEND_SIGNALED` and `length = 0`, and `imm_data` is the raw remote DPU notify ID (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:498-552` (`NotifyRecord` body); the native-mode WR is built in `...:1810-1852` (`PrepareNotifyWrResource`)). In Hybrid mode, `NotifyRecord` builds a plain `IBV_WR_RDMA_WRITE` in `...:1507-1525` (`BuildNotifyWrHybird`) that writes the peer notify memory (length taken from `localMemMsg_[NOTIFY_SRC_MEM]`, non-zero) and carries no immediate.
+- In native mode, `NotifyWait` polls `recvCq` per QP, and the low 24 bits of the CQE `imm_data` must equal the low 24 bits of `dpuNotifyId` (`(wc.imm_data & 0xffffff) == (dpuNotifyId & 0xffffff)`, ignoring bit 24 and driver high bits); the timeout is reduced by 5 seconds when `timeout > 5` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:553-667`).
 
 ### Completion Wait (`ChannelFence`/`ChannelDrain`)
 
@@ -315,8 +356,8 @@ sequenceDiagram
     HR->>HR: Set fenceFlag_ = true when ChannelFence succeeds
 ```
 
-- `ChannelDrain` only waits for and returns the result of `WaitForWqeCompletion` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:834-846`).
-- The timeout of `WaitForWqeCompletion` is `ExecTimeOut` minus 5 seconds (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1764-1787`).
+- `ChannelDrain` only waits for and returns the result of `WaitForWqeCompletion` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:961-974`).
+- The timeout of `WaitForWqeCompletion` is `ExecTimeOut` minus 5 seconds (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:2172-2175`).
 
 ### Hybrid Mode Link Establishment and Data Plane
 
@@ -347,7 +388,7 @@ sequenceDiagram
 ```
 
 - The capability negotiation structure `RoCECapability` uses the magic value `EXCHANGE_DATA_MAGIC = 0x48434C52` and version `ROCE_CAPABILITY_VERSION = 1` (source: `src/base_comm/resources/endpoint_pairs/channels/host/exchange_data_format.h:22-24`, `45-125`).
-- Hybrid mode uses only `connections_[0]` (single QP); `WriteWithNotifyHybrid` posts two WRs (data + notify) in one call (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1399-1474`).
+- Hybrid mode uses only `connections_[0]` (single QP); `WriteWithNotifyHybrid` posts two WRs (data + notify) in one call (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1526-1602`).
 
 ### URMA Data Plane (`HostCpuUrmaChannel::Write`/`Read`)
 
@@ -373,8 +414,8 @@ sequenceDiagram
     HU->>UJ: HrtUrmaPollJfc(jfc, wqeNum_) until wqeNum_ == 0 or timeout
 ```
 
-- The URMA slice limit comes from `devBaseAttr_.maxWriteSize`/`maxReadSize`; `len == 0` or a zero limit returns `HCCL_E_PARA` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_urma_channel.cc:243-250`).
-- `ChannelFence` returns success directly when `wqeNum_ == 0`; otherwise it waits for completion and then sets `fenceFlag_ = true` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_urma_channel.cc:160-171`).
+- The URMA slice limit comes from `devBaseAttr_.maxWriteSize`/`maxReadSize`; `len == 0` or a zero limit returns `HCCL_E_PARA` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_urma_channel.cc:255-268`).
+- `ChannelFence` returns success directly when `wqeNum_ == 0`; otherwise it waits for completion and then sets `fenceFlag_ = true` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_urma_channel.cc:172-189`).
 - The URMA data plane uses only the jetty and CQ of `connections_[0]` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_urma_channel.cc:203-244`, `312-358`).
 
 ### DPU Notify ID Allocation and Release (`DpuNotifyManager`)
@@ -414,6 +455,7 @@ classDiagram
         +Write(void*, const void*, uint64_t) HcclResult
         +Read(void*, const void*, uint64_t) HcclResult
         +WriteWithNotify(void*, const void*, uint64_t, uint32_t) HcclResult
+        +WriteReduceWithNotify(void*, const void*, uint64_t, HcclDataType, HcclReduceOp, uint32_t) HcclResult
         +NotifyRecord(uint32_t) HcclResult
         +NotifyWait(uint32_t, uint32_t) HcclResult
         +ChannelFence() HcclResult
@@ -436,13 +478,17 @@ classDiagram
         +Write() HcclResult
         +Read() HcclResult
         +WriteWithNotify() HcclResult
+        +WriteReduceWithNotify() HcclResult
         +NotifyRecord() HcclResult
         +NotifyWait() HcclResult
         +ChannelFence() HcclResult
         +ChannelDrain() HcclResult
         -PostRdmaOpAllQps() HcclResult
         -PostRdmaMemOp() HcclResult
+        -PrepareReduceWrResource() HcclResult
+        -PostReduceOp(ReduceOpCtx) HcclResult
         -PostAndCheckSend() HcclResult
+        -PostAndCheckSendExt() HcclResult
         -WaitForWqeCompletion() HcclResult
     }
 
@@ -541,6 +587,7 @@ classDiagram
 | `HostCpuRoceChannel::Write` | `host_cpu_roce_channel.h` | Upper-layer communication library | QP-first two-level sliced write |
 | `HostCpuRoceChannel::Read` | `host_cpu_roce_channel.h` | Upper-layer communication library | QP-first two-level sliced read |
 | `HostCpuRoceChannel::WriteWithNotify` | `host_cpu_roce_channel.h` | Upper-layer communication library | Writes data and carries an immediate notification on each QP tail slice |
+| `HostCpuRoceChannel::WriteReduceWithNotify` | `host_cpu_roce_channel.h` | Upper-layer communication library | Writes data with an immediate notification on each QP tail slice while the peer accumulates via inline-reduce |
 | `HostCpuRoceChannel::NotifyRecord` | `host_cpu_roce_channel.h` | Upper-layer communication library | Records a DPU notification to the peer |
 | `HostCpuRoceChannel::NotifyWait` | `host_cpu_roce_channel.h` | Upper-layer communication library | Waits for a local DPU notification |
 | `HostCpuRoceChannel::ChannelFence`/`ChannelDrain` | `host_cpu_roce_channel.h` | Upper-layer communication library | Waits for counted tail-slice CQEs |
@@ -559,6 +606,7 @@ classDiagram
 | `Read` | public (external) | [out] `dst`, [in] `src`, [in] `len` | `HcclResult` | Returns success directly when `len==0` and the channel is initialized (a zero limit returns `HCCL_E_INTERNAL`); otherwise posts READ with two-level slicing by `maxMsgSize_` |
 | `Write` | public (external) | [in] `dst`, [in] `src`, [in] `len` | `HcclResult` | Returns success directly when `len==0` and the channel is initialized (a zero limit returns `HCCL_E_INTERNAL`); otherwise posts WRITE with two-level slicing by `maxMsgSize_` |
 | `WriteWithNotify` | public (external) | [in] `dst`, [in] `src`, [in] `len`, [in] `remoteNotifyIdx` | `HcclResult` | Uses `WRITE_WITH_IMM` for each QP tail slice; with `len==0`, posts empty WRs per QP provided `src`/`dst` are non-null (null pointers return `HCCL_E_PTR`) |
+| `WriteReduceWithNotify` | public (external) | [in] `dst`, [in] `src`, [in] `len`, [in] `dataType`, [in] `reduceOp`, [in] `remoteNotifyIdx` | `HcclResult` | QP-first two-level slicing aligned to the element size; the tail slice posts an inline-reduce WR through `ibv_ext_post_send` and carries the notification; QPs that receive no data reuse `PostRdmaMemOp` to post an empty `WRITE_WITH_IMM` (notification only), and a whole-length `len==0` returns `HCCL_E_PARA`; Hybrid mode, failed reduce mapping and `len % elemSize != 0` return `HCCL_E_NOT_SUPPORT`/`HCCL_E_PARA` |
 | `NotifyRecord` | public (external) | [in] `remoteNotifyIdx` | `HcclResult` | Posts a length=0 `WRITE_WITH_IMM` per QP in native mode; posts `RDMA_WRITE` (length from `NOTIFY_SRC_MEM`) per QP in Hybrid mode; `ENOMEM` returns `HCCL_E_AGAIN` |
 | `NotifyWait` | public (external) | [in] `localNotifyIdx`, [in] `timeout` | `HcclResult` | Polls `recvCq` and verifies `imm_data` in native mode; delegates to `NotifyWaitHybrid` in Hybrid mode |
 | `ChannelFence` | public (external) | None | `HcclResult` | Waits for tail-slice CQEs and sets `fenceFlag_ = true` on success |
@@ -572,6 +620,10 @@ classDiagram
 | `PostRdmaOpAllQps` | private | [in] `caller`, `opcode`, `localAddr`, `remoteAddr`, `len`, `immData` | `HcclResult` | First level: partitions data by QP and calls `PostRdmaMemOp` for each QP |
 | `PostRdmaMemOp` | private | [in] `caller`, `opcode`, `qpRef`, `localAddr`, `remoteAddr`, `len`, `immData` | `HcclResult` | Second level: slices by `maxMsgSize_` and posts WRs one by one; `qpRef` reuses the QP handle obtained by `PostRdmaOpAllQps` to avoid repeated `GetQpInfos()` per QP |
 | `PostAndCheckSend` | private | [in] `qp`, `qpIdx`, `caller`, `wr`, `signaled` | `HcclResult` | Wraps `ibv_post_send`; increments `wqeNums_` only when `signaled` is true |
+| `PrepareReduceWrResource` | private | [in] `dst`, `src`, `len`, `withNotify`, `dpuNotifyId`, `localIdx`, `rmtIdx`, [out] `reduceWr` | `HcclResult` | Builds an inline-reduce WR: the tail slice (`withNotify`) uses `WRITE_WITH_IMM` with the encoded notify imm and sets `SIGNALED\|FENCE`; intermediate slices use plain `WRITE` with no completion flag |
+| `PostReduceOp` | private | [in] `ctx` (`ReduceOpCtx`: caller/qpRef/addrs/len/elemSize/reduce mapping/notifyId/buffer indices/anyPosted) | `HcclResult` | Slices the QP chunk by `maxReduceChunk` with element alignment and posts each WR through `PostAndCheckSendExt`; `elemSize==0` is validated up front |
+| `PostAndCheckSendExt` | private | [in] `qp`, `qpIdx`, `caller`, `wr`, `attr` (`PostExtAttr`: `reduceOp`/`reduceType`/`signaled`) | `HcclResult` | Posts with inline-reduce attributes from `PostExtAttr` through `ExtPostSend`; `ENOMEM`→`HCCL_E_AGAIN`, other failures→`HCCL_E_NETWORK`; increments `wqeNums_` only when `attr.signaled` is true (tail slice) |
+| `ExtPostSend` | private | [in] `qp`, `wr`, `mappedReduceOp`, `mappedReduceType`; [out] `badWr`, `driverRet` | `HcclResult` | Lazily loads `ibv_ext_post_send` and posts with `ibv_post_send_ext_attr`; returns `HCCL_E_NOT_SUPPORT` when the symbol is unavailable and passes the raw driver return value through `driverRet`; kept as a member function for UT stubbing |
 | `BuildRdmaWr` | private | [in] `caller`, `opcode`, `localAddr`, `remoteAddr`, `len`, `localIdx`, `rmtIdx`, `sendFlags`, `immData`, [out] `wr`, [out] `sg` | None | Fills one `ibv_send_wr` and `ibv_sge` |
 | `WaitForWqeCompletion`/`WaitForSingleQpWqeCompletion` | private | See implementation | `HcclResult` | Polls the `sendCq` of each QP according to `wqeNums_` |
 | `FindLocalBuffer`/`FindRemoteBuffer` | private | [in] `addr`, `len`, [out] `targetIdx` | `HcclResult` | Locates the whole address range within registered/remote buffers |
@@ -599,7 +651,7 @@ classDiagram
 | `ChannelDrain` | public (external) | None | `HcclResult` | Waits for all URMA completions |
 | `GetRemoteMems` | public (external) | [out] `memNum`, `remoteMem`, `memInfos` | `HcclResult` | Delegates to `UbMemTransport::GetRemoteMems` |
 | `GetStatus` | public (external) | None | `ChannelStatus` | Converts the `UbMemTransport` status |
-| `Clean`/`Resume` | Inherited base default | None | `HcclResult` | Returns `HCCL_E_NOT_SUPPORT` (`channel.h:194-195`) |
+| `Clean`/`Resume` | public (external) | None | `HcclResult` | Not overridden; inherits the default implementation of the base class `Channel`, which returns `HCCL_E_NOT_SUPPORT` |
 | `GetNotifyNum` | public (external) | [out] `notifyNum` | `HcclResult` | Currently unused; returns success |
 | `UrmaPostJettySendWr` | private | [in] `opcode`, `dst`, `src`, `len` | `HcclResult` | Builds URMA WRs and slices by `devBaseAttr_` |
 | `GetSplitNum` | private | [in] `len`, `maxJettyWrDataLen`, [out] `splitNum` | `HcclResult` | Returns `HCCL_E_PARA` when `len==0` or the limit is 0 |
@@ -627,25 +679,29 @@ classDiagram
 
 **Constraint specifications**
 
-1. **Single-WR limit**: Read/Write/WRITE_WITH_IMM share `maxMsgSize_`, which comes from `CpuRoceEndpoint::GetCapabilities` (ultimately queried through `RaRdevGetAttr`). If it is 0, `ParseInputParam` returns `HCCL_E_PARA` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:143-150`).
-2. **QP count**: when `lbMax_ > 0` and `queueNum == 1`, connections are created according to `lbMax_`; otherwise according to `queueNum`. `wqeNums_` is initialized to `connNum_` zeros (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:185-224`).
-3. **First-level slicing**: `chunkSizePerQp = max(qpThreshold, ceil(len/qpNum))`; a QP assigned zero length still posts an empty WR (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:688-696`).
-4. **Second-level slicing**: `wrNum = DivCeil(len, maxMsgSize_)`; when `len == 0`, `wrNum = 1` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:737`).
-5. **Tail-slice flags**: the tail slice always uses `IBV_SEND_SIGNALED | IBV_SEND_FENCE`; when strict ordering is required (`fenceFlag_ == true`), the first slice additionally sets `IBV_SEND_FENCE`; intermediate slices have no flags (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:749-755`).
-6. **CQE accounting**: `wqeNums_` counts only tail-slice WRs that generate CQEs; `ChannelFence`/`ChannelDrain` poll `sendCq` according to this count (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:637-672`, `1742-1793`, `796-824`).
-7. **Zero-length semantics**: when the channel is initialized (`maxMsgSize_` non-zero), `Write`/`Read` with `len == 0` are no-ops (no post, no CQE, `fenceFlag_` unchanged); a zero limit returns `HCCL_E_INTERNAL`; `WriteWithNotify` with `len == 0` still posts an empty WR per QP (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:786-816`, `566-611`).
-8. **Exchange data limits**: `MAX_EXCHANGE_DATA_SIZE = 64MB`; the maximum number of peer buffers is `MAX_BUFFER_NUM`; the peer `connNum_` and `queueNum` must match the local values (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:924-929`, `1094-1097`, `1127-1131`, `1133-1139`).
-9. **URMA slicing**: the single-WR limit is `devBaseAttr_.maxWriteSize`/`maxReadSize`; `len == 0` or a zero limit returns `HCCL_E_PARA`; by default `place_order = RELAX_ORDER` and `fence = 0`, while `fenceFlag_ == true` makes all slices use `place_order = STRONG_ORDER` and `fence = 1`; the last slice always sets `complete_enable = 1` and `place_order = STRONG_ORDER` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_urma_channel.cc:193-268`).
-10. **URMA single connection**: the data plane always uses the jetty and CQ of `connections_[0]` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_urma_channel.cc:203-244`, `312-358`).
-11. **Hybrid single QP**: `WriteWithNotifyHybrid` uses only `qpInfo[0]` and posts two WRs (data + notify) in one call, with `wqeNums_[0] += 2` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1399-1474`).
-12. **Notification timeout**: native `NotifyWait` subtracts 5 seconds when `timeout > 5`; the Hybrid default timeout is `DEFAULT_NOTIFY_WAIT_TIMEOUT_S = 30` seconds (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:43`, `470-473`, `1454-1490`).
-13. **DPU notify pool**: `DpuNotifyManager` manages notify IDs with a bitmap and rolls back the allocations of the current request on failure (source: `src/base_comm/resources/endpoint_pairs/channels/host/dpu_notify/dpu_notify_manager.cc:53-84`).
+1. **Single-WR limit**: Read/Write/WRITE_WITH_IMM share `maxMsgSize_`, which comes from `CpuRoceEndpoint::GetCapabilities` (ultimately queried through `RaRdevGetAttr`). If it is 0, `ParseInputParam` returns `HCCL_E_PARA` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:263-266`).
+2. **QP count**: when `lbMax_ > 0` and `queueNum == 1`, connections are created according to `lbMax_`; otherwise according to `queueNum`. `wqeNums_` is initialized to `connNum_` zeros (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:338-339`).
+3. **First-level slicing**: `chunkSizePerQp = max(qpThreshold, ceil(len/qpNum))`; a QP assigned zero length still posts an empty WR (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:811-816`).
+4. **Second-level slicing**: `wrNum = DivCeil(len, maxMsgSize_)`; when `len == 0`, `wrNum = 1` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:864`).
+5. **Tail-slice flags**: the tail slice always uses `IBV_SEND_SIGNALED | IBV_SEND_FENCE`; when strict ordering is required (`fenceFlag_ == true`), the first slice additionally sets `IBV_SEND_FENCE`; intermediate slices have no flags (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:876-881`).
+6. **CQE accounting**: `wqeNums_` counts only tail-slice WRs that generate CQEs; `ChannelFence`/`ChannelDrain` poll `sendCq` according to this count (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:797`, `2157-2208`, `945-974`).
+7. **Zero-length semantics**: when the channel is initialized (`maxMsgSize_` non-zero), `Write`/`Read` with `len == 0` are no-ops (no post, no CQE, `fenceFlag_` unchanged); a zero limit returns `HCCL_E_INTERNAL`; `WriteWithNotify` with `len == 0` still posts an empty WR per QP, while `WriteReduceWithNotify` with `len == 0` returns `HCCL_E_PARA` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:913-944`, `864`, `1963-1967`).
+8. **Inline-reduce slicing**: `elemSize` comes from the `dataType` mapping and `len % elemSize != 0` returns `HCCL_E_PARA`; the first level rounds each QP byte quota up to an `elemSize` boundary and the second level aligns by `maxReduceChunk = (maxMsgSize_ / elemSize) * elemSize`, so the sum of QP capacities covers the whole `len` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1959-1961`, `2001-2003`, `1888-1926`).
+9. **Inline-reduce completion accounting**: only the tail slice sets `IBV_SEND_SIGNALED | IBV_SEND_FENCE` and is counted in `wqeNums_`; intermediate slices carry no completion flag and are not counted; inline-reduce is not replayable, so `E_AGAIN` after any WR has been posted becomes `HCCL_E_NETWORK` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1870`, `2107-2115`, `2038-2045`).
+10. **Exchange data limits**: `MAX_EXCHANGE_DATA_SIZE = 64MB`; the maximum number of peer buffers is `MAX_BUFFER_NUM`; the peer `connNum_` and `queueNum` must match the local values (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1052-1055`, `1222-1223`, `1254-1267`).
+11. **URMA slicing**: the single-WR limit is `devBaseAttr_.maxWriteSize`/`maxReadSize`; `len == 0` or a zero limit returns `HCCL_E_PARA`; by default `place_order = RELAX_ORDER` and `fence = 0`, while `fenceFlag_ == true` makes all slices use `place_order = STRONG_ORDER` and `fence = 1`; the last slice always sets `complete_enable = 1` and `place_order = STRONG_ORDER` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_urma_channel.cc:193-268`).
+12. **URMA single connection**: the data plane always uses the jetty and CQ of `connections_[0]` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_urma_channel.cc:203-244`, `312-358`).
+13. **Hybrid single QP**: `WriteWithNotifyHybrid` uses only `qpInfo[0]` and posts two WRs (data + notify) in one call, with `wqeNums_[0] += 2` (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1526-1602`).
+14. **Notification timeout**: native `NotifyWait` subtracts 5 seconds when `timeout > 5`; the Hybrid default timeout is `DEFAULT_NOTIFY_WAIT_TIMEOUT_S = 30` seconds (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:44`, `553-667`, `1603-1643`).
+15. **DPU notify pool**: `DpuNotifyManager` manages notify IDs with a bitmap and rolls back the allocations of the current request on failure (source: `src/base_comm/resources/endpoint_pairs/channels/host/dpu_notify/dpu_notify_manager.cc:53-84`).
 
 **Known limitations**
 
-1. `HostCpuRoceChannel::Clean`/`Resume` are currently empty implementations (return success directly) and do not support channel resource cleanup or recovery (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:318-320`).
-2. `HostCpuUrmaChannel` does not override `Clean`/`Resume`; it inherits the `Channel` base default implementation and returns `HCCL_E_NOT_SUPPORT` (source: `src/base_comm/resources/endpoint_pairs/channels/channel.h:194-195`).
-3. Hybrid mode supports only a single QP and does not support multi-QP expansion (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1399-1474`).
+1. `HostCpuRoceChannel::Clean`/`Resume` are currently empty implementations (return success directly) and do not support channel resource cleanup or recovery (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:436-438`).
+2. `HostCpuUrmaChannel` does not override `Clean`/`Resume`; it inherits the default implementation of the base class `Channel`, which returns `HCCL_E_NOT_SUPPORT` (source: `src/base_comm/resources/endpoint_pairs/channels/channel.h:194-195`).
+3. Hybrid mode supports only a single QP and does not support multi-QP expansion (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:1526-1602`).
 4. The `Channel` base class declares that concurrent multi-threaded access is not supported; callers must serialize access (source: `src/base_comm/resources/endpoint_pairs/channels/channel.h:180`).
-5. Per-WR posting introduces a partial-post failure state: non-tail WRs already posted do not generate CQEs and are not counted in `wqeNums_`; after a failure, `ChannelDrain`/`ChannelFence` cannot wait for those WRs to complete, so the upper layer must terminate on the error path.
-6. The RoCE link-establishment state machine is advanced by the caller polling `GetStatus`; there is no background thread inside the module (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:264-316`).
+5. Per-WR posting introduces a partial-post failure state: among the WRs already posted, only the tail slice (with `IBV_SEND_SIGNALED`) is counted in `wqeNums_`, while intermediate slices generate no CQE and are not counted; the remaining slices are not posted and the notify may be missing, so the upper layer must terminate on the error path.
+6. The RoCE link-establishment state machine is advanced by the caller polling `GetStatus`; there is no background thread inside the module (source: `src/base_comm/resources/endpoint_pairs/channels/host/host_cpu_roce_channel.cc:371-434`).
+7. `WriteReduceWithNotify` depends on the hns driver ULD library providing `ibv_ext_post_send` (lazily loaded from `libhrn5.so`); when the library or symbol is missing it returns `HCCL_E_NOT_SUPPORT`, and Hybrid mode does not support this API. The interface uses a separate ABI confirmed with the driver team (four parameters, one-byte extended attribute); the structure and function pointer are unified in `ibv_ext_post_send_abi.h` and constrained by `sizeof` static assertions.
+8. For DFX, `TASK_DPU_WRITE_REDUCE_WITH_NOTIFY` does not participate in the W+Notify aggregation cache of `DpuCommDfx` (`taskPara.Reduce` and `taskPara.DMA` have different layouts); before enqueueing, the cached W+Notify of the same channel is flushed so task order matches the actual posting order (source: `src/coll_communicator_mgr/dfx/dpu_comm_dfx.cc`).

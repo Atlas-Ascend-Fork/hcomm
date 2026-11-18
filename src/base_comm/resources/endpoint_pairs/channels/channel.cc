@@ -387,6 +387,15 @@ HcclResult Channel::WriteWithNotify(
     return HCCL_E_NOT_SUPPORT;
 }
 
+HcclResult Channel::WriteReduceWithNotify(
+    [[maybe_unused]] void* dst, [[maybe_unused]] const void* src, [[maybe_unused]] const uint64_t len,
+    [[maybe_unused]] HcclDataType dataType, [[maybe_unused]] HcclReduceOp reduceOp,
+    [[maybe_unused]] const uint32_t remoteNotifyIdx)
+{
+    HCCL_INFO("[%s::%s] not supported yet.", channelClassName_, __func__);
+    return HCCL_E_NOT_SUPPORT;
+}
+
 HcclResult Channel::Write([[maybe_unused]] void* dst, [[maybe_unused]] const void* src, [[maybe_unused]] uint64_t len)
 {
     HCCL_INFO("[%s::%s] not supported yet.", channelClassName_, __func__);

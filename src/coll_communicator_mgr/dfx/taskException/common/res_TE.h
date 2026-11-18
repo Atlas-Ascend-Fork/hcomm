@@ -33,6 +33,7 @@ inline const std::map<u8, std::string>& GetTaskConciseNameMap()
         {static_cast<u8>(TaskParamTypeVal::TASK_WRITE_WITH_NOTIFY), "WN"},
         {static_cast<u8>(TaskParamTypeVal::TASK_UB_INLINE_WRITE), "IW"},
         {static_cast<u8>(TaskParamTypeVal::TASK_WRITE_REDUCE_WITH_NOTIFY), "WRN"},
+        {static_cast<u8>(TaskParamTypeVal::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY), "DPU_WRN"},
         {static_cast<u8>(TaskParamTypeVal::TASK_CCU), "CCU"},
         {static_cast<u8>(TaskParamTypeVal::TASK_AICPU_KERNEL), "AIK"},
     };

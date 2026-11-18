@@ -50,6 +50,18 @@ HcclResult DpuCommDfx::AddDpuTaskInfoCallback(const Hccl::TaskParam& taskParam, 
         return HandleFenceOrDrain(taskParam, handle, dpuOpInfo);
     }
 
+    // reduce 任务不参与 W+Notify 聚合缓存：taskPara.Reduce 与 taskPara.DMA 布局不同且不可合并为同一任务；
+    // 但入队前需先刷出该通道已缓存的 W+Notify，否则 DFX 任务顺序会与实际下发顺序相反
+    if (taskParam.taskType == Hccl::TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY) {
+        auto it = pendingWriteInfos_.find(handle);
+        if (it != pendingWriteInfos_.end() && it->second.valid) {
+            HcclResult flushRet = HandleFenceOrDrain(taskParam, handle, dpuOpInfo);
+            if (flushRet != HCCL_SUCCESS) {
+                HCCL_WARNING("[%s] flush cached W+Notify before reduce failed, ret[%d].", __func__, flushRet);
+            }
+        }
+    }
+
     u32 streamId;
     if (taskParam.taskType == Hccl::TaskParamType::TASK_DPU_KERNEL) {
         streamId = dpuStreamId_;

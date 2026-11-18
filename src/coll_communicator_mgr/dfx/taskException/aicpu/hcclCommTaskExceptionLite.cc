@@ -400,6 +400,7 @@ void HcclCommTaskExceptionLite::GenerateTaskErrMsg(
             break;
         case Hccl::TaskParamTypeVal::TASK_UB_REDUCE_INLINE:
         case Hccl::TaskParamTypeVal::TASK_WRITE_REDUCE_WITH_NOTIFY:
+        case Hccl::TaskParamTypeVal::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY:
             FillReduceErrMsg(taskInfo, errMsgInfo, exceptionInfo);
             break;
         case Hccl::TaskParamTypeVal::TASK_REDUCE_INLINE:
@@ -789,6 +790,7 @@ std::string HcclCommTaskExceptionLite::GetNotifyInfo(const Hccl::DfxTaskInfo& ta
             notifyId = taskInfo.taskPara.ubDma.notifyId;
             break;
         case Hccl::TaskParamTypeVal::TASK_WRITE_REDUCE_WITH_NOTIFY:
+        case Hccl::TaskParamTypeVal::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY:
             notifyId = taskInfo.taskPara.Reduce.notifyId;
             break;
         case Hccl::TaskParamTypeVal::TASK_NOTIFY_RECORD:
@@ -819,6 +821,7 @@ std::string HcclCommTaskExceptionLite::GetConciseTaskName(const Hccl::DfxTaskInf
         || taskType == Hccl::TaskParamTypeVal::TASK_NOTIFY_WAIT || taskType == Hccl::TaskParamTypeVal::TASK_SEND_NOTIFY
         || taskType == Hccl::TaskParamTypeVal::TASK_WRITE_WITH_NOTIFY
         || taskType == Hccl::TaskParamTypeVal::TASK_WRITE_REDUCE_WITH_NOTIFY
+        || taskType == Hccl::TaskParamTypeVal::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY
         || taskType == Hccl::TaskParamTypeVal::TASK_UB_INLINE_WRITE) {
         return name + "(" + rankStr + "," + GetNotifyInfo(taskInfo) + ")";
     }
@@ -871,6 +874,7 @@ std::string HcclCommTaskExceptionLite::GetParaInfo(const Hccl::DfxTaskInfo& task
                 taskInfo.taskPara.ubDma.notifyId, linkTypeStr.c_str(), remoteRankStr.c_str());
         case Hccl::TaskParamTypeVal::TASK_UB_REDUCE_INLINE:
         case Hccl::TaskParamTypeVal::TASK_WRITE_REDUCE_WITH_NOTIFY:
+        case Hccl::TaskParamTypeVal::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY:
         case Hccl::TaskParamTypeVal::TASK_REDUCE_INLINE:
             return Hccl::StringFormat(
                 "src:[0x%llx], dst:[0x%llx], size:[0x%llx], notify id:[%u], op:[%u], link type:[%s], remote "

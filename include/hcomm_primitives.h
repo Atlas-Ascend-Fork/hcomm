@@ -272,6 +272,12 @@ extern int32_t HcommWriteWithNotifyOnThread(
  * @param[in] reduceOp 归约操作类型
  * @param[in] remoteNotifyIdx 远端通知索引
  * @return int32_t 执行结果状态码
+ * @note 支持范围与调用引擎相关，不满足对应矩阵时返回 HCCL_E_PARA：
+ *       1) 内置 Host 通道（COMM_ENGINE_CPU，HostCpuRoceChannel）当前仅支持
+ *          dataType ∈ {INT8, INT16, INT32, FP16, FP32, BFP16} 且 reduceOp ∈ {SUM, MAX, MIN}；
+ *       2) AICPU_TS 路径支持更宽的数据类型与归约操作矩阵，详见 API 参考文档。
+ *       上层算法选择（HCCL selector）在选择 inline-reduce 路径前必须按对应引擎的支持矩阵过滤，
+ *       不满足时回退到其他算法。
  *
  * WARNING: experimental API, No compatibility is currently guaranteed for this API
  */

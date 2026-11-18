@@ -20,7 +20,8 @@ constexpr uint64_t DFX_INVALID_U64 = UINT64_MAX;
 constexpr int32_t INVALID_RANKID = INT32_MAX;
 
 // 以下枚举来源于 legacy/ascend950，独立定义使本头脱离 legacy 依赖；取值与 legacy MAKE_ENUM 对齐，
-// 其中 TASK_CCORE_NOTIFY_WAIT/RECORD(24/25) 为 base_comm 侧扩展，OP_TYPE_INVALID 为 base_comm 侧非法哨兵。
+// 其中 TASK_DPU_WRITE_REDUCE_WITH_NOTIFY(24) 与 TASK_CCORE_NOTIFY_WAIT/RECORD(25/26) 为 base_comm 侧扩展，
+// OP_TYPE_INVALID 为 base_comm 侧非法哨兵。
 namespace Hccl {
 
 enum OpTypeVal : uint8_t {
@@ -85,8 +86,12 @@ enum TaskParamTypeVal : uint8_t {
     TASK_DPU_NOTIFY_WAIT = 21,
     TASK_DPU_WRITE_WITH_NOTIFY = 22,
     TASK_DPU_CHANNEL_DRAIN = 23,
-    TASK_CCORE_NOTIFY_WAIT = 24,
-    TASK_CCORE_NOTIFY_RECORD = 25,
+    // 与 host TaskParamType 数值保持一致（host: TASK_DPU_WRITE_REDUCE_WITH_NOTIFY = 24），
+    // 保证 device-lite 的 taskType(u8) 向 host 侧 TaskParamType 转换时语义正确
+    TASK_DPU_WRITE_REDUCE_WITH_NOTIFY = 24,
+    // 以下为 device-lite 独有类型，host 侧无对应枚举，取值仅需在 device-lite 内唯一
+    TASK_CCORE_NOTIFY_WAIT = 25,
+    TASK_CCORE_NOTIFY_RECORD = 26,
     TASK_PARAM_TYPE_COUNT
 };
 
@@ -153,6 +158,7 @@ inline std::string TaskParamTypeValToStr(uint8_t val)
         {TaskParamTypeVal::TASK_DPU_CHANNEL_DRAIN, "TASK_DPU_CHANNEL_DRAIN"},
         {TaskParamTypeVal::TASK_CCORE_NOTIFY_WAIT, "TASK_CCORE_NOTIFY_WAIT"},
         {TaskParamTypeVal::TASK_CCORE_NOTIFY_RECORD, "TASK_CCORE_NOTIFY_RECORD"},
+        {TaskParamTypeVal::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY, "TASK_DPU_WRITE_REDUCE_WITH_NOTIFY"},
     };
     auto iter = taskParamTypeValStrMap.find(static_cast<TaskParamTypeVal>(val));
     if (iter == taskParamTypeValStrMap.end()) {

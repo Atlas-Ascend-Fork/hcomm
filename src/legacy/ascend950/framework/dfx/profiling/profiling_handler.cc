@@ -146,6 +146,7 @@ uint32_t ProfilingHandler::GetTaskTypeValue(TaskParamType taskType) const
         case TaskParamType::TASK_DPU_INLINE_WRITE:
         case TaskParamType::TASK_DPU_NOTIFY_WAIT:
         case TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY:
+        case TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY:
         case TaskParamType::TASK_DPU_CHANNEL_FENCE:
             return static_cast<uint32_t>(ProfTaskType::TASK_DPU_HCCL_INFO);
         default:
@@ -163,6 +164,7 @@ void ProfilingHandler::FillTaskAdditionInfo(const TaskInfo& taskInfo, MsprofAddi
         case TaskParamType::TASK_DPU_INLINE_WRITE:
         case TaskParamType::TASK_DPU_NOTIFY_WAIT:
         case TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY:
+        case TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY:
         case TaskParamType::TASK_DPU_CHANNEL_FENCE:
             reporterData.type = static_cast<uint32_t>(ProfTaskType::TASK_DPU_HCCL_INFO);
             FillDpuProfInfo(taskInfo, reporterData);
@@ -380,6 +382,12 @@ void ProfilingHandler::FillDpuTaskParaDetails(const TaskInfo& taskInfo, MsprofDp
             dpuProfInfo->dataSize = static_cast<u32>(taskPara.DMA.size);
             dpuProfInfo->notifyID = taskPara.DMA.notifyID;
             break;
+        case TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY:
+            dpuProfInfo->srcAddr = static_cast<u64>(reinterpret_cast<uintptr_t>(taskPara.Reduce.src));
+            dpuProfInfo->dstAddr = static_cast<u64>(reinterpret_cast<uintptr_t>(taskPara.Reduce.dst));
+            dpuProfInfo->dataSize = static_cast<u32>(taskPara.Reduce.size);
+            dpuProfInfo->notifyID = taskPara.Reduce.notifyID;
+            break;
         case TaskParamType::TASK_DPU_NOTIFY_WAIT:
         case TaskParamType::TASK_DPU_CHANNEL_FENCE:
             dpuProfInfo->notifyID = taskPara.Notify.notifyID;
@@ -404,7 +412,9 @@ void ProfilingHandler::FillDpuProfInfo(const TaskInfo& taskInfo, MsprofAdditiona
     dpuProfInfo->npuDevId = taskInfo.taskParam_.npuDevId;
     dpuProfInfo->dpuDevId = DPU_DEV_ID_MASK;
     const auto& taskPara = taskInfo.taskParam_.taskPara;
-    dpuProfInfo->linkType = static_cast<uint16_t>(taskPara.DMA.linkType);
+    dpuProfInfo->linkType = (taskInfo.taskParam_.taskType == TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY) ?
+                                static_cast<uint16_t>(taskPara.Reduce.linkType) :
+                                static_cast<uint16_t>(taskPara.DMA.linkType);
     if (dpuProfInfo->remoteRank == INVALID_VALUE_RANKID) {
         dpuProfInfo->transportType = static_cast<uint32_t>(SimpleTaskType::LOCAL);
         dpuProfInfo->remoteRank = dpuProfInfo->localRank;
@@ -471,6 +481,7 @@ void ProfilingHandler::GetHCCLReportData(const TaskInfo& taskInfo, HCCLReportDat
         case TaskParamType::TASK_DPU_INLINE_WRITE:
         case TaskParamType::TASK_DPU_NOTIFY_WAIT:
         case TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY:
+        case TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY:
         case TaskParamType::TASK_DPU_CHANNEL_FENCE:
             hcclReportData.dpuProfInfo.itemId = hcclReportData.profInfo.itemId;
             hcclReportData.dpuProfInfo.cclTag = hcclReportData.profInfo.cclTag;
@@ -489,7 +500,9 @@ void ProfilingHandler::GetHCCLReportData(const TaskInfo& taskInfo, HCCLReportDat
             hcclReportData.dpuProfInfo.aicpu_task_id = taskInfo.taskParam_.aicpuTaskId;
             hcclReportData.dpuProfInfo.npuDevId = taskInfo.taskParam_.npuDevId;
             hcclReportData.dpuProfInfo.dpuDevId = DPU_DEV_ID_MASK;
-            hcclReportData.dpuProfInfo.linkType = static_cast<uint16_t>(taskPara.DMA.linkType);
+            hcclReportData.dpuProfInfo.linkType = (taskType == TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY) ?
+                                                      static_cast<uint16_t>(taskPara.Reduce.linkType) :
+                                                      static_cast<uint16_t>(taskPara.DMA.linkType);
             if (hcclReportData.dpuProfInfo.remoteRank == INVALID_VALUE_RANKID) {
                 hcclReportData.dpuProfInfo.transportType = static_cast<uint32_t>(SimpleTaskType::LOCAL);
                 hcclReportData.dpuProfInfo.remoteRank = hcclReportData.dpuProfInfo.localRank;
@@ -507,6 +520,14 @@ void ProfilingHandler::GetHCCLReportData(const TaskInfo& taskInfo, HCCLReportDat
                         = static_cast<u64>(reinterpret_cast<uintptr_t>(taskPara.DMA.dst));
                     hcclReportData.dpuProfInfo.dataSize = static_cast<u32>(taskPara.DMA.size);
                     hcclReportData.dpuProfInfo.notifyID = taskPara.DMA.notifyID;
+                    break;
+                case TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY:
+                    hcclReportData.dpuProfInfo.srcAddr
+                        = static_cast<u64>(reinterpret_cast<uintptr_t>(taskPara.Reduce.src));
+                    hcclReportData.dpuProfInfo.dstAddr
+                        = static_cast<u64>(reinterpret_cast<uintptr_t>(taskPara.Reduce.dst));
+                    hcclReportData.dpuProfInfo.dataSize = static_cast<u32>(taskPara.Reduce.size);
+                    hcclReportData.dpuProfInfo.notifyID = taskPara.Reduce.notifyID;
                     break;
                 case TaskParamType::TASK_DPU_NOTIFY_WAIT:
                 case TaskParamType::TASK_DPU_CHANNEL_FENCE:
