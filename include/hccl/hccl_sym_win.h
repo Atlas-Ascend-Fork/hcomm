@@ -43,6 +43,18 @@ extern HcclResult HcclSymWinGetPeerPointer(HcclCommSymWindow winHandle, size_t o
  */
 extern HcclResult HcclSymWinGetRemoteAddr(HcclCommSymWindow winHandle, size_t offset, uint32_t peerRank, void** ptr);
 
+/**
+ * @brief Get peer device pointer of the symmetric window.
+ *
+ * @param winHandle A pointer identifying the registered memory window handle.
+ * @param offset A size_t identifying the offset of symmetric memory heap.
+ * @param peerMemberId A u_integer identifying the LSA WorldTeam member id, not the rank id.
+ * @param ptr A pointer identifying the peer device address, set to null on failure.
+ * @return HcclResult. HCCL_E_NOT_SUPPORT for non-UB windows, the caller should fall back to legacy query.
+ */
+extern HcclResult
+HcclSymWinGetPeerDevicePointer(HcclCommSymWindow winHandle, size_t offset, uint32_t peerMemberId, void** ptr);
+
 #ifdef __cplusplus
 }
 #endif // __cplusplus

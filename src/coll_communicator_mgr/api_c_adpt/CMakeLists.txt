@@ -17,6 +17,7 @@ set(src_list
     exchange_info_c_adpt.cc
     coll_comm_profiling.cc
     coll_comm_rank_graph_a_adpt.cc
+    hccl_sym_win_c_adpt.cc
     hccl_channel_config.cc
 )
 

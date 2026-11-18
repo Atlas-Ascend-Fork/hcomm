@@ -176,6 +176,7 @@ target_include_directories(hccl_utest_test_next_resource PRIVATE
     ${HCCL_CODE_ROOT}/src/base_comm/resources/flush
     ${HCCL_CODE_ROOT}/src/base_comm/config_mgr
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/team/hcomm
+    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/api_c_adpt
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/team/hccl
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_mems

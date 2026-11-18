@@ -46,6 +46,7 @@
     - [HcclCommSymWinDeregister](HcclCommSymWinDeregister.md)
     - [HcclCommSymWinGet](HcclCommSymWinGet.md)
     - [HcclSymWinGetPeerPointer](HcclSymWinGetPeerPointer.md)
+    - [HcclSymWinGetPeerDevicePointer](HcclSymWinGetPeerDevicePointer.md)
     - [HcclSymWinGetRemoteAddr](HcclSymWinGetRemoteAddr.md)
 
 - [Group Call](group_call.md)

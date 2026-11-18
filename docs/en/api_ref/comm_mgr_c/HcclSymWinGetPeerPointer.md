@@ -25,7 +25,7 @@
 Obtains the address pointer corresponding to a symmetric memory window based on the symmetric memory window resource handle, offset, and peer identifier.
 
 <!-- npu="950" id8 -->
-For the UB Memory scenario of Ascend 950PR&950DT series products, the peer identifier is the member ID of the LSA WorldTeam, and the API returns the address pointer of the LSA member in the symmetric VA space. The URMA scenario does not support this API. Use [HcclSymWinGetRemoteAddr](HcclSymWinGetRemoteAddr.md) to obtain the remote address instead.
+For the UB Memory scenario of Ascend 950PR&950DT series products, the peer identifier is the member ID of the LSA WorldTeam, and the API returns the address pointer of the LSA member in the symmetric VA space. The URMA scenario does not support this API. Use [HcclSymWinGetRemoteAddr](HcclSymWinGetRemoteAddr.md) to obtain the remote address instead. To obtain the peer device address on the host side, see [HcclSymWinGetPeerDevicePointer](HcclSymWinGetPeerDevicePointer.md).
 <!-- end id8 -->
 
 <!-- npu="A3" id6 -->

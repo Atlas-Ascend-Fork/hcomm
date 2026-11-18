@@ -35,6 +35,7 @@
 #undef private
 
 #include "hcomm_team.h"
+#include "hcomm_res_expt.h"
 #include "hcomm_res_defs.h"
 #include "common/result_defs_pub.h"
 #include "adapter_rts_common.h"
@@ -80,6 +81,7 @@ inline void FreeFakeWindow(HcclCommSymWindow& handle)
 inline uint32_t g_hrtMallocFailAfter = UINT32_MAX;
 inline uint32_t g_hrtMallocCallCount = 0;
 inline uint32_t g_hrtMemSyncCopyFailAfter = UINT32_MAX;
+inline uint32_t g_hrtMemSyncCopyFailAtCall = 0; // 非 0 时仅第 N 笔失败，其余放行
 inline uint32_t g_hrtMemSyncCopyCallCount = 0;
 inline uint32_t g_hrtFreeCallCount = 0;
 
@@ -88,6 +90,7 @@ inline void ResetStubCounters()
     g_hrtMallocFailAfter = UINT32_MAX;
     g_hrtMallocCallCount = 0;
     g_hrtMemSyncCopyFailAfter = UINT32_MAX;
+    g_hrtMemSyncCopyFailAtCall = 0;
     g_hrtMemSyncCopyCallCount = 0;
     g_hrtFreeCallCount = 0;
 }
@@ -116,6 +119,9 @@ StubHrtMemSyncCopy(void* dst, uint64_t destMax, const void* src, uint64_t count,
     (void)destMax;
     (void)kind;
     g_hrtMemSyncCopyCallCount++;
+    if (g_hrtMemSyncCopyFailAtCall != 0U && g_hrtMemSyncCopyCallCount == g_hrtMemSyncCopyFailAtCall) {
+        return HCCL_E_INTERNAL;
+    }
     if (g_hrtMemSyncCopyCallCount > g_hrtMemSyncCopyFailAfter) {
         return HCCL_E_INTERNAL;
     }
@@ -197,6 +203,8 @@ protected:
     void SetUp() override
     {
         ResetStubCounters();
+        // 隔离每个用例的 userDev 状态，避免上一个用例残留的 g_stubUserDevId 影响 team 桶查找
+        g_stubUserDevId = 0;
         MOCKER(hrtMalloc).stubs().will(invoke(StubHrtMalloc));
         MOCKER(hrtFree).stubs().will(invoke(StubHrtFree));
         MOCKER(hrtMemSyncCopy).stubs().will(invoke(StubHrtMemSyncCopy));

@@ -403,6 +403,7 @@ global:
     HcommRegOpTaskException;
     HcommReleaseComm;
     HcommSetNotifyWaitTimeOut;
+    HcclSymWinGetPeerDevicePointer;
     HcommThreadAlloc;
     HcommThreadFree;
     HcommThreadNotifyRecordOnThread;

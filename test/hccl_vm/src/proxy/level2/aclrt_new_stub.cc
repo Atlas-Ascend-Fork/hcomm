@@ -120,16 +120,19 @@ rtError_t rtGetDevResAddress(rtDevResInfo* const resInfo, rtDevResAddrInfo* cons
     return RT_ERROR_NONE;
 }
 
-HcclResult HcommSymWinGetPeerPointer(HcclCommSymWindow winHandle, size_t offset, uint32_t peerRank, void** ptr)
+HcclResult HcclSymWinGetPeerDevicePointer(HcclCommSymWindow winHandle, size_t offset, uint32_t peerMemberId, void** ptr)
 {
     HCCL_VM_INFO(
-        "HcommSymWinGetPeerPointer: winHandle={:p}, offset={:d}, peerRank={:d}, ptr={:p}", winHandle, offset, peerRank,
-        static_cast<void*>(ptr));
+        "HcclSymWinGetPeerDevicePointer: winHandle={:p}, offset={:d}, peerMemberId={:d}, ptr={:p}", winHandle, offset,
+        peerMemberId, static_cast<void*>(ptr));
     (void)winHandle;
     (void)offset;
-    (void)peerRank;
-    (void)ptr;
-    return HCCL_SUCCESS;
+    (void)peerMemberId;
+    // 仿真环境无 UB 对称窗口：按契约置空输出并返回 NOT_SUPPORT，让调用方回退 legacy 远端地址查询
+    if (ptr != nullptr) {
+        *ptr = nullptr;
+    }
+    return HCCL_E_NOT_SUPPORT;
 }
 
 rtError_t rtGetP2PStatus(uint32_t devIdDes, uint32_t phyIdSrc, uint32_t* status)

@@ -30,6 +30,7 @@
 #include <shared_mutex>
 
 #include "ut_hcomm_team_stub.h"
+#include "hccl_sym_win.h"
 
 using namespace hcomm;
 using namespace hcomm_ut;
@@ -558,4 +559,254 @@ TEST_F(TestHcommTeamMgr, Ut_TeamRegistry_When_SameHandleOnDifferentUserDevIds_Ex
         std::shared_lock<std::shared_mutex> lock(mgr.teamsRwMutex_);
         EXPECT_EQ(CountAllTeamsLocked(), 0U);
     }
+}
+
+// ==================== WindowGetPeerPointer / HcclSymWinGetPeerDevicePointer ====================
+namespace {
+
+// 注册 window 并按等距 member 布局绑定 UB 对称窗口，失败返回 nullptr
+inline HcclCommSymWindow SetupBoundUbWindow(uint32_t memberNum, size_t stride, size_t userSize, uintptr_t baseAddress)
+{
+    constexpr uint64_t legacySymWindow = 0x400000U;
+    constexpr uint32_t netLayer = 1U;
+    HcclCommSymWindow window = nullptr;
+    if (HcommTeamWindowRegister(reinterpret_cast<void*>(legacySymWindow), &window) != HCOMM_SUCCESS) {
+        return nullptr;
+    }
+    std::vector<CommMem> memberMems(memberNum);
+    for (uint32_t member = 0; member < memberNum; ++member) {
+        memberMems[member] = {COMM_MEM_TYPE_DEVICE, reinterpret_cast<void*>(baseAddress + member * stride), userSize};
+    }
+    // LSA WorldTeam：memberNum/netLayer 需与 BindUbSymmetricWindow 入参一致
+    auto worldTeam = reinterpret_cast<HcommTeamHandle>(0x300000U);
+    auto teamEntry = std::make_unique<TeamEntry>();
+    teamEntry->hostTeam.memberNum = memberNum;
+    teamEntry->hostTeam.netLayer = netLayer;
+    auto& mgr = HcommTeamMgr::GetInstance();
+    {
+        std::unique_lock<std::shared_mutex> lock(mgr.teamsRwMutex_);
+        mgr.teams_[CurrentUserDevIdForUt()][worldTeam] = std::move(teamEntry);
+    }
+    if (mgr.BindUbSymmetricWindow(
+            window, worldTeam, netLayer, memberMems.data(), memberNum, reinterpret_cast<void*>(baseAddress), stride,
+            userSize)
+        != HCOMM_SUCCESS) {
+        return nullptr;
+    }
+    return window;
+}
+
+} // namespace
+
+// 已绑定 UB 窗口：peerMemberId ∈ [0, lsaMemberNum) 返回 baseVa + peerMemberId*stride + offset
+TEST_F(TestHcommTeamMgr, Ut_WindowGetPeerPointer_When_BoundUbWindow_Expect_PeerVa)
+{
+    constexpr uint32_t memberNum = 4U;
+    constexpr size_t stride = 0x10000U;
+    constexpr size_t userSize = 0x2000U;
+    constexpr uintptr_t baseAddress = 0x100000U;
+    constexpr size_t offset = 0x800U;
+    HcclCommSymWindow window = SetupBoundUbWindow(memberNum, stride, userSize, baseAddress);
+    ASSERT_NE(window, nullptr);
+
+    void* ptr = reinterpret_cast<void*>(0x1U); // 脏值：成功路径必须被真实地址覆盖
+    EXPECT_EQ(HcclSymWinGetPeerDevicePointer(window, offset, 0U, &ptr), HCCL_SUCCESS);
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr), baseAddress + offset);
+
+    ptr = nullptr;
+    EXPECT_EQ(HcommTeamMgr::GetInstance().WindowGetPeerPointer(window, offset, memberNum - 1U, &ptr), HCOMM_SUCCESS);
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr), baseAddress + static_cast<uintptr_t>(memberNum - 1U) * stride + offset);
+
+    EXPECT_EQ(HcommTeamWindowDeregister(window), HCOMM_SUCCESS);
+}
+
+// winHandle/ptr 为空：返回 HCCL_E_PTR，且 *ptr 被置空
+TEST_F(TestHcommTeamMgr, Ut_WindowGetPeerPointer_When_NullParam_Expect_PtrErrorAndPtrCleared)
+{
+    void* ptr = reinterpret_cast<void*>(0x1U);
+    EXPECT_EQ(HcclSymWinGetPeerDevicePointer(nullptr, 0U, 0U, &ptr), HCCL_E_PTR);
+    EXPECT_EQ(ptr, nullptr);
+
+    // team 层直接调用：null handle 属于参数错误，返回 HCOMM_E_PTR 且输出指针保持空
+    void* teamPtr = reinterpret_cast<void*>(0x1U);
+    EXPECT_EQ(HcommTeamMgr::GetInstance().WindowGetPeerPointer(nullptr, 0U, 0U, &teamPtr), HCOMM_E_PTR);
+    EXPECT_EQ(teamPtr, nullptr);
+
+    HcclCommSymWindow window = nullptr;
+    ASSERT_EQ(HcommTeamWindowRegister(reinterpret_cast<void*>(0x400000U), &window), HCOMM_SUCCESS);
+    EXPECT_EQ(HcclSymWinGetPeerDevicePointer(window, 0U, 0U, nullptr), HCCL_E_PTR);
+    EXPECT_EQ(HcommTeamWindowDeregister(window), HCOMM_SUCCESS);
+}
+
+// 未绑定 UB 窗口（lsaWin 全 0，仅 URMA/legacy 窗口）：返回 HCCL_E_NOT_SUPPORT，*ptr 置空
+TEST_F(TestHcommTeamMgr, Ut_WindowGetPeerPointer_When_UbWindowNotBound_Expect_NotSupport)
+{
+    HcclCommSymWindow window = nullptr;
+    ASSERT_EQ(HcommTeamWindowRegister(reinterpret_cast<void*>(0x400000U), &window), HCOMM_SUCCESS);
+
+    void* ptr = reinterpret_cast<void*>(0x1U);
+    EXPECT_EQ(HcclSymWinGetPeerDevicePointer(window, 0U, 0U, &ptr), HCCL_E_NOT_SUPPORT);
+    EXPECT_EQ(ptr, nullptr);
+
+    // netWin 有值（URMA 路径回填过）但 lsaWin 仍全 0，语义不变
+    auto& mgr = HcommTeamMgr::GetInstance();
+    {
+        std::unique_lock<std::shared_mutex> lock(mgr.windowsRwMutex_);
+        auto* entry = mgr.FindWindowByHandleLocked(window);
+        ASSERT_NE(entry, nullptr);
+        entry->hostWindow.netWin.baseRemoteMemAddr = 0x500000U;
+        entry->hostWindow.netWin.windowSize = 0x3000U;
+    }
+    ptr = reinterpret_cast<void*>(0x1U);
+    EXPECT_EQ(HcclSymWinGetPeerDevicePointer(window, 0U, 0U, &ptr), HCCL_E_NOT_SUPPORT);
+    EXPECT_EQ(ptr, nullptr);
+
+    EXPECT_EQ(HcommTeamWindowDeregister(window), HCOMM_SUCCESS);
+}
+
+// offset == userSize 返回 HCCL_E_PARA（offset 必须 < userSize）；userSize-1 为合法上界
+TEST_F(TestHcommTeamMgr, Ut_WindowGetPeerPointer_When_OffsetEqualsUserSize_Expect_ParaError)
+{
+    constexpr uint32_t memberNum = 2U;
+    constexpr size_t stride = 0x10000U;
+    constexpr size_t userSize = 0x2000U;
+    constexpr uintptr_t baseAddress = 0x100000U;
+    HcclCommSymWindow window = SetupBoundUbWindow(memberNum, stride, userSize, baseAddress);
+    ASSERT_NE(window, nullptr);
+
+    void* ptr = reinterpret_cast<void*>(0x1U);
+    EXPECT_EQ(HcclSymWinGetPeerDevicePointer(window, userSize, 0U, &ptr), HCCL_E_PARA);
+    EXPECT_EQ(ptr, nullptr);
+
+    ptr = nullptr;
+    EXPECT_EQ(HcclSymWinGetPeerDevicePointer(window, userSize - 1U, 0U, &ptr), HCCL_SUCCESS);
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr), baseAddress + userSize - 1U);
+
+    EXPECT_EQ(HcommTeamWindowDeregister(window), HCOMM_SUCCESS);
+}
+
+// peerMemberId >= lsaMemberNum（LSA WorldTeam 成员数）返回 HCCL_E_PARA，*ptr 置空
+TEST_F(TestHcommTeamMgr, Ut_WindowGetPeerPointer_When_PeerMemberIdOutOfRange_Expect_ParaError)
+{
+    constexpr uint32_t memberNum = 4U;
+    constexpr size_t stride = 0x10000U;
+    constexpr size_t userSize = 0x2000U;
+    constexpr uintptr_t baseAddress = 0x100000U;
+    HcclCommSymWindow window = SetupBoundUbWindow(memberNum, stride, userSize, baseAddress);
+    ASSERT_NE(window, nullptr);
+
+    void* ptr = reinterpret_cast<void*>(0x1U);
+    EXPECT_EQ(HcclSymWinGetPeerDevicePointer(window, 0U, memberNum, &ptr), HCCL_E_PARA);
+    EXPECT_EQ(ptr, nullptr);
+    EXPECT_EQ(HcclSymWinGetPeerDevicePointer(window, 0U, memberNum + 3U, &ptr), HCCL_E_PARA);
+    EXPECT_EQ(ptr, nullptr);
+    EXPECT_EQ(HcclSymWinGetPeerDevicePointer(window, 0U, UINT32_MAX, &ptr), HCCL_E_PARA);
+    EXPECT_EQ(ptr, nullptr);
+
+    EXPECT_EQ(HcommTeamWindowDeregister(window), HCOMM_SUCCESS);
+}
+
+// base 接近 UINTPTR_MAX：地址加法溢出返回 HCCL_E_PARA
+TEST_F(TestHcommTeamMgr, Ut_WindowGetPeerPointer_When_VaOverflow_Expect_ParaError)
+{
+    constexpr uint32_t memberNum = 4U;
+    constexpr size_t stride = 0x1000U;
+    constexpr size_t userSize = 0x2000U;
+    constexpr uintptr_t baseAddress = UINTPTR_MAX - 0x1000U;
+    HcclCommSymWindow window = nullptr;
+    ASSERT_EQ(HcommTeamWindowRegister(reinterpret_cast<void*>(0x400000U), &window), HCOMM_SUCCESS);
+
+    auto& mgr = HcommTeamMgr::GetInstance();
+    {
+        std::unique_lock<std::shared_mutex> lock(mgr.windowsRwMutex_);
+        auto* entry = mgr.FindWindowByHandleLocked(window);
+        ASSERT_NE(entry, nullptr);
+        entry->hostWindow.lsaWin.baseVa = baseAddress;
+        entry->hostWindow.lsaWin.stride = stride;
+        entry->hostWindow.lsaWin.userSize = userSize;
+        entry->lsaMemberNum = memberNum;
+    }
+
+    // peerMemberId * stride 越过 UINTPTR_MAX（member 1 恰好落在 UINTPTR_MAX，不算溢出）
+    void* ptr = reinterpret_cast<void*>(0x1U);
+    EXPECT_EQ(HcclSymWinGetPeerDevicePointer(window, 0U, 2U, &ptr), HCCL_E_PARA);
+    EXPECT_EQ(ptr, nullptr);
+    EXPECT_EQ(HcclSymWinGetPeerDevicePointer(window, 0x1800U, 0U, &ptr), HCCL_E_PARA);
+    EXPECT_EQ(ptr, nullptr);
+    EXPECT_EQ(HcclSymWinGetPeerDevicePointer(window, 0U, 0U, &ptr), HCCL_SUCCESS);
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr), baseAddress);
+
+    EXPECT_EQ(HcommTeamWindowDeregister(window), HCOMM_SUCCESS);
+}
+
+// 未注册/已注销句柄：返回 HCCL_E_NOT_FOUND，且 *ptr 置空（防调用方沿用残留地址）
+TEST_F(TestHcommTeamMgr, Ut_WindowGetPeerPointer_When_WindowNotRegistered_Expect_NotFoundAndPtrCleared)
+{
+    HcclCommSymWindow fakeWin = reinterpret_cast<HcclCommSymWindow>(0xDEADBEEF);
+    void* ptr = reinterpret_cast<void*>(0x1U);
+    EXPECT_EQ(HcclSymWinGetPeerDevicePointer(fakeWin, 0U, 0U, &ptr), HCCL_E_NOT_FOUND);
+    EXPECT_EQ(ptr, nullptr);
+}
+
+// BindUbSymmetricWindow 的 SyncWindowToDevice 失败：lsaWin 三字段与 lsaMemberNum 一并回滚，
+// 窗口回到未绑定语义（查询返回 HCCL_E_NOT_SUPPORT），且回滚后的布局必须写回 device
+TEST_F(TestHcommTeamMgr, Ut_BindUbSymmetricWindow_When_SyncWindowToDeviceFail_Expect_LayoutRolledBack)
+{
+    constexpr uint32_t memberNum = 2U;
+    constexpr size_t stride = 0x10000U;
+    constexpr size_t userSize = 0x2000U;
+    constexpr uintptr_t baseAddress = 0x100000U;
+    constexpr uint32_t netLayer = 1U;
+    HcclCommSymWindow window = nullptr;
+    ASSERT_EQ(HcommTeamWindowRegister(reinterpret_cast<void*>(0x400000U), &window), HCOMM_SUCCESS);
+    auto* deviceWindow = static_cast<HcommWindow*>(window);
+    // 预置 device 副本为"已绑定"布局：回滚未写回 device 时，断言会失败
+    deviceWindow->lsaWin.baseVa = baseAddress;
+    deviceWindow->lsaWin.stride = stride;
+    deviceWindow->lsaWin.userSize = userSize;
+
+    auto worldTeam = reinterpret_cast<HcommTeamHandle>(0x300000U);
+    auto teamEntry = std::make_unique<TeamEntry>();
+    teamEntry->hostTeam.memberNum = memberNum;
+    teamEntry->hostTeam.netLayer = netLayer;
+    auto& mgr = HcommTeamMgr::GetInstance();
+    {
+        std::unique_lock<std::shared_mutex> lock(mgr.teamsRwMutex_);
+        mgr.teams_[CurrentUserDevIdForUt()][worldTeam] = std::move(teamEntry);
+    }
+    std::vector<CommMem> memberMems(memberNum);
+    for (uint32_t member = 0; member < memberNum; ++member) {
+        memberMems[member] = {COMM_MEM_TYPE_DEVICE, reinterpret_cast<void*>(baseAddress + member * stride), userSize};
+    }
+
+    // 仅注入 Bind 内第一笔 sync 失败，让回滚 sync 成功，才能验证回滚已写回 device
+    g_hrtMemSyncCopyCallCount = 0;
+    g_hrtMemSyncCopyFailAtCall = 1;
+    EXPECT_NE(
+        mgr.BindUbSymmetricWindow(
+            window, worldTeam, netLayer, memberMems.data(), memberNum, reinterpret_cast<void*>(baseAddress), stride,
+            userSize),
+        HCOMM_SUCCESS);
+
+    {
+        std::shared_lock<std::shared_mutex> lock(mgr.windowsRwMutex_);
+        auto* entry = mgr.FindWindowByHandleLocked(window);
+        ASSERT_NE(entry, nullptr);
+        EXPECT_EQ(entry->hostWindow.lsaWin.baseVa, 0U);
+        EXPECT_EQ(entry->hostWindow.lsaWin.stride, 0U);
+        EXPECT_EQ(entry->hostWindow.lsaWin.userSize, 0U);
+        EXPECT_EQ(entry->lsaMemberNum, 0U);
+    }
+
+    // Bind 首笔 + 回滚一笔；回滚缺失时计数为 1
+    EXPECT_EQ(g_hrtMemSyncCopyCallCount, 2U);
+    EXPECT_EQ(deviceWindow->lsaWin.baseVa, 0U);
+    EXPECT_EQ(deviceWindow->lsaWin.stride, 0U);
+    EXPECT_EQ(deviceWindow->lsaWin.userSize, 0U);
+
+    void* ptr = reinterpret_cast<void*>(0x1U);
+    EXPECT_EQ(HcclSymWinGetPeerDevicePointer(window, 0U, 0U, &ptr), HCCL_E_NOT_SUPPORT);
+    EXPECT_EQ(ptr, nullptr);
+
+    EXPECT_EQ(HcommTeamWindowDeregister(window), HCOMM_SUCCESS);
 }

@@ -647,6 +647,56 @@ HcommResult HcommTeamMgr::WindowDeregister(HcclCommSymWindow handle)
     return HCOMM_SUCCESS;
 }
 
+static bool IsPeerVaInRange(uint64_t baseVa, uint64_t stride, uint64_t offset, uint32_t peerMemberId)
+{
+    const uintptr_t base = static_cast<uintptr_t>(baseVa);
+    if (offset > UINTPTR_MAX - base) {
+        return false;
+    }
+    return static_cast<uint64_t>(peerMemberId) <= (UINTPTR_MAX - base - offset) / stride;
+}
+
+HcommResult
+HcommTeamMgr::WindowGetPeerPointer(HcclCommSymWindow handle, size_t offset, uint32_t peerMemberId, void** ptr)
+{
+    CHK_PRT_RET(ptr == nullptr, HCCL_ERROR("[%s] ptr is nullptr, handle[%p]", __func__, handle), HCOMM_E_PTR);
+    // 失败路径置空，避免调用方沿用上次查询残留的远端地址
+    *ptr = nullptr;
+    CHK_PRT_RET(handle == nullptr, HCCL_ERROR("[%s] window handle is nullptr", __func__), HCOMM_E_PTR);
+
+    std::shared_lock<std::shared_mutex> lock(windowsRwMutex_);
+    WindowEntry* winEntry = FindWindowByHandleLocked(handle);
+    CHK_PRT_RET(winEntry == nullptr, HCCL_ERROR("[%s] window[%p] not found", __func__, handle), HCOMM_E_NOT_FOUND);
+    const HcommWindow& win = winEntry->hostWindow;
+    // 仅支持已绑定 UB 对称窗口：非 UB 窗口（URMA/legacy）lsaWin 三字段全 0，返回 HCOMM_E_NOT_SUPPORT，
+    // 调用方需回退 legacy 远端地址查询（与 device 侧 HcclSymWinGetPeerPointer 的回退行为一致）。
+    // 该分支是能力探测的正常结果，按通道/按对端频繁命中，只打 DEBUG 避免刷屏。
+    CHK_PRT_RET(
+        win.lsaWin.baseVa == 0 || win.lsaWin.stride == 0 || win.lsaWin.userSize == 0,
+        HCCL_DEBUG(
+            "[%s] UB memory symmetric window layout not ready, handle[%p], baseVa[%llu], stride[%llu], userSize[%llu]",
+            __func__, handle, win.lsaWin.baseVa, win.lsaWin.stride, win.lsaWin.userSize),
+        HCOMM_E_NOT_SUPPORT);
+    CHK_PRT_RET(
+        offset >= win.lsaWin.userSize,
+        HCCL_ERROR("[%s] offset[%zu] exceeds userSize[%llu]", __func__, offset, win.lsaWin.userSize), HCOMM_E_PARA);
+    // peerMemberId 为 LSA WorldTeam member ID，须 < lsaMemberNum，否则结果落在窗口外（写坏对端内存）
+    CHK_PRT_RET(
+        peerMemberId >= winEntry->lsaMemberNum,
+        HCCL_ERROR(
+            "[%s] peerMemberId[%u] out of range, handle[%p], lsaMemberNum[%u]", __func__, peerMemberId, handle,
+            winEntry->lsaMemberNum),
+        HCOMM_E_PARA);
+    CHK_PRT_RET(
+        !IsPeerVaInRange(win.lsaWin.baseVa, win.lsaWin.stride, offset, peerMemberId),
+        HCCL_ERROR("[%s] peer address overflows, handle[%p], peerMemberId[%u]", __func__, handle, peerMemberId),
+        HCOMM_E_PARA);
+    const uintptr_t peerVa
+        = static_cast<uintptr_t>(win.lsaWin.baseVa) + static_cast<uint64_t>(peerMemberId) * win.lsaWin.stride + offset;
+    *ptr = reinterpret_cast<void*>(peerVa);
+    return HCOMM_SUCCESS;
+}
+
 /* 清空 window 的 netWin 层分段表资源（失败回滚/重置共用）：释放 host/dev 内存并清零相关字段。 */
 void HcommTeamMgr::ClearWindowNetWin(WindowEntry* winEntry)
 {
@@ -830,11 +880,21 @@ HcommResult HcommTeamMgr::BindUbSymmetricWindow(
     winEntry->hostWindow.lsaWin.baseVa = reinterpret_cast<uint64_t>(baseVa);
     winEntry->hostWindow.lsaWin.stride = static_cast<uint64_t>(stride);
     winEntry->hostWindow.lsaWin.userSize = static_cast<uint64_t>(userSize);
+    // 供 WindowGetPeerPointer 校验 peerMemberId 上界
+    winEntry->lsaMemberNum = memberNum;
     HcommResult ret = SyncWindowToDevice(winEntry);
     if (ret != HCOMM_SUCCESS) {
         winEntry->hostWindow.lsaWin.baseVa = 0;
         winEntry->hostWindow.lsaWin.stride = 0;
         winEntry->hostWindow.lsaWin.userSize = 0;
+        winEntry->lsaMemberNum = 0;
+        // 回滚必须同步到 device：SyncWindowToDevice 失败不保证 device 侧未被部分写入，
+        // 只清 host 会让 devWindow 残留 lsaWin 布局，device 侧查询可能读到残留地址。
+        HcommResult rollbackRet = SyncWindowToDevice(winEntry);
+        if (rollbackRet != HCOMM_SUCCESS) {
+            HCCL_ERROR(
+                "[%s] rollback sync failed, handle[%p], ret[%d]", __func__, handle, static_cast<int32_t>(rollbackRet));
+        }
     }
     return ret;
 }

@@ -23,7 +23,7 @@
 根据对称内存窗口资源句柄、偏移和对端标识，获取对称内存窗口中对应的地址指针。
 
 <!-- npu="950" id8 -->
-针对Ascend 950PR&950DT系列产品的UB Memory场景，对端标识为LSA WorldTeam的member ID，接口返回该LSA成员在对称VA空间中的地址指针。URMA场景不支持本接口，应使用[HcclSymWinGetRemoteAddr](HcclSymWinGetRemoteAddr.md)获取远端地址。
+针对Ascend 950PR&950DT系列产品的UB Memory场景，对端标识为LSA WorldTeam的member ID，接口返回该LSA成员在对称VA空间中的地址指针。URMA场景不支持本接口，应使用[HcclSymWinGetRemoteAddr](HcclSymWinGetRemoteAddr.md)获取远端地址。若需在HOST侧获取对端Device地址，请参见[HcclSymWinGetPeerDevicePointer](HcclSymWinGetPeerDevicePointer.md)。
 <!-- end id8 -->
 
 <!-- npu="A3" id6 -->

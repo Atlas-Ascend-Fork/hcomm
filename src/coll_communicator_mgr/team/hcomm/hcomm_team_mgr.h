@@ -47,6 +47,8 @@ struct WindowEntry {
     /* 本端槽位（L2 用 GetRankLayerSlots(selfRankId) + 前缀和算好传入，
      * 算法与 remoteRank 槽位一致：sum(sizes[0..L-1]) + 该层 worldTeamId） */
     std::vector<uint32_t> selfSlots;
+    /* UB 对称窗口绑定的 LSA WorldTeam 成员数（BindUbSymmetricWindow 的 memberNum），0 表示尚未绑定 */
+    uint32_t lsaMemberNum{0};
 };
 
 struct TeamEntry {
@@ -80,6 +82,7 @@ public:
     HcommResult TeamDestroy(HcommTeamHandle team);
     HcommResult WindowRegister(void* devLegacySymWin, HcclCommSymWindow* handle);
     HcommResult WindowDeregister(HcclCommSymWindow handle);
+    HcommResult WindowGetPeerPointer(HcclCommSymWindow handle, size_t offset, uint32_t peerMemberId, void** ptr);
     HcommResult BindUbSymmetricWindow(
         HcclCommSymWindow handle, HcommTeamHandle lsaTeam, uint32_t netLayer, const CommMem* memberMems,
         uint32_t memberNum, void* baseVa, size_t stride, size_t userSize);
