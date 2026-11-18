@@ -129,7 +129,9 @@ HcclResult RankTableReader::ReadPorts(const nlohmann::json& addressInfoJson, Hcc
     if (out.ports.size() < Hccl::MIN_VALUE_PORT || out.ports.size() > Hccl::MAX_VALUE_PORT) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
-            std::vector<std::string>({std::to_string(out.ports.size()), "ports count", "[1, 20]"}));
+            std::vector<std::string>(
+                {std::to_string(out.ports.size()), "ports count",
+                 "[" + std::to_string(Hccl::MIN_VALUE_PORT) + ", " + std::to_string(Hccl::MAX_VALUE_PORT) + "]"}));
         return HCCL_E_PARA;
     }
     return HCCL_SUCCESS;

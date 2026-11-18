@@ -22,7 +22,6 @@ namespace Hccl {
 constexpr unsigned int MIN_VALUE_PLANEID = 0;
 constexpr unsigned int MAX_VALUE_PLANEID = 1024;
 constexpr unsigned int MIN_VALUE_PORT = 1;
-constexpr unsigned int MAX_VALUE_PORT = 16;
 constexpr unsigned int MIN_VALUE_PORT_LENGTH = 1;
 constexpr unsigned int MAX_VALUE_PORT_LENGTH = 32;
 constexpr unsigned int MIN_VALUE_ADDR_LENGRH = 1;

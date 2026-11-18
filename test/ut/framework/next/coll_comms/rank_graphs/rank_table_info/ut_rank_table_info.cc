@@ -18,6 +18,7 @@
 #include "orion_adapter_rts.h"
 #include "ip_address.h"
 
+#include "address_info.h"
 #include "rank_table_info.h"
 #include "topo_common_types.h"
 #include "adapter_error_manager_pub.h"
@@ -1079,7 +1080,7 @@ TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_LevelRequiredFi
         HCCL_E_PARA);
 }
 
-TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_PortsBoundary_Expect_ParaAnd20Ok)
+TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_PortsBoundary_Expect_ParaAndAtLimitOk)
 {
     RankTableInfo info;
     EXPECT_EQ(
@@ -1092,8 +1093,8 @@ TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_PortsBoundary_E
                 FAST_RANK_TABLE_FULL, R"("ports": ["0/0"])", R"("ports": ["0123456789012345678901234567890123"])"),
             info),
         HCCL_E_PARA);
-    EXPECT_EQ(hccl::ParseRankTableStringFast(MakeRankTableWithPortCount(20), info), HCCL_SUCCESS);
-    EXPECT_EQ(hccl::ParseRankTableStringFast(MakeRankTableWithPortCount(21), info), HCCL_E_PARA);
+    EXPECT_EQ(hccl::ParseRankTableStringFast(MakeRankTableWithPortCount(MAX_VALUE_PORT), info), HCCL_SUCCESS);
+    EXPECT_EQ(hccl::ParseRankTableStringFast(MakeRankTableWithPortCount(MAX_VALUE_PORT + 1U), info), HCCL_E_PARA);
 }
 
 TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_LevelCountBoundary_Expect_8Ok9Para)
