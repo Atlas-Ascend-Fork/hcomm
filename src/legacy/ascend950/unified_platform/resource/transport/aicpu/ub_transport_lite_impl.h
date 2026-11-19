@@ -142,6 +142,8 @@ private:
     DfxLinkType linkType_{DfxLinkType::UB};
     bool fence_{false};
     bool taskExceptionEnable_{true};
+    u64 devEpMemTablePtr_{0}; // endpoint 活账本表（DevEpMemTable）device 地址；Init
+                              // 经扩展区头校验后解析，0=无表（值语义）；V1 构造路径不走 Init 恒 0
 
     inline u8 GetUbLinkTypeVal() const
     {
@@ -160,14 +162,6 @@ private:
         {
             return StringFormat("RmtUbBufLite[addr=0x%llx, size=%llu, notifyId=%u]", addr, size, notifyId);
         }
-    };
-
-    struct LocUbBufLite {
-        u64 addr;
-        u64 size;
-        u32 tokenId;
-        u32 tokenValue;
-        std::string Describe() const { return StringFormat("LocUbBufLite[addr=0x%llx, size=%llu]", addr, size); }
     };
 
     struct DrainNotify {
@@ -189,12 +183,10 @@ private:
 
     using RmtUbBufLiteVec = std::vector<RmtUbBufLite>;
     using RmtUbBufLiteMap = std::map<uintptr_t, RmtUbBufLite>;
-    using LocUbBufLiteMap = std::map<uintptr_t, LocUbBufLite>;
     MAKE_ENUM(RmaUbBufType, NOTIFY, BUFFER)
     RmtUbBufLiteVec rmtNotifyVec;
     RmtUbBufLiteVec rmtBufferVec;
     RmtUbBufLiteMap rmtBufferMap; // 性能优化使用
-    LocUbBufLiteMap locBufferMap;
 
     HcclResult GetRmtNotifySliceLite(u32 index, RmtRmaBufSliceLite& rmtSlice);
     HcclResult GetRmtRmaBufSliceLite(const Buffer& rmtBuf, RmtRmaBufSliceLite& rmtSlice) const;
@@ -242,8 +234,6 @@ private:
     void ParseLocNotifyVec(std::vector<char>& data);
 
     void ParseRmtBufferVec(std::vector<char>& data, RmaUbBufType rmtType);
-
-    void ParseLocBufferMap(std::vector<char>& data);
 
     void ParseDrainResource(std::vector<char>& data);
 

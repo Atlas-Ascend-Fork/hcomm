@@ -22,7 +22,7 @@
 
 namespace hcomm {
 
-UbRtpEndpoint::UbRtpEndpoint(const EndpointDesc& endpointDesc) : Endpoint(endpointDesc) {}
+UbRtpEndpoint::UbRtpEndpoint(const EndpointDesc& endpointDesc) : UbDeviceEndpointBase(endpointDesc) {}
 
 UbRtpEndpoint::~UbRtpEndpoint() noexcept { (void)ReleaseEndpointCtx(); }
 

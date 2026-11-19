@@ -138,6 +138,18 @@ HcclResult ChannelProcess::CreateChannelsLoop(
     return HCCL_SUCCESS;
 }
 
+std::vector<ChannelHandle> ChannelProcess::GetAliveChannels(EndpointHandle endpointHandle)
+{
+    std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
+    std::vector<ChannelHandle> aliveChannels;
+    for (const auto& kv : ChannelRegistry().ChannelMap()) {
+        if (kv.second != nullptr && kv.second->GetEndpointHandle() == endpointHandle) {
+            aliveChannels.push_back(kv.first);
+        }
+    }
+    return aliveChannels;
+}
+
 HcclResult InsertPluginChannelToMap(ChannelHandle handle, std::shared_ptr<Channel> channelPtr)
 {
     std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());

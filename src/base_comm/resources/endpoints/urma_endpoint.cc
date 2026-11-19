@@ -25,7 +25,7 @@
 
 namespace hcomm {
 
-UrmaEndpoint::UrmaEndpoint(const EndpointDesc& endpointDesc) : Endpoint(endpointDesc) {}
+UrmaEndpoint::UrmaEndpoint(const EndpointDesc& endpointDesc) : UbDeviceEndpointBase(endpointDesc) {}
 
 UrmaEndpoint::~UrmaEndpoint() noexcept
 {

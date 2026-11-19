@@ -434,6 +434,61 @@ TEST_F(TestHcommEndpoint, Ut_TwoBuiltinEndpoints_When_SharedLocalMgr_Expect_Hand
     EXPECT_EQ(HcommEndpointDestroy(epHandle2), HCCL_SUCCESS);
 }
 
+// ===================== HcommMemUnreg 非 UB mgr 0 值透传 UT（检视整改） =====================
+// 非 UB 家族 mgr 的 GetMemRange 走基类默认（false + 出参保持 0），注销链路以 (0,0) 调用钩子且主流程成功。
+// 哨兵初值 1：钩子未被调用时断言 (0,0) 亦失败，配合 called 标志双重锚定。
+static bool g_nonUbUnregHookCalled = false;
+static uint64_t g_nonUbUnregHookAddr = 1;
+static uint64_t g_nonUbUnregHookSize = 1;
+
+static HcclResult StubCaptureNonUbUnregHook(hcomm::Endpoint*, uint64_t addr, uint64_t size)
+{
+    g_nonUbUnregHookCalled = true;
+    g_nonUbUnregHookAddr = addr;
+    g_nonUbUnregHookSize = size;
+    return HCCL_SUCCESS;
+}
+
+TEST_F(TestHcommEndpoint, Ut_When_UnregNonUbLocalMem_Expect_HookReceivesZeroRangeAndSucceeds)
+{
+    EndpointDesc endpointDesc{};
+    endpointDesc.loc.locType = ENDPOINT_LOC_TYPE_HOST;
+    endpointDesc.protocol = COMM_PROTOCOL_ROCE;
+    EndpointHandle epHandle = nullptr;
+    ASSERT_EQ(HcommEndpointCreate(&endpointDesc, &epHandle), HCCL_SUCCESS);
+
+    Endpoint* epBase = nullptr;
+    ASSERT_EQ(HcommEndpointGet(epHandle, reinterpret_cast<void**>(&epBase)), HCCL_SUCCESS);
+    ASSERT_NE(epBase, nullptr);
+
+    // HOST 内存走 legacy 注册链，仅 MR 硬件边界打桩（同 Ut_TwoBuiltinEndpoints）
+    void* fakeMr = reinterpret_cast<void*>(0xABCDEF);
+    MOCKER(RaRegisterMr)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBoundP(&fakeMr, sizeof(fakeMr)))
+        .will(returnValue(0));
+    MOCKER(RaDeregisterMr).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
+
+    // 真实钩子为基类 no-op，mock 基类虚接口以观察适配层传入的 (addr,size)
+    using UnregHookFp = HcclResult (hcomm::Endpoint::*)(uint64_t, uint64_t);
+    MOCKER_CPP_VIRTUAL(*epBase, &hcomm::Endpoint::OnLocalMemUnregistered, UnregHookFp)
+        .stubs()
+        .will(invoke(StubCaptureNonUbUnregHook));
+
+    // 真实链路：真实 CpuRoceEndpoint 归属账本（Record/Remove 不 mock）+ 真实 RoceRegedMemMgr
+    CommMem mem{COMM_MEM_TYPE_HOST, reinterpret_cast<void*>(0x5000), 2048};
+    HcommMemHandle memHandle = nullptr;
+    ASSERT_EQ(HcommMemReg(epHandle, "nonUbUnreg", &mem, &memHandle), HCCL_SUCCESS);
+    ASSERT_EQ(HcommMemUnreg(epHandle, memHandle), HCCL_SUCCESS);
+
+    // 基类 GetMemRange 默认 false + 出参保持 0：钩子收到 (0,0)（适配层 0 值透传）
+    EXPECT_TRUE(g_nonUbUnregHookCalled);
+    EXPECT_EQ(g_nonUbUnregHookAddr, 0U);
+    EXPECT_EQ(g_nonUbUnregHookSize, 0U);
+
+    EXPECT_EQ(HcommEndpointDestroy(epHandle), HCCL_SUCCESS);
+}
+
 // Ub 系链路覆盖：同 desc 两次创建 CpuUrmaEndpoint，共享同一 UbRegedMemMgr；
 // 各实例枚举只含本实例注册的 handle，Unreg 后仅从本实例摘除。
 TEST_F(TestHcommEndpoint, Ut_TwoCpuUrmaEndpoints_When_SharedLocalMgr_Expect_HandlesIsolatedAndUnregRemoved)

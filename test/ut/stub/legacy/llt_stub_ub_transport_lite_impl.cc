@@ -36,8 +36,6 @@ void UbTransportLiteImpl::ParseLocNotifyVec(std::vector<char>& data) {}
 
 void UbTransportLiteImpl::ParseRmtBufferVec(std::vector<char>& data, RmaUbBufType rmtType) {}
 
-void UbTransportLiteImpl::ParseLocBufferMap(std::vector<char>& data) {}
-
 void UbTransportLiteImpl::ParseConnVec(std::vector<char>& data) {}
 
 HcclResult UbTransportLiteImpl::BuildUbDbSendTask(const StreamLite& stream, RmaConnLite* conn, u16 pi)

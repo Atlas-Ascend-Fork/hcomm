@@ -175,6 +175,7 @@ target_sources(hccl_v2_utest
 
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/transport/aicpu/mem_transport_lite.cc
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/transport/aicpu/ub_transport_lite_impl.cc
+        ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels/aicpu/device/dev_ep_mem_table.cc
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/transport/aicpu/p2p_transport_lite_impl.cc
 
         ${HCCL_V2_CODE_ROOT}/unified_platform/ccu/ccu_device/ccu_device_manager.cpp

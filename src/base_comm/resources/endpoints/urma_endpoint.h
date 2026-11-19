@@ -17,7 +17,7 @@
 #include <shared_mutex>
 #include <vector>
 #include <string>
-#include "endpoint.h"
+#include "ub_device_endpoint_base.h"
 #include "comm_queue_context/jetty_context.h"
 #include "server_socket_context/device_server_socket_context.h"
 #include "ub_reged_mem_mgr.h"
@@ -29,8 +29,9 @@
 namespace hcomm {
 /**
  * @note 职责：DEVICE 侧 UB 协议通信设备 Endpoint，管理通信设备上下文，以及设备上的注册内存。
+ *       DevEpMemTable 钩子经 UbDeviceEndpointBase 公共基类承载（检视去重）。
  */
-class UrmaEndpoint : public Endpoint {
+class UrmaEndpoint : public UbDeviceEndpointBase {
 public:
     explicit UrmaEndpoint(const EndpointDesc& endpointDesc);
     ~UrmaEndpoint() noexcept override;

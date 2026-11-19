@@ -16,6 +16,7 @@ set(src_list
     aicpu_ts_roce_endpoint.cc
     aicputs_hccs_endpoint.cc
     endpoint.cc
+    ub_device_endpoint_base.cc
     uboe_endpoint.cc
     ub_rtp_endpoint.cc
 )

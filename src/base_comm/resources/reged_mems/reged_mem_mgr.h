@@ -54,6 +54,11 @@ public:
 
     virtual HcclResult GetAllMemHandles(void** memHandles, uint32_t* memHandleNum) = 0;
 
+    // 按 handle 提取 (addr,size,tokenId,tokenValue) 四元组纯值：默认 false（无此能力/未注册），
+    // 调用方 0 值透传；无名参数惯例同 Endpoint 钩子，避免 no-op 体触发 unused-parameter 告警。
+    // 提取语义：末引用注销会析构 buffer 对象，调用方此后不得再触碰 memHandle
+    virtual bool GetMemRange(void*, uint64_t&, uint64_t&, uint32_t&, uint32_t&) const { return false; }
+
 protected:
     template <typename RmaBuffer>
     using RegedBufferEntry = std::pair<std::shared_ptr<RmaBuffer>, bool>;

@@ -321,6 +321,15 @@ protected:
         channelDesc.socket = fsocket;
         localBufferPtr = std::make_shared<Hccl::Buffer>(666);
         localRdmaRmaBuffer = std::make_shared<Hccl::LocalRdmaRmaBuffer>(localBufferPtr, rdmaHandle);
+
+        // The fixture models a registered buffer, including its Endpoint ownership record:
+        // install a fixture-owned mgr (isolate from the process-level cache to avoid cross-test accumulation),
+        // seed its records, then go through RecordLocalMemHandle — the only ledger write path under
+        // snapshot publication (direct vector access no longer exists).
+        auto fixtureMgr = std::make_shared<RoceRegedMemMgr>(nullptr);
+        fixtureMgr->handlesRecords_.push_back(localRdmaRmaBuffer);
+        endpoint->localMemMgr_ = fixtureMgr;
+        ASSERT_EQ(endpoint->RecordLocalMemHandle(localRdmaRmaBuffer.get()), HCCL_SUCCESS);
         memHandle_ = static_cast<void*>(localRdmaRmaBuffer.get());
         channelDesc.memHandles = &memHandle_;
         channelDesc.memHandleNum = 1;
@@ -3780,4 +3789,93 @@ TEST_F(HostCpuRoceChannelTest, Ut_When_BuildSocket_RoleReserved_Expect_PortInCon
     EXPECT_EQ(impl->local_.socketConfig->listeningPort, 60001U); // desc.port 未置 → local_.serverPort 默认 60001
     EXPECT_EQ(impl->local_.socket, fakeSocket);
     impl->local_.socket = nullptr; // 防止析构归还打到真实 SocketMgr
+}
+
+// Keep the actual Write/Read -> PostRdmaOp -> FindLocalBuffer -> BuildRdmaWr chain.
+TEST_F(HostCpuRoceChannelTest, Ut_WriteRead_When_RegisteredAfterChannel_Expect_NewLkeyPosted)
+{
+    SetupSuccessfulConnectionMocks();
+    auto channel = CreateInitAndConnect();
+    channel->wqeNums_ = {0};
+    channel->maxMsgSize_ = 0x1000; // Write/Read 按 maxMsgSize_ 切片（0x100 ≤ 0x1000 → 各单块）
+    auto memory = std::make_shared<Hccl::Buffer>(0x3000, 0x1000, HcclMemType::HCCL_MEM_TYPE_HOST, "late");
+    auto lateBuffer = std::make_shared<Hccl::LocalRdmaRmaBuffer>(
+        memory, reinterpret_cast<RdmaHandle>(1), 33, 44, reinterpret_cast<MrHandle>(2));
+    // 晚注册播种：经公共通道（mgr 记录 + RecordLocalMemHandle）记入账本，随后快照发布即刻可查
+    auto fixtureMgr = std::dynamic_pointer_cast<RoceRegedMemMgr>(endpoint->localMemMgr_);
+    ASSERT_NE(fixtureMgr, nullptr);
+    fixtureMgr->handlesRecords_.push_back(lateBuffer);
+    ASSERT_EQ(endpoint->RecordLocalMemHandle(lateBuffer.get()), HCCL_SUCCESS);
+    channel->localRmaBuffers_.clear(); // Even an empty build-time snapshot must not gate live lookup.
+    channel->rmtRmaBuffers_.clear();
+    Hccl::ExchangeRdmaBufferDto dto(0x8000, 0x1000, 77, "remote");
+    channel->rmtRmaBuffers_.push_back(
+        std::make_unique<Hccl::RemoteRdmaRmaBuffer>(reinterpret_cast<RdmaHandle>(1), dto));
+    std::vector<Hccl::QpInfo> qpInfos(1);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::PostAndCheckSend)
+        .expects(exactly(2))
+        .will(invoke(+[](HostCpuRoceChannel*, ibv_qp*, uint32_t, const char*, ibv_send_wr& wr) -> HcclResult {
+            EXPECT_EQ(wr.sg_list->addr, 0x3100U);
+            EXPECT_EQ(wr.sg_list->length, 0x100U);
+            EXPECT_EQ(wr.sg_list->lkey, 33U);
+            EXPECT_EQ(wr.wr.rdma.rkey, 77U);
+            EXPECT_TRUE(wr.opcode == IBV_WR_RDMA_WRITE || wr.opcode == IBV_WR_RDMA_READ);
+            return HCCL_SUCCESS;
+        }));
+    EXPECT_EQ(channel->Write(reinterpret_cast<void*>(0x8100), reinterpret_cast<void*>(0x3100), 0x100), HCCL_SUCCESS);
+    EXPECT_EQ(channel->Read(reinterpret_cast<void*>(0x3100), reinterpret_cast<void*>(0x8100), 0x100), HCCL_SUCCESS);
+    ASSERT_EQ(endpoint->RemoveLocalMemHandle(lateBuffer.get()), HCCL_SUCCESS);
+    EXPECT_EQ(
+        channel->Write(reinterpret_cast<void*>(0x8100), reinterpret_cast<void*>(0x3100), 0x100), HCCL_E_NOT_FOUND);
+}
+
+// Keep the actual WriteReduceWithNotify -> FindLocalBuffer -> PrepareReduceWrResource chain.
+TEST_F(HostCpuRoceChannelTest, Ut_WriteReduceWithNotify_When_RegisteredAfterChannel_Expect_NewLkeyPosted)
+{
+    SetupSuccessfulConnectionMocks();
+    auto channel = CreateInitAndConnect();
+    channel->maxMsgSize_ = 0x1000;
+    channel->remoteDpuNotifyIds_ = {0};
+    auto memory = std::make_shared<Hccl::Buffer>(0x3000, 0x1000, HcclMemType::HCCL_MEM_TYPE_HOST, "late");
+    auto lateBuffer = std::make_shared<Hccl::LocalRdmaRmaBuffer>(
+        memory, reinterpret_cast<RdmaHandle>(1), 33, 44, reinterpret_cast<MrHandle>(2));
+    // 晚注册播种：经公共通道（mgr 记录 + RecordLocalMemHandle）记入账本，随后快照发布即刻可查
+    auto fixtureMgr = std::dynamic_pointer_cast<RoceRegedMemMgr>(endpoint->localMemMgr_);
+    ASSERT_NE(fixtureMgr, nullptr);
+    fixtureMgr->handlesRecords_.push_back(lateBuffer);
+    ASSERT_EQ(endpoint->RecordLocalMemHandle(lateBuffer.get()), HCCL_SUCCESS);
+    channel->localRmaBuffers_.clear(); // Even an empty build-time snapshot must not gate live lookup.
+    Hccl::ExchangeRdmaBufferDto dto(0x8000, 0x1000, 77, "remote");
+    channel->rmtRmaBuffers_.push_back(
+        std::make_unique<Hccl::RemoteRdmaRmaBuffer>(reinterpret_cast<RdmaHandle>(1), dto));
+    MockGetQpInfos(1);
+    MOCKER_CPP(&HostCpuRoceChannel::PostAndCheckSendExt).stubs().will(invoke(CapturePostAndCheckSendExtStub));
+
+    EXPECT_EQ(
+        channel->WriteReduceWithNotify(
+            reinterpret_cast<void*>(0x8100), reinterpret_cast<void*>(0x3100), 0x100, HCCL_DATA_TYPE_FP32,
+            HCCL_REDUCE_SUM, 0),
+        HCCL_SUCCESS);
+
+    ASSERT_EQ(g_capturedExtPosts.size(), 1u);
+    const auto& post = g_capturedExtPosts[0];
+    EXPECT_EQ(post.sge.addr, 0x3100U);
+    EXPECT_EQ(post.sge.length, 0x100U);
+    EXPECT_EQ(post.sge.lkey, 33U);
+    EXPECT_EQ(post.wr.wr.rdma.remote_addr, 0x8100U);
+    EXPECT_EQ(post.wr.wr.rdma.rkey, 77U);
+    EXPECT_EQ(post.wr.num_sge, 1u);
+    // 单片即尾片，携带 notify：SIGNALED|FENCE，imm 带 record 语义位（dpuNotifyId=0）
+    EXPECT_TRUE(post.signaled);
+    EXPECT_EQ(post.wr.send_flags, static_cast<int>(IBV_SEND_SIGNALED | IBV_SEND_FENCE));
+    EXPECT_EQ(static_cast<uint32_t>(post.wr.opcode), (1u << 8) | static_cast<uint32_t>(IBV_WR_RDMA_WRITE_WITH_IMM));
+    EXPECT_EQ(post.wr.imm_data, 0x01000000u);
+
+    ASSERT_EQ(endpoint->RemoveLocalMemHandle(lateBuffer.get()), HCCL_SUCCESS);
+    EXPECT_EQ(
+        channel->WriteReduceWithNotify(
+            reinterpret_cast<void*>(0x8100), reinterpret_cast<void*>(0x3100), 0x100, HCCL_DATA_TYPE_FP32,
+            HCCL_REDUCE_SUM, 0),
+        HCCL_E_NOT_FOUND);
 }

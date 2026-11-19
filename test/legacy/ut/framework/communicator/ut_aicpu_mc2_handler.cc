@@ -139,7 +139,7 @@ extern "C" {
 drvError_t halCqReportRecv(uint32_t devId, struct halReportRecvInfo* info) { return DRV_ERROR_NONE; }
 }
 
-int Mocker_GetReporterInfo_Normal(
+uint32_t Mocker_GetReporterInfo_Normal(
     TaskExceptionFunc* This, const StreamLite* curStream, std::shared_ptr<halReportRecvInfo> recvInfo)
 {
     recvInfo->type = static_cast<drvSqCqType_t>(DRV_LOGIC_TYPE);
@@ -157,7 +157,7 @@ int Mocker_GetReporterInfo_Normal(
     return 0;
 }
 
-int Mocker_GetReporterInfo_Error(
+uint32_t Mocker_GetReporterInfo_Error(
     TaskExceptionFunc* This, const StreamLite* curStream, std::shared_ptr<halReportRecvInfo> recvInfo)
 {
     recvInfo->type = static_cast<drvSqCqType_t>(DRV_LOGIC_TYPE);
@@ -175,7 +175,7 @@ int Mocker_GetReporterInfo_Error(
     return 0;
 }
 
-int Mocker_GetReporterInfo_Continue(
+uint32_t Mocker_GetReporterInfo_Continue(
     TaskExceptionFunc* This, const StreamLite* curStream, std::shared_ptr<halReportRecvInfo> recvInfo)
 {
     recvInfo->type = static_cast<drvSqCqType_t>(DRV_LOGIC_TYPE);

@@ -20,6 +20,7 @@
 #include "network_api_exception.h"
 #include "endpoint.h"
 #include "adapter_rts.h"
+#include "ep_mem_table_launch.h"
 
 class AicpuUboeEndpointTest : public testing::Test {
 protected:
@@ -34,6 +35,14 @@ protected:
             t = DevType::DEV_TYPE_950;
             return HCCL_SUCCESS;
         }));
+        // PR 新增 DevEpMemTable 下发链（InitDevEpMemTable）UT 桩：UT 无真实 AICPU——
+        // init 置 0（"无表"哨兵：下游 ptr!=0 守卫全跳过、uniqueIdV2 携 0，无野指针风险）；
+        // 表同步空转 SUCCESS（Reg/Unreg 钩子不因无表回滚主流程）
+        MOCKER(hcomm::LaunchEpMemTableInit).stubs().will(invoke(+[](uint64_t& outTablePtr) -> HcclResult {
+            outTablePtr = 0;
+            return HCCL_SUCCESS;
+        }));
+        MOCKER(hcomm::SyncUbLocMemToEpTable).stubs().will(returnValue(HCCL_SUCCESS));
     }
 
     virtual void TearDown()

@@ -232,6 +232,9 @@ HcclResult HostCpuRoceChannel::ParseInputParam()
         }
     } else {
         // 3. 从 channelDesc 的 memHandle，获得 bufs_
+        // 记账约定：收集的句柄须已经 CpuRoceEndpoint::RecordLocalMemHandle 记入本实例账本（仓内 HCCL 路径
+        // 由 MyRank::BatchCreateChannels 保证：HcommMemReg 记账后的 tag 解析句柄覆盖 channelDesc_.memHandles，
+        // 且 channel 绑定同一 epHandle），否则后续 FindLocalBuffer 查账将 NOT_FOUND（跨实例隔离为设计语义）。
         HCCL_INFO("[%s::%s] exchangeAllMems == false. Get memHandles from channelDesc.", channelClassName_, __func__);
         CHK_PTR_NULL(channelDesc_.memHandles);
         for (uint32_t i = 0; i < channelDesc_.memHandleNum; ++i) {
@@ -741,13 +744,13 @@ HostCpuRoceChannel::WriteWithNotify(void* dst, const void* src, const uint64_t l
 
 void HostCpuRoceChannel::BuildRdmaWr(
     [[maybe_unused]] const char* caller, ibv_wr_opcode opcode, const void* localAddr, const void* remoteAddr,
-    uint64_t len, size_t localIdx, size_t rmtIdx, int sendFlags, uint32_t immData, struct ibv_send_wr& wr,
+    uint64_t len, uint32_t localKey, size_t rmtIdx, int sendFlags, uint32_t immData, struct ibv_send_wr& wr,
     struct ibv_sge& sg) const
 {
     wr.sg_list = &sg;
     wr.sg_list->addr = ReinterpretAs<uint64_t>(localAddr);
     wr.sg_list->length = static_cast<uint32_t>(len);
-    wr.sg_list->lkey = localRmaBuffers_[localIdx]->GetLkey();
+    wr.sg_list->lkey = localKey;
 
     wr.opcode = opcode;
     wr.send_flags = sendFlags;
@@ -850,15 +853,12 @@ HcclResult HostCpuRoceChannel::PostRdmaMemOp(
         maxMsgSize_ == 0, HCCL_ERROR("[%s::%s] maxMsgSize_ is 0, channel not initialized", channelClassName_, caller),
         HCCL_E_INTERNAL);
     CHK_PRT_RET(
-        localRmaBuffers_.empty(), HCCL_ERROR("[%s::%s] localRmaBuffer is Empty", channelClassName_, caller),
-        HCCL_E_ROCE_CONNECT);
-    CHK_PRT_RET(
         rmtRmaBuffers_.empty(), HCCL_ERROR("[%s::%s] rmtRmaBuffers is Empty", channelClassName_, caller),
         HCCL_E_ROCE_CONNECT);
 
     // 2. buffer 查找：确认 src/dst/len 不会跨已注册 buffer，整段只需查找一次
-    size_t localIdx = 0;
-    CHK_RET(FindLocalBuffer(ReinterpretAs<uint64_t>(localAddr), len, localIdx));
+    std::shared_ptr<Hccl::LocalRdmaRmaBuffer> localBuffer;
+    CHK_RET(FindLocalBuffer(ReinterpretAs<uint64_t>(localAddr), len, localBuffer));
     size_t rmtIdx = 0;
     CHK_RET(FindRemoteBuffer(ReinterpretAs<uint64_t>(remoteAddr), len, rmtIdx));
 
@@ -902,7 +902,8 @@ HcclResult HostCpuRoceChannel::PostRdmaMemOp(
         struct ibv_sge sg {};
         BuildRdmaWr(
             caller, wrOpcode, static_cast<const char*>(localAddr) + offset,
-            static_cast<const char*>(remoteAddr) + offset, wrLen, localIdx, rmtIdx, sendFlags, wrImmData, wr, sg);
+            static_cast<const char*>(remoteAddr) + offset, wrLen, localBuffer->GetLkey(), rmtIdx, sendFlags, wrImmData,
+            wr, sg);
         // 逐 WR 单次下发；仅尾片置 SIGNALED，因此只有尾片计入 wqeNums_
         CHK_RET(PostAndCheckSend(qpRef.qp, qpRef.idx, caller, wr, isTail));
     }
@@ -1834,7 +1835,7 @@ HcclResult HostCpuRoceChannel::PrepareNotifyWrResource(
 
 HcclResult HostCpuRoceChannel::PrepareReduceWrResource(
     const void* dst, const void* src, const uint64_t len, const bool withNotify, const uint32_t dpuNotifyId,
-    const size_t localIdx, const size_t rmtIdx, struct ibv_send_wr& reduceWr) const
+    const uint32_t lkey, const size_t rmtIdx, struct ibv_send_wr& reduceWr) const
 {
     CHK_PRT_RET(
         len > UINT32_MAX, HCCL_ERROR("[HostCpuRoceChannel::%s] the len[%llu] exceeds the size of u32.", __func__, len),
@@ -1842,7 +1843,7 @@ HcclResult HostCpuRoceChannel::PrepareReduceWrResource(
 
     reduceWr.sg_list->addr = ReinterpretAs<uint64_t>(src); // 本端起始地址
     reduceWr.sg_list->length = static_cast<uint32_t>(len);
-    reduceWr.sg_list->lkey = localRmaBuffers_[localIdx]->GetLkey(); // 本端的访问秘钥
+    reduceWr.sg_list->lkey = lkey; // 本端的访问秘钥
 
     // inline-reduce write 的 opcode 定义见文件头部（取自 RoCE 驱动 ULD 接口）
     reduceWr.opcode = static_cast<ibv_wr_opcode>(
@@ -1888,7 +1889,7 @@ HcclResult HostCpuRoceChannel::PostReduceOp(const ReduceOpCtx& ctx)
         reduceWr.sg_list = &sgList;
         CHK_RET(PrepareReduceWrResource(
             static_cast<const char*>(ctx.remoteAddr) + offset, static_cast<const char*>(ctx.localAddr) + offset, wrLen,
-            isTail, ctx.dpuNotifyId, ctx.localIdx, ctx.rmtIdx, reduceWr));
+            isTail, ctx.dpuNotifyId, ctx.lkey, ctx.rmtIdx, reduceWr));
 
         const PostExtAttr extAttr{ctx.mappedReduceOp, ctx.mappedReduceType, isTail};
         HcclResult sendRet = PostAndCheckSendExt(ctx.qpRef.qp, ctx.qpRef.idx, ctx.caller, reduceWr, extAttr);
@@ -1926,16 +1927,18 @@ HcclResult HostCpuRoceChannel::WriteReduceWithNotify(
     CHK_RET(MapAndCheckReduceParam(__func__, dataType, reduceOp, len, mappedReduceType, mappedReduceOp, elemSize));
 
     // 整段 [src, len)/[dst, len) 必须在同一个已注册 buffer 内，循环前一次性校验，
-    // 避免部分分片已下发后才因 buffer 归属失败（残留 WR 未 drain 且 notify 缺失）
-    size_t localIdx = 0;
+    // 避免部分分片已下发后才因 buffer 归属失败（残留 WR 未 drain 且 notify 缺失）；
+    // localBuffer 存活覆盖整个下发过程，endpoint 侧注销不回收在途记录
+    std::shared_ptr<Hccl::LocalRdmaRmaBuffer> localBuffer;
     size_t rmtIdx = 0;
-    CHK_RET(FindLocalBuffer(ReinterpretAs<uint64_t>(src), len, localIdx));
+    CHK_RET(FindLocalBuffer(ReinterpretAs<uint64_t>(src), len, localBuffer));
     CHK_RET(FindRemoteBuffer(ReinterpretAs<uint64_t>(dst), len, rmtIdx));
 
     // 整个 write-reduce-with-notify 任务只上报一次 DFX
     Hccl::TaskParam taskParam = BuildWriteReduceTaskParam(dst, src, len, dpuNotifyId, reduceOp, dataType);
     const HcclResult ret = PostWriteReduceChunks(
-        __func__, qpInfo, src, dst, len, elemSize, mappedReduceOp, mappedReduceType, dpuNotifyId, localIdx, rmtIdx);
+        __func__, qpInfo, src, dst, len, elemSize, mappedReduceOp, mappedReduceType, dpuNotifyId,
+        localBuffer->GetLkey(), rmtIdx);
     (void)ReportDfxTaskEnd(taskParam, ret != HCCL_SUCCESS);
     return ret;
 }
@@ -1952,9 +1955,6 @@ HcclResult HostCpuRoceChannel::CheckWriteReducePrecondition(
         isHybridMode_,
         HCCL_ERROR("[HostCpuRoceChannel::%s] hybrid mode does not support write-reduce-with-notify.", caller),
         HCCL_E_NOT_SUPPORT);
-    CHK_PRT_RET(
-        localRmaBuffers_.empty(), HCCL_ERROR("[HostCpuRoceChannel::%s] localRmaBuffer is Empty", caller),
-        HCCL_E_ROCE_CONNECT);
     CHK_PRT_RET(
         rmtRmaBuffers_.empty(), HCCL_ERROR("[HostCpuRoceChannel::%s] rmtRmaBuffers is Empty", caller),
         HCCL_E_ROCE_CONNECT);
@@ -2011,12 +2011,12 @@ Hccl::TaskParam HostCpuRoceChannel::BuildWriteReduceTaskParam(
 HcclResult HostCpuRoceChannel::PostWriteReducePerQp(
     const char* caller, const QpRef& qpRef, const void* localAddr, void* remoteAddr, const uint64_t chunkLen,
     const uint32_t elemSize, const uint8_t mappedReduceOp, const uint8_t mappedReduceType, const uint32_t dpuNotifyId,
-    const size_t localIdx, const size_t rmtIdx, bool& anyPosted)
+    const uint32_t lkey, const size_t rmtIdx, bool& anyPosted)
 {
     if (chunkLen != 0) {
         // 第二级切片：本 QP 内按 maxReduceChunk 切分，尾片携带 notify
         ReduceOpCtx ctx{caller,           qpRef,       localAddr, remoteAddr, chunkLen, elemSize, mappedReduceOp,
-                        mappedReduceType, dpuNotifyId, localIdx,  rmtIdx,     anyPosted};
+                        mappedReduceType, dpuNotifyId, lkey,      rmtIdx,     anyPosted};
         return PostReduceOp(ctx);
     }
     // 分配不到数据的 QP 改走普通 WRITE_WITH_IMM（原始 opcode），只传递 notify；整段 len==0 已在前置校验返回
@@ -2031,7 +2031,7 @@ HcclResult HostCpuRoceChannel::PostWriteReducePerQp(
 HcclResult HostCpuRoceChannel::PostWriteReduceChunks(
     const char* caller, const std::vector<Hccl::QpInfo>& qpInfo, const void* localAddr, void* remoteAddr,
     const uint64_t len, const uint32_t elemSize, const uint8_t mappedReduceOp, const uint8_t mappedReduceType,
-    const uint32_t dpuNotifyId, const size_t localIdx, const size_t rmtIdx)
+    const uint32_t dpuNotifyId, const uint32_t lkey, const size_t rmtIdx)
 {
     // 第一级切片：每个 QP 承担 max(qpThreshold, ceil(len/qpNum)) 的数据量，按元素上取整对齐；
     // 若此处向下取整，各 QP 容量之和可能小于 len，尾部数据被静默丢弃（notify 却已下发），
@@ -2049,7 +2049,7 @@ HcclResult HostCpuRoceChannel::PostWriteReduceChunks(
         const QpRef qpRef{i, qpInfo[i].qp};
         const HcclResult sendRet = PostWriteReducePerQp(
             caller, qpRef, static_cast<const char*>(localAddr) + offset, static_cast<char*>(remoteAddr) + offset,
-            chunkLen, elemSize, mappedReduceOp, mappedReduceType, dpuNotifyId, localIdx, rmtIdx, anyPosted);
+            chunkLen, elemSize, mappedReduceOp, mappedReduceType, dpuNotifyId, lkey, rmtIdx, anyPosted);
         if (sendRet != HCCL_SUCCESS) {
             if (sendRet == HCCL_E_AGAIN && anyPosted) {
                 HCCL_ERROR(
@@ -2129,24 +2129,27 @@ HcclResult HostCpuRoceChannel::PostAndCheckSendExt(
     return HCCL_SUCCESS;
 }
 
-HcclResult HostCpuRoceChannel::FindLocalBuffer(const uint64_t addr, const uint64_t len, size_t& targetIdx) const
+HcclResult HostCpuRoceChannel::FindLocalBuffer(
+    uint64_t addr, uint64_t len, std::shared_ptr<Hccl::LocalRdmaRmaBuffer>& buffer) const
 {
-    uint64_t endAddr = addr + len;
-    for (size_t i = 0; i < localRmaBuffers_.size(); ++i) {
-        CHK_PTR_NULL(localRmaBuffers_[i]);
-        uint64_t bufAddr = localRmaBuffers_[i]->GetBufferInfo().first;
-        uint64_t bufSize = localRmaBuffers_[i]->GetBufferInfo().second;
-        uint64_t bufEndAddr = bufAddr + bufSize;
-        if (addr >= bufAddr && endAddr <= bufEndAddr) {
-            targetIdx = i;
-            return HCCL_SUCCESS;
-        }
-    }
-    HCCL_ERROR(
-        "[HostCpuRoceChannel::%s] FAIL. Can not Found Target Buffer addr[0x%llx], len[0x%llx], addr+len[0x%llx]. "
-        "channel[0x%llx], localIp[%s].",
-        __func__, addr, len, endAddr, reinterpret_cast<uint64_t>(this), local_.ip.GetIpStr().c_str());
-    return HCCL_E_NOT_FOUND;
+    buffer.reset();
+    CHK_PTR_NULL(local_.epPtr);
+    std::shared_ptr<Hccl::LocalRmaBuffer> localBuffer;
+    // 查账失败带 addr/len 上下文（对齐 FindRemoteBuffer 诊断粒度）：便于定位未记账/已注销句柄
+    HcclResult findRet = local_.epPtr->FindLocalBuffer(addr, len, localBuffer);
+    CHK_PRT_RET(
+        findRet != HCCL_SUCCESS,
+        HCCL_ERROR(
+            "[HostCpuRoceChannel::%s] FAIL. Can not Found Target Buffer addr[0x%llx], len[0x%llx], addr+len[0x%llx]. "
+            "channel[0x%llx], localIp[%s].",
+            __func__, addr, len, addr + len, reinterpret_cast<uint64_t>(this), local_.ip.GetIpStr().c_str()),
+        findRet);
+    CHK_PRT_RET(
+        localBuffer == nullptr || localBuffer->GetRmaType() != Hccl::RmaType::RDMA,
+        HCCL_ERROR("[HostCpuRoceChannel::%s] endpoint returned an invalid RoCE buffer", __func__), HCCL_E_INTERNAL);
+    // CpuRoceEndpoint owns LocalRdmaRmaBuffer records; avoid requiring RTTI across shared libraries.
+    buffer = std::static_pointer_cast<Hccl::LocalRdmaRmaBuffer>(localBuffer);
+    return HCCL_SUCCESS;
 }
 
 HcclResult HostCpuRoceChannel::FindRemoteBuffer(const uint64_t addr, const uint64_t len, size_t& targetIdx) const

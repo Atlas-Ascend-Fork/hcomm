@@ -88,6 +88,8 @@ target_include_directories(hccl_v2_utest PRIVATE
         ${HCCL_CODE_ROOT}/src/legacy/ascend910/common/debug/profiling/inc
         ${HCCL_CODE_ROOT}/src/legacy/ascend910/pub_inc/
         ${HCCL_CODE_ROOT}/src/base_comm/
+        # ub_transport_lite_impl.cc 建链收敛/查表切换引用 device 侧 DevEpMemTable（base_comm device 目录）
+        ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels/aicpu/device/
         ${HCCL_CODE_ROOT}/src/base_comm/resources/hccp/inc/network/
         ${HCCL_CODE_ROOT}/src/base_comm/resources/hccp/inc/
         ${HCCL_CODE_ROOT}/src/base_comm/resources/

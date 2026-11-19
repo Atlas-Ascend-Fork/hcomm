@@ -14,7 +14,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include "endpoint.h"
+#include "ub_device_endpoint_base.h"
 #include "comm_queue_context/jetty_context.h"
 #include "server_socket_context/device_server_socket_context.h"
 #include "ub_reged_mem_mgr.h"
@@ -24,7 +24,7 @@ namespace hcomm {
  * @note 职责：AICPU通信引擎+UB_RTP协议的通信设备Endpoint，管理通信设备上下文，以及设备上的注册内存。
  *       UB_RTP的Init直接使用EID地址（不做IP→EID转换），rdmaHandle通过EID直接获取。
  */
-class UbRtpEndpoint : public Endpoint {
+class UbRtpEndpoint : public UbDeviceEndpointBase {
 public:
     explicit UbRtpEndpoint(const EndpointDesc& endpointDesc);
     ~UbRtpEndpoint() noexcept override;

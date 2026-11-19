@@ -10,6 +10,7 @@
 
 set(src_list
     aicpu_launch_manager.cc
+    ep_mem_table_launch.cc
 )
 
 if(TARGET hcomm_base_obj)

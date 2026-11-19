@@ -43,6 +43,7 @@
 #include "adapter_rts_common.h"
 #include "adapter_rts.h"
 #include "launch_aicpu.h"
+#include "ep_mem_table_launch.h"
 #include <cstdlib>
 #include <cstring>
 #include "orion_adpt_utils.h"
@@ -219,6 +220,14 @@ protected:
             t = DevType::DEV_TYPE_950;
             return HCCL_SUCCESS;
         }));
+        // PR 新增 DevEpMemTable 下发链（InitDevEpMemTable）UT 桩：UT 无真实 AICPU——
+        // init 置 0（"无表"哨兵：下游 ptr!=0 守卫全跳过、uniqueIdV2 携 0，无野指针风险）；
+        // 表同步空转 SUCCESS（Reg/Unreg 钩子不因无表回滚主流程）
+        MOCKER(hcomm::LaunchEpMemTableInit).stubs().will(invoke(+[](uint64_t& outTablePtr) -> HcclResult {
+            outTablePtr = 0;
+            return HCCL_SUCCESS;
+        }));
+        MOCKER(hcomm::SyncUbLocMemToEpTable).stubs().will(returnValue(HCCL_SUCCESS));
         rankIpPortMap = std::make_shared<std::unordered_map<u32, std::unordered_map<Hccl::IpAddress, u32>>>();
         (*rankIpPortMap)[0][Hccl::IpAddress("1.0.0.0")] = 16666;
         (*rankIpPortMap)[0][Hccl::IpAddress("2.0.0.0")] = 16666;

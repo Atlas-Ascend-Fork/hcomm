@@ -20,6 +20,10 @@
 #include "aicpu_ts_urma_channel.h"
 #include "aiv_channel_entity.h"
 #include "launch_aicpu.h"
+#include "ep_mem_table_launch.h"
+#include "common/process_exit_flag.h"
+#include "ip_address.h"
+#include "endpoint.h"
 #include "mem_device_pub.h"
 #include "opbase_adpt.h"
 #include "ccu/ccu_urma_channel.h"
@@ -61,8 +65,9 @@ public:
 
 class FakeChannelForProcess : public hcomm::Channel, public hcomm::IChannelEntity {
 public:
-    explicit FakeChannelForProcess(hcomm::HcommChannelKind kind, CommEngine engine = COMM_ENGINE_RESERVED)
-        : hcomm::Channel(nullptr, HcommChannelDesc{}, engine, kind, "FakeChannelForProcess")
+    explicit FakeChannelForProcess(
+        hcomm::HcommChannelKind kind, CommEngine engine = COMM_ENGINE_RESERVED, EndpointHandle endpointHandle = nullptr)
+        : hcomm::Channel(endpointHandle, HcommChannelDesc{}, engine, kind, "FakeChannelForProcess")
     {}
     HcclResult GetNotifyNum(uint32_t*) const override { return HCCL_SUCCESS; }
     HcclResult GetRemoteMems(uint32_t*, CommMem**, char***) override { return HCCL_SUCCESS; }
@@ -93,8 +98,9 @@ private:
 
 class FakeAicpuChannelForDestroy : public FakeChannelForProcess {
 public:
-    explicit FakeAicpuChannelForDestroy(CommEngine engine = COMM_ENGINE_AICPU_TS)
-        : FakeChannelForProcess(hcomm::HcommChannelKind::AICPU_TS_URMA, engine)
+    explicit FakeAicpuChannelForDestroy(
+        CommEngine engine = COMM_ENGINE_AICPU_TS, EndpointHandle endpointHandle = nullptr)
+        : FakeChannelForProcess(hcomm::HcommChannelKind::AICPU_TS_URMA, engine, endpointHandle)
     {}
     hcomm::IChannelEntity* GetChannelEntity() override { return &entity_; }
 
@@ -474,6 +480,224 @@ TEST_F(TestChannelDestroyLifecycle, FiltersMixedEngineBatchAndRetainsChannelsUnt
     EXPECT_TRUE(channels_[1].expired());
     EXPECT_EQ(freedCtxCount_, 2U);
     CheckHostChannelsRemoved();
+}
+
+// ===================== HcommEndpointDestroy 有表 endpoint 销毁链 UT =====================
+// 检视整改：销毁链"残留 channel 收编 + 删表"此前零覆盖——既有 endpoint UT 的 init 桩恒置表地址 0，
+// "有表"分支（GetDevEpMemTablePtr()!=0）不可达。本组用例以非零假表地址驱动真实销毁链，
+// 锚定不变量：先销尽名下 channel、再删 device 表（否则存活 channel 的数据面将读写已释放堆）。
+constexpr uint64_t UT_FAKE_TABLE_ADDR = 0x5A5A0000U;
+
+class TestEndpointDestroyWithTable : public TestChannelProcess {
+public:
+    void SetUp() override
+    {
+        TestChannelProcess::SetUp();
+        activeTest_ = this;
+        // 与既有 endpoint UT 相反：init 桩回写非零假表地址，endpoint 进入"有表"语义
+        MOCKER(hcomm::LaunchEpMemTableInit).stubs().will(invoke(+[](uint64_t& outTablePtr) -> HcclResult {
+            outTablePtr = UT_FAKE_TABLE_ADDR;
+            return HCCL_SUCCESS;
+        }));
+        MOCKER(hcomm::LaunchEpMemTableDestroy).stubs().will(invoke(StubTableDestroy));
+        // Reg/Unreg 钩子不参与本组用例，置 SUCCESS 防意外路径回滚
+        MOCKER(hcomm::SyncUbLocMemToEpTable).stubs().will(returnValue(HCCL_SUCCESS));
+        // channel 收编销毁复用 lifecycle 用例已验证的设备边界桩
+        MOCKER(hrtGetDevice).stubs().will(invoke(+[](int32_t* deviceId) -> HcclResult {
+            *deviceId = 0;
+            return HCCL_SUCCESS;
+        }));
+        MOCKER(hrtGetDeviceRefresh).stubs().will(invoke(+[](s32* deviceLogicId) -> HcclResult {
+            *deviceLogicId = 0;
+            return HCCL_SUCCESS;
+        }));
+        MOCKER(hrtMalloc).stubs().will(invoke(+[](void** ptr, u64 size, bool) -> HcclResult {
+            *ptr = std::calloc(1, size);
+            return *ptr != nullptr ? HCCL_SUCCESS : HCCL_E_MEMORY;
+        }));
+        MOCKER(hrtFree).stubs().will(invoke(+[](void* ptr) -> HcclResult {
+            std::free(ptr);
+            return HCCL_SUCCESS;
+        }));
+        MOCKER(hcomm::ChannelProcess::ChannelKernelDestroy).stubs().will(invoke(StubChannelKernelDestroy));
+        // bin 非空以驱动 AICPU channel 的 kernel 下发路径（对齐生产态 bin 已加载）
+        MOCKER_CPP(&hcomm::AicpuCommEngineBinProc::GetBinHandle).stubs().will(returnValue(fakeBinHandle_));
+    }
+
+    void TearDown() override
+    {
+        TestChannelProcess::TearDown();
+        activeTest_ = nullptr;
+        // 退出标志为进程级全局态，置位用例结束即复位，防污染同二进制其它用例
+        hcomm::ProcessExitFlag::ResetForTest();
+    }
+
+    // UB_RTP + DEVICE loc：唯一建 device 表的 endpoint 家族（UbDeviceEndpointBase）
+    static HcommResult CreateUbRtpEndpoint(EndpointHandle& endpointHandle, const std::string& ip = "1.0.0.0")
+    {
+        EndpointDesc endpointDesc;
+        Hccl::IpAddress localIp(ip);
+        endpointDesc.protocol = COMM_PROTOCOL_UB_RTP;
+        endpointDesc.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+        endpointDesc.commAddr.addr = localIp.GetBinaryAddress().addr;
+        endpointDesc.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
+        return HcommEndpointCreate(&endpointDesc, &endpointHandle);
+    }
+
+    void AddLeftoverChannel(EndpointHandle endpointHandle, ChannelHandle& hostHandle, ChannelHandle& userHandle)
+    {
+        auto channel = std::make_shared<FakeAicpuChannelForDestroy>(COMM_ENGINE_AICPU_TS, endpointHandle);
+        hostHandle = reinterpret_cast<ChannelHandle>(channel.get());
+        ASSERT_EQ(channel->GetChannelEntity()->PreAllocCtx(userHandle), HCCL_SUCCESS);
+        auto* ctx = static_cast<HcommAicpuChannelCtx*>(channel->GetChannelEntity()->GetCtxPtr());
+        ctx->abiHeader.version = HCOMM_AICPU_CHANNEL_CTX_VERSION;
+        ctx->abiHeader.magicWord = HCOMM_AICPU_CHANNEL_CTX_MAGIC_WORD;
+        ctx->abiHeader.size = sizeof(HcommAicpuChannelCtx);
+        leftoverChannel_ = channel;
+        ASSERT_EQ(hcomm::InsertPluginChannelToMap(hostHandle, std::move(channel)), HCCL_SUCCESS);
+        ASSERT_EQ(hcomm::ChannelProcess::FillChannelD2HMap(&hostHandle, &hostHandle, 1), HCCL_SUCCESS);
+        ASSERT_EQ(hcomm::ChannelProcess::FillChannelD2HMap(&userHandle, &hostHandle, 1), HCCL_SUCCESS);
+    }
+
+    static HcclResult StubTableDestroy(uint64_t tablePtr)
+    {
+        auto& test = *activeTest_;
+        ++test.tableDestroyCalls_;
+        test.destroyedTablePtr_ = tablePtr;
+        test.tableDestroySeq_ = ++test.opSeq_;
+        // 不变量核心：删表时刻名下 channel 必须已全部从全局表摘除（锁已释放，此处可安全查询）
+        EXPECT_TRUE(hcomm::ChannelProcess::GetAliveChannels(test.probeEndpointHandle_).empty());
+        return HCCL_SUCCESS;
+    }
+
+    static HcclResult StubChannelKernelDestroy(ChannelHandle* handles, uint32_t num, aclrtBinHandle binHandle)
+    {
+        auto& test = *activeTest_;
+        (void)handles;
+        ++test.kernelDestroyCalls_;
+        test.kernelDestroyHandles_ += num;
+        test.kernelDestroySeq_ = ++test.opSeq_;
+        EXPECT_NE(binHandle, nullptr);
+        return test.kernelResult_;
+    }
+
+    static TestEndpointDestroyWithTable* activeTest_;
+    const aclrtBinHandle fakeBinHandle_{reinterpret_cast<aclrtBinHandle>(1)};
+    EndpointHandle probeEndpointHandle_{nullptr};
+    std::weak_ptr<FakeAicpuChannelForDestroy> leftoverChannel_{};
+    uint64_t destroyedTablePtr_{0};
+    uint32_t tableDestroyCalls_{0};
+    uint32_t tableDestroySeq_{0};
+    uint32_t kernelDestroyCalls_{0};
+    uint32_t kernelDestroyHandles_{0};
+    uint32_t kernelDestroySeq_{0};
+    uint32_t opSeq_{0};
+    HcclResult kernelResult_{HCCL_SUCCESS};
+};
+
+TestEndpointDestroyWithTable* TestEndpointDestroyWithTable::activeTest_ = nullptr;
+
+// 主链路：有表 endpoint 销毁 → 残留 channel 收编销毁 → 删表，全程真实编排（仅桩设备边界）
+TEST_F(TestEndpointDestroyWithTable, Ut_When_DestroyEndpointWithLeftoverChannel_Expect_ChannelsDrainedThenTableReleased)
+{
+    // 建真实 UB_RTP endpoint：InitDevEpMemTable 经 init 桩写入假表地址
+    EndpointHandle epHandle = nullptr;
+    ASSERT_EQ(CreateUbRtpEndpoint(epHandle), HCCL_SUCCESS);
+    probeEndpointHandle_ = epHandle;
+
+    // 前置断言："有表"门必触发（非 0 表地址），且名下确有残留 channel
+    hcomm::Endpoint* endpoint = nullptr;
+    ASSERT_EQ(HcommEndpointGet(epHandle, reinterpret_cast<void**>(&endpoint)), HCCL_SUCCESS);
+    ASSERT_NE(endpoint, nullptr);
+    ASSERT_EQ(endpoint->GetDevEpMemTablePtr(), UT_FAKE_TABLE_ADDR);
+    ChannelHandle hostHandle = 0;
+    ChannelHandle userHandle = 0;
+    AddLeftoverChannel(epHandle, hostHandle, userHandle);
+    ASSERT_EQ(hcomm::ChannelProcess::GetAliveChannels(epHandle).size(), 1U);
+
+    EXPECT_EQ(HcommEndpointDestroy(epHandle), HCCL_SUCCESS);
+
+    // channel 已从全局表摘除（host 对象释放，weak_ptr 过期），kernel 销毁路径走到
+    EXPECT_TRUE(hcomm::ChannelProcess::GetAliveChannels(epHandle).empty());
+    EXPECT_TRUE(leftoverChannel_.expired());
+    EXPECT_EQ(kernelDestroyCalls_, 1U);
+    EXPECT_EQ(kernelDestroyHandles_, 1U);
+    // 删表恰一次，且删的是 init 桩建的那张表。表指针清零属 endpoint 对象内部状态，
+    // 对象已被 epMgr.Remove 销毁、事后读取即 UAF，故以销毁入参同一性等价锚定
+    EXPECT_EQ(tableDestroyCalls_, 1U);
+    EXPECT_EQ(destroyedTablePtr_, UT_FAKE_TABLE_ADDR);
+    // 顺序不变量：channel kernel 销毁先于删表（StubTableDestroy 内另断言删表时刻名下已无存活 channel）
+    EXPECT_LT(kernelDestroySeq_, tableDestroySeq_);
+}
+
+// 尽力销毁语义：channel kernel 销毁失败仅 WARNING，不阻塞 host 侧摘除与删表（检视意见 199405736）
+TEST_F(TestEndpointDestroyWithTable, Ut_When_LeftoverChannelKernelDestroyFails_Expect_TableStillReleased)
+{
+    EndpointHandle epHandle = nullptr;
+    ASSERT_EQ(CreateUbRtpEndpoint(epHandle), HCCL_SUCCESS);
+    probeEndpointHandle_ = epHandle;
+    ChannelHandle hostHandle = 0;
+    ChannelHandle userHandle = 0;
+    AddLeftoverChannel(epHandle, hostHandle, userHandle);
+    kernelResult_ = HCCL_E_RUNTIME;
+
+    EXPECT_EQ(HcommEndpointDestroy(epHandle), HCCL_SUCCESS);
+    // host 侧对象无条件摘除（RemoveSingleChannel 语义），表仍无条件释放
+    EXPECT_TRUE(leftoverChannel_.expired());
+    EXPECT_TRUE(hcomm::ChannelProcess::GetAliveChannels(epHandle).empty());
+    EXPECT_EQ(tableDestroyCalls_, 1U);
+    EXPECT_EQ(destroyedTablePtr_, UT_FAKE_TABLE_ADDR);
+}
+
+// 退出期销毁：进程退出标志置位后销毁有表 endpoint——ReleaseDevEpMemTable 退出期守卫命中，
+// 跳过 destroy kernel 下发（退出期 runtime 资源不稳定，下发会 core），表由进程退出回收；
+// 正常期"必下发、恰一次"基线由 Ut_When_DestroyEndpointWithLeftoverChannel 系用例锚定
+TEST_F(TestEndpointDestroyWithTable, Ut_When_DestroyEndpointAtProcessExit_Expect_SkipTableDestroyKernel)
+{
+    EndpointHandle epHandle = nullptr;
+    ASSERT_EQ(CreateUbRtpEndpoint(epHandle), HCCL_SUCCESS);
+    probeEndpointHandle_ = epHandle;
+
+    hcomm::ProcessExitFlag::SetExiting();
+    EXPECT_EQ(HcommEndpointDestroy(epHandle), HCCL_SUCCESS);
+
+    // destroy kernel 不下发；无残留 channel，host 侧全局表干净
+    EXPECT_EQ(tableDestroyCalls_, 0U);
+    EXPECT_TRUE(hcomm::ChannelProcess::GetAliveChannels(epHandle).empty());
+}
+
+// GetAliveChannels 作用域：仅返回归属指定 endpoint 的 channel，未知句柄返回空；
+// 返回后不持锁——查询后可立即继续注册/再查询（若仍持锁将死锁）
+TEST_F(TestChannelProcess, Ut_GetAliveChannels_When_MultipleEndpoints_Expect_ScopedToOwner)
+{
+    const EndpointHandle ep1 = reinterpret_cast<EndpointHandle>(0x1111);
+    const EndpointHandle ep2 = reinterpret_cast<EndpointHandle>(0x2222);
+    const EndpointHandle unknownEp = reinterpret_cast<EndpointHandle>(0x3333);
+
+    std::vector<std::shared_ptr<FakeChannelForProcess>> keepAlive;
+    auto addChannelUnder = [&keepAlive](EndpointHandle owner) {
+        auto channel
+            = std::make_shared<FakeChannelForProcess>(hcomm::HcommChannelKind::INVALID, COMM_ENGINE_RESERVED, owner);
+        const ChannelHandle hostHandle = reinterpret_cast<ChannelHandle>(channel.get());
+        keepAlive.push_back(channel);
+        EXPECT_EQ(hcomm::InsertPluginChannelToMap(hostHandle, std::move(channel)), HCCL_SUCCESS);
+        return hostHandle;
+    };
+    const ChannelHandle ep1Channel = addChannelUnder(ep1);
+    const ChannelHandle ep2Channel = addChannelUnder(ep2);
+
+    auto channelsOfEp1 = hcomm::ChannelProcess::GetAliveChannels(ep1);
+    ASSERT_EQ(channelsOfEp1.size(), 1U);
+    EXPECT_EQ(channelsOfEp1[0], ep1Channel);
+    auto channelsOfEp2 = hcomm::ChannelProcess::GetAliveChannels(ep2);
+    ASSERT_EQ(channelsOfEp2.size(), 1U);
+    EXPECT_EQ(channelsOfEp2[0], ep2Channel);
+    EXPECT_TRUE(hcomm::ChannelProcess::GetAliveChannels(unknownEp).empty());
+
+    // 返回后锁已释放：可立即再注册并再次查询
+    (void)addChannelUnder(ep1);
+    EXPECT_EQ(hcomm::ChannelProcess::GetAliveChannels(ep1).size(), 2U);
+    EXPECT_EQ(hcomm::ChannelProcess::GetAliveChannels(ep2).size(), 1U);
 }
 
 static std::vector<std::string> launchedKernelNames;

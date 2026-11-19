@@ -48,6 +48,7 @@
 #include "local_ub_rma_buffer_manager.h"
 #include "local_rdma_rma_buffer.h"
 #include "local_rma_buffer.h"
+#include "exchange_rdma_buffer_dto.h"
 #include "local_rdma_rma_buffer_manager.h"
 #include "rmt_rma_buffer_lite.h"
 #include "rts_notify.h"
@@ -820,10 +821,19 @@ RemoteRdmaRmaBuffer::RemoteRdmaRmaBuffer(RdmaHandle rdmaHandle)
       keyValidLen(RDMA_MEM_KEY_LEN_ROCE)
 {}
 
+// 桩对齐真实构造（remote_rma_buffer.cc）：从 DTO 拷贝 addr/size/rkey/memInfo，供 UT 侧
+// FindRemoteBuffer 窗口查找与 WR rkey 断言消费；static_cast 免跨 so RTTI（UT 二进制与桩 TU 各持一份
+// 类定义，dynamic_cast 不可靠，先例见 HostCpuRoceChannel::FindLocalBuffer 注释）
 RemoteRdmaRmaBuffer::RemoteRdmaRmaBuffer(RdmaHandle rdmaHandle, const Serializable& rmtDto)
     : RemoteRmaBuffer(RmaType::RDMA),
       rdmaHandle(rdmaHandle)
-{}
+{
+    auto& dto = static_cast<const ExchangeRdmaBufferDto&>(rmtDto);
+    addr = dto.addr;
+    size = dto.size;
+    rkey = dto.rkey;
+    memInfo = dto.memInfo;
+}
 
 RemoteRdmaRmaBuffer::~RemoteRdmaRmaBuffer()
 {
@@ -860,9 +870,10 @@ UbLocalNotify::~UbLocalNotify() {}
 
 UbMemTransport::UbMemTransport(
     CommonLocRes& commonLocRes, Attribution& attr, const LinkData& linkData, const Socket& socket,
-    RdmaHandle rdmaHandle1, LocCntNotifyRes& locCntNotifyRes1, bool isRecvFirst)
+    RdmaHandle rdmaHandle1, LocCntNotifyRes& locCntNotifyRes1, bool isRecvFirst, uint64_t devEpMemTablePtr)
     : BaseMemTransport(commonLocRes, attr, linkData, socket, TransportType::UB),
       rdmaHandle(rdmaHandle1),
+      devEpMemTablePtr_(devEpMemTablePtr),
       locCntNotifyRes(locCntNotifyRes1),
       isRecvFirst_(isRecvFirst)
 {}
@@ -870,9 +881,10 @@ UbMemTransport::UbMemTransport(
 UbMemTransport::UbMemTransport(
     CommonLocRes& commonLocRes, Attribution& attr, const LinkData& linkData, const Socket& socket,
     RdmaHandle rdmaHandle1, LocCntNotifyRes& locCntNotifyRes1,
-    std::function<void(u32 streamId, u32 taskId, const TaskParam& taskParam)> callback)
+    std::function<void(u32 streamId, u32 taskId, const TaskParam& taskParam)> callback, uint64_t devEpMemTablePtr)
     : BaseMemTransport(commonLocRes, attr, linkData, socket, TransportType::UB, callback),
       rdmaHandle(rdmaHandle1),
+      devEpMemTablePtr_(devEpMemTablePtr),
       locCntNotifyRes(locCntNotifyRes1)
 {}
 
@@ -1023,15 +1035,16 @@ LocalRdmaRmaBuffer::LocalRdmaRmaBuffer(std::shared_ptr<Buffer> buf, RdmaHandle r
       rdmaHandle(rdmaHandle)
 {}
 
+// 桩对齐真实别名构造（local_rdma_rma_buffer.cc）：存储 lkey/rkey/mrHandle，供 UT 侧
+// BuildRdmaWr 的 lkey 断言消费；硬件注册仍按桩语义省略（CPU-only 别名）
 LocalRdmaRmaBuffer::LocalRdmaRmaBuffer(
     std::shared_ptr<Buffer> buf, RdmaHandle rdmaHandle, u32 lkey, u32 rkey, MrHandle mrHandle)
-    : LocalRmaBuffer(buf, RmaType::RDMA, true)
-{
-    (void)rdmaHandle;
-    (void)lkey;
-    (void)rkey;
-    (void)mrHandle;
-}
+    : LocalRmaBuffer(buf, RmaType::RDMA, true),
+      rdmaHandle(rdmaHandle),
+      lkey(lkey),
+      rkey(rkey),
+      mrHandle(mrHandle)
+{}
 
 LocalRdmaRmaBuffer::~LocalRdmaRmaBuffer() {}
 

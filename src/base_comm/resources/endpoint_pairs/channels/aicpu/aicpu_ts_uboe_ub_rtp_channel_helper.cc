@@ -11,6 +11,7 @@
 #include "common/cast_utils_pub.h"
 #include "aicpu_ts_uboe_ub_rtp_channel_helper.h"
 #include "endpoint.h"
+#include "endpoint_pair/channel/channel_param_pub.h" // UB_UNIQUE_ID_EXT_*：建链序列化扩展区契约
 #include "../../sockets/socket_mgr.h"
 #include "base_comm_node_accessors.h"
 #include "orion_adpt_utils.h"
@@ -39,6 +40,10 @@ AicpuTsUboeUbRtpChannelHelper::~AicpuTsUboeUbRtpChannelHelper() {}
 HcclResult AicpuTsUboeUbRtpChannelHelper::ParseInputParam()
 {
     CHK_RET(Channel::ParseInputParam());
+
+    // 表指针捕获注入（Channel::ParseInputParam 已就绪 local_.epPtr，endpoint 创建时已建表，此处必为终值；
+    // 非 UB 走基类 no-op 默认返回 0=无表哨兵）
+    devEpMemTablePtr_ = local_.epPtr->GetDevEpMemTablePtr();
 
     CHK_RET(CollectLocalRmaBuffers(local_.commonRes.bufferVec));
 
@@ -534,6 +539,11 @@ HcclResult AicpuTsUboeUbRtpChannelHelper::GetUniqueIdV2(std::vector<char>& resul
     binaryStream << bufferNum_;
     binaryStream << static_cast<u32>(rmtBufferVec_.size());
     binaryStream << connNum_;
+    // 扩展区头（魔数+版本）+ 表指针（0=无表，值语义）：布局契约见 channel_param_pub.h UB_UNIQUE_ID_EXT_*
+    binaryStream << UB_UNIQUE_ID_EXT_MAGIC_WORD;
+    binaryStream << UB_UNIQUE_ID_EXT_VERSION;
+    binaryStream
+        << devEpMemTablePtr_; // ParseInputParam 捕获的 DevEpMemTable* device 地址，device Init 校验扩展区头后解析
 
     auto notifyUniqueIds = GetNotifyUniqueIds();
     binaryStream << notifyUniqueIds;

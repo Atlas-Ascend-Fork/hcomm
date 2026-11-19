@@ -198,6 +198,9 @@ global:
     RunAicpuCommInit;
     RunAicpuCommRecordChannels;
     RunAicpuDfxInitV2;
+    RunAicpuEpMemTableDestroy;
+    RunAicpuEpMemTableInit;
+    RunAicpuEpMemTableUpdate;
     RunAicpuIndOpChannelInit;
     RunAicpuIndOpChannelUpdateV2;
     RunAicpuIndOpThreadInit;

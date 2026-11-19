@@ -121,4 +121,20 @@ HcclResult UbRegedMemMgr::FindHandleRecord(void* memHandle, std::shared_ptr<Hccl
     return HCCL_SUCCESS;
 }
 
+bool UbRegedMemMgr::GetMemRange(
+    void* memHandle, uint64_t& addr, uint64_t& size, uint32_t& tokenId, uint32_t& tokenValue) const
+{
+    // 锁内反查（FindHandleRecord 持 memMtx_）+ shared_ptr 保活：提取期间对象必然存活，
+    // 返回后调用方不得再触碰 memHandle（末引用注销会析构 buffer 对象）
+    std::shared_ptr<Hccl::LocalUbRmaBuffer> record{};
+    if (FindHandleRecord(memHandle, &record) != HCCL_SUCCESS) {
+        return false;
+    }
+    addr = record->GetAddr();
+    size = record->GetSize();
+    tokenId = record->GetTokenId();
+    tokenValue = record->GetTokenValue();
+    return true;
+}
+
 } // namespace hcomm

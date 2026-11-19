@@ -106,6 +106,8 @@ protected:
     u32 bufferNum_{0};
     u32 connNum_{0};
     u32 recvDataSize_{0};
+    // endpoint 活账本表（DevEpMemTable）device 地址，ParseInputParam 时捕获注入；0=无表（值语义）
+    u64 devEpMemTablePtr_{0};
 
     RemoteBufferVec rmtNotifyVec_;
     RemoteBufferVec rmtBufferVec_;

@@ -26,6 +26,7 @@
 #include "rma_buffer.h"
 #include "internal_exception.h"
 #include "ub_transport_lite_impl.h"
+#include "endpoint_pair/channel/ub_unique_id_pub.h" // UB_UNIQUE_ID_EXT_*：V2 扩展区契约（零依赖薄头）
 #undef protected
 #undef private
 #include "stub_communicator_impl_trans_mgr.h"
@@ -913,7 +914,7 @@ struct UbMemTransportHolder {
     }
 };
 
-// 0 conn 的最小 device transport，构造期不触碰任何连接
+// 0 conn 的最小 device transport，构造期不触碰任何连接（V2 布局：扩展区头 + 表指针 0=无表）
 std::vector<char> BuildLiteTransportData()
 {
     BinaryStream binaryStream;
@@ -924,6 +925,9 @@ std::vector<char> BuildLiteTransportData()
     binaryStream << zero; // bufferNum
     binaryStream << zero; // rmtbufferNum
     binaryStream << zero; // connNum
+    binaryStream << UB_UNIQUE_ID_EXT_MAGIC_WORD;
+    binaryStream << UB_UNIQUE_ID_EXT_VERSION;
+    binaryStream << static_cast<u64>(0); // devEpMemTablePtr，0=无表
     std::vector<char> emptyVector;
     binaryStream << emptyVector; // notifyUniqueIds
     binaryStream << emptyVector; // rmtNotifyUniqueIds

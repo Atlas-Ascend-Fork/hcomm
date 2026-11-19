@@ -29,6 +29,10 @@
 
 struct RdevAttr; // 定义于 hccp_common.h
 
+namespace Hccl {
+class LocalRmaBuffer;
+}
+
 namespace hcomm {
 
 class EndpointMonitor;
@@ -65,6 +69,13 @@ public:
     // 枚举契约：返回实例/mgr 内部存储的裸指针，仅可同步立即消费，不得保存或跨越后续注册/注销使用
     virtual HcclResult RecordLocalMemHandle(void*) { return HCCL_SUCCESS; }
     virtual HcclResult RemoveLocalMemHandle(void*) { return HCCL_SUCCESS; }
+    // 查询本实例当前注册的完整覆盖区间。对象引用不替代 MR 生命周期管理；注销前须等待相关通信完成。
+    virtual HcclResult FindLocalBuffer(uint64_t, uint64_t, std::shared_ptr<Hccl::LocalRmaBuffer>& buffer) const
+    {
+        buffer.reset();
+        return HCCL_E_NOT_SUPPORT;
+    }
+
     virtual HcclResult GetAllLocalMemHandles(void** memHandles, uint32_t* memHandleNum)
     {
         auto* mgr = GetLocalRegMemMgr();
@@ -75,6 +86,17 @@ public:
     // 返回 RDMA 句柄（各派生类 override 返回自身 ctxHandle_）
     virtual void* GetRdmaHandle() = 0;
     virtual bool IsCtxHandleValid() const = 0;
+
+    // ===== device 侧本地内存活账本表（DevEpMemTable）钩子 =====
+    // 默认 no-op：仅 UB 家族（经 UbDeviceEndpointBase）override；其余类型走默认实现，行为不变。
+    // 无名参数为既有惯例（与 RecordLocalMemHandle 同款），避免 no-op 体触发 unused-parameter 告警。
+    virtual HcclResult InitDevEpMemTable() { return HCCL_SUCCESS; }    // 创建：init kernel + D2H 读回
+    virtual HcclResult ReleaseDevEpMemTable() { return HCCL_SUCCESS; } // 销毁：destroy kernel（delete）
+    virtual uint64_t GetDevEpMemTablePtr() const { return 0; }         // 表地址（0=无表），uniqueIdV2 下发用
+    virtual HcclResult OnLocalMemRegistered(void*) { return HCCL_SUCCESS; } // Reg 成功后：UPSERT
+    // Unreg 成功后 REMOVE：纯值入参——末引用注销会析构 buffer 对象，注销路径禁传 memHandle 防悬垂；
+    // 无名参数惯例同上
+    virtual HcclResult OnLocalMemUnregistered(uint64_t, uint64_t) { return HCCL_SUCCESS; }
 
     // 返回 ServerSocketContext（仅 Socket 相关类 override 返回非 nullptr）
     virtual ServerSocketContext* GetServerSocketContext() { return nullptr; }
@@ -98,7 +120,8 @@ protected:
     std::shared_ptr<EndpointMonitor> monitorKeepAlive_;
 
     // 实例级归属记账共用实现：MgrT 提供跨域 FindHandleRecord 反查，RecordT 区分 Ub/Roce 记录元素类型；
-    // 共享进程级 mgr 的 endpoint（Urma/CpuUrma/Uboe/CpuRoce）据此一行接入，逻辑保持各域一致；
+    // 共享进程级 mgr 的 endpoint（Urma/CpuUrma/Uboe）据此一行接入，逻辑保持各域一致
+    // （CpuRoce 因 host 数据面并发读改为不可变快照发布，见 cpu_roce_endpoint.h）；
     // UbMemEndpoint 同享 mgr 但不接入（原因见 RecordLocalMemHandle 注释）
     template <typename MgrT, typename RecordT>
     HcclResult RecordLocalMemHandleImpl(

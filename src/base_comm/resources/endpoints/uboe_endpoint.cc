@@ -23,7 +23,7 @@
 
 namespace hcomm {
 
-UboeEndpoint::UboeEndpoint(const EndpointDesc& endpointDesc) : Endpoint(endpointDesc) {}
+UboeEndpoint::UboeEndpoint(const EndpointDesc& endpointDesc) : UbDeviceEndpointBase(endpointDesc) {}
 
 UboeEndpoint::~UboeEndpoint() noexcept
 {

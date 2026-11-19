@@ -199,6 +199,15 @@ Exceptions (require review and registration in this README):
   channels.
   Direct thread or channel API usage without a communication domain has no domain-destruction chain;
   mixed ordering (direct thread or channel use before the first domain) is out of scope.
+  Direct thread-API usage without a communication domain has no domain-destruction chain;
+  mixed ordering (direct thread use before the first domain) is out of scope.
+  A second registration point of the same mechanism sits on the UB-family device-table
+  creation path (`UbDeviceEndpointBase::InitDevEpMemTable`, symmetric with the exit-time
+  `ReleaseDevEpMemTable`/`OnLocalMemUnregistered` guards) — it covers the table kernel
+  launches on the `~CollCommMgr → ~EndpointMgr → ~TaggedMemMap` fallback-unregister chain
+  and the endpoint-destruction chain when the process exits without destroying
+  communication domains: at exit the REMOVE/destroy kernel is skipped (host bookkeeping
+  still runs) and residual device-table entries are reclaimed at process exit.
 
 #### R2 No re-entry via narrow accessors during construction (deadlock red line)
 

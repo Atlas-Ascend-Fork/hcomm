@@ -61,6 +61,9 @@ public:
     static HcclResult GetChannelsInfo(
         const ChannelHandle* channelList, uint32_t listNum, std::vector<CommEngine>& engines,
         std::vector<HcommChannelDesc>& channelDescs, std::vector<ChannelStatus>& statusList);
+    // 快照 endpoint 名下存活 channel 的 host 句柄（锁内拷贝、锁外使用）：
+    // HcommEndpointDestroy 删表前收编强制销毁残留 channel 用
+    static std::vector<ChannelHandle> GetAliveChannels(EndpointHandle endpointHandle);
     static HcclResult HandleStatusByEngine(
         const ChannelHandle* channelList, uint32_t listNum, const std::vector<CommEngine>& engines,
         const std::vector<HcommChannelDesc>& channelDescFinals, const std::vector<ChannelStatus>& internalStatus,

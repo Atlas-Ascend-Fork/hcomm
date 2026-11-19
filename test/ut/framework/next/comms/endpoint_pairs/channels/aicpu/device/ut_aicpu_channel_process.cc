@@ -36,6 +36,7 @@
 #include "ub_transport_lite_impl.h"
 #include "aicpu_pack_data_helper.h"
 #include "aicpu/aicpu_ts_channel_entity_resources.h"
+#include "endpoint_pair/channel/ub_unique_id_pub.h" // UB_UNIQUE_ID_EXT_*：V2 扩展区契约（零依赖薄头）
 
 using namespace hccl;
 
@@ -212,6 +213,9 @@ TEST_F(AicpuChannelProcessTest, Ut_ParsePackData_WhenUbBlob_RegistersCacheCallba
     inner << static_cast<u32>(0); // bufferNum
     inner << static_cast<u32>(0); // rmtbufferNum
     inner << static_cast<u32>(0); // connNum
+    inner << UB_UNIQUE_ID_EXT_MAGIC_WORD;
+    inner << UB_UNIQUE_ID_EXT_VERSION;
+    inner << static_cast<u64>(0); // devEpMemTablePtr，0=无表
     inner << std::vector<char>(); // locNotify
     inner << std::vector<char>(); // rmtNotify
     inner << std::vector<char>(); // locBuffer
@@ -285,6 +289,9 @@ static std::vector<Hccl::ModuleData> BuildEntityResourcesModules(
     inner << static_cast<uint32_t>(0);                            // localBufferNum
     inner << static_cast<uint32_t>(0);                            // remoteBufferNum
     inner << static_cast<uint32_t>(1);                            // connectionNum
+    inner << UB_UNIQUE_ID_EXT_MAGIC_WORD;                         // 扩展区头（V2 布局契约）
+    inner << UB_UNIQUE_ID_EXT_VERSION;
+    inner << static_cast<uint64_t>(0); // devEpMemTablePtr，0=无表
     inner << notifyData;
     inner << remoteNotifyData;    // remote notify
     inner << std::vector<char>(); // local buffer

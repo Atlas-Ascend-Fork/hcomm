@@ -13,13 +13,13 @@
 
 #include <optional>
 #include <memory>
-#include <shared_mutex>
+#include <mutex>
 #include <vector>
 #include <string>
 #include "endpoint.h"
 #include "server_socket_context/host_server_socket_context.h"
 #include "roce_reged_mem_mgr.h"
-#include "local_rdma_rma_buffer.h"
+#include "buffer/local_rdma_rma_buffer_v2.h"
 #include "externalinput_pub.h"
 
 namespace hcomm {
@@ -39,6 +39,8 @@ public:
     RemoteRegedMemMgr* GetRemoteRegMemMgr() override { return remoteMemMgr_.get(); }
     HcclResult RecordLocalMemHandle(void* memHandle) override;
     HcclResult RemoveLocalMemHandle(void* memHandle) override;
+    HcclResult
+    FindLocalBuffer(uint64_t addr, uint64_t len, std::shared_ptr<Hccl::LocalRmaBuffer>& buffer) const override;
     HcclResult GetAllLocalMemHandles(void** memHandles, uint32_t* memHandleNum) override;
     void* GetRdmaHandle() override { return ctxHandle_; }
     bool IsCtxHandleValid() const override;
@@ -63,8 +65,15 @@ private:
     void* ctxHandle_{nullptr};
     std::shared_ptr<EndpointCtx> endpointCtx_{};
     std::shared_ptr<LocalRegedMemMgr> localMemMgr_{}; // 进程级 mgr（跨 endpoint 复用，承担硬件注册）
-    mutable std::shared_mutex localMemMtx_;
-    std::vector<std::shared_ptr<Hccl::LocalRdmaRmaBuffer>> localMemRecords_; // 本实例注册的 memHandle 记录
+    // 本实例注册的 memHandle 记录（不可变快照发布）：Record/Remove 持锁拷贝当前代、私有副本改后
+    // std::atomic_store 发布（构造先于发布，无并发窗口）；FindLocalBuffer 经 std::atomic_load 取快照后
+    // 遍历（插入序 = 首条命中优先级保持）；旧代由在途读者的 shared_ptr 副本自动保活回收
+    using MemRecords = std::vector<std::shared_ptr<Hccl::LocalRdmaRmaBuffer>>;
+    using MemRecordsSnapshot = const MemRecords;
+    std::mutex localMemMtx_; // 写-写串行 + 并发 GetAll 串行
+    std::shared_ptr<MemRecordsSnapshot> memRecordsPublished_{std::make_shared<MemRecords>()};
+    // GetAll 出参裸指针的保活：钉住最近一次 GetAll 引用的代（data() 存活至下次 GetAll）
+    std::shared_ptr<MemRecordsSnapshot> getAllKeepAlive_{};
     std::shared_ptr<RemoteRegedMemMgr> remoteMemMgr_{}; // 实例级远端 mgr（EndpointRemoteRegedMemMgr，RoCE 适配）
     std::optional<HostServerSocketContext> serverSocketContext_{};
     MemMgrCacheKey cacheKey_{};

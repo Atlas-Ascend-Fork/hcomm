@@ -9,6 +9,7 @@
  */
 
 #include "common/cast_utils_pub.h"
+#include "endpoint_pair/channel/ub_unique_id_pub.h" // UB_UNIQUE_ID_EXT_*：建链序列化扩展区契约（零依赖薄头）
 #include "ub_mem_transport.h"
 #include "rma_buf_entry_lite.h"
 #include "serializable.h"
@@ -30,9 +31,10 @@ constexpr u64 UB_UPDATE_EXCHANGE_DATA_MAX_SIZE = 64ULL * 1024 * 1024;
 
 UbMemTransport::UbMemTransport(
     CommonLocRes& commonLocRes, Attribution& attr, const LinkData& linkData, const Socket& socket,
-    RdmaHandle rdmaHandle1, LocCntNotifyRes& locCntNotifyRes1, bool isRecvFirst)
+    RdmaHandle rdmaHandle1, LocCntNotifyRes& locCntNotifyRes1, bool isRecvFirst, uint64_t devEpMemTablePtr)
     : BaseMemTransport(commonLocRes, attr, linkData, socket, TransportType::UB),
       rdmaHandle(rdmaHandle1),
+      devEpMemTablePtr_(devEpMemTablePtr),
       locCntNotifyRes(locCntNotifyRes1),
       isRecvFirst_(isRecvFirst)
 {
@@ -42,9 +44,10 @@ UbMemTransport::UbMemTransport(
 UbMemTransport::UbMemTransport(
     CommonLocRes& commonLocRes, Attribution& attr, const LinkData& linkData, const Socket& socket,
     RdmaHandle rdmaHandle1, LocCntNotifyRes& locCntNotifyRes1,
-    std::function<void(u32 streamId, u32 taskId, const TaskParam& taskParam)> callback)
+    std::function<void(u32 streamId, u32 taskId, const TaskParam& taskParam)> callback, uint64_t devEpMemTablePtr)
     : BaseMemTransport(commonLocRes, attr, linkData, socket, TransportType::UB, callback),
       rdmaHandle(rdmaHandle1),
+      devEpMemTablePtr_(devEpMemTablePtr),
       locCntNotifyRes(locCntNotifyRes1)
 {
     HCCL_INFO("source: %s", locCntNotifyRes.Describe().c_str());
@@ -746,6 +749,10 @@ HcclResult UbMemTransport::GetUniqueIdV2(std::vector<char>& result)
     binaryStream << bufferNum;
     binaryStream << static_cast<u32>(rmtBufferVec.size());
     binaryStream << connNum;
+    // 扩展区头（魔数+版本）+ 表指针（0=无表，值语义）：布局契约见 channel_param_pub.h UB_UNIQUE_ID_EXT_*
+    binaryStream << UB_UNIQUE_ID_EXT_MAGIC_WORD;
+    binaryStream << UB_UNIQUE_ID_EXT_VERSION;
+    binaryStream << devEpMemTablePtr_; // 构造注入的 DevEpMemTable* device 地址，device Init 校验扩展区头后解析
 
     auto notifyUniqueIds = GetNotifyUniqueIds();
     binaryStream << notifyUniqueIds;

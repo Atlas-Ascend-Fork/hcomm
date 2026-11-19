@@ -14,7 +14,7 @@
 #include <memory>
 #include <shared_mutex>
 #include <vector>
-#include "endpoint.h"
+#include "ub_device_endpoint_base.h"
 #include "server_socket_context/ub_rtp_uboe_server_socket_context.h"
 #include "ub_reged_mem_mgr.h"
 
@@ -23,7 +23,7 @@ namespace hcomm {
  * @note 职责：AICPU通信引擎+UBOE协议的通信设备Endpoint，管理通信设备上下文，以及设备上的注册内存。
  *       UBOE的Init需要做IP→EID转换。
  */
-class UboeEndpoint : public Endpoint {
+class UboeEndpoint : public UbDeviceEndpointBase {
 public:
     explicit UboeEndpoint(const EndpointDesc& endpointDesc);
     ~UboeEndpoint() noexcept override;

@@ -34,6 +34,10 @@
 #undef private
 #undef protected
 
+#include "binary_stream.h"
+#include "endpoint_pair/channel/ub_unique_id_pub.h" // UB_UNIQUE_ID_EXT_*：V2 扩展区契约（零依赖薄头）
+#include "ut_v2_unique_id_helper.h" // MakeEmptyUbV2UniqueId：三处重复构造器收敛单一定义（检视整改）
+
 using namespace hcomm;
 using namespace Hccl;
 
@@ -99,6 +103,7 @@ protected:
         aicpuTsThread_ = std::make_unique<hccl::AicpuTsThread>(std::string("ut_mgr_thread"));
         ubConnLite_ = std::make_unique<Hccl::UbConnLite>(
             Hccl::UbJettyLiteId(0, 0, 0), Hccl::UbJettyLiteAttr(0, 0, TEST_SQ_DEPTH, 0, true), Hccl::Eid{});
+        emptyUniqueId_ = MakeEmptyUbV2UniqueId();
         ubTransport_ = std::make_unique<Hccl::UbTransportLiteImpl>(emptyUniqueId_);
         entry_ = std::make_unique<AicpuTaskCacheEntry>();
 

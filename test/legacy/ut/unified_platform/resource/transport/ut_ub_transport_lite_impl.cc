@@ -29,6 +29,8 @@
 #include "ins_to_sqe_rule.h"
 #include "stream_lite.h"
 #include "mem_transport_callback.h"
+#include "endpoint_pair/channel/ub_unique_id_pub.h" // UB_UNIQUE_ID_EXT_*：V2 扩展区契约（零依赖薄头）
+#include "internal_exception.h"
 #undef private
 
 using namespace Hccl;
@@ -255,6 +257,37 @@ TEST_F(UbTransportLiteImplTest, construct_test)
     RmtRmaBufSliceLite rmtRmaBufferLite(100, 200, 300, 400, 500, UINT32_MAX);
     transportLite.BatchOneSidedRead({locRmaBufferLite}, {rmtRmaBufferLite}, stream);
     transportLite.BatchOneSidedWrite({locRmaBufferLite}, {rmtRmaBufferLite}, stream);
+}
+
+// 版本化（V2）数据误入 V1 解析路径（带 callback 构造）：固定头后的魔数岗哨快速失败，
+// 而非把表指针 8 字节当 vector 长度前缀（超大分配/越界读）
+TEST_F(UbTransportLiteImplTest, construct_v2_blob_into_v1_path_expect_throw)
+{
+    BinaryStream binaryStream;
+    u32 type = static_cast<u32>(TransportType::UB);
+    u32 zero = 0;
+    binaryStream << type;
+    binaryStream << zero; // notifyNum
+    binaryStream << zero; // bufferNum
+    binaryStream << zero; // rmtbufferNum
+    binaryStream << zero; // connNum
+    binaryStream << UB_UNIQUE_ID_EXT_MAGIC_WORD;
+    binaryStream << UB_UNIQUE_ID_EXT_VERSION;
+    binaryStream << static_cast<u64>(0); // devEpMemTablePtr
+    std::vector<char> emptyVector;
+    binaryStream << emptyVector; // notifyUniqueIds
+    binaryStream << emptyVector; // rmtNotifyUniqueIds
+    binaryStream << emptyVector; // locBufferUniqueIds
+    binaryStream << emptyVector; // rmtBufferUniqueIds
+    binaryStream << emptyVector; // drainBufferUniqueIds
+    binaryStream << emptyVector; // connUniqueIds
+    std::vector<char> liteData;
+    binaryStream.Dump(liteData);
+
+    LinkData linkData(BasePortType(PortDeploymentType::DEV_NET, ConnectProtoType::UB), 0, 1, 0, 1);
+    MirrorTaskManager mirrorTaskMgr(0, &GlobalMirrorTasks::Instance(), true);
+    auto transportCallback = MemTransportCallback(linkData, mirrorTaskMgr);
+    EXPECT_THROW(MemTransportLite transportLite(liteData, transportCallback), InternalException);
 }
 
 /* ---------- UbConnLiteMgr AppendCompletedCis ---------- */

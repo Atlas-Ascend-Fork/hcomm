@@ -26,6 +26,11 @@
 #undef private
 #undef protected
 
+#include "endpoint_pair/channel/ub_unique_id_pub.h" // UB_UNIQUE_ID_EXT_*：V2 扩展区契约（零依赖薄头）
+#include "dev_ep_mem_table.h"
+#include "internal_exception.h"
+#include <new>
+
 using namespace std;
 using namespace Hccl;
 
@@ -42,7 +47,7 @@ protected:
     virtual void SetUp() {}
     virtual void TearDown() { GlobalMockObject::verify(); }
 
-    // 构造 UbTransportLiteImpl 反序列化所需的完整序列化数据
+    // 构造 UbTransportLiteImpl 反序列化所需的完整序列化数据（V2 布局：扩展区头 + 表指针）
     static std::vector<char> BuildTransportData(u32 type, u32 notifyNum, u32 bufferNum, u32 rmtbufferNum, u32 connNum)
     {
         BinaryStream binaryStream;
@@ -51,6 +56,9 @@ protected:
         binaryStream << bufferNum;
         binaryStream << rmtbufferNum;
         binaryStream << connNum;
+        binaryStream << UB_UNIQUE_ID_EXT_MAGIC_WORD;
+        binaryStream << UB_UNIQUE_ID_EXT_VERSION;
+        binaryStream << static_cast<u64>(0); // devEpMemTablePtr，0=无表
         std::vector<char> emptyVector;
         binaryStream << emptyVector; // notifyUniqueIds
         binaryStream << emptyVector; // rmtNotifyUniqueIds
@@ -67,6 +75,58 @@ protected:
     static std::vector<char> BuildEmptyTransportData()
     {
         return BuildTransportData(static_cast<u32>(TransportType::UB), 0, 0, 0, 0);
+    }
+
+    // V1 布局（旧格式）：固定头 + 4 段 vector，无扩展区
+    static std::vector<char> BuildV1TransportData(u32 type, u32 notifyNum, u32 bufferNum, u32 rmtbufferNum, u32 connNum)
+    {
+        BinaryStream binaryStream;
+        binaryStream << type;
+        binaryStream << notifyNum;
+        binaryStream << bufferNum;
+        binaryStream << rmtbufferNum;
+        binaryStream << connNum;
+        std::vector<char> emptyVector;
+        binaryStream << emptyVector; // notifyUniqueIds
+        binaryStream << emptyVector; // rmtNotifyUniqueIds
+        binaryStream << emptyVector; // rmtBufferUniqueIds
+        binaryStream << emptyVector; // connUniqueIds
+        std::vector<char> data;
+        binaryStream.Dump(data);
+        return data;
+    }
+
+    // V2 布局：扩展区头 + 指定表指针 + locBuffer 段含 1 条 LocUbBufLite，其余段为空
+    static std::vector<char> BuildTransportDataWithLocBuffer(u64 devEpMemTablePtr)
+    {
+        BinaryStream binaryStream;
+        binaryStream << static_cast<u32>(TransportType::UB);
+        binaryStream << static_cast<u32>(0); // notifyNum
+        binaryStream << static_cast<u32>(1); // bufferNum
+        binaryStream << static_cast<u32>(0); // rmtbufferNum
+        binaryStream << static_cast<u32>(0); // connNum
+        binaryStream << UB_UNIQUE_ID_EXT_MAGIC_WORD;
+        binaryStream << UB_UNIQUE_ID_EXT_VERSION;
+        binaryStream << devEpMemTablePtr;
+        std::vector<char> emptyVector;
+        binaryStream << emptyVector; // notifyUniqueIds
+        binaryStream << emptyVector; // rmtNotifyUniqueIds
+        {
+            BinaryStream elemStream;
+            elemStream << static_cast<u64>(0x1000); // addr
+            elemStream << static_cast<u64>(256);    // size
+            elemStream << static_cast<u32>(11);     // tokenId
+            elemStream << static_cast<u32>(22);     // tokenValue
+            std::vector<char> elemData;
+            elemStream.Dump(elemData);
+            binaryStream << elemData; // locBufferUniqueIds：1 条 LocUbBufLite
+        }
+        binaryStream << emptyVector; // rmtBufferUniqueIds
+        binaryStream << emptyVector; // drainBufferUniqueIds
+        binaryStream << emptyVector; // connUniqueIds
+        std::vector<char> data;
+        binaryStream.Dump(data);
+        return data;
     }
 };
 
@@ -170,6 +230,78 @@ TEST_F(UbTransportLiteImplRmtbuffer_UT, Ut_RmtbufferNumMember_When_Default_Expec
     std::vector<char> data = BuildTransportData(type, 0, 0, 0, 0);
     UbTransportLiteImpl transportDev(data);
     EXPECT_EQ(transportDev.rmtbufferNum, 0);
+}
+
+// 旧格式（V1）数据进入 V2 解析路径（Init）：扩展区头校验快速失败，
+// 而非位置错位把 vector 长度前缀当表指针、后续向野地址 Upsert
+TEST_F(UbTransportLiteImplRmtbuffer_UT, Ut_Init_When_V1Blob_Expect_FastFailThrow)
+{
+    std::vector<char> data = BuildV1TransportData(static_cast<u32>(TransportType::UB), 0, 0, 0, 0);
+    EXPECT_THROW(UbTransportLiteImpl transportDev(data), InternalException);
+}
+
+// 扩展区版本未知：快速失败，不按当前布局盲解
+TEST_F(UbTransportLiteImplRmtbuffer_UT, Ut_Init_When_UnknownExtVersion_Expect_FastFailThrow)
+{
+    BinaryStream binaryStream;
+    binaryStream << static_cast<u32>(TransportType::UB);
+    u32 zero = 0;
+    binaryStream << zero; // notifyNum
+    binaryStream << zero; // bufferNum
+    binaryStream << zero; // rmtbufferNum
+    binaryStream << zero; // connNum
+    binaryStream << UB_UNIQUE_ID_EXT_MAGIC_WORD;
+    binaryStream << (UB_UNIQUE_ID_EXT_VERSION + 1U); // 未知版本
+    binaryStream << static_cast<u64>(0);             // devEpMemTablePtr
+    std::vector<char> emptyVector;
+    binaryStream << emptyVector; // notifyUniqueIds
+    binaryStream << emptyVector; // rmtNotifyUniqueIds
+    binaryStream << emptyVector; // locBufferUniqueIds
+    binaryStream << emptyVector; // rmtBufferUniqueIds
+    binaryStream << emptyVector; // drainBufferUniqueIds
+    binaryStream << emptyVector; // connUniqueIds
+    std::vector<char> data;
+    binaryStream.Dump(data);
+    EXPECT_THROW(UbTransportLiteImpl transportDev(data), InternalException);
+}
+
+// X″ 契约：locBuffer 段保留（Urma host 实体预解析消费），device 侧仅推进流位置、不补表。
+// 构造成功即证明段被正确消费（错位会把段内容当后续 vector 长度前缀），表保持空
+TEST_F(UbTransportLiteImplRmtbuffer_UT, Ut_ParseLocBuffer_When_TableValid_Expect_StreamAdvancedNoTableWrite)
+{
+    Hccl::DevEpMemTable table;
+    std::vector<char> data = BuildTransportDataWithLocBuffer(ReinterpretAs<u64>(&table));
+    UbTransportLiteImpl transportDev(data);
+
+    // 表唯一写入器 = Reg/Unreg kernel 路径（建链不写表）——经公共读路径观测空表（B1 快照化后
+    // bufferMap_ 成员已移除，空快照的 FindFirst 必然 miss）
+    LocUbBufLite out;
+    EXPECT_FALSE(table.FindFirst(out));
+    EXPECT_EQ(table.abi.entryNum, 0U);
+}
+
+// 表指针悬垂（endpoint 先于 channel 销毁）：构造路径不触表（CheckAbi 哨兵职责已移至
+// 运行期 BuildLocRmaBufferLite 查表路径），不向已释放内存写 map 节点
+TEST_F(UbTransportLiteImplRmtbuffer_UT, Ut_ParseLocBuffer_When_TableBadAbi_Expect_ConstructionNoTouch)
+{
+    Hccl::DevEpMemTable table;
+    table.abi.magic = 0; // 模拟表已销毁
+    std::vector<char> data = BuildTransportDataWithLocBuffer(ReinterpretAs<u64>(&table));
+
+    EXPECT_NO_THROW(UbTransportLiteImpl transportDev(data));
+    LocUbBufLite out;
+    EXPECT_FALSE(table.FindFirst(out));
+}
+
+// 析构即失效：delete 之后悬垂表指针的 CheckAbi 必须失败（use-after-free 兜底）
+TEST_F(UbTransportLiteImplRmtbuffer_UT, Ut_DevEpMemTable_When_Destructed_Expect_CheckAbiFail)
+{
+    alignas(Hccl::DevEpMemTable) unsigned char raw[sizeof(Hccl::DevEpMemTable)];
+    auto* table = new (raw) Hccl::DevEpMemTable();
+    EXPECT_TRUE(table->CheckAbi());
+
+    table->~DevEpMemTable(); // 模拟 kernel delete：析构后堆块未复用，悬垂指针仍可读
+    EXPECT_FALSE(table->CheckAbi());
 }
 
 TEST_F(UbTransportLiteImplRmtbuffer_UT, Ut_RmtbufferNumMember_When_RmtbufferDifferentFromBuffer_Expect_IndependentValue)

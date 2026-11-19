@@ -169,10 +169,14 @@ HcclResult AicpuTsUrmaChannel::BuildBuffer()
 
     bool isRecvFirst = socket.GetRole() == Hccl::SocketRole::CLIENT ? true : false;
 
-    // make_unique / make_shared / release 包一层抛异常的宏
+    // 表指针构造注入（endpoint 创建时 init kernel 读回，BuildBuffer 时 endpoint 已完整；
+    // 非 UB 走基类 no-op 默认返回 0=无表哨兵）
+    const uint64_t devEpMemTablePtr = local_.epPtr->GetDevEpMemTablePtr();
+    // make_unique / make_shared / release 包一层抛异常的宏；
     EXCEPTION_CATCH(
         memTransport_ = std::make_unique<Hccl::UbMemTransport>(
-            local_.commonRes, local_.attr, linkData, socket, local_.rdmaHandle, locCntNotifyRes, isRecvFirst),
+            local_.commonRes, local_.attr, linkData, socket, local_.rdmaHandle, locCntNotifyRes, isRecvFirst,
+            devEpMemTablePtr),
         return HCCL_E_PTR);
     PLF_CONFIG_INFO(
         PLF_CHANNEL, "[%s::%s] create UbMemTransport, socket[%s], linkData[%s].", channelClassName_, __func__,
@@ -272,7 +276,7 @@ HcclResult AicpuTsUrmaChannel::PackOpData(std::vector<char>& data)
     std::vector<char> result;
     Hccl::BinaryStream binaryStream;
     std::vector<char> uniqueIdV2;
-    CHK_RET(memTransport_->GetUniqueIdV2(uniqueIdV2));
+    CHK_RET(memTransport_->GetUniqueIdV2(uniqueIdV2)); // 表指针已构造注入，序列化时自动携带
     binaryStream << uniqueIdV2;
 
     binaryStream.Dump(result);

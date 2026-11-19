@@ -18,6 +18,7 @@
 #include "adapter_rts_common.h"
 #include "aicpu_res_package_helper.h"
 #include "binary_stream.h"
+#include "endpoint_pair/channel/channel_param_pub.h" // UB_UNIQUE_ID_EXT_*：建链序列化扩展区契约
 #include "log.h"
 
 namespace {
@@ -265,6 +266,11 @@ HcclResult AicpuChannelEntityResources::Build(
     uint32_t localBufferNum = 0;
     uint32_t remoteBufferNum = 0;
     uint32_t connectionNum = 0;
+    // connNum 后的扩展区头 + 表指针：与 device 侧 Init 布局对齐（契约见 channel_param_pub.h
+    // UB_UNIQUE_ID_EXT_*），host 预解析校验魔数/版本后跳过表指针不使用
+    uint32_t extMagic = 0;
+    uint32_t extVersion = 0;
+    uint64_t devEpMemTablePtr = 0;
     std::vector<char> localNotifyData;
     std::vector<char> remoteNotifyData;
     std::vector<char> localBufferData;
@@ -273,17 +279,23 @@ HcclResult AicpuChannelEntityResources::Build(
     std::vector<char> connectionData;
     CHK_PRT_RET(
         !reader.Read(transportType) || !reader.Read(notifyNum) || !reader.Read(localBufferNum)
-            || !reader.Read(remoteBufferNum) || !reader.Read(connectionNum) || !reader.ReadVector(localNotifyData)
-            || !reader.ReadVector(remoteNotifyData) || !reader.ReadVector(localBufferData)
-            || !reader.ReadVector(remoteBufferData) || !reader.ReadVector(drainData)
-            || !reader.ReadVector(connectionData),
-        HCCL_ERROR("[%s] invalid UB transport unique id, size[%zu].", __func__, transportUniqueId.size()), HCCL_E_PARA);
+            || !reader.Read(remoteBufferNum) || !reader.Read(connectionNum) || !reader.Read(extMagic)
+            || !reader.Read(extVersion) || extMagic != UB_UNIQUE_ID_EXT_MAGIC_WORD
+            || extVersion != UB_UNIQUE_ID_EXT_VERSION || !reader.Read(devEpMemTablePtr)
+            || !reader.ReadVector(localNotifyData) || !reader.ReadVector(remoteNotifyData)
+            || !reader.ReadVector(localBufferData) || !reader.ReadVector(remoteBufferData)
+            || !reader.ReadVector(drainData) || !reader.ReadVector(connectionData),
+        HCCL_ERROR(
+            "[%s] invalid UB transport unique id, extMagic[0x%x], extVersion[%u], size[%zu].", __func__, extMagic,
+            extVersion, transportUniqueId.size()),
+        HCCL_E_PARA);
     CHK_PRT_RET(
         connectionNum == 0 || connectionData.size() % connectionNum != 0,
         HCCL_ERROR(
             "[%s] invalid UB connection resource, num[%u], size[%zu].", __func__, connectionNum, connectionData.size()),
         HCCL_E_PARA);
     (void)transportType;
+    (void)devEpMemTablePtr;
 
     auto& entity = entity_;
     entity = {};

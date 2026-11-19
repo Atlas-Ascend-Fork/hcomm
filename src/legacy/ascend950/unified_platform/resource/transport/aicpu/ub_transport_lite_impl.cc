@@ -15,9 +15,12 @@
 #include "ub_transport_lite_impl.h"
 #include "binary_stream.h"
 #include "ub_conn_lite_mgr.h"
+#include "dev_ep_mem_table.h"
+#include "endpoint_pair/channel/channel_param_pub.h" // LocUbBufLite（表条目类型，已下沉 base_comm）/ UB_UNIQUE_ID_EXT_*
 #include "exception_util.h"
 #include "internal_exception.h"
 #include "dfx/device/dfx_profiling_handler_lite_pub.h"
+#include <securec.h>
 
 namespace Hccl {
 constexpr u32 UB_WQE_MAX_SIZE = 128; // 针对WriteWithNotify类型WQE，最大是128Byte
@@ -27,6 +30,8 @@ constexpr u32 UB_STRONG_ORDER = 0X02; // Strong Order表示当前SQE有保序要
 constexpr u32 UB_NO_COMPLETION = 0; // 表示当前报文和前面报文没有completion序要求，报文对应的CQE可以乱序上报
 constexpr u32 UB_COMPLETION = 1; // 表示当前报文和前面报文有completion序要求，报文对应的CQE需要保序上报
 constexpr u8 UB_FENCE_ENABLED = 1; // fence使能
+// V1/V2 共用固定头长度：type/notifyNum/bufferNum/rmtbufferNum/connNum（5×u32）
+static constexpr u32 UB_UNIQUE_ID_FIXED_HEADER_BYTES = sizeof(u32) * 5U;
 UbTransportLiteImpl::UbTransportLiteImpl(
     std::vector<char>& uniqueId, std::function<void(u32 streamId, u32 taskId, const TaskParam& taskParam)> callback)
 {
@@ -39,6 +44,17 @@ UbTransportLiteImpl::UbTransportLiteImpl(
     binaryStream >> bufferNum;
     binaryStream >> rmtbufferNum;
     binaryStream >> connNum;
+    // V1 布局岗哨：固定头（5×u32）后若出现 V2 扩展区魔数，说明版本化数据误入 V1 解析路径——
+    // 其表指针 8 字节会被当 vector 长度前缀（超大分配/越界读），此处快速失败而非错位解析
+    u32 extMagic{0};
+    if (uniqueId.size() >= UB_UNIQUE_ID_FIXED_HEADER_BYTES + sizeof(extMagic)) {
+        (void)memcpy_s(
+            &extMagic, sizeof(extMagic), uniqueId.data() + UB_UNIQUE_ID_FIXED_HEADER_BYTES, sizeof(extMagic));
+    }
+    if (UNLIKELY(extMagic == UB_UNIQUE_ID_EXT_MAGIC_WORD)) {
+        THROW<InternalException>(StringFormat(
+            "versioned uniqueId (V2 ext magic[0x%x]) enters V1 parse path, check producer wiring", extMagic));
+    }
     linkType_ = (theType == static_cast<u32>(TransportType::UB)) ? DfxLinkType::UB : DfxLinkType::UBoE;
 
     std::vector<char> notifyUniqueIds;
@@ -68,6 +84,19 @@ void UbTransportLiteImpl::Init(std::vector<char>& uniqueId)
     binaryStream >> bufferNum;
     binaryStream >> rmtbufferNum;
     binaryStream >> connNum;
+    // 扩展区头校验（契约见 channel_param_pub.h UB_UNIQUE_ID_EXT_*）：魔数/版本不符（V1 旧格式、
+    // 异构数据、未知新版本）快速失败，防止位置错位把后续 vector 长度前缀当表指针、向野地址写表
+    u32 extMagic{0};
+    u32 extVersion{0};
+    binaryStream >> extMagic;
+    binaryStream >> extVersion;
+    if (UNLIKELY(extMagic != UB_UNIQUE_ID_EXT_MAGIC_WORD || extVersion != UB_UNIQUE_ID_EXT_VERSION)) {
+        THROW<InternalException>(StringFormat(
+            "uniqueId ext header mismatch, magic[0x%x] version[%u], expect magic[0x%x] version[%u], "
+            "check producer/consumer format coherence",
+            extMagic, extVersion, UB_UNIQUE_ID_EXT_MAGIC_WORD, UB_UNIQUE_ID_EXT_VERSION));
+    }
+    binaryStream >> devEpMemTablePtr_; // endpoint 活账本表指针；0=无表（版本化生产端声明的值语义）
     linkType_ = (theType == static_cast<u32>(TransportType::UB)) ? DfxLinkType::UB : DfxLinkType::UBoE;
 
     std::vector<char> notifyUniqueIds;
@@ -78,9 +107,13 @@ void UbTransportLiteImpl::Init(std::vector<char>& uniqueId)
     binaryStream >> rmtNotifyUniqueIds;
     ParseRmtBufferVec(rmtNotifyUniqueIds, RmaUbBufType::NOTIFY);
 
+    // locBuffer 段保留：Urma 家族 host 实体预解析（AicpuChannelEntityResources::Build）装配槽位仍消费；
+    // device 侧仅推进流位置、不再补表——表唯一写入器 = Reg/Unreg。显式句柄跨 endpoint 场景经产品确认
+    // 不存在（依赖调用方契约，无代码防护），段内内存 Reg 时已入表，补表动作全冗余。
+    // 注意：读取不可删（BinaryStream 无跳过接口，位置式布局三方镜像），防误删致后续段错位
     std::vector<char> locBufferUniqueIds;
     binaryStream >> locBufferUniqueIds;
-    ParseLocBufferMap(locBufferUniqueIds);
+    (void)locBufferUniqueIds;
 
     std::vector<char> rmtBufferUniqueIds;
     binaryStream >> rmtBufferUniqueIds;
@@ -193,30 +226,6 @@ void UbTransportLiteImpl::ParseRmtBufferVec(std::vector<char>& data, RmaUbBufTyp
     }
 }
 
-void UbTransportLiteImpl::ParseLocBufferMap(std::vector<char>& data)
-{
-    u32 num = bufferNum;
-
-    if (num == 0) {
-        HCCL_WARNING("UbTransportLiteImpl::ParseLocBufferMap num is 0");
-        return;
-    }
-
-    u32 rmtBufferSizePerDto = data.size() / num;
-    HCCL_INFO("ParseLocBufferMap num=%u, sizePerDto=%u", num, rmtBufferSizePerDto);
-    BinaryStream binaryStream(data);
-
-    for (u32 idx = 0; idx < num; idx++) {
-        LocUbBufLite ubBufLite;
-        binaryStream >> ubBufLite.addr;
-        binaryStream >> ubBufLite.size;
-        binaryStream >> ubBufLite.tokenId;
-        binaryStream >> ubBufLite.tokenValue;
-        HCCL_INFO("idx=%u, LocBuffer %s", idx, ubBufLite.Describe().c_str());
-        locBufferMap[static_cast<uintptr_t>(ubBufLite.addr)] = ubBufLite;
-    }
-}
-
 void UbTransportLiteImpl::ParseDrainResource(std::vector<char>& data)
 {
     if (data.size() == 0) {
@@ -322,38 +331,37 @@ RmtRmaBufSliceLite UbTransportLiteImpl::GetRmtRmaBufSliceLite(const RmaBufferLit
     return RmtRmaBufSliceLite(lite.GetAddr(), lite.GetSize(), 0, lite.GetTokenId(), lite.GetTokenValue(), UINT32_MAX);
 }
 
+// 收发按址查表的唯一入口；调用方（primitives / ExecuteBatchTransfer / task cache）经同一虚函数，零改动。
+// 表（DevEpMemTable）为唯一数据来源：本函数仅做适配（判空 + 哨兵 + Find/FindFirst），
+// 算法与数据均在 device 侧表内；旧 channel 私有 locBufferMap 副本已删除。
 HcclResult
 UbTransportLiteImpl::BuildLocRmaBufferLite(const uintptr_t addr, const size_t size, RmaBufferLite& rmaBufferLite)
 {
-    HCCL_DEBUG(
-        "[UbTransportLiteImpl::%s] start to find addr[0x%llx], size[0x%llx] in locBufferMap, whose size is %zu. ",
-        __func__, static_cast<u64>(addr), static_cast<u64>(size), locBufferMap.size());
-    if (locBufferMap.empty()) {
-        HCCL_ERROR("[UbTransportLiteImpl::%s] locBufferMap is empty.", __func__);
+    if (UNLIKELY(devEpMemTablePtr_ == 0)) {
+        // 版本化生产端声明的"无表"（host 无表路径）或异常缺表：按址查表为唯一数据来源，快速失败
+        HCCL_ERROR("[UbTransportLiteImpl::%s] ep mem table not inited, tablePtr is null", __func__);
         return HCCL_E_INTERNAL;
     }
-
-    bool isAddrInRange = false;
-    auto it = locBufferMap.upper_bound(addr);
-
-    while (it != locBufferMap.begin()) {
-        --it;
-        Buffer iterBuf(it->second.addr, it->second.size);
-        if (iterBuf.Contains(addr, size)) {
-            rmaBufferLite = RmaBufferLite(addr, size, it->second.tokenId, it->second.tokenValue);
-            isAddrInRange = true;
-            break;
-        }
+    auto* table = ReinterpretAs<DevEpMemTable*>(devEpMemTablePtr_);
+    // 哨兵校验：表已销毁（endpoint 先于 channel 销毁的异常顺序）时快速失败，而非查野指针
+    if (!table->CheckAbi()) {
+        HCCL_ERROR("[UbTransportLiteImpl::%s] ep mem table bad abi, tablePtr[0x%llx]", __func__, devEpMemTablePtr_);
+        return HCCL_E_INTERNAL;
     }
-
-    if (!isAddrInRange) {
-        HCCL_WARNING(
-            "[UbTransportLiteImpl::%s] addr[0x%llx], size[0x%llx] not in any range of locBufferMap, use the first in "
-            "map addr[0x%llx] size[0x%llx]",
-            __func__, static_cast<u64>(addr), static_cast<u64>(size), it->second.addr, it->second.size);
-        rmaBufferLite = RmaBufferLite(addr, size, it->second.tokenId, it->second.tokenValue);
+    LocUbBufLite hit{};
+    if (table->Find(addr, size, hit)) {
+        rmaBufferLite = RmaBufferLite(addr, size, hit.tokenId, hit.tokenValue);
+        return HCCL_SUCCESS;
     }
-
+    // 未命中：保留既有回退语义（WARNING + 借用首条），行为与改造前一致
+    HCCL_WARNING(
+        "[UbTransportLiteImpl::%s] addr[0x%llx], size[0x%llx] not in any range of ep mem table, use the first",
+        __func__, static_cast<u64>(addr), static_cast<u64>(size));
+    if (!table->FindFirst(hit)) {
+        HCCL_ERROR("[UbTransportLiteImpl::%s] ep mem table is empty.", __func__);
+        return HCCL_E_INTERNAL;
+    }
+    rmaBufferLite = RmaBufferLite(addr, size, hit.tokenId, hit.tokenValue);
     return HCCL_SUCCESS;
 }
 
@@ -1598,7 +1606,6 @@ HcclResult UbTransportLiteImpl::Clean()
 {
     locNotifyVec.clear();
     rmtNotifyVec.clear();
-    locBufferMap.clear();
     rmtBufferVec.clear();
     rmtBufferMap.clear();
 
@@ -1622,7 +1629,6 @@ HcclResult UbTransportLiteImpl::Resume(std::vector<char>& uniqueId)
     UbConnLiteMgr::GetInstance().UnRegisterCiTracker(this);
     locNotifyVec.clear();
     rmtNotifyVec.clear();
-    locBufferMap.clear();
     rmtBufferVec.clear();
     rmtBufferMap.clear();
     connUniqueIdVec.clear();

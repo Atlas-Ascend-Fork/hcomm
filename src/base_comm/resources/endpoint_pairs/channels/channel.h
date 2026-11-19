@@ -198,6 +198,7 @@ public:
     HcommChannelKind GetChannelKind() const { return channelKind_; }
     CommEngine GetEngine() const { return engine_; }
     virtual const HcommChannelDesc& GetChannelDesc() const { return channelDesc_; }
+    EndpointHandle GetEndpointHandle() const { return endpointHandle_; }
 
     bool IsSharedQueue() const { return isSharedQueue_; }
 

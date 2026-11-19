@@ -35,6 +35,8 @@ set(src_to_test_list
     comms/comm_engine_res/threads/test_thread_api.cc
     comms/comm_engine_res/threads/test_thread_acquire_with_config.cc
     comms/comm_engine_res/kernel_launch/test_kernel_launch_aicpu.cc
+    # ep_mem_table_launch 下发/回收模块直调 UT（检视整改：此前全仓仅打桩、0 覆盖）
+    comms/comm_engine_res/launch/ut_ep_mem_table_launch_test.cc
     comms/endpoint_pairs/socket/ut_socket_process.cc
     comms/endpoint_pairs/ut_endpoint_pair.cc
     comms/api_c_adpt/ut_hcomm_c_adpt.cc
@@ -67,6 +69,7 @@ set(src_to_test_list
     comms/endpoint_pairs/channels/ut_channel_process_test.cc
     comms/endpoint_pairs/channels/ut_channel_roce_factory.cc
     coll_comms/communicator/aicpu/ut_aicpu_indop_process_test.cc
+    host/ut_host_roce_local_mem_refresh.cc
     host/ut_cpu_roce_endpoint.cc
     host/ut_host_cpu_roce_channel.cc
     host/ut_step_transfer.cc
@@ -101,6 +104,7 @@ set(src_to_test_list
     comms/endpoint_pairs/channels/aicpu/ut_aicpu_ts_ub_rtp_channel.cc
     comms/endpoint_pairs/channels/aicpu/ut_aicpu_ts_roce_dev_loc_channel.cc
     comms/endpoint_pairs/channels/aicpu/device/ut_aicpu_channel_process.cc
+    comms/endpoint_pairs/channels/aicpu/device/ut_dev_ep_mem_table_test.cc
     comms/endpoints/ut_urma_endpoint.cc
     comms/endpoints/ut_aicpu_ts_roce_endpoint.cc
     comms/endpoint_pairs/channels/ccu/ut_ccu_urma_channel.cc

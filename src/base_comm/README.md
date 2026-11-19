@@ -159,6 +159,12 @@ base_comm 内不得再新增 Meyers 单例 / 函数级 static 对象 / 文件级
   AICPU/AICPU_TS 通道创建路径（`CreateChannelsLoop`）同样注册该回调；退出期 `ChannelDestroy`
   跳过 kernel 下发，host 侧通道照常摘表、释放。
   不经通信域直调线程或通道接口的场景无域析构链；先直调线程或通道接口、后建域的混用序不在覆盖范围。
+  不经通信域直调线程接口的场景无域析构链；先直调线程接口、后建域的混用序不在覆盖范围。
+  同一机制的第二个注册点为 UB 家族 device 表创建路径（`UbDeviceEndpointBase::InitDevEpMemTable`，
+  与退出期 `ReleaseDevEpMemTable`/`OnLocalMemUnregistered` 守卫对称）——覆盖不销毁通信域直接
+  退出进程时 `~CollCommMgr → ~EndpointMgr → ~TaggedMemMap` 兜底注销链与 endpoint 销毁链上的
+  表 kernel 下发：退出期跳过 REMOVE/destroy kernel（host 账本照常清理），device 表残留条目
+  由进程退出回收。
 
 #### R2 构造期禁止经窄访问器重入（死锁红线）
 

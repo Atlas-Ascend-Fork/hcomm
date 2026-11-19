@@ -626,7 +626,8 @@ classDiagram
 | `ExtPostSend` | private | [in] `qp`, `wr`, `mappedReduceOp`, `mappedReduceType`; [out] `badWr`, `driverRet` | `HcclResult` | Lazily loads `ibv_ext_post_send` and posts with `ibv_post_send_ext_attr`; returns `HCCL_E_NOT_SUPPORT` when the symbol is unavailable and passes the raw driver return value through `driverRet`; kept as a member function for UT stubbing |
 | `BuildRdmaWr` | private | [in] `caller`, `opcode`, `localAddr`, `remoteAddr`, `len`, `localIdx`, `rmtIdx`, `sendFlags`, `immData`, [out] `wr`, [out] `sg` | None | Fills one `ibv_send_wr` and `ibv_sge` |
 | `WaitForWqeCompletion`/`WaitForSingleQpWqeCompletion` | private | See implementation | `HcclResult` | Polls the `sendCq` of each QP according to `wqeNums_` |
-| `FindLocalBuffer`/`FindRemoteBuffer` | private | [in] `addr`, `len`, [out] `targetIdx` | `HcclResult` | Locates the whole address range within registered/remote buffers |
+| `FindLocalBuffer` | private | [in] `addr`, `len`, [out] `buffer` (`std::shared_ptr<Hccl::LocalRdmaRmaBuffer>`) | `HcclResult` | Queries the endpoint's local registration ledger via `local_.epPtr->FindLocalBuffer` for a registered buffer fully covering `[addr, addr+len)`; returns `HCCL_E_NOT_FOUND` if the memory is unregistered/deregistered, and memory registered after link establishment is immediately visible to established channels |
+| `FindRemoteBuffer` | private | [in] `addr`, `len`, [out] `targetIdx` | `HcclResult` | Locates the whole address range within `rmtRmaBuffers_`; returns `HCCL_E_NOT_FOUND` on miss |
 | `IbvPostRecv` | private | None | `HcclResult` | Posts one 128B `ibv_post_recv` for each QP |
 
 ### HostRdmaConnection

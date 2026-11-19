@@ -40,6 +40,9 @@ public:
     HcclResult GetAllMemHandles(void** memHandles, uint32_t* memHandleNum) override;
     // 按 handle 反查注册记录的共享指针，供 endpoint 实例级归属记账
     HcclResult FindHandleRecord(void* memHandle, std::shared_ptr<Hccl::LocalUbRmaBuffer>* out) const;
+    // 基类虚接口 override：锁内反查句柄记录并提取四元组（shared_ptr 保活），未注册返回 false
+    bool GetMemRange(
+        void* memHandle, uint64_t& addr, uint64_t& size, uint32_t& tokenId, uint32_t& tokenValue) const override;
     HcclResult GetMemDesc(const EndpointDesc endpointDesc, Hccl::LocalUbRmaBuffer* localUbRmaBuffer) const;
 
     RdmaHandle GetRdmaHandle() const { return rdmaHandle_; }

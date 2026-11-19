@@ -27,6 +27,10 @@
 #include "aicpu/aicpu_ts_uboe_channel.h"
 #include "binary_stream.h"
 #include "rma_buf_entry_lite.h"
+#include "adapter_rts_common.h" // hrtMemSyncCopy/HcclRtMemcpyKind：Build staging 桩所需声明
+#include "aicpu/aicpu_ts_channel_entity_resources.h"
+#include "aicpu_res_package_helper.h"
+#include "endpoint_pair/channel/ub_unique_id_pub.h" // UB_UNIQUE_ID_EXT_*：V2 扩展区契约（零依赖薄头）
 using namespace hcomm;
 
 class AicpuTsUboeChannelTest : public testing::Test {
@@ -174,6 +178,20 @@ public:
 class FakeUbLocalNotify : public Hccl::UbLocalNotify {
 public:
     FakeUbLocalNotify(void* rdma, bool dev) : UbLocalNotify(rdma, dev) {}
+};
+// round-trip 用例 conn 段生产端补值替身：DevUbConnection::GetUniqueId 在本 target 被 llt 桩
+// 恒置空（llt_next_orion_stub.cc）。GetUniqueId 为虚函数（PMF 为 vtable 编码，MOCKER_CPP 按
+// 地址打桩会写野地址→段错误），故用测试子类 override 经虚派发拦截（connVec 为 RmaConnection*，
+// 先例同文件 FakeSocket）；105B 全零段对齐消费端 FillJfsContext 读取序，dieId=0 过 ≤255 校验
+class FakeDevUbUboeConnection : public Hccl::DevUbUboeConnection {
+public:
+    FakeDevUbUboeConnection(
+        const RdmaHandle rdmaHandle, const IpAddress& locAddr, const IpAddress& rmtAddr, const OpMode opMode,
+        const bool devUsed, const HrtUbJfcMode jfcMode, const IpAddress& locIpv4Addr, const IpAddress& rmtIpv4Addr)
+        : DevUbUboeConnection(rdmaHandle, locAddr, rmtAddr, opMode, devUsed, jfcMode, locIpv4Addr, rmtIpv4Addr)
+    {}
+
+    std::vector<char> GetUniqueId() const override { return std::vector<char>(105U, 0); }
 };
 } // namespace Hccl
 
@@ -468,6 +486,151 @@ TEST_F(AicpuTsUboeChannelTest, Ut_H2DResPack_Packs_Data)
     std::vector<char> out{};
     HcclResult ret = ch.H2DResPack(out);
     EXPECT_EQ(ret, HCCL_SUCCESS);
+
+    delete fakeSock;
+}
+
+// 检视整改：uniqueIdV2 生产→消费 round-trip。生产端为真实 AicpuTsUboeUbRtpChannelHelper::
+// GetUniqueIdV2（V2 扩展区与 6 段布局的唯一生产函数），消费端为真实 AicpuChannelEntityResources::
+// Build（host 预解析）。本 target（hccl_utest_test_next_resource）链接 hccl_llt，泛化打包器
+// AicpuResPackageHelper::GetPackedData/ParsePackedData 与 conn 段 leaf 序列化
+// DevUbConnection::GetUniqueId 被 llt 桩恒置空（llt_next_orion_stub.cc）：打包器/staging 按
+// 既定桩法补值（ut_aicpu_channel_process.cc 同款），conn 段经测试子类虚派发补值；V2 布局契约
+// （字段顺序/宽度/段边界）漂移在 ① 段尺寸断言与 ② Build 全量解析中暴露，而非联调建链期暴露
+TEST_F(AicpuTsUboeChannelTest, Ut_H2DResPack_RoundTrip_EntityResourcesBuildParsesV2)
+{
+    FakeEndpoint fe;
+    EndpointHandle ep = reinterpret_cast<EndpointHandle>(&fe);
+    auto fakeSock = new FakeSocket();
+    HcommChannelDesc desc = MakeFakeChannelDesc(fakeSock);
+
+    AicpuTsUboeChannel ch(ep, desc, COMM_ENGINE_RESERVED);
+    ch.channelStatus_ = ChannelStatus::READY;
+    ch.local_.notifyNum = 1;
+    ch.bufferNum_ = 2;
+    ch.connNum_ = 1;
+    constexpr u64 fakeTablePtr = 0x5A5A0000ULL;
+    ch.devEpMemTablePtr_ = fakeTablePtr; // 非零表指针注入：验证扩展区表指针字段端到端保真
+
+    auto notifyUptr = std::make_unique<Hccl::FakeUbLocalNotify>(fe.GetRdmaHandle(), true);
+    Hccl::UbLocalNotify* rawNotify = notifyUptr.get();
+    ch.local_.notifies.push_back(std::move(notifyUptr));
+    ch.local_.commonRes.notifyVec.push_back(rawNotify);
+
+    auto rmtUbRmaBufPtr = std::make_unique<Hccl::RemoteUbRmaBuffer>(fe.GetRdmaHandle());
+    ch.rmtNotifyVec_.push_back(std::move(rmtUbRmaBufPtr));
+
+    auto buffer = std::make_shared<Hccl::Buffer>(0x100, 0x100);
+    auto locUbRmaBufPtr = std::make_unique<Hccl::FakeLocalUbRmaBuffer>(buffer, fe.GetRdmaHandle());
+    ch.local_.commonRes.bufferVec.push_back(locUbRmaBufPtr.get());
+    ch.local_.commonRes.bufferVec.push_back(nullptr); // 空槽：生产端写 (0,0,0,0) 占位条目
+
+    auto rmtBufPtr = std::make_unique<Hccl::RemoteUbRmaBuffer>(fe.GetRdmaHandle());
+    ch.rmtBufferVec_.push_back(std::move(rmtBufPtr));
+
+    ch.rmtDrainBuffer_ = std::make_unique<Hccl::RemoteUbRmaBuffer>(fe.GetRdmaHandle());
+
+    Hccl::IpAddress ipAddress = fe.GetIpAddress();
+    Hccl::FakeDevUbUboeConnection uboeConn(
+        fe.GetRdmaHandle(), ipAddress, ipAddress, Hccl::OpMode::OPBASE, true, Hccl::HrtUbJfcMode::STARS_POLL, ipAddress,
+        ipAddress);
+    ch.local_.commonRes.connVec.push_back(&uboeConn);
+
+    // conn 段生产端补值经上方 FakeDevUbUboeConnection 虚派发生效（虚函数不可经 MOCKER_CPP 按地址
+    // 打桩）；connBytes 为 ① 段断言的期望内容，与该 override 输出一致
+    const std::vector<char> connBytes(105U, 0);
+
+    std::vector<char> out{};
+    ASSERT_EQ(ch.H2DResPack(out), HCCL_SUCCESS); // 生产端主入口真实执行（打包层 llt 桩置空，out 恒空）
+
+    // V2 字节取自 H2DResPack 内部同一真实生产函数（同通道状态、确定性输出）
+    std::vector<char> uniqueId;
+    ASSERT_EQ(ch.GetUniqueIdV2(uniqueId), HCCL_SUCCESS);
+
+    // ① V2 头部与 6 段边界保真：真实 BinaryStream 对称读写（生产端经同一原语序列化）
+    Hccl::BinaryStream v2Stream(uniqueId);
+    u32 transportType = 0;
+    u32 notifyNum = 0;
+    u32 bufferNum = 0;
+    u32 rmtBufferNum = 0;
+    u32 connNum = 0;
+    u32 extMagic = 0;
+    u32 extVersion = 0;
+    u64 tablePtr = 0;
+    v2Stream >> transportType;
+    v2Stream >> notifyNum;
+    v2Stream >> bufferNum;
+    v2Stream >> rmtBufferNum;
+    v2Stream >> connNum;
+    v2Stream >> extMagic;
+    v2Stream >> extVersion;
+    v2Stream >> tablePtr;
+    EXPECT_EQ(transportType, ch.type_); // V2 头部首字段（TransportType）与生产端源值一致
+    EXPECT_EQ(extMagic, UB_UNIQUE_ID_EXT_MAGIC_WORD);
+    EXPECT_EQ(extVersion, UB_UNIQUE_ID_EXT_VERSION);
+    EXPECT_EQ(tablePtr, fakeTablePtr);
+    EXPECT_EQ(notifyNum, 1U);
+    EXPECT_EQ(bufferNum, 2U);
+    EXPECT_EQ(rmtBufferNum, 1U);
+    EXPECT_EQ(connNum, 1U);
+    std::vector<char> localNotifyData;
+    std::vector<char> remoteNotifyData;
+    std::vector<char> localBufferData;
+    std::vector<char> remoteBufferData;
+    std::vector<char> drainData;
+    std::vector<char> connData;
+    v2Stream >> localNotifyData;
+    v2Stream >> remoteNotifyData;
+    v2Stream >> localBufferData;
+    v2Stream >> remoteBufferData;
+    v2Stream >> drainData;
+    v2Stream >> connData;
+    // 段尺寸锚点：段错位/漏写直接翻红（每条 notify 8B、locBuffer 24B、rmt 资源 28B、drain 恒 2 条）
+    EXPECT_EQ(localNotifyData.size(), 1U * 8U);
+    EXPECT_EQ(remoteNotifyData.size(), 1U * 28U);
+    EXPECT_EQ(localBufferData.size(), 2U * 24U);
+    EXPECT_EQ(remoteBufferData.size(), 1U * 28U);
+    EXPECT_EQ(drainData.size(), 2U * 28U);
+    EXPECT_EQ(connData, connBytes); // conn 段内容与源一致
+
+    // ② 喂给真实 host 消费端。模块级输出等价复刻 helper 内层两行打包（BinaryStream{uniqueIdV2}，
+    // 见 aicpu_ts_uboe_ub_rtp_channel_helper.cc H2DResPack），经 ParsePackedData 桩注入——泛化
+    // 打包层在本 target 被 llt 桩置空（先例 ut_aicpu_channel_process.cc:333）
+    Hccl::BinaryStream packStream;
+    packStream << uniqueId;
+    Hccl::ModuleData module{};
+    packStream.Dump(module.data);
+    std::vector<Hccl::ModuleData> modules(Hccl::AicpuResMgrType::STREAM + 1U);
+    modules[Hccl::AicpuResMgrType::STREAM] = module;
+    MOCKER_CPP(&Hccl::AicpuResPackageHelper::ParsePackedData).stubs().with(mockcpp::any()).will(returnValue(modules));
+    // staging 桩：本 target 默认 DeviceMem::alloc/hrtMemSyncCopy 路径不通（先例 EmptySlot 用例）
+    using DeviceMemAllocRetByValue = hccl::DeviceMem (*)(u64, bool);
+    mockcpp::mockAPI<DeviceMemAllocRetByValue>::get(
+        "hccl::DeviceMem::alloc", "UboeRoundTrip_DeviceMem_alloc_by_value",
+        static_cast<DeviceMemAllocRetByValue>(&hccl::DeviceMem::alloc))
+        .stubs()
+        .will(invoke(+[](u64 size, bool) {
+            void* ptr = std::malloc(static_cast<size_t>(size));
+            return hccl::DeviceMem(ptr, size, false);
+        }));
+    MOCKER(hrtMemSyncCopy)
+        .stubs()
+        .will(invoke(+[](void* dst, uint64_t, const void* src, uint64_t count, HcclRtMemcpyKind) {
+            (void)std::memcpy(dst, src, count);
+            return HCCL_SUCCESS;
+        }));
+
+    AicpuChannelEntityResources resources;
+    ChannelHandle entityHandle = 0;
+    EXPECT_EQ(
+        resources.Build(out, COMM_ENGINE_RESERVED, COMM_PROTOCOL_UBOE, static_cast<ChannelHandle>(0x1), entityHandle),
+        HCCL_SUCCESS);
+    // 计数与源一致（Build 槽位规则：drain 固定占 localNotify/remoteBuffer 0 号槽 → 各 +1）
+    EXPECT_EQ(resources.entity_.localNotifyNum, 1U + 1U);
+    EXPECT_EQ(resources.entity_.remoteNotifyNum, 1U);
+    EXPECT_EQ(resources.entity_.localBufferNum, 2U);
+    EXPECT_EQ(resources.entity_.remoteBufferNum, 1U + 1U);
+    EXPECT_EQ(resources.entity_.sqNum, 1U);
 
     delete fakeSock;
 }

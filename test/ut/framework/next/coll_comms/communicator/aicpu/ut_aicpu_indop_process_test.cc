@@ -22,6 +22,7 @@
 // aicpu_channel_process.h 需在放开区间内展开：MemUpdate 在册校验需向 transportMap_ 登记栈 transport
 #include "aicpu/device/aicpu_channel_process.h"
 #include "ub_transport_lite_impl.h"
+#include "endpoint_pair/channel/ub_unique_id_pub.h" // UB_UNIQUE_ID_EXT_*：V2 扩展区契约（零依赖薄头）
 #undef private
 #undef protected
 
@@ -189,7 +190,7 @@ TEST_F(TestCollCommAicpuMgr, Ut_CollCommAicpu_Clean_When_CtxAbiSizeInvalid_Skip_
 // ==================== RunAicpuChannelMemUpdate：地址条目批量录入 ====================
 
 namespace {
-// 0 conn 的最小 device transport，构造期不触碰任何连接
+// 0 conn 的最小 device transport，构造期不触碰任何连接（V2 布局：扩展区头 + 表指针 0=无表）
 std::vector<char> BuildLiteTransportData()
 {
     Hccl::BinaryStream binaryStream;
@@ -200,6 +201,9 @@ std::vector<char> BuildLiteTransportData()
     binaryStream << zero; // bufferNum
     binaryStream << zero; // rmtbufferNum
     binaryStream << zero; // connNum
+    binaryStream << UB_UNIQUE_ID_EXT_MAGIC_WORD;
+    binaryStream << UB_UNIQUE_ID_EXT_VERSION;
+    binaryStream << static_cast<u64>(0); // devEpMemTablePtr，0=无表
     std::vector<char> emptyVector;
     binaryStream << emptyVector; // notifyUniqueIds
     binaryStream << emptyVector; // rmtNotifyUniqueIds

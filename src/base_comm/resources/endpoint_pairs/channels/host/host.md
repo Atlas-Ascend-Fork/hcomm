@@ -626,7 +626,8 @@ classDiagram
 | `ExtPostSend` | 私有 | [in] `qp`、`wr`、`mappedReduceOp`、`mappedReduceType`；[out] `badWr`、`driverRet` | `HcclResult` | 懒加载 `ibv_ext_post_send` 并携带 `ibv_post_send_ext_attr` 下发；符号不可用返回 `HCCL_E_NOT_SUPPORT`，驱动原始返回值经 `driverRet` 透传；抽为成员函数便于 UT 打桩 |
 | `BuildRdmaWr` | 私有 | [in] `caller`、`opcode`、`localAddr`、`remoteAddr`、`len`、`localIdx`、`rmtIdx`、`sendFlags`、`immData`、[out] `wr`、[out] `sg` | 无 | 填充单个`ibv_send_wr`与`ibv_sge` |
 | `WaitForWqeCompletion`/`WaitForSingleQpWqeCompletion` | 私有 | 见实现 | `HcclResult` | 按`wqeNums_`轮询每个QP的`sendCq` |
-| `FindLocalBuffer`/`FindRemoteBuffer` | 私有 | [in] `addr`、`len`、[out] `targetIdx` | `HcclResult` | 在已注册/远端buffer中定位整段地址范围 |
+| `FindLocalBuffer` | 私有 | [in] `addr`、`len`、[out] `buffer`（`std::shared_ptr<Hccl::LocalRdmaRmaBuffer>`） | `HcclResult` | 经`local_.epPtr->FindLocalBuffer`查询endpoint本地注册账本，定位整段覆盖`[addr, addr+len)`的注册内存；未注册/已注销返回`HCCL_E_NOT_FOUND`，建链后新注册内存对已建channel立即可见 |
+| `FindRemoteBuffer` | 私有 | [in] `addr`、`len`、[out] `targetIdx` | `HcclResult` | 在`rmtRmaBuffers_`中定位整段地址范围，未命中返回`HCCL_E_NOT_FOUND` |
 | `IbvPostRecv` | 私有 | 无 | `HcclResult` | 为每个QP补充一个128B的`ibv_post_recv` |
 
 ### HostRdmaConnection

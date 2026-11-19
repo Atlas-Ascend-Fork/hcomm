@@ -21,14 +21,18 @@ namespace Hccl {
 
 class UbMemTransport : public BaseMemTransport {
 public:
+    // devEpMemTablePtr：endpoint 的 DevEpMemTable* device 地址（0=无表，值语义），构造注入、
+    // GetUniqueIdV2 建链序列化时经扩展区头（UB_UNIQUE_ID_EXT_MAGIC_WORD/VERSION）自描述下发；
+    // host/legacy 无表路径默认 0
     UbMemTransport(
         CommonLocRes& commonLocRes, Attribution& attr, const LinkData& linkData, const Socket& socket,
-        RdmaHandle rdmaHandle1, LocCntNotifyRes& locCntNotifyRes1, bool isRecvFirst);
+        RdmaHandle rdmaHandle1, LocCntNotifyRes& locCntNotifyRes1, bool isRecvFirst, uint64_t devEpMemTablePtr = 0);
 
     UbMemTransport(
         CommonLocRes& commonLocRes, Attribution& attr, const LinkData& linkData, const Socket& socket,
         RdmaHandle rdmaHandle1, LocCntNotifyRes& locCntNotifyRes1,
-        std::function<void(u32 streamId, u32 taskId, const TaskParam& taskParam)> callback);
+        std::function<void(u32 streamId, u32 taskId, const TaskParam& taskParam)> callback,
+        uint64_t devEpMemTablePtr = 0);
 
     std::string Describe() const override;
     HcclResult Describe(std::string& dfxMsg);
@@ -38,6 +42,8 @@ public:
 
     std::vector<char> GetUniqueId() override;
 
+    // 建链序列化在 connNum 之后写扩展区头（魔数+版本）与 DevEpMemTable* device 地址（0=无表），
+    // 契约见 channel_param_pub.h UB_UNIQUE_ID_EXT_*；device Init 校验魔数/版本后解析表指针
     HcclResult GetUniqueIdV2(std::vector<char>& result);
     std::vector<char> PackConnData();
 
@@ -65,6 +71,8 @@ public:
 
 private:
     RdmaHandle rdmaHandle;
+
+    u64 devEpMemTablePtr_{0}; // endpoint 活账本表（DevEpMemTable）device 地址，构造注入；0=无表（值语义）
 
     LocCntNotifyRes locCntNotifyRes;
 
