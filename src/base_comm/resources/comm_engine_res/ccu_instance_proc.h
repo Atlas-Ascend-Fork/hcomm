@@ -16,7 +16,6 @@
 #include "resources/ccu/ccu_kernel/ccu_kernel_mgr.h"
 #include "resources/ccu/ccu_instance/ccu_instance_mgr.h"
 #include "resources/ccu/ccu_instance/ccu_var_event_res_mgr.h"
-#include "common/tp_mgr.h"
 
 namespace hcomm {
 
@@ -39,7 +38,6 @@ public:
     CcuKernelMgr& GetCcuKernelMgr() { return ccuKernelMgr_; }
     CcuInstanceMgr& GetCcuInstanceMgr() { return ccuInstanceMgr_; }
     CcuVarEventResMgr& GetCcuVarEventResMgr() { return ccuVarEventResMgr_; }
-    TpMgr& GetTpMgr() { return tpMgr_; }
 
     static CcuKernelMgr& GetReserveCcuKernelMgr() { return reserveCcuKernelMgr_; }
     static CcuInstanceMgr& GetReserveCcuInstanceMgr() { return reserveCcuInstanceMgr_; }
@@ -47,7 +45,6 @@ public:
 
 private:
     CcuVarEventResMgr ccuVarEventResMgr_;
-    TpMgr tpMgr_;
     CcuKernelMgr ccuKernelMgr_;
     CcuInstanceMgr ccuInstanceMgr_;
 

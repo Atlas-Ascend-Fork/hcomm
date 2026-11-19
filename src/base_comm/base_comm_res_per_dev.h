@@ -24,6 +24,7 @@
 #include "resources/endpoints/net_dev/net_dev_proc.h"
 #include "resources/endpoints/mgr/server_socket_mgr_proc.h"
 #include "resources/endpoints/mgr/endpoint_ctx_mgr.h"
+#include "common/tp_mgr.h"
 
 namespace hcomm {
 
@@ -55,6 +56,7 @@ public:
     ServerSocketMgrProc& GetServerSocketMgrProc() { return serverSocketMgrProc_; }
     SocketProcess& GetSocketProcess() { return socketProcess_; }
     NetDevProc& GetNetDevProc() { return netDevProc_; }
+    TpMgr& GetTpMgr() { return tpMgr_; }
 
 public:
     // skipAnchor=true 仅用于 DeInit 后拒建的兜底实例
@@ -69,6 +71,7 @@ private:
     NetDevProc netDevProc_;
     ServerSocketMgrProc serverSocketMgrProc_;
     SocketProcess socketProcess_; // 析构经 GetSocketMgr 还 socket，须先于 serverSocketMgrProc_ 死
+    TpMgr tpMgr_;
     CommEngineMgrProc commEngineMgrProc_;
     EndpointCtxMgr endpointCtxMgr_;
     uint32_t devPhyId_{0};

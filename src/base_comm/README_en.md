@@ -116,6 +116,8 @@ pre-existing function-static factories are listed in R1 exceptions, anchored per
 │           ├── NetDevProc          per-device netdev instance
 │           ├── ServerSocketMgrProc SocketMgr
 │           ├── SocketProcess       socket cleanup (destructor returns sockets via GetSocketMgr)
+│           ├── TpMgr               TP common resource (shared by CTP/RTP/UBOE; the CCU subtree is
+│           │                       only a user, R11)
 │           ├── CommEngineMgrProc   engine family: ThreadMgr / MemMgr / HdcProc / CcuInstanceProc
 │           └── EndpointCtxMgr      EndpointCtx dedup cache
 ├── HandleRegistryMgrProc  Channel / Thread handle registries (residual channel destruction touches
@@ -231,7 +233,7 @@ Process-level contract (dies first → dies last):
 `EndpointMgr → HandleRegistryMgrProc → device subtrees → CommEngineBinMgrProc → NotifyMgrProc → EndpointProcMgr → Dfx/Dlsym/Config → Legacy950ResMgrProc → locks and flags`
 
 Device subtree contract (dies first → dies last):
-`EndpointCtxMgr → CommEngineMgrProc (stop Thread → Mem → HDC → CCU) → SocketProcess → ServerSocketMgrProc → NetDevProc`
+`EndpointCtxMgr → CommEngineMgrProc (stop Thread → Mem → HDC → CCU) → TpMgr → SocketProcess → ServerSocketMgrProc → NetDevProc`
 
 EndpointMgr internal contract (dies first → dies last):
 `EndpointHandleMgr → ProcRegedMemMgrCache` — endpoints are exclusively owned by the handle
@@ -251,6 +253,10 @@ Registered (declaration-order changes, closing a review HIGH):
 - `engineThreadMapMtx_` in `ThreadHandleRegistryProc` moved before the two maps — defensive: when map
   destruction releases `shared_ptr<Thread>` and a `~Thread` were to lock via the accessor, the mutex must
   not die first (current derived destructors only run DeInitImpl and do not call back).
+- `tpMgr_` newly added to `BaseCommResPerDev` and declared before `commEngineMgrProc_` — `TpMgr` moved up
+  from the CCU engine subtree (formerly `CcuInstanceProc::tpMgr_`) as a device-level common resource (R11):
+  `CcuConnection` (caches the `tpMgr_` pointer at Init) and `CcuComponent::ReleaseAllTpInfos` return TP
+  during destruction, so TpMgr must outlive the whole CCU subtree;
 - `reserve_` stays declared before `active_`/`published_`/`retired_` (a review suggestion to move it
   later was rejected — do not re-raise): the retired-area destruction fallback must reach a live
   reserve_; reserve_ is never Init'd and its subtree uses default destructors, so its destruction never
@@ -450,3 +456,20 @@ apply — the cached target dies with the tree first, so the cached pointer dang
 too. Tree-touching points on their destructor chains must instead be guarded by
 `hcomm::IsResourceTreeTeardownFinished()`: once the flag is set, skip the release
 and only clear local tables (first instance: CcuComponent::ReleaseAllTpInfos).
+
+#### R11 Common resources belong to common nodes; engine subtrees are only users
+
+- Ownership follows "who is shared": device-level resources shared by multiple
+  engines/protocols belong to the device subtree common node `BaseCommResPerDev`, and
+  must not be placed under a specific engine subtree (CCU/AICPU/DPU).
+- Engine subtrees (`CommEngineMgrProc` and its `CcuInstanceProc` / `HdcProc` /
+  `ThreadMgrProc`, etc.) keep engine-private resources only; for common resources they
+  have a usage relationship only — take a reference via a narrow accessor or cache the
+  pointer at Init. "Who uses it first" never decides ownership.
+- First instance: `TpMgr` moved up from `CcuInstanceProc` to `BaseCommResPerDev`. TP is
+  shared by CTP/RTP/UBOE (`GetTpInfo` / `GetTpAttr`); the CCU loopback path is just one
+  kind of user, and keeping it under the CCU subtree would force non-CCU users to depend
+  on the CCU node.
+- The migration keeps the narrow accessor signature and semantics unchanged
+  (`GetTpMgr(devPhyId)`, including the R9 out-of-range fallback), so call sites need no
+  change; the ownership change is registered in R3 and recorded in this section.

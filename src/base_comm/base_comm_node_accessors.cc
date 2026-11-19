@@ -170,11 +170,7 @@ TpMgr& GetTpMgr(uint32_t devPhyId)
         devPhyId = MAX_MODULE_DEVICE_NUM; // 使用备份设备
     }
 
-    auto& tpMgr = BaseCommMgr::GetInstance()
-                      .GetBaseCommResPerDev(devPhyId)
-                      .GetCommEngineMgrProc()
-                      .GetCcuInstanceProc()
-                      .GetTpMgr();
+    auto& tpMgr = BaseCommMgr::GetInstance().GetBaseCommResPerDev(devPhyId).GetTpMgr();
     tpMgr.SetDevPhyId(devPhyId);
 
     return tpMgr;

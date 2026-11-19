@@ -98,6 +98,7 @@ BaseCommMgr（进程级树根，base_comm 唯一新增单例；存量函数级 s
 │           ├── NetDevProc          网卡设备级实例
 │           ├── ServerSocketMgrProc SocketMgr
 │           ├── SocketProcess       Socket 清理（析构经 GetSocketMgr 还 socket）
+│           ├── TpMgr               TP 公共资源（CTP/RTP/UBOE 共用；CCU 子树只是使用方，R11）
 │           ├── CommEngineMgrProc   引擎族：ThreadMgr / MemMgr / HdcProc / CcuInstanceProc
 │           └── EndpointCtxMgr      EndpointCtx 去重缓存
 ├── HandleRegistryMgrProc  Channel / Thread 句柄注册表（残留 channel 析构触设备子树，先死）
@@ -183,7 +184,7 @@ C++ 成员按声明逆序析构。每个树节点内的成员声明顺序就是�
 `EndpointMgr → HandleRegistryMgrProc → 设备子树 → CommEngineBinMgrProc → NotifyMgrProc → EndpointProcMgr → Dfx/Dlsym/Config → Legacy950ResMgrProc → 锁与标志`
 
 设备子树契约（先死 → 后死）：
-`EndpointCtxMgr → CommEngineMgrProc（停 Thread → Mem → HDC → CCU）→ SocketProcess → ServerSocketMgrProc → NetDevProc`
+`EndpointCtxMgr → CommEngineMgrProc（停 Thread → Mem → HDC → CCU）→ TpMgr → SocketProcess → ServerSocketMgrProc → NetDevProc`
 
 EndpointMgr 内部契约（先死 → 后死）：
 `EndpointHandleMgr → ProcRegedMemMgrCache`——endpoint 由句柄表独占持有，其析构经非 owning 别名
@@ -199,6 +200,9 @@ cacheAlias_ 解引用 cache（R7 别名规则）；EndpointMgr 其余成员间�
   加锁）锁须最晚死；原顺序锁先于表死，表析构期加锁命中已析构的 std::mutex（UB）。
 - `ThreadHandleRegistryProc` 内 `engineThreadMapMtx_` 前移至两表之前——防御性：map 析构期释放
   `shared_ptr<Thread>` 时若 `~Thread` 回调访问器加锁，锁不得先死（当前派生类析构只做 DeInitImpl 不回调）。
+- `BaseCommResPerDev` 内新增 `tpMgr_` 并声明在 `commEngineMgrProc_` 之前——`TpMgr` 由 CCU 引擎子树
+  （原 `CcuInstanceProc::tpMgr_`）上移为设备级公共资源（R11）：`CcuConnection`（Init 期缓存 `tpMgr_`
+  指针）与 `CcuComponent::ReleaseAllTpInfos` 析构归还 TP 时 TpMgr 必须存活，故须晚于整个 CCU 子树死；
 - `reserve_` 维持声明在 `active_`/`published_`/`retired_` 之前（评审建议后移，已驳回，勿再提）：
   退役区析构期回落须拿到存活 reserve_；reserve_ 从不 Init、子树默认析构，其析构链不重入
   FindOrCreate，评审假设的重入路径不存在；后移反而使 retired_ 析构期回落命中已析构对象（真 UAF）。
@@ -333,3 +337,16 @@ BaseCommResPerDev 值成员）。
 锚定单例（晚于树死）的析构链触树点，处置 2 的缓存模式不适用（缓存目标随树先死、
 缓存指针同样悬垂）：必须经 `hcomm::IsResourceTreeTeardownFinished()` 判活守卫，
 标志置位后跳过归还、仅清本地账（首个实例：CcuComponent::ReleaseAllTpInfos）。
+
+#### R11 公共资源归公共节点，引擎子树只是使用方
+
+- 归属按"谁被共用"判定：多种引擎/协议共用的设备级资源挂在设备子树公共节点
+  `BaseCommResPerDev`，不得挂进某个具体引擎子树（CCU/AICPU/DPU）下。
+- 引擎子树（`CommEngineMgrProc` 及其 `CcuInstanceProc` / `HdcProc` / `ThreadMgrProc` 等）
+  只保留引擎私有资源；对公共资源只有使用关系——经窄访问器取引用、或在 Init 期缓存指针，
+  不得以"谁先使用"决定所有权。
+- 首个实例：`TpMgr` 由 `CcuInstanceProc` 上移至 `BaseCommResPerDev`。TP 由 CTP/RTP/UBOE
+  三种协议共用（`GetTpInfo` / `GetTpAttr`），CCU 环回只是其中一类使用方；挂在 CCU 子树下
+  会让非 CCU 使用方被迫依赖 CCU 节点。
+- 迁移保持窄访问器签名与语义不变（`GetTpMgr(devPhyId)`，含 R9 越界回落口径），
+  调用点无需改动；归属变化在 R3 声明序登记与本节记录。

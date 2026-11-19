@@ -132,7 +132,7 @@ public:
     ~TpMgr() = default;
     // 访问器回写钩子：本类唯一外部写入口
     void SetDevPhyId(uint32_t devPhyId) { devPhyId_ = devPhyId; }
-    // 资源树 CcuInstanceProc 值成员（每卡一份）；调用点走窄访问器 hcomm::GetTpMgr（base_comm_node_accessors.h）
+    // 资源树 BaseCommResPerDev 值成员（每卡一份，设备级公共资源）
     HcclResult GetTpInfo(const GetTpInfoParam& param, TpInfo& tpInfo);
     HcclResult GetTpAttr(const GetTpAttrParam& param, TpAttrInfo& tpAttrInfo, CtxHandle ctxHandle);
     // unimport jetty 会 URMA 销毁 tp 资源，hccl 配套删除记录

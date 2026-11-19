@@ -385,3 +385,10 @@ TEST_F(ResTreeAccessorsTest, Ut_When_SameKeyAndReserveIsolation_Expect_NoCross)
     EXPECT_EQ(&GetTpMgr(phyId), &GetTpMgr(phyId));
     EXPECT_EQ(&GetCcuKernelMgr(logicId), &GetCcuKernelMgr(logicId));
 }
+
+// 用例 41：TpMgr 归属设备子树公共节点 BaseCommResPerDev（不再挂在 CCU 引擎子树上）
+TEST_F(ResTreeAccessorsTest, Ut_When_GetTpMgr_Expect_OwnedByPerDevCommonNode)
+{
+    constexpr uint32_t phyId = 4;
+    EXPECT_EQ(&GetTpMgr(phyId), &BaseCommMgr::GetInstance().GetBaseCommResPerDev(phyId).GetTpMgr());
+}
