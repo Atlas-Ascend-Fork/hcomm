@@ -36,6 +36,17 @@
 
 本样例运行依赖安装CANN ops算子包，详细安装步骤可参见 [源码构建](../../../docs/zh/build/build.md) 中的 “安装CANN软件包” 章节。
 
+若需使用本源码仓编译的HCOMM软件包替换CANN Toolkit中的HCOMM组件（体验master开发能力），必须以全量方式构建并安装，样例方可正常运行（以下命令需在本代码仓根目录执行）：
+
+```bash
+# 编译 host + device 全量包（包含 ccl_kernel.json、aicpu_hcomm.tar.gz 等通信域初始化必需文件）
+bash build.sh --pkg --full
+# 安装
+bash ./build_out/cann-hcomm_<version>_linux-<arch>.run --full
+```
+
+> 注意：仅执行 `bash build.sh --pkg` 编译的host包不包含 `ccl_kernel.json`、`aicpu_hcomm.tar.gz` 等文件。在从未安装过全量包的干净环境下，若只安装host包，样例会在通信域初始化阶段报 `ccl_kernel.json is not a valid real path`（hccl initialize failed）而失败，因为源码版HCOMM的通信域初始化依赖 `ccl_kernel.json` 与其配套的AI CPU通信基础包。
+
 ### 关闭验签
 
 本源码仓编译生成的`cann-hcomm_<version>_linux-<arch>.run`软件包中包含如下tar.gz子包：

@@ -35,6 +35,18 @@ This sample supports the following products with a single-node 8-card cluster to
 
 Running this sample requires the CANN ops operator package to be installed. For detailed installation steps, see the "Install the CANN Software Package" section in [Source Code Build](../../../docs/en/build/build.md).
 
+If the HCOMM package built from this source repository is used to replace the HCOMM components in the CANN Toolkit (to experience master capabilities), it must be built and installed in full mode before the sample can run properly (run the following commands in the root directory of this repository):
+
+```bash
+# Build the host + device full package (including ccl_kernel.json, aicpu_hcomm.tar.gz, and other files
+# required for communicator initialization)
+bash build.sh --pkg --full
+# Install
+bash ./build_out/cann-hcomm_<version>_linux-<arch>.run --full
+```
+
+> NOTE: The host-only package built by `bash build.sh --pkg` does not contain `ccl_kernel.json`, `aicpu_hcomm.tar.gz`, or other files. In a clean environment where the full package has never been installed, installing only the host package causes the sample to fail during communicator initialization with `ccl_kernel.json is not a valid real path` (hccl initialize failed), because the communicator initialization of the source-built HCOMM depends on `ccl_kernel.json` and its accompanying AI CPU communication base package.
+
 ### Installing MPI
 
 This sample depends on MPI to launch processes on each Device. Before running this sample, install MPI. For detailed installation steps, see the "MPI Installation and Configuration" section in the corresponding version of the [HCCL Performance Test Tool User Guide][1].
