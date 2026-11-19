@@ -33,6 +33,9 @@
   - [HcclGetErrorString](HcclGetErrorString.md)
   - [HcommMemAlloc](HcommMemAlloc.md)
   - [HcommMemFree](HcommMemFree.md)
+  - [HcclCommShrink](HcclCommShrink.md)
+  - [HcclCommGrow](HcclCommGrow.md)
+  - [HcclCommGetRootInfo](HcclCommGetRootInfo.md)
 
   - [Zero Copy](zero_copy.md)
     - [Read Before Use](zero_copy_readme.md)

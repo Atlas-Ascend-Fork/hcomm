@@ -13,6 +13,18 @@
 
 #include <stdint.h>
 
+#ifndef HCCL_EXPERIMENTAL
+#if !defined(HCCL_ENABLE_EXPERIMENTAL_WARNING)
+#define HCCL_EXPERIMENTAL
+#elif defined(__GNUC__) || defined(__clang__)
+#define HCCL_EXPERIMENTAL __attribute__((warning("This is experimental and may change without notice.")))
+#elif defined(_MSC_VER)
+#define HCCL_EXPERIMENTAL __declspec(deprecated("This is experimental and may change without notice, not deprecated."))
+#else
+#define HCCL_EXPERIMENTAL
+#endif
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus

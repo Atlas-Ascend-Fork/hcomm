@@ -464,6 +464,8 @@ typedef HcclOpExpansionMode HcclConfigTypeOpExpansionMode;
 extern HcclResult HcclConfigGetInfo(HcclComm comm, HcclConfigType cfgType, uint32_t infoLen, void* info);
 
 /**
+ * Warning: HcclCommShrink is experimental and may change without notice.
+ * 本接口为试验特性，后续版本可能在不另行通知的情况下调整、重命名或移除，不承诺向后兼容。
  * @brief 通信域缩容，剔除指定 rank。
  *
  * @param comm 已有通信域句柄。
@@ -475,11 +477,13 @@ extern HcclResult HcclConfigGetInfo(HcclComm comm, HcclConfigType cfgType, uint3
  *
  * @note 所有存活 rank 必须传入相同的 excludeRanksList 和 config。
  */
-extern HcclResult HcclCommShrink(
+HCCL_EXPERIMENTAL extern HcclResult HcclCommShrink(
     HcclComm comm, const uint32_t* excludeRanksList, const uint32_t excludeRanksCount, const HcclCommConfig* config,
     uint32_t shrinkFlags, HcclComm* newComm);
 
 /**
+ * Warning: HcclCommGrow is experimental and may change without notice.
+ * 本接口为试验特性，后续版本可能在不另行通知的情况下调整、重命名或移除，不承诺向后兼容。
  * @brief 通信域扩容，向已有通信域添加新 rank。
  *
  * @param comm 存活 rank 传已有通信域；新 rank 传 nullptr。
@@ -490,14 +494,17 @@ extern HcclResult HcclCommShrink(
  * @param newComm [out] 扩容后的新通信域句柄。
  * @return HcclResult
  *
- * @note root 被 Shrink 剔除后，comm 入参必须传 nullptr，且 rootInfo 必须非 nullptr。
+ * @note 原通信域 root 被 Shrink 剔除后，存活 rank 仍传入当前通信域句柄，新 rank 传入 nullptr；
+ *       rootInfo 必须非 nullptr，且由存活 rank 调用 HcclCommGetRootInfo 获取后分发给所有参与者。
  *       不论是原本存活的 rank 还是新 rank，所有 rank 必须传入相同的 rootInfo 和 config。
  */
-extern HcclResult HcclCommGrow(
+HCCL_EXPERIMENTAL extern HcclResult HcclCommGrow(
     HcclComm comm, uint32_t nRanks, const HcclRootInfo* rootInfo, uint32_t rank, const HcclCommConfig* config,
     HcclComm* newComm);
 
 /**
+ * Warning: HcclCommGetRootInfo is experimental and may change without notice.
+ * 本接口为试验特性，后续版本可能在不另行通知的情况下调整、重命名或移除，不承诺向后兼容。
  * @brief 从已有通信域获取 root 信息（供 Grow 使用）。
  *
  * @param comm 已有通信域句柄。
@@ -507,7 +514,7 @@ extern HcclResult HcclCommGrow(
  * @note 若当前 root 已失效，该接口会触发 root 重选并创建新的 root server；
  *       此场景应由一个存活 rank 调用，并将返回的 rootInfo 分发给所有 Grow 参与者。
  */
-extern HcclResult HcclCommGetRootInfo(HcclComm comm, HcclRootInfo* rootInfo);
+HCCL_EXPERIMENTAL extern HcclResult HcclCommGetRootInfo(HcclComm comm, HcclRootInfo* rootInfo);
 
 #ifdef __cplusplus
 }

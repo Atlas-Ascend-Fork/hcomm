@@ -27,6 +27,7 @@ flowchart LR
 | **Communication protocols** | UBC, UB_RTP, UBoE, RoCE (v2), HCCS, UB_MEM |
 | **Execution modes** | Single-operator mode + graph mode |
 | **Extension capabilities** | Custom development of communication operators |
+| **Communication domain elasticity** | Supports static scale-in and scale-out based on an existing communication domain, with explicit member changes and communication resource re-creation |
 | **Application scenarios** | Collective communication for large model training (data/model/expert parallelism) and inference (TP/PP/EP) |
 
 HCCL sits between the AI framework and the hardware drivers in the CANN software stack, serving as a bridge between them:
