@@ -759,7 +759,7 @@ bool DevUbConnection::GetTpInfo()
                     "reuse injected localPsn[%u].",
                     __func__, static_cast<unsigned long long>(tpInfo.tpHandle), rmtAddr.Describe().c_str(),
                     jettyImportCfg.localPsn);
-            } else if (tpProtocol == TpProtocol::UB_RTP) {
+            } else if (tpProtocol == TpProtocol::UB_RTP || tpProtocol == TpProtocol::UBOE) {
                 GenerateLocalPsn();
                 const HcclResult psnRet
                     = TpManager::GetInstance(devLogicId).GetOrSetLocalPsn(p, tpInfo, jettyImportCfg.localPsn);
