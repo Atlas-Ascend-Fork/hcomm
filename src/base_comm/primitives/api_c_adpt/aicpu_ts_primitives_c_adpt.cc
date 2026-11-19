@@ -1008,7 +1008,6 @@ int32_t HcommReadNbi(ChannelHandle channel, void* dst, const void* src, uint64_t
 
 int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread, ChannelHandle channel, uint32_t remoteNotifyIdx)
 {
-    CHK_RET(hcomm::UnwrapChannelHandle(channel));
     CHK_RET(UnwrapThreadHandle(thread));
     PLF_CONFIG_INFO(
         PLF_DATA_OP, "[%s] thread[0x%llx], channel[0x%llx], remoteNotifyIdx[%u].", __func__, thread, channel,
@@ -1016,6 +1015,12 @@ int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread, ChannelHandle chan
 
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
+    // host dpu场景cpu thread下 channel 为host侧channel，数据面只传递给sqe，不能在此解引用
+    // 快照解包前句柄，失败日志与入口日志打印同一值
+    const ChannelHandle entryChannel = channel;
+    if (threadPtr->GetThreadType() != THREAD_TYPE_CPU) {
+        CHK_RET(hcomm::UnwrapChannelHandle(channel));
+    }
 
     HcclResult ret = HCCL_SUCCESS;
     if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
@@ -1031,7 +1036,7 @@ int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread, ChannelHandle chan
     CHK_PRT_RET(
         ret != HCCL_SUCCESS,
         HCCL_ERROR(
-            "[%s] FAIL. thread[0x%llx], channel[0x%llx], remoteNotifyIdx[%u].", __func__, thread, channel,
+            "[%s] FAIL. thread[0x%llx], channel[0x%llx], remoteNotifyIdx[%u].", __func__, thread, entryChannel,
             remoteNotifyIdx),
         ret);
     HCCL_INFO("[%s] SUCCESS.", __func__);
@@ -1047,7 +1052,6 @@ int32_t HcommChannelNotifyRecord(ChannelHandle channel, uint32_t remoteNotifyIdx
 int32_t
 HcommChannelNotifyWaitOnThread(ThreadHandle thread, ChannelHandle channel, uint32_t localNotifyIdx, uint32_t timeOut)
 {
-    CHK_RET(hcomm::UnwrapChannelHandle(channel));
     CHK_RET(UnwrapThreadHandle(thread));
     PLF_CONFIG_INFO(
         PLF_DATA_OP, "[%s] thread[0x%llx], channel[0x%llx], localNotifyIdx[%u], timeOut[%u]s.", __func__, thread,
@@ -1055,6 +1059,12 @@ HcommChannelNotifyWaitOnThread(ThreadHandle thread, ChannelHandle channel, uint3
 
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
+    // host dpu场景cpu thread下 channel 为host侧channel，数据面只传递给sqe，不能在此解引用
+    // 快照解包前句柄，失败日志与入口日志打印同一值
+    const ChannelHandle entryChannel = channel;
+    if (threadPtr->GetThreadType() != THREAD_TYPE_CPU) {
+        CHK_RET(hcomm::UnwrapChannelHandle(channel));
+    }
 
     HcclResult ret = HCCL_SUCCESS;
     if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
@@ -1071,8 +1081,8 @@ HcommChannelNotifyWaitOnThread(ThreadHandle thread, ChannelHandle channel, uint3
     CHK_PRT_RET(
         ret != HCCL_SUCCESS,
         HCCL_ERROR(
-            "[%s] FAIL. thread[0x%llx], channel[0x%llx], localNotifyIdx[%u], timeOut[%u]s.", __func__, thread, channel,
-            localNotifyIdx, timeOut),
+            "[%s] FAIL. thread[0x%llx], channel[0x%llx], localNotifyIdx[%u], timeOut[%u]s.", __func__, thread,
+            entryChannel, localNotifyIdx, timeOut),
         ret);
     HCCL_INFO("[%s] SUCCESS.", __func__);
     return HCCL_SUCCESS;
@@ -1198,11 +1208,14 @@ int32_t HcommFlush() { return HCCL_E_NOT_SUPPORT; }
 
 int32_t HcommChannelFenceOnThread(ThreadHandle thread, ChannelHandle channel)
 {
-    CHK_RET(hcomm::UnwrapChannelHandle(channel));
     CHK_RET(UnwrapThreadHandle(thread));
     HCCL_DEBUG("[%s] thread[0x%llx], channel[0x%llx].", __func__, thread, channel);
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
+    // host dpu场景cpu thread下 channel 为host侧channel，数据面只传递给sqe，不能在此解引用
+    if (threadPtr->GetThreadType() != THREAD_TYPE_CPU) {
+        CHK_RET(hcomm::UnwrapChannelHandle(channel));
+    }
 
     HcclResult ret = HCCL_SUCCESS;
     if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
@@ -1270,10 +1283,13 @@ int32_t HcommThreadJoin(ThreadHandle thread, uint32_t timeout)
 
 int32_t HcommChannelDrainOnThread(ThreadHandle thread, ChannelHandle channel)
 {
-    CHK_RET(hcomm::UnwrapChannelHandle(channel));
     CHK_RET(UnwrapThreadHandle(thread));
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
+    // host dpu场景cpu thread下 channel 为host侧channel，数据面只传递给sqe，不能在此解引用
+    if (threadPtr->GetThreadType() != THREAD_TYPE_CPU) {
+        CHK_RET(hcomm::UnwrapChannelHandle(channel));
+    }
 
     HcclResult ret = HCCL_SUCCESS;
     if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
