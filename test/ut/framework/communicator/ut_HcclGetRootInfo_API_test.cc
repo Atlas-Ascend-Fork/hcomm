@@ -189,7 +189,7 @@ TEST_F(HcclGetRootInfoTest, Ut_HcclGetRootInfo_When_SetWhiteListDisable_Expect_I
 
 TEST_F(HcclGetRootInfoTest, Ut_HcclGetRootInfo_When_SetHOSTNAME_Expect_IdEqWithHCCL_SOCKET_IFNAME)
 {
-    const char* HostnameConfig = "=eth0";
+    const char* HostnameConfig = "=lo";
     setenv("HCCL_SOCKET_IFNAME", HostnameConfig, 1);
     setenv("HCCL_WHITELIST_DISABLE", "1", 1);
     Ut_Device_Set(0);
@@ -225,9 +225,9 @@ TEST_F(HcclGetRootInfoTest, Ut_HcclGetRootInfo_When_SetIPAndHOSTNAME_Expect_IdEq
     unsetenv("HCCL_IF_IP");
 }
 
-TEST_F(HcclGetRootInfoTest, Ut_HcclGetRootInfo_When_SetHOSTNAMEAsEth_Expect_IdEqWithFirstIP)
+TEST_F(HcclGetRootInfoTest, Ut_HcclGetRootInfo_When_SetHOSTNAMEPrefixLo_Expect_IdEqWithFirstIP)
 {
-    const char* HostnameConfig = "eth";
+    const char* HostnameConfig = "lo";
     unsetenv("HCCL_IF_IP");
     setenv("HCCL_SOCKET_IFNAME", HostnameConfig, 1);
     setenv("HCCL_WHITELIST_DISABLE", "1", 1);

@@ -2855,31 +2855,32 @@ int RaGetIfnum(struct RaGetIfattr* config, unsigned int* num)
 int RaGetIfaddrs(struct RaGetIfattr* config, struct InterfaceInfo ifaddr_infos[], unsigned int* num)
 {
     if (config->nicPosition == 0) {
+        // 网卡名使用lo系回环名：CheckHostNicLinkUp会对所选网卡做真实ioctl(SIOCGIFFLAGS)，
+        // eth0/docker等名字并非所有机器都存在（曾导致无eth0机器上通信域初始化类用例失败）
         ifaddr_infos[0].ifaddr.ip.addr.s_addr = 0x100007f;
         ifaddr_infos[0].ifaddr.mask.s_addr = 0xffff;
-        ifaddr_infos[0].ifname[0] = 'e';
-        ifaddr_infos[0].ifname[1] = 't';
-        ifaddr_infos[0].ifname[2] = 'h';
-        ifaddr_infos[0].ifname[3] = '0';
-        ifaddr_infos[0].ifname[4] = '\0';
+        ifaddr_infos[0].ifname[0] = 'l';
+        ifaddr_infos[0].ifname[1] = 'o';
+        ifaddr_infos[0].ifname[2] = '\0';
         ifaddr_infos[0].family = AF_INET;
 
         ifaddr_infos[1].ifaddr.ip.addr.s_addr = 0x200007f;
         ifaddr_infos[1].ifaddr.mask.s_addr = 0xffff;
-        ifaddr_infos[1].ifname[0] = 'd';
+        ifaddr_infos[1].ifname[0] = 'l';
         ifaddr_infos[1].ifname[1] = 'o';
-        ifaddr_infos[1].ifname[2] = 'c';
-        ifaddr_infos[1].ifname[3] = 'k';
-        ifaddr_infos[1].ifname[4] = 'e';
-        ifaddr_infos[1].ifname[5] = 'r';
-        ifaddr_infos[1].ifname[6] = '\0';
+        ifaddr_infos[1].ifname[2] = ':';
+        ifaddr_infos[1].ifname[3] = '1';
+        ifaddr_infos[1].ifname[4] = '\0';
         ifaddr_infos[1].family = AF_INET;
 
         ifaddr_infos[2].ifaddr.ip.addr.s_addr = 0x300007f;
         ifaddr_infos[2].ifaddr.mask.s_addr = 0xffff;
+        // 与[0]的lo区分，避免按ifname建索引/精确匹配时多条同名记录相互干扰
         ifaddr_infos[2].ifname[0] = 'l';
         ifaddr_infos[2].ifname[1] = 'o';
-        ifaddr_infos[2].ifname[2] = '\0';
+        ifaddr_infos[2].ifname[2] = ':';
+        ifaddr_infos[2].ifname[3] = '2';
+        ifaddr_infos[2].ifname[4] = '\0';
         ifaddr_infos[2].family = AF_INET;
 
         ifaddr_infos[3].ifaddr.ip.addr6.s6_addr[0] = 0;

@@ -185,11 +185,11 @@ TEST_F(HcommCcuInstanceSnapshotTest, DisabledDieCarriesPlaceholderMetadata)
     const bool die1Enabled = false;
     MOCKER(CcuGetDieEnableInfo)
         .stubs()
-        .with(mockcpp::any(), mockcpp::eq(0), outBound(die0Enabled))
+        .with(mockcpp::any(), mockcpp::eq(static_cast<uint8_t>(0)), outBound(die0Enabled))
         .will(returnValue(CCU_SUCCESS));
     MOCKER(CcuGetDieEnableInfo)
         .stubs()
-        .with(mockcpp::any(), mockcpp::eq(1), outBound(die1Enabled))
+        .with(mockcpp::any(), mockcpp::eq(static_cast<uint8_t>(1)), outBound(die1Enabled))
         .will(returnValue(CCU_SUCCESS));
     MockSnapshotMetadata();
 

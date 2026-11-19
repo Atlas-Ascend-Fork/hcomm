@@ -76,6 +76,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "")
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "12.0.0" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "13.0.0")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=stringop-overread")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-error=stringop-overread")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=array-bounds")
 endif()
 
 # 获取 CPU 核心数
