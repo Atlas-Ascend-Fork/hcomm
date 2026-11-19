@@ -20,8 +20,9 @@ static std::atomic<u64> g_plfDebugConfig{0};
 static HcclResult ParseDebugConfig(const char* envName, u64 domainMask, u64& result)
 {
     char* env = getenv(envName);
-    if (env == nullptr) {
+    if (env == nullptr || *env == '\0') {
         result = 0;
+        HCCL_RUN_INFO("[HCCL_ENV] %s is not set", envName);
         return HCCL_SUCCESS;
     }
     std::string configDup(env);

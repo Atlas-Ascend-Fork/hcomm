@@ -105,6 +105,7 @@ using SocketPortRange = struct SocketPortRangeDef {
     u32 min;
     u32 max;
     bool operator==(const SocketPortRangeDef& other) const { return min == other.min && max == other.max; }
+    std::string Describe() const { return StringFormat("[%u, %u]", min, max); }
 };
 
 // HCCL通信算法类型

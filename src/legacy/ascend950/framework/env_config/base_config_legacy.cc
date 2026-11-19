@@ -16,6 +16,18 @@
 
 namespace Hccl {
 
+namespace {
+    // 将端口范围向量格式化为 [min, max][min, max]... 形式，供 HCCL_ENV 日志复用。
+    std::string FormatSocketPortRanges(const std::vector<SocketPortRange>& ranges)
+    {
+        std::ostringstream oss;
+        for (const auto& range : ranges) {
+            oss << range.Describe();
+        }
+        return oss.str();
+    }
+} // namespace
+
 // EnvHostNicConfig
 
 void EnvHostNicConfig::Parse()
@@ -43,22 +55,24 @@ void EnvHostNicConfig::Parse()
     }
 
     hcclHostSocketPortRange.Parse();
-    std::ostringstream hosrPortRangeOss;
-    for (auto range : GetHostSocketPortRange()) {
-        hosrPortRangeOss << "[" << range.min << ", " << range.max << "]";
+    if (hcclHostSocketPortRange.IsSetByEnvironment()) {
+        HCCL_RUN_INFO(
+            "[HCCL_ENV] HCCL_HOST_SOCKET_PORT_RANGE set by environment to %s (raw: \"%s\")",
+            FormatSocketPortRanges(GetHostSocketPortRange()).c_str(),
+            SalGetEnv(hcclHostSocketPortRange.GetEnvName().c_str()).c_str());
+    } else {
+        HCCL_RUN_INFO("[HCCL_ENV] HCCL_HOST_SOCKET_PORT_RANGE is not set");
     }
-    HCCL_RUN_INFO(
-        "[HCCL_ENV] HCCL_HOST_SOCKET_PORT_RANGE set by %s to %s", hcclHostSocketPortRange.GetSource(),
-        hosrPortRangeOss.str().c_str());
 
     hcclDeviceSocketPortRange.Parse();
-    std::ostringstream devicePortRangeOss;
-    for (auto range : GetDeviceSocketPortRange()) {
-        devicePortRangeOss << "[" << range.min << ", " << range.max << "]";
+    if (hcclDeviceSocketPortRange.IsSetByEnvironment()) {
+        HCCL_RUN_INFO(
+            "[HCCL_ENV] HCCL_NPU_SOCKET_PORT_RANGE set by environment to %s (raw: \"%s\")",
+            FormatSocketPortRanges(GetDeviceSocketPortRange()).c_str(),
+            SalGetEnv(hcclDeviceSocketPortRange.GetEnvName().c_str()).c_str());
+    } else {
+        HCCL_RUN_INFO("[HCCL_ENV] HCCL_NPU_SOCKET_PORT_RANGE is not set");
     }
-    HCCL_RUN_INFO(
-        "[HCCL_ENV] HCCL_NPU_SOCKET_PORT_RANGE set by %s to %s", hcclDeviceSocketPortRange.GetSource(),
-        devicePortRangeOss.str().c_str());
 }
 
 const IpAddress& EnvHostNicConfig::GetControlIfIp() const { return hcclIfIp.Get(); }
@@ -134,9 +148,12 @@ void EnvRdmaConfig::Parse()
         GetRdmaMultiQpThreshold());
 
     qpPortConfigPath.Parse();
-    HCCL_RUN_INFO(
-        "[HCCL_ENV] HCCL_RDMA_QP_PORT_CONFIG_PATH set by %s to [%s]", qpPortConfigPath.GetSource(),
-        qpPortConfigPath.Get().c_str());
+    if (qpPortConfigPath.IsSetByEnvironment()) {
+        HCCL_RUN_INFO(
+            "[HCCL_ENV] HCCL_RDMA_QP_PORT_CONFIG_PATH set by environment to [%s]", qpPortConfigPath.Get().c_str());
+    } else {
+        HCCL_RUN_INFO("[HCCL_ENV] HCCL_RDMA_QP_PORT_CONFIG_PATH is not set");
+    }
     ParseMultiQpSrcPortConfig();
 }
 
@@ -417,7 +434,11 @@ void EnvLogConfig::Parse()
         "[HCCL_ENV] HCCL_ENTRY_LOG_ENABLE set by %s to [%d]", entryLogEnable.GetSource(), GetEntryLogEnable());
 
     cannVersion.Parse();
-    HCCL_RUN_INFO("[HCCL_ENV] LD_LIBRARY_PATH set by %s to [%s]", cannVersion.GetSource(), GetCannVersion().c_str());
+    if (!GetCannVersion().empty()) {
+        HCCL_RUN_INFO("[HCCL_ENV] CANN version set by environment to [%s]", GetCannVersion().c_str());
+    } else {
+        HCCL_RUN_INFO("[HCCL_ENV] CANN version is not set");
+    }
 
     dfsConfig.Parse();
     HCCL_RUN_INFO(
