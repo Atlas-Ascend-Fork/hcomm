@@ -60,12 +60,14 @@ struct CommConfigData {
     std::vector<CommConfigServer> servers; // 按(podId, serverId, boardId)升序, 与rankId分配顺序一致
 };
 
-// 进程级通信域配置缓存: mock-comm执行时刷新, 其余进程首次使用时加载
-extern CommConfigData g_comm_config_data;
-
 bool GetOrInsertCommunicator(
     const char* commName, uint32_t rankSize, uint32_t rankId, uint64_t deviceId, uint64_t commHash, uint64_t& commId);
 bool WaitCommunicatorReady(const char* commName, uint64_t commHash, uint32_t rankSize);
+// estimate 专用: 单通信域防护。estimate 模式当前仅支持单通信域场景（多通信域下
+// rankid+commid 与物理卡的对应关系、性能仿真支持等均有致命问题待解决）：同一 rank
+// 已注册其他通信域（commName/commHash 不同）时拒绝再次注册并明确提示用户；
+// 同一通信域重复初始化（幂等）放行。非 estimate 模式直接放行。
+bool EnsureEstimateSingleCommDomain(const char* commName, uint64_t commHash, uint32_t rankId);
 // level 1 专用: 通信域销毁栅栏, 全部 rank 到齐才放行
 bool WaitCommunicatorDestroyReady(uint64_t commId);
 // level 0 专用: 避免快卡提前销毁, 标记本 rank 已调用销毁接口并等待同通信域全部成员到达后再返回
@@ -177,10 +179,12 @@ uint64_t GetCurServerId();
 // 公共解析函数: 解析topo_meta yaml(或ranktable模式下的data/ranktable.json)生成通信域server有序表.
 // topoMeta非空时直接使用调用方已解析的结果, 避免重复读文件
 bool ParseCommConfigData(const std::string& fileName, const TopoMeta* topoMeta, CommConfigData& data);
-// mock-comm每次执行时调用: 覆盖TopoMetaConfig表项并刷新本进程g_comm_config_data
+// mock-comm每次执行时调用: 覆盖TopoMetaConfig表项并刷新本进程通信域配置缓存
 bool RefreshTopoMetaConfig(const std::string& fileName, const TopoMeta* topoMeta = nullptr);
 // 通信域重置时清空进程缓存, 下次使用时按TopoMetaConfig表项重新加载
 void ResetCommConfigData();
+// 获取通信域配置中的总rank数，加载失败时返回0
+uint32_t GetCommConfigTotalRankNum();
 // rankId → 所属server的serverKey
 bool GetServerKeyByRankId(uint32_t rankId, uint64_t& serverKey);
 // serverKey + 物理device id → 通信域内device序号(与Device.logic_id一致)

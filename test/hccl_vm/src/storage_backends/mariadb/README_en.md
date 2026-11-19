@@ -1,35 +1,35 @@
 # HCCL-VM MariaDB Database Deployment
 
-[Return to Main Guide](../../../README.md)
+[Back to the main guide](../../../README.md)
 
 Deployment architecture (one simulator corresponds to one database instance):
 
 ```mermaid
 flowchart LR
-    SIM["HCCL-VM Simulator<br/>"]
+    SIM["HCCL-VM simulator<br/>"]
     subgraph MARIADB ["MariaDB Server"]
-        DATA[("hcclvm_* Databases<br/>")]
+        DATA[("hcclvm_* databases<br/>")]
     end
-    SIM -->|"hccl_vm Account Connection"| MARIADB
+    SIM -->|" hccl_vm account connection"| MARIADB
 ```
 
-The source code paths in the following commands are based on `HCCL_VM_SOURCE_HOME` (configure according to the actual CheckerL2 source root directory):
+The source code path in the following commands is based on `HCCL_VM_SOURCE_HOME` (configure it based on the actual CheckerL2 source code root directory):
 
 ```bash
 export HCCL_VM_SOURCE_HOME=/home/workspace/CheckerL2
 ```
 
-Deployment and running workflow:
+Deployment and running procedure:
 
-- **Initial deployment**: Chapter 1 (deploy the database, create the account, and create the connection configuration file), complete once
-- **Daily operation**: After initial deployment is complete, daily operation starts directly from Chapter 2
+- **First deployment**: Chapter 1 (deploying the database and creating the account and connection configuration file). This is a one-time task.
+- **Daily running**: After the first deployment is complete, start directly from Chapter 2.
 
-## 1. Initial Deployment Reference
-> **📌 Note:** **One simulator corresponds to one database instance**
+## 1. First Deployment Reference
+> **📌 NOTE:** **One simulator corresponds to one database instance**
 
-### 1.1 Deploy the MariaDB Environment
+### 1.1 Deploying the MariaDB Environment
 
-> **📌 Note:** This document configuration has been verified on Ubuntu 24.04 / MariaDB 10.11, other versions are not verified; WSL requires systemd enabled to use systemctl, when not enabled use `sudo service mariadb start` instead
+> **📌 NOTE:** The configuration in this document has been verified on Ubuntu 24.04 / MariaDB 10.11, and other versions are not verified. For WSL, systemd must be enabled before systemctl can be used. If systemd is not enabled, use `sudo service mariadb start` instead.
 
 ```bash
 sudo apt install -y mariadb-server mariadb-client
@@ -37,9 +37,10 @@ sudo systemctl start mariadb
 sudo mariadb-admin ping
 ```
 
-### 1.2 Create the Database Account
+### 1.2 Creating a Database Account
 
-The following SQL creates the `hccl_vm` account, using the sample password `password`, replace with the actual password before execution; when the account already exists, it will be deleted and recreated first, and the password and permissions will be reset to the values set this time.
+The following SQL creates the `hccl_vm` account with the example password `password`. Replace the password with the actual password before execution. If the account already exists, it is deleted and re-created, and the password and permissions are reset to the values set this time.
+
 ```bash
 sudo mariadb <<'SQL'
 DROP USER IF EXISTS 'hccl_vm'@'127.0.0.1';
@@ -52,31 +53,33 @@ FLUSH PRIVILEGES;
 SQL
 ```
 
-After execution, log in with this account to verify (replace the password with the actual password), output of 1 indicates success:
+After the execution, log in with the account to verify the result (replace the password with the actual password). The verification passes if 1 is output:
 
 ```bash
 mariadb -h 127.0.0.1 -P 3306 -u hccl_vm -ppassword -e "SELECT 1;"
 ```
 
-Copy and execute the following command on the database server (install the sample configuration from the repository as the server configuration):
+Run the following commands on the database server (this installs the example configuration in the repository as the server configuration):
 
 ```bash
 sudo cp ${HCCL_VM_SOURCE_HOME}/src/storage_backends/mariadb/config/z-hccl-vm.cnf.example /etc/mysql/mariadb.conf.d/z-hccl-vm.cnf
 sudo chmod 644 /etc/mysql/mariadb.conf.d/z-hccl-vm.cnf
 ```
 
-***Parameter configuration adjustment for database servers with different specifications***  
-Edit `/etc/mysql/mariadb.conf.d/z-hccl-vm.cnf` (sudo permission required), fill in `thread_pool_size` (sample value 224) according to the number of logical CPUs available to the database, and restart after modification. For instances with 16/32/64 available logical CPUs, fill in 16/32/64 respectively. When CPU affinity is set, use the limited quota.
-[MariaDB Thread Pool Description](https://mariadb.com/docs/server/ha-and-performance/optimization-and-tuning/buffers-caches-and-threads/thread-pool/thread-pool-in-mariadb).
+***Parameter Configuration Adjustment for Database Servers of Different Specifications***
+Edit `/etc/mysql/mariadb.conf.d/z-hccl-vm.cnf` (sudo permission required), set `thread_pool_size` (example value 224) to the number of logical CPUs available to the database, and restart the service after the modification. For example, instances with 16/32/64 available logical CPUs are set to 16/32/64 respectively. If CPU affinity is set, the quota after the restriction applies.
+For details about the MariaDB thread pool, see [MariaDB thread pool description](https://mariadb.com/docs/server/ha-and-performance/optimization-and-tuning/buffers-caches-and-threads/thread-pool/thread-pool-in-mariadb).
+
+`innodb_buffer_pool_size` defaults to 32G. When the simulator runs on the same machine, reserve memory for the simulator and the system. In environments with insufficient memory, reduce this value and adjust the expected value in the verification SQL below accordingly.
 
 ```bash
 sudo systemctl restart mariadb
 sudo mariadb-admin ping
 ```
 
-### 1.3 Verify the Effective Values After Restart
-> **📌 Note:** The account password needs to be replaced with the account password actually created in section 1.2  
-> **📌 Note:** The expected value 224 for `thread_pool_size` in the verification SQL is a sample value, replace it with the number of local CPUs written to the cnf in section 1.2 (for a 64-core instance, use 64); for this item status=1 indicates the actual effective value matches the cnf setting, status=-1 indicates the two do not match
+### 1.3 Verifying Effective Values After the Restart
+> **📌 NOTE:** Replace the account and password with those actually created in section 1.2.
+> **📌 NOTE:** The expected value 224 of `thread_pool_size` in the verification SQL is an example value. Replace it with the number of local CPUs written into the cnf file in section 1.2 (for example, 64 for a 64-core instance). For this item, status=1 indicates that the actual effective value is the same as the value set in the cnf file, and status=-1 indicates that the two values are different.
 
 ```bash
 mariadb -u hccl_vm -ppassword --table <<'SQL'
@@ -84,7 +87,7 @@ SELECT * FROM (
     SELECT 'transaction_isolation' AS parameter, @@global.tx_isolation AS actual_value, 'READ-COMMITTED' AS expected_value, IF(@@global.tx_isolation = 'READ-COMMITTED', 1, -1) AS status
     UNION ALL SELECT 'thread_handling', @@global.thread_handling, 'pool-of-threads', IF(@@global.thread_handling = 'pool-of-threads', 1, -1)
     UNION ALL SELECT 'thread_pool_size', CAST(@@global.thread_pool_size AS CHAR), '224', IF(@@global.thread_pool_size = 224, 1, -1)
-    UNION ALL SELECT 'innodb_buffer_pool_size', CONCAT(ROUND(@@global.innodb_buffer_pool_size / 1073741824, 0), 'G'), '8G', IF(ROUND(@@global.innodb_buffer_pool_size / 1073741824, 0) = 8, 1, -1)
+    UNION ALL SELECT 'innodb_buffer_pool_size', CONCAT(ROUND(@@global.innodb_buffer_pool_size / 1073741824, 0), 'G'), '32G', IF(ROUND(@@global.innodb_buffer_pool_size / 1073741824, 0) = 32, 1, -1)
     UNION ALL SELECT 'max_connections', CAST(@@global.max_connections AS CHAR), '8192', IF(@@global.max_connections = 8192, 1, -1)
     UNION ALL SELECT 'back_log', CAST(@@global.back_log AS CHAR), '4096', IF(@@global.back_log = 4096, 1, -1)
     UNION ALL SELECT 'max_prepared_stmt_count', CAST(@@global.max_prepared_stmt_count AS CHAR), '1048576', IF(@@global.max_prepared_stmt_count = 1048576, 1, -1)
@@ -110,31 +113,32 @@ SQL
 
 ### 1.4 Simulator Configuration
 
-For initial deployment, create the connection configuration file; for daily operation, only set the environment variable:
+During the first deployment, create the connection configuration file. For daily running, you only need to set the environment variable:
 
 ```bash
-# Initial deployment: Create the connection configuration file. The storage directory can be selected as needed (the sample uses /home/workspace); the file contains the database password, pay attention to permissions
+# First deployment: create the connection configuration file. You can select the storage directory (this example uses /home/workspace). The file contains the database password, so pay attention to permissions.
 cp ${HCCL_VM_SOURCE_HOME}/src/storage_backends/mariadb/config/storage_mariadb.yaml.example /home/workspace/storage_mariadb.yaml
 chmod 600 /home/workspace/storage_mariadb.yaml
 
-# Daily operation: Set for each shell session (must be set before starting the simulator)
+# Daily running: set this in each shell session (this must be done before starting the simulator)
 export HCCL_VM_STORAGE_CONFIG=/home/workspace/storage_mariadb.yaml
 ```
 
-> **📌 Note:** **This variable must be set before executing `hccl-vm start` to start the simulator**.
+> **📌 NOTE:** **This variable must be set before you run `hccl-vm start` to start the simulator.**
 
-Replace the URI address in /home/workspace/storage_mariadb.yaml with the actual database address, and replace the account and password with the account and password created in [Section 1.2](#12-create-the-database-account):
+Replace the address in the URI in /home/workspace/storage_mariadb.yaml with the actual database address, and replace the account and password with those created in [section 1.2](#12-creating-a-database-account):
 
 ```yaml
 uri: mariadb://hccl_vm:password@127.0.0.1:3306
 ```
 
-Log adjustment:
+Log configuration adjustment:
+
 ```bash
 cp ${HCCL_VM_SOURCE_HOME}/config/log_config.yaml /home/workspace/log_config.yaml 
 ```
 
-After the simulator `hccl-vm start`, use this account to confirm that storage is using MariaDB (replace the password with the actual password), the output should include the `hcclvm_` prefix databases automatically created by the simulator:
+After `hccl-vm start` is run for the simulator, use the account to confirm that MariaDB is used as the storage (replace the password with the actual password). The output should contain the databases automatically created by the simulator, whose names start with `hcclvm_`:
 
 ```bash
 mariadb -h 127.0.0.1 -P 3306 -u hccl_vm -ppassword -e "SHOW DATABASES"
@@ -142,29 +146,29 @@ mariadb -h 127.0.0.1 -P 3306 -u hccl_vm -ppassword -e "SHOW DATABASES"
 
 ## 2. Environment Configuration
 
-Before daily operation, verify whether the database service is running normally; if the connection is abnormal or the service is not ready, refer to [Chapter 1](#1-initial-deployment-reference) for troubleshooting or deployment:
+Before daily running, verify that the database service is alive. If the connection is abnormal or the service is not ready, refer to [Chapter 1](#1-first-deployment-reference) to troubleshoot or deploy again:
 
 ```bash
 mariadb-admin ping
 ```
 
-> **📌 Important:** `HCCL_VM_STORAGE_CONFIG` **must be set before executing `hccl-vm start`**.
+> **📌 IMPORTANT:** `HCCL_VM_STORAGE_CONFIG` **must be set before you run `hccl-vm start`.**
 
 ```bash
-# Set before starting the simulator (point to the configuration file created in section 1.4)
+# Set this before starting the simulator (pointing to the configuration file created in section 1.4)
 export HCCL_VM_STORAGE_CONFIG=/home/workspace/storage_mariadb.yaml
 ```
 
 ### 2.1 MPICH Configuration
 
 ```bash
-# When using MPICH, set before starting the simulator
+# Set this when MPICH is used, before starting the simulator
 export MPICH_NO_LOCAL=1
 ```
 
 ### 2.2 PMI Socket Buffer Configuration
 
-Complete the environment configuration on the host machine running MPI.
+Complete the environment configuration on the host machine that runs MPI.
 
 ```bash
 sudo tee /etc/sysctl.d/99-hccl-vm-socket.conf >/dev/null <<'CONF'
@@ -178,11 +182,12 @@ CONF
 sudo sysctl -p /etc/sysctl.d/99-hccl-vm-socket.conf
 ```
 
-## 3. hccl_test 1024p Checkonly Mode Reference Configuration
-> **📌 Note:** The 1024p scenario requires server available resources greater than 500G, ***when less than this specification, swap can be expanded to make available memory meet this specification requirement, but swap is affected by disk and other hardware factors, execution may become slower or timeout***  
-> **📌 Note:** The 1024p scenario requires server available cores greater than 100, ***when less than this specification, execution may become slower or timeout due to CPU scheduling***
+## 3. Reference Configuration for the hccl_test 1024p check-only Mode
+> **📌 NOTE:** The 1024p scenario requires more than 500 GB of available resources on the server. ***If the resources are below this specification, you can expand the swap space to meet the memory requirement. However, the swap space is affected by hardware factors such as disks, and the execution may slow down or time out.***
+> **📌 NOTE:** The 1024p scenario requires more than 100 available cores on the server. ***If the number of cores is below this specification, the execution may slow down or time out due to CPU scheduling.***
 
-Configuration sample:
+Configuration example:
+
 ```bash
 export HCCL_CONNECT_TIMEOUT=7200
 export HCCL_DFS_CONFIG=cluster_heartbeat:off
@@ -192,10 +197,11 @@ export HCCL_VM_LOG_CONFIG_PATH=/home/workspace/log_config.yaml
 export ASCEND_GLOBAL_LOG_LEVEL=3
 ```
 
-HCCL_VM_LOG_CONFIG_PATH log level tuning sample:
+HCCL_VM_LOG_CONFIG_PATH log level tuning example:
+
 ``` bash
-# Low log level configuration: Only retain warn+error (info/debug/trace all closed)
-# Level: 0-trace 1-debug 2-info 3-warn 4-error 5-critical 6-off
+# Low log level configuration: only warn+error are retained (info/debug/trace are all disabled)
+# Levels: 0-trace 1-debug 2-info 3-warn 4-error 5-critical 6-off
 hccl_vm:
     console_level: 4
     file_level: 3
@@ -236,26 +242,28 @@ checker:
     file_suffix: .log
     enable_compress: false
     
-# Topology generation script (generate_cluster_topo.sh/generate_server_topo.sh/allocate_eid.sh) log configuration
-# console_level: Script console log level, consistent with C++ log level definition:
+# Log configuration of the topology generation scripts (generate_cluster_topo.sh/generate_server_topo.sh/allocate_eid.sh)
+# console_level: console log level of the scripts, consistent with the C++ log level definitions:
 #   0-trace 1-debug 2-info 3-warn 4-error 5-critical 6-off
-#   debug(1): Output all logs (including per-server/per-die/per-port details)
-#   info(2):  Output steps and summary information (default)
-#   warn(3):  Output only warnings and errors
-#   error(4): Output only errors
-#   off(6):   Do not output any logs
+#   debug(1): outputs all logs (including details of each server/die/port)
+#   info(2): outputs step and summary information (default)
+#   warn(3): outputs only warnings and errors
+#   error(4): outputs only errors
+#   off(6): outputs no logs
 script:
     console_level: 3    
 ```
 
 ## Third-Party Dependencies
 
-Third-party dependencies exclusive to this module:
+Third-party dependencies specific to this module:
 
-| Open Source Software | Version | License (SPDX) | Download Address |
+| Open Source Software | Version | License (SPDX) | Download URL |
 | --- | --- | --- | --- |
-| mariadb-connector-c | 3.3.5 | LGPL-2.1-or-later | [v3.3.5.tar.gz](https://codeload.github.com/mariadb-corporation/mariadb-connector-c/tar.gz/refs/tags/v3.3.5) |
+| mariadb-connector-c | 3.3.8 | LGPL-2.1-or-later | [mariadb-connector-c-3.3.8-src.tar.gz](https://raw.gitcode.com/src-openeuler/mariadb-connector-c/blobs/9389ee06248685f68fe17b9d18a90c990e039020/mariadb-connector-c-3.3.8-src.tar.gz) |
 
-The license text is located in [licenses/](licenses/).
+The source code cache is stored in third_party/ at the repository root (archives and unpacked artifacts, which are ignored by git and verified by the build using SHA-256 and content fingerprints). The first build downloads the source code online. In offline scenarios, copy the original archive named mariadb-connector-c-3.3.8-src.tar.gz to third_party/ at the repository root. After the build verification passes, the archive is directly unpacked for use, without requiring network access.
 
-[Return to Main Guide](../../../README.md) · [Continue to Main Guide Usage Samples](../../../README.md#32-使用示例)
+The original license text is stored in [licenses/](licenses/).
+
+[Back to the main guide](../../../README.md) · [Continue to usage examples in the main guide](../../../README.md#32-使用示例)

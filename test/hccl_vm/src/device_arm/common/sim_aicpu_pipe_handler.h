@@ -23,6 +23,8 @@ int HandlePipeCmdExecKernel(uint8_t* payload, uint32_t payloadLen);
 
 int HandlePipeCmdFreeDevPtr(uint8_t* payload, uint32_t payloadLen);
 
+void CleanupCommPoolMappings();
+
 int HandlePipeCmdGetWqePtr(uint8_t* payload, uint32_t payloadLen);
 int HandlePipeCmdFreeWqePtr(uint8_t* payload, uint32_t payloadLen);
 } // namespace sim

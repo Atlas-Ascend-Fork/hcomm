@@ -184,23 +184,26 @@ TEST_F(RankAddrSpaceTest, RankIdxOfDeviceKeyRejectsZero)
     EXPECT_FALSE(RankAddressSpace::RankIdxOfDeviceKey(static_cast<uint64_t>(UINT32_MAX) + 2, rankIdx));
 }
 
-/// 风险 R4：47-bit 位宽只作**告警**，不作硬约束（否则会卡死 128~1024 rank 的集群）
-TEST_F(RankAddrSpaceTest, MaxRankSlotsIsConfigBoundNotVaWidthBound)
+/// 风险 R4：47-bit 位宽只作**告警**，不作硬约束；且 rank 槽位**无任何规模上界**
+/// （原 MaxRankSlots()/HCCL_VM_MAX_RANKS 已删除，集群规模由拓扑决定）
+TEST_F(RankAddrSpaceTest, VaWidthIsDiagnosticOnlyAndRankSlotsUncapped)
 {
-    // 硬上界 = GetMaxRanks()（默认 1024）
-    EXPECT_EQ(m_ras->MaxRankSlots(), HcclSim::GetMaxRanks());
-    EXPECT_EQ(m_ras->MaxRankSlots(), 1024U);
     // 47-bit 位宽是独立的诊断量：rank_base=2^39, rank_stride=2^40
     //   → (2^47 - 2^39)/2^40 = 127.5 → 127
     const uint32_t vaLimit = m_ras->Va47BitRankLimit();
     EXPECT_EQ(vaLimit, 127U);
-    EXPECT_LT(vaLimit, m_ras->MaxRankSlots()) << "位宽上界必须小于配置上界，故只能告警不能阻断";
     // rank127 起点在 47-bit 内，rank128 起点越界
     EXPECT_LT(m_ras->RankBase(127), 1ULL << 47);
     EXPECT_GE(m_ras->RankBase(128), 1ULL << 47);
-    // 但 rank 128..1023 仍可正常计算基址（模拟 VA 是 token，不被 host 解引用）
+    // 但越过位宽诊断值后仍可正常计算基址（模拟 VA 是 token，不被 host 解引用）：
+    // 原 1024 上界已删除，故 1024 以上的 rankIdx（如 8192 设备集群的尾部）必须可用
     EXPECT_NE(m_ras->RankBase(1023), 0ULL);
+    EXPECT_NE(m_ras->RankBase(1024), 0ULL);
+    EXPECT_NE(m_ras->RankBase(8191), 0ULL);
     EXPECT_NE(m_ras->CcuDieBase(1023, 1), 0ULL);
+    EXPECT_NE(m_ras->CcuDieBase(8191, 1), 0ULL);
+    // 唯一的硬约束是 uint64 溢出防护：溢出时返回 0，由调用方按失败处理
+    EXPECT_EQ(m_ras->RankBase(UINT32_MAX), 0ULL);
 }
 
 /// 分配器（§4.5.7.3 G3 分段 first-fit）的核心不变量：任何成功分配的块都不碰 CCU

@@ -494,7 +494,12 @@ void ParseDavidUDMASqeWithIdentity(uint32_t streamId, void* sqeBuf, const TaskId
     Rt91095StarsUbdmaDBmodeSqe* ubSqe = reinterpret_cast<Rt91095StarsUbdmaDBmodeSqe*>(sqeBuf);
     uint32_t jettyId = ubSqe->jettyId1;
     uint64_t wqeBuffer = 0;
-    if (!GetWqebufferByJettyId(jettyId, wqeBuffer) || wqeBuffer == 0) {
+    uint8_t lcEid[HcclSim::URMA_EID_LEN] = {0};
+    bool eidResolved = false;
+    // 一次读取供给 WQE 基址与 lcEid（原 GetWqebufferByJettyId/GetLocalEidByJettyId
+    // 两次同谓词查询同一行合并；错误分支语义不变：行定位失败按致命返回，
+    // EID 链失败仅记日志继续）。
+    if (!GetWqeBufferAndLocalEidByJettyId(jettyId, wqeBuffer, lcEid, eidResolved) || wqeBuffer == 0) {
         HCCL_VM_ERROR("GetWqebufferByJettyId failed or returned null, jettyId[{}].", jettyId);
         return;
     }
@@ -502,8 +507,7 @@ void ParseDavidUDMASqeWithIdentity(uint32_t streamId, void* sqeBuf, const TaskId
     // SQE+多WQE场景, 组号 = 门铃批号 (环形递增 1..255, 0 保留为未打标)
     g_currSqeGroupId = g_currSqeGroupId % 255u + 1u;
 
-    uint8_t lcEid[HcclSim::URMA_EID_LEN] = {0};
-    if (!GetLocalEidByJettyId(jettyId, lcEid)) {
+    if (!eidResolved) {
         HCCL_VM_ERROR("GetLocalEidByJettyId failed, jettyId[{}].", jettyId);
     }
 

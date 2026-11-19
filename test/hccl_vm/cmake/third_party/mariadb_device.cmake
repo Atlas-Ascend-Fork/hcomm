@@ -13,7 +13,7 @@
 # MariaDB 后端模块的客户库依赖配方（Device 交叉架构，静态集成）。
 # 父 configure 已验证归档并重建源码缓存；此处复查 identity stamp 与 canonical
 # manifest（handoff 复核协议），随后以独立 cmake 子构建按 device 交叉工具链
-# 编译静态 libmariadbclient（开关面与宿主一致，见 cmake/mariadb_host.cmake
+# 编译静态 libmariadbclient（开关面与宿主一致，见同目录 mariadb_host.cmake
 # 头注释）。device 二进制自包含，恒静态，不向 lib/aarch64 分发预编译
 # libmariadb.so.3，也不受 HVM_MARIADB_LINKAGE 影响。
 # 交接材料（MARIADB_SOURCE_DIR/VERSION/SHA256/SOURCE_MANIFEST_SHA256）缺失或
@@ -76,6 +76,33 @@ endif()
 # 交叉子构建：hcc 工具链 + 禁 OpenSSL 发现路径（与已验证的交叉配方一致）
 include(ExternalProject)
 set(MARIADB_DEVICE_CBUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/mariadb-cbuild")
+# 旧工作区迁移：device 侧 Connector/C 子构建的步骤标记失效守卫（两种形态与
+# 宿主侧 mariadb_host.cmake 相同：a) CMakeCache 绑定旧 SOURCE_DIR；b) 缓存缺失
+# 而步骤 stamp 仍在的中间态）。失效动作 = 清空子构建目录 + 删除
+# <name>-prefix/ 下 stamp——保留旧 stamp 时 make 判定步骤完成而跳过重建。
+set(_mariadb_invalidate_subbuild FALSE)
+if(EXISTS "${MARIADB_DEVICE_CBUILD_DIR}/CMakeCache.txt")
+    file(STRINGS "${MARIADB_DEVICE_CBUILD_DIR}/CMakeCache.txt" _mariadb_cached_home REGEX "^CMAKE_HOME_DIRECTORY:")
+    if(_mariadb_cached_home)
+        string(FIND "${_mariadb_cached_home}" "${MARIADB_SOURCE_DIR}" _mariadb_home_pos)
+        if(NOT _mariadb_home_pos GREATER -1)
+            message(STATUS
+                "[StorageBackends:mariadb] device connector sub-build cache is bound to an old source dir; "
+                "reconfiguring ${MARIADB_DEVICE_CBUILD_DIR}")
+            set(_mariadb_invalidate_subbuild TRUE)
+        endif()
+    endif()
+elseif(EXISTS
+    "${CMAKE_CURRENT_BINARY_DIR}/mariadb_connector_device-prefix/src/mariadb_connector_device-stamp/mariadb_connector_device-build")
+    message(STATUS
+        "[StorageBackends:mariadb] device connector sub-build cache is missing while step stamps remain; "
+        "invalidating stamps for ${MARIADB_DEVICE_CBUILD_DIR}")
+    set(_mariadb_invalidate_subbuild TRUE)
+endif()
+if(_mariadb_invalidate_subbuild)
+    file(REMOVE_RECURSE "${MARIADB_DEVICE_CBUILD_DIR}")
+    file(REMOVE_RECURSE "${CMAKE_CURRENT_BINARY_DIR}/mariadb_connector_device-prefix")
+endif()
 # my_config.h 等由子构建生成；configure 期预建 include 目录（同宿主）
 file(MAKE_DIRECTORY "${MARIADB_DEVICE_CBUILD_DIR}/include")
 ExternalProject_Add(mariadb_connector_device

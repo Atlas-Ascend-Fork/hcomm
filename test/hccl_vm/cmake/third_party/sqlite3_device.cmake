@@ -12,11 +12,12 @@
 
 # SQLite 后端模块的客户库依赖配方（Device 交叉架构）。
 # 与宿主同一份源码缓存（Host prepare 经 HCCLVM_SQLITE3_SOURCE_DIR 交接；缺省
-# 回退到模块源码缓存路径），在本工程内按交叉工具链重新编译为独立静态库——
-# 不链接宿主架构产物，二进制输出分开。源码缺失时明确失败，不从其他工作区或
-# 系统库补回。
+# 回退到仓库根 third_party/ 源码缓存），在本工程内按交叉工具链重新编译为独立
+# 静态库——不链接宿主架构产物，二进制输出分开。源码缺失时明确失败，不从其他
+# 工作区或系统库补回。THRID_PARTY_DIR 由顶层 configure 透传（device 子工程
+# 另有兜底定义）。
 if(NOT DEFINED HCCLVM_SQLITE3_SOURCE_DIR OR HCCLVM_SQLITE3_SOURCE_DIR STREQUAL "")
-    set(HCCLVM_SQLITE3_SOURCE_DIR "${HCCL_VM_SRC}/storage_backends/sqlite/third_party/sqlite")
+    set(HCCLVM_SQLITE3_SOURCE_DIR "${THRID_PARTY_DIR}/sqlite")
 endif()
 if(NOT (EXISTS "${HCCLVM_SQLITE3_SOURCE_DIR}/sqlite3.c" AND EXISTS "${HCCLVM_SQLITE3_SOURCE_DIR}/sqlite3.h"))
     message(FATAL_ERROR

@@ -11,14 +11,14 @@ cd /path/to/CheckerL2/hccl_vm_install/bin
 
 # 按需选择通信域配置文件，PyTorch暂时仅支持 Ascend950 系列。
 # 如需使用 Ascend960 系列需要安装 A6 ops 包并修改拓扑集群配置中的 soc_version 为 Ascend960DT_961BY 等真实型号。
+# 启动前启用，使VM主进程按各server/board的local_rank生成ranktable，支持非等卡数拓扑。
+export HCCL_VM_ENABLE_PYTORCH=1
 ./hccl-vm start ascend950_cluster_32_server_normal.yaml
 ```
 
 进入 `(hvm)$>` 终端后，执行：
 
 ```bash
-# 启动 PyTorch 模式
-export HCCL_VM_ENABLE_PYTORCH=1
 # 激活虚拟环境（如有）
 source /path/to/torch_test/bin/activate
 

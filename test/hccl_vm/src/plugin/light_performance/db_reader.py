@@ -88,6 +88,12 @@ class DevType(IntEnum):
 # (11.4.5 节对账约定)。唯一例外: 9=Reduce_With_Notify 为工具侧修正拼写
 # (hcomm 源码/msprof 为错拼 Reuce_With_Notify)。
 # ---------------------------------------------------------------------------
+# HcclDataType (hccl_types.h) → 显示名 (v2 采集在 REDUCE 任务级填 dataType;
+# AIV 快照 REDUCE payload.dataType 同一值域, aiv_graph_builder 共用)
+_DATA_TYPE_NAMES = {0: "int8", 1: "int16", 2: "int32", 3: "fp16",
+                    4: "fp32", 5: "int64", 6: "uint64", 7: "uint8",
+                    8: "uint16", 9: "uint32", 10: "fp64", 11: "bfp16"}
+
 PROF_TASK_TYPE_NAMES = {
     0: "Memcpy", 1: "RDMASend", 2: "Reduce_Inline", 3: "Reduce_TBE",
     4: "Notify_Record", 5: "Notify_Wait", 6: "Send_Notify", 7: "Send_Payload",
@@ -129,6 +135,7 @@ _REDUCE_TASK = struct.Struct("<IQIQQBBBB")
 _WRITE_WITH_NOTIFY_TASK = struct.Struct("<IQIQQQBBBBB")
 _CCU_TASK_HEAD = struct.Struct("<BBHHHII")
 _SYNC_STREAM_TASK = struct.Struct("<Q")
+_AIV_TASK = struct.Struct("<Q")
 # ModelExecTask (include/sim_common_defs.h, pack(1)):
 # execSeq(uint32) + role(uint8) + modelId(uint64) + peerStreamId(uint64)
 _MODEL_EXEC_TASK = struct.Struct("<IBQQ")
@@ -193,6 +200,18 @@ class CcuTaskData:
 @dataclass
 class SyncStreamTaskData:
     sync_idx: int
+
+
+@dataclass
+class AivGraphTaskData:
+    """AivTask (taskType=5, `<Q`): AIV kernel launch 占位。
+
+    launch_idx 为该 device 上的 AIV launch 序号 (采集侧 g_aivLaunchIndex
+    进程内自增), 与任务快照文件 hcclvm_aiv_device{dev}_launch{idx}_task.json
+    的 launchIndex 一一对应; 详细任务不在 db, 由 aiv_graph_builder 读快照展开
+    (第 12 章)。"""
+
+    launch_idx: int
 
 
 @dataclass
@@ -406,6 +425,11 @@ def decode_op_task_meta(blob: bytes, row_ref: str = "") -> HcclTaskMetaData:
     elif task_type == HccLTaskMetaType.SYNC_STREAM:
         (sync_idx,) = _SYNC_STREAM_TASK.unpack_from(blob, data_offset)
         data = SyncStreamTaskData(sync_idx)
+    elif task_type == HccLTaskMetaType.AIV_GRAPH:
+        # AIV launch 占位 (4.4.2 节 taskType=5, `<Q` launchIdx):
+        # 详细任务在 JSON 快照, 由 aiv_graph_builder 展开 (第 12 章)
+        (launch_idx,) = _AIV_TASK.unpack_from(blob, data_offset)
+        data = AivGraphTaskData(launch_idx)
     elif task_type == HccLTaskMetaType.MODEL_EXEC:
         exec_seq, role, model_id, peer_stream_id = \
             _MODEL_EXEC_TASK.unpack_from(blob, data_offset)
@@ -561,8 +585,9 @@ def _load_rank_eid_map(sim_db_path: str) -> dict:
     """读取 runnerdb (hccl_sim.db) RankEidMap 表: eid(hex) → rank_id (4.7 节)。
 
     estimate 模式 Communicator 表只有本 rank 一行, 对端 rank 以该表为准
-    (sim_models.h 注释; 宿主先例 GetRmtRankIdByEid); 表结构为
-    sim::RankEidMap 的分列存储: id INTEGER PK, rank_id INTEGER, eid BLOB(16B)。
+    (sim_models.h 注释; 宿主先例 GetRmtRankIdByEid)。表为类型化列
+    (id, rank_id, eid BLOB); eid 按字节直译为小写 hex 串, 与 ranktable.json
+    回退路径的 key 口径一致。
     """
     index: dict = {}
     if not sim_db_path or not os.path.isfile(sim_db_path):
@@ -572,9 +597,12 @@ def _load_rank_eid_map(sim_db_path: str) -> dict:
         try:
             cur = conn.cursor()
             cur.execute("SELECT rank_id, eid FROM RankEidMap")
-            for rank_id, eid in cur.fetchall():
+            for rank_id, eid_blob in cur.fetchall():
+                if eid_blob is None:
+                    continue
+                eid = bytes(eid_blob).hex()
                 if eid:
-                    index[bytes(eid).hex()] = rank_id
+                    index[eid] = int(rank_id)
         finally:
             conn.close()
     except sqlite3.Error as exc:

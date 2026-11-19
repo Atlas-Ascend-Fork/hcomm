@@ -85,6 +85,17 @@ set_target_properties(test_hccl_proxy_common PROPERTIES
 )
 target_link_libraries(test_hccl_proxy_common gtest_main)
 
+# RecordOpDbInfo is included directly; discard unrelated operator entry points
+# and mock its dependencies instead of linking the simulator storage/runtime.
+add_executable(test_hccl_op_stub hccl_op_stub_test.cc)
+set_target_properties(test_hccl_op_stub PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
+    LINK_LIBRARIES "gtest_main;gtest;log;dl"
+)
+target_compile_options(test_hccl_op_stub PRIVATE -ffunction-sections -fdata-sections)
+target_link_options(test_hccl_op_stub PRIVATE -Wl,--gc-sections -Wl,--wrap=dlsym)
+add_test(NAME test_hccl_op_stub COMMAND test_hccl_op_stub)
+
 # test_hccl_inner_stub
 add_executable(test_hccl_inner_stub hccl_inner_stub_test.cc)
 target_sources(test_hccl_inner_stub PRIVATE

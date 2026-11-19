@@ -830,7 +830,8 @@ drvError_t halHostRegister(void* src_ptr, UINT64 size, UINT32 flag, UINT32 devid
         HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, devPtr),
         HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, devPtr),
         HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV),
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceKey)));
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceKey),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::is_freed, uint64_t{0})));
     if (!virMemRes.ok()) {
         HCCL_VM_ERROR("can not find VirtualMemBlock by virPtr:{:p}", src_ptr);
         return DRV_ERROR_INVALID_VALUE;
@@ -892,7 +893,8 @@ drvError_t halHostUnregister(void* src_ptr, UINT32 devid)
         HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, devPtr),
         HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, devPtr),
         HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV),
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceKey)));
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceKey),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::is_freed, uint64_t{0})));
     if (virMemRes.ok()) {
         (void)sim::runtime::Db::Update<sim::runtime::VirtualMemBlock>(
             HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::id, virMemRes->id),

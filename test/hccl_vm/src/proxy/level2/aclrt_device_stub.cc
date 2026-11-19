@@ -118,11 +118,8 @@ aclError aclrtSetDevice(int32_t deviceId)
             HCCL_VM_WARN("rank not provided by MPI env, fallback to deviceId as rankId: {}", rankId);
         }
 
-        if (rankId >= HcclSim::GetMaxRanks()) {
-            HCCL_VM_ERROR(
-                "rank size {} exceeds max ranks {}, set env HCCL_VM_MAX_RANKS larger", rankId, HcclSim::GetMaxRanks());
-            return ACL_ERROR_INVALID_PARAM;
-        }
+        // ★ 不对 rankId 设规模上界：rank 数由 ranktable/MPI 决定（原 GetMaxRanks 检查已删除）。
+        // 合法性由上面的 GetRankIdByMPI 返回值与 0xFFFF 哨兵回退保证。
 
         sim::runtime::Device device{};
         auto ret = sim::runtime::Db::GetOneByPred<sim::runtime::Device>(HcclSim::Storage::And(

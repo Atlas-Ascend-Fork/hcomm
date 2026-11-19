@@ -148,7 +148,9 @@ def main():
             print(f"[MERGE-DPU] comm{group.comm_id}/iter{group.op_iter}: "
                   f"{merged} leading MEM_CPY merged into WRITE_WITH_NOTIFY "
                   f"({len(group.tasks)} remaining)")
-        builder = GraphBuilder(group, config, rank_map=rank_map)
+        builder = GraphBuilder(group, config, rank_map=rank_map,
+                               aiv_data_dirs=[os.path.dirname(
+                                   os.path.abspath(args.db))])
         _, dep = builder.build()
         if dep.task_count == 0:
             print(f"comm{group.comm_id}/iter{group.op_iter}: dependency graph is empty, skip")

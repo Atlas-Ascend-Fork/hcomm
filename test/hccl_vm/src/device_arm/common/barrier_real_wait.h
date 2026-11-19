@@ -24,14 +24,26 @@ namespace sim {
  */
 
 /**
+ * @brief 设置/清除屏障门控的 kernel 上下文（HandlePipeCmdExecKernel 专用）。
+ *
+ * kernel 执行窗口入口写入 host 显式传入、经 QueryOpDetailIdentity 校验过的
+ * opDetailId；kernel 返回/普通 kernel（id=0）时清零。SQ_HEAD/join 的门控判定按
+ * 当前上下文每窗口做一次（按确切 id 读属性），窗口内重复调用复用判定、零 SQL；
+ * 线程安全（原子 + 释放/获取序）：写=pipe handler 主线程，读=kernel 线程与
+ * aicpu_daemon_service 后台线程。编入 device 可执行（同进程唯一实例，见上）。
+ */
+void SetBarrierGateContext(uint32_t opDetailId);
+
+/**
  * @brief 阻塞等待本 rank（ppid 作用域表）未完成任务清零（runner 回放完成、数据落地）。
  *
- * 自动门控（无环境变量/开关文件，按算子属性判定）：取"本设备（GetCurDeviceKey）最新
- * 落库算子"的 opDetail（opType/dataType/reduceType），命中 reduce 类算子 + 64bit 数据
+ * 自动门控（无环境变量/开关文件，按算子属性判定）：按当前 kernel 上下文的
+ * opDetail（opType/dataType/reduceType），命中 reduce 类算子 + 64bit 数据
  * 类型（INT64/UINT64/FP64）或 PROD 归约——即 hccl LocalReduce→AicpuReduce 内联 CPU
  * 归约路径（无 REDUCE 任务制品、屏障假完成 ⇒ 时序倒置，方案二适用域）——才执行真等；
- * 其余算子/判定失败/尚无算子落库一律回退基线时序（fail-open）。判定按算子行 id 缓存，
- * 算子切换时重判并打 [BarrierRealWait] gate decision 日志。
+ * 其余算子/普通 kernel（无算子上下文）/判定失败一律回退基线时序（fail-open）。
+ * 判定按 kernel 上下文 id 缓存，上下文切换时重判并打 [BarrierRealWait] gate
+ * decision 日志。
  *
  * @param streamId   wholeTable=false 时按该流过滤（level2 per-SQ 语义）；wholeTable=true 时忽略。
  * @param wholeTable true=全表等待（level1 join 形态，与已验证初版语义一致）；false=按流等待（level2 hal 形态）。

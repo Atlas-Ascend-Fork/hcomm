@@ -19,6 +19,7 @@
 #include "runtime_state/db_sim_runner_common.h"
 #include "runtime_state/db_sim_runner_ops.h"
 #include "storage/table_access.h"
+#include "store_sim_run_mode.h"
 #include "sim_log.h"
 #include "sim_common_defs.h"
 
@@ -76,28 +77,51 @@ bool InitRankDeviceIds(AivSim::AivKernelExecutor& executor, uint32_t rankSize, u
 
     std::vector<AivSim::DeviceId> deviceIds(rankSize, UINT32_MAX);
 
-    for (uint32_t rankId = 0; rankId < rankSize; ++rankId) {
-        const auto rankCommResult = sim::runtime::Db::GetOneByPred<sim::runtime::Communicator>(HcclSim::Storage::And(
-            HcclSim::Storage::Eq(&sim::runtime::Communicator::rank_id, rankId),
-            HcclSim::Storage::Eq(&sim::runtime::Communicator::comm_hash, commHash),
-            HcclSim::Storage::Eq(&sim::runtime::Communicator::comm_id, commName)));
-        if (!rankCommResult.ok()) {
+    if (sim::IsEstimateMode()) {
+        // estimate 单进程评估(仅限单通信域, 由 EnsureEstimateSingleCommDomain 防护):
+        // Communicator 表只有本 rank 一行(幻影对端不注册), 且 hcomm 幻影建链已把
+        // 远端 rank 的 cclBuffer/aivCommInfo 回环分配到本地 device。与 AICPU/CCU 的
+        // estimate 口径一致: 动态注册表只查本 rank, 对端 rank→device 一律以本地
+        // deviceKey 回环占位, 仅用于地址翻译与 slice 解析。estimate 不跑 checker/runner,
+        // 对端 deviceId 元数据无消费方(性能仿真当前跳过 AIV 任务)。
+        if (g_cur_device_key == 0 || g_cur_device_key >= UINT32_MAX) {
             HCCL_VM_ERROR(
-                "failed to resolve rank communicator, commId={}, commName={}, rankId={}", commId, commName, rankId);
+                "estimate AIV rank device mapping failed: invalid local deviceKey={}, commId={}, rankId={}",
+                g_cur_device_key, commId, executor.GetRankId());
             return false;
         }
-        const sim::runtime::Communicator& rankComm = *rankCommResult;
-        const std::string rankCommName = ReadCommunicatorName(rankComm.comm_id);
-        if (rankCommName != commName || rankComm.comm_hash != commHash || rankComm.rank_size != rankSize
-            || rankComm.rank_id != rankId || rankComm.device_id >= UINT32_MAX) {
-            HCCL_VM_ERROR(
-                "invalid AIV rank device mapping, commId={}, commName={}, resolvedCommName={}, "
-                "rankSize={}, resolvedRankSize={}, requestedRank={}, resolvedRank={}, deviceId={}",
-                commId, commName, rankCommName, rankSize, rankComm.rank_size, rankId, rankComm.rank_id,
-                rankComm.device_id);
-            return false;
+        const auto localDeviceKey = static_cast<AivSim::DeviceId>(g_cur_device_key);
+        for (uint32_t rankId = 0; rankId < rankSize; ++rankId) {
+            deviceIds[rankId] = localDeviceKey;
         }
-        deviceIds[rankId] = static_cast<AivSim::DeviceId>(rankComm.device_id);
+        HCCL_VM_INFO(
+            "estimate mode: AIV rank device mapping looped back to local deviceKey={}, commId={}, rankSize={}",
+            localDeviceKey, commId, rankSize);
+    } else {
+        for (uint32_t rankId = 0; rankId < rankSize; ++rankId) {
+            const auto rankCommResult
+                = sim::runtime::Db::GetOneByPred<sim::runtime::Communicator>(HcclSim::Storage::And(
+                    HcclSim::Storage::Eq(&sim::runtime::Communicator::rank_id, rankId),
+                    HcclSim::Storage::Eq(&sim::runtime::Communicator::comm_hash, commHash),
+                    HcclSim::Storage::Eq(&sim::runtime::Communicator::comm_id, commName)));
+            if (!rankCommResult.ok()) {
+                HCCL_VM_ERROR(
+                    "failed to resolve rank communicator, commId={}, commName={}, rankId={}", commId, commName, rankId);
+                return false;
+            }
+            const sim::runtime::Communicator& rankComm = *rankCommResult;
+            const std::string rankCommName = ReadCommunicatorName(rankComm.comm_id);
+            if (rankCommName != commName || rankComm.comm_hash != commHash || rankComm.rank_size != rankSize
+                || rankComm.rank_id != rankId || rankComm.device_id >= UINT32_MAX) {
+                HCCL_VM_ERROR(
+                    "invalid AIV rank device mapping, commId={}, commName={}, resolvedCommName={}, "
+                    "rankSize={}, resolvedRankSize={}, requestedRank={}, resolvedRank={}, deviceId={}",
+                    commId, commName, rankCommName, rankSize, rankComm.rank_size, rankId, rankComm.rank_id,
+                    rankComm.device_id);
+                return false;
+            }
+            deviceIds[rankId] = static_cast<AivSim::DeviceId>(rankComm.device_id);
+        }
     }
 
     // Publish the new communication-domain identity and its complete device map
@@ -115,43 +139,37 @@ bool InitRankDeviceIds(AivSim::AivKernelExecutor& executor, uint32_t rankSize, u
     return true;
 }
 
-uint64_t TransDevMappedAddrToVirtual(uint64_t devMappedAddr, uint32_t deviceId, uint32_t importerDeviceId)
+// 翻译族选择规则（合同见 hccl_device_pub.cc FindDevMappedVirMemByDeviceNormalAndCheckOnly）：
+// 本翻译并非只查本 rank 的输入输出——aiv_env_init 按 cclBuffer/aivCommInfo 表
+// 遍历通信域全部 rank 的成员缓冲（各自 deviceId）。正常发射期各成员缓冲存活，
+// 活动行优先（同址复用后新任务命中新分配）；活动行未命中（NOT_FOUND）回退
+// 原始无谓词查询，保留迟到读取——目标 rank 先拆卸（成员缓冲已标记 free）而
+// 慢 rank 仍在初始化时，历史行仍可解析，不因活动谓词直接失败；引擎错误不吞。
+uint64_t TransDevMappedAddrToVirtual(uint64_t devMappedAddr, uint32_t deviceId)
 {
     if (devMappedAddr == 0) {
         return 0;
     }
-    const auto virMemRes = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
+    auto virMemRes = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
         HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, devMappedAddr),
         HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, devMappedAddr),
         HcclSim::Storage::Eq(
             &sim::runtime::VirtualMemBlock::src_type, static_cast<uint8_t>(sim::runtime::VIR_MEM_TYPE_DEV)),
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceId)));
-    if (virMemRes.ok()) {
-        return virMemRes->start_ptr + (devMappedAddr - virMemRes->dev_mapped_ptr);
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceId),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::is_freed, uint64_t{0})));
+    if (!virMemRes.ok() && virMemRes.code == HcclSim::Storage::DbCode::NOT_FOUND) {
+        virMemRes = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
+            HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, devMappedAddr),
+            HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, devMappedAddr),
+            HcclSim::Storage::Eq(
+                &sim::runtime::VirtualMemBlock::src_type, static_cast<uint8_t>(sim::runtime::VIR_MEM_TYPE_DEV)),
+            HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceId)));
     }
-    // VMB 未命中：该地址可能是 aclrtIpcMemImportByKey 重映射进本进程的属主物理块宿主 VA
-    // （只登记在 IpcMemImport，不落任何 VMB.dev_mapped 区间）。口径与 device 侧
-    // ResolveImportedTaskAddress 一致：按 (导入方设备, 属主设备, 地址区间) 反查导入行，
-    // virtualAddress = start_base + 区间内偏移。
-    if (importerDeviceId != 0) {
-        const auto importRes = sim::runtime::Db::GetOneByPred<sim::runtime::IpcMemImport>(HcclSim::Storage::And(
-            HcclSim::Storage::Eq(&sim::runtime::IpcMemImport::importer_device_id, importerDeviceId),
-            HcclSim::Storage::Eq(&sim::runtime::IpcMemImport::owner_device_id, deviceId),
-            HcclSim::Storage::Le(&sim::runtime::IpcMemImport::addr_base, devMappedAddr),
-            HcclSim::Storage::Gt(&sim::runtime::IpcMemImport::addr_end, devMappedAddr)));
-        if (importRes.ok()) {
-            const uint64_t diff = devMappedAddr - importRes->addr_base;
-            if (importRes->start_base > UINT64_MAX - diff) {
-                HCCL_VM_ERROR(
-                    "AIV ipc import virtual address computation overflows, devMappedAddr=0x{:x}, deviceId={}",
-                    devMappedAddr, deviceId);
-                return 0;
-            }
-            return importRes->start_base + diff;
-        }
+    if (!virMemRes.ok()) {
+        HCCL_VM_ERROR("cannot find AIV virtual memory, devMappedAddr=0x{:x}, deviceId={}", devMappedAddr, deviceId);
+        return 0;
     }
-    HCCL_VM_ERROR("cannot find AIV virtual memory, devMappedAddr=0x{:x}, deviceId={}", devMappedAddr, deviceId);
-    return 0;
+    return virMemRes->start_ptr + (devMappedAddr - virMemRes->dev_mapped_ptr);
 }
 } // namespace
 
@@ -196,11 +214,10 @@ bool aiv_env_init(
     const auto* cclBufferTable = static_cast<const uint64_t*>(buffIn);
     const auto* aivCommInfoTable = reinterpret_cast<const uint64_t*>(
         static_cast<const uint8_t*>(buffIn) + AivCommInfoLayout::GM_OUT_TABLE_OFFSET);
-    const uint32_t importerDeviceId = executor.GetDeviceId(rankId);
     for (uint32_t i = 0; i < rankSize; ++i) {
         const uint32_t deviceId = executor.GetDeviceId(i);
-        const uint64_t cclBuffer = TransDevMappedAddrToVirtual(cclBufferTable[i], deviceId, importerDeviceId);
-        const uint64_t aivCommInfoBuffer = TransDevMappedAddrToVirtual(aivCommInfoTable[i], deviceId, importerDeviceId);
+        const uint64_t cclBuffer = TransDevMappedAddrToVirtual(cclBufferTable[i], deviceId);
+        const uint64_t aivCommInfoBuffer = TransDevMappedAddrToVirtual(aivCommInfoTable[i], deviceId);
         if ((cclBufferTable[i] != 0 && cclBuffer == 0) || (aivCommInfoTable[i] != 0 && aivCommInfoBuffer == 0)) {
             HCCL_VM_ERROR("Trans ccl or aivcomminfo dev_mapped_addr to vir addr fail");
             return false;

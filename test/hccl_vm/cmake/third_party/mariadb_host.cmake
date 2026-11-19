@@ -15,9 +15,10 @@
 # 由本模块独立 configure+build 为静态库（默认）或共享库（发布变体），不要求
 # 部署环境安装 libmariadb-dev。MariaDB Server 本体仍由部署人员独立安装运行
 # （本仓不构建/不集成/不分发 Server）。
-# 源码缓存归属模块自身（src/storage_backends/mariadb/third_party/，git 忽略）；
+# 源码缓存归属仓库根 third_party/（复用顶层 THRID_PARTY_DIR；归档与解包产物
+# 为全仓共享缓存，根 .gitignore 忽略）；
 # device 子构建经交接变量（MARIADB_*，见本模块 CMakeLists 的 device 透传）
-# 复用同一份已验证源码并独立交叉构建（见 cmake/mariadb_device.cmake）。
+# 复用同一份已验证源码并独立交叉构建（见同目录 mariadb_device.cmake）。
 # 链接形态由 HVM_MARIADB_LINKAGE（static|shared，默认 static）控制，仅供发布
 # 流水线使用：二进制分发形态必须用 shared + 随包 libmariadb.so.3 + LGPL 四件套
 # （源码形态客户自编，静态链接对源码接收者天然合规）。
@@ -52,7 +53,7 @@ set(MARIADB_PROVENANCE_URL "https://gitcode.com/src-openeuler/mariadb-connector-
 set(MARIADB_URL "https://raw.gitcode.com/src-openeuler/mariadb-connector-c/blobs/9389ee06248685f68fe17b9d18a90c990e039020/mariadb-connector-c-3.3.8-src.tar.gz")
 set(MARIADB_SHA256 "f9f076b4aa9fb22cc94b24f82c80f9ef063805ecd6533a2eb5d5060cf93833e8")
 set(MARIADB_SOURCE_MANIFEST_SHA256 "58efcf2b5a3440432b54d5d96ad915ef2c32ca8d5bf69dc49e5beaf6057b04f9")
-set(MARIADB_MODULE_THIRD_PARTY_DIR "${CMAKE_CURRENT_LIST_DIR}/../third_party")
+set(MARIADB_MODULE_THIRD_PARTY_DIR "${THRID_PARTY_DIR}")
 set(MARIADB_ARCHIVE "${MARIADB_MODULE_THIRD_PARTY_DIR}/mariadb-connector-c-${MARIADB_VERSION}-src.tar.gz")
 set(MARIADB_SOURCE_DIR "${MARIADB_MODULE_THIRD_PARTY_DIR}/mariadb-connector-c-${MARIADB_VERSION}")
 set(MARIADB_SOURCE_STAMP "${MARIADB_SOURCE_DIR}/.hcclvm-source.stamp")
@@ -66,21 +67,45 @@ hcclvm_prepare_verified_source(
 # 上游许可原文（LGPL-2.1）随 verified 源码树自带（COPYING.LIB），安装落位
 # share/licenses/hccl-vm/，保证许可文本与实际链接的源码严格对应（LGPL 四件套
 # 之二）。许可全文另随模块分发：src/storage_backends/mariadb/licenses/。
-# 模块部署配置样例（部署 YAML / 服务端调优 cnf）随模块安装到安装包 config/
-#（裁剪掉本模块的源码树不安装这些样例）。
+# 模块部署配置样例（部署 YAML / 服务端调优 cnf）的安装由模块自身的 PREPARE
+# 分支执行（配方迁至仓库根后不再持有模块相对路径；裁剪掉本模块的源码树
+# 不安装这些样例）。
 if(NOT BUILD_DEVICE_ARM)
     install(FILES "${MARIADB_SOURCE_DIR}/COPYING.LIB"
         DESTINATION "share/licenses/hccl-vm"
         RENAME "mariadb-connector-c-${MARIADB_VERSION}-COPYING.LIB"
     )
-    install(FILES "${CMAKE_CURRENT_LIST_DIR}/../config/storage_mariadb.yaml.example"
-        DESTINATION "config"
-    )
-    install(FILES "${CMAKE_CURRENT_LIST_DIR}/../config/z-hccl-vm.cnf.example"
-        DESTINATION "config/mariadb"
-    )
 endif()
 set(MARIADB_CBUILD_DIR "${CMAKE_BINARY_DIR}/mariadb-connector-c-build")
+
+# 旧工作区迁移：Connector/C 子构建的步骤标记失效守卫。两种形态都触发完整失效
+#（清空子构建目录 + 删除 <name>-prefix/ 下步骤 stamp）：
+#  a) 子构建 CMakeCache 仍绑定旧 SOURCE_DIR（迁移前的模块 third_party 路径）；
+#  b) 子构建缓存缺失而 build stamp 仍在（部分清理的中间态）。
+# Makefile 生成器的步骤 stamp 不随子构建目录删除而失效：保留旧 stamp 时 make
+# 判定步骤已完成而跳过重配/重建，子构建产物缺失导致消费目标链接失败。
+set(_mariadb_invalidate_subbuild FALSE)
+if(EXISTS "${MARIADB_CBUILD_DIR}/CMakeCache.txt")
+    file(STRINGS "${MARIADB_CBUILD_DIR}/CMakeCache.txt" _mariadb_cached_home REGEX "^CMAKE_HOME_DIRECTORY:")
+    if(_mariadb_cached_home)
+        string(FIND "${_mariadb_cached_home}" "${MARIADB_SOURCE_DIR}" _mariadb_home_pos)
+        if(NOT _mariadb_home_pos GREATER -1)
+            message(STATUS
+                "[StorageBackends:mariadb] connector sub-build cache is bound to an old source dir; "
+                "reconfiguring ${MARIADB_CBUILD_DIR}")
+            set(_mariadb_invalidate_subbuild TRUE)
+        endif()
+    endif()
+elseif(EXISTS "${CMAKE_CURRENT_BINARY_DIR}/mariadb_connector-prefix/src/mariadb_connector-stamp/mariadb_connector-build")
+    message(STATUS
+        "[StorageBackends:mariadb] connector sub-build cache is missing while step stamps remain; "
+        "invalidating stamps for ${MARIADB_CBUILD_DIR}")
+    set(_mariadb_invalidate_subbuild TRUE)
+endif()
+if(_mariadb_invalidate_subbuild)
+    file(REMOVE_RECURSE "${MARIADB_CBUILD_DIR}")
+    file(REMOVE_RECURSE "${CMAKE_CURRENT_BINARY_DIR}/mariadb_connector-prefix")
+endif()
 set(MARIADB_STATIC_LIBRARY "${MARIADB_CBUILD_DIR}/libmariadb/libmariadb.a")
 set(MARIADB_SHARED_LIBRARY "${MARIADB_CBUILD_DIR}/libmariadb/libmariadb.so.3")
 

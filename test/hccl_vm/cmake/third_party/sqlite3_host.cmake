@@ -11,15 +11,16 @@
 # See the License in the specific file packaged with this Software for details.
 
 # SQLite 后端模块的客户库依赖配方（Host 架构）。
-# 源码缓存归属模块自身（src/storage_backends/sqlite/third_party/，git 忽略）；
+# 源码缓存归属仓库根 third_party/（复用顶层 THRID_PARTY_DIR；归档与解包产物
+# 为全仓共享缓存，根 .gitignore 忽略）；
 # device 子构建经 HCCLVM_SQLITE3_SOURCE_DIR 交接变量复用同一份已解压源码
-#（二进制输出各自独立，见 cmake/sqlite3_device.cmake）。
+#（二进制输出各自独立，见同目录 sqlite3_device.cmake）。
 include_guard(GLOBAL)
 
 set(SQLITE3_VERSION_NUM "3510300")
 set(SQLITE3_FILE "sqlite-amalgamation-${SQLITE3_VERSION_NUM}.zip")
 set(SQLITE3_URL "https://www.sqlite.org/2026/${SQLITE3_FILE}")
-set(SQLITE3_MODULE_THIRD_PARTY_DIR "${CMAKE_CURRENT_LIST_DIR}/../third_party")
+set(SQLITE3_MODULE_THIRD_PARTY_DIR "${THRID_PARTY_DIR}")
 set(SQLITE3_PKG_PATH ${SQLITE3_MODULE_THIRD_PARTY_DIR}/${SQLITE3_FILE})
 set(SQLITE3_TARGET_DIR ${SQLITE3_MODULE_THIRD_PARTY_DIR}/sqlite)
 # 交接变量：device 子构建（ExternalProject 参数）由此取得同一份源码缓存

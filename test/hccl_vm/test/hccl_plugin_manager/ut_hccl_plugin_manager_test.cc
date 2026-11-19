@@ -9,6 +9,7 @@
  */
 
 #include <any>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -19,6 +20,7 @@
 #include <stdexcept>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <thread>
 #include <unistd.h>
 
 #include "sim_binary_data_type_pub.h"
@@ -29,6 +31,11 @@
 
 #undef private
 #undef protected
+
+#include "runtime_state/db_sim_runner_ops.h"
+#include "storage/storage_session.h"
+#include "storage_backends/sqlite/composition/sqlite_backend_module.h"
+#include "storage_composition/storage_composition.h"
 
 namespace {
 const std::string kTestBase = "/tmp/hccl_pm_ut";
@@ -345,4 +352,80 @@ TEST_F(HcclPluginManagerTest, BroadcastToAll_ToPlugins_ReturnsSuccess)
 
     EXPECT_EQ(m.BroadcastToAllPlugin("all"), HcclSim::HcclVmResult::HCCL_SIM_SUCCESS);
     ClearPlugins();
+}
+
+class HcclPluginManagerDatabaseTest : public HcclPluginManagerTest {
+protected:
+    void SetUp() override
+    {
+        HcclPluginManagerTest::SetUp();
+        ASSERT_TRUE(sim::RegisterSimulatorStorageBackends().ok());
+        HcclSim::Storage::StorageRuntimeConfig sessionConfig;
+        sessionConfig.databases.push_back(
+            {std::string{"RUNNER_DB"}, sim::backends::kSqliteBackendName, std::string{kRunnerDbPath}});
+        sessionConfig.databases.push_back(
+            {std::string{"OP_DATA_DB"}, sim::backends::kSqliteBackendName, std::string{kOpDataDbPath}});
+        auto ensured = HcclSim::Storage::StorageRuntime::EnsureProcessSession(sessionConfig);
+        ASSERT_TRUE(ensured.ok()) << ensured.diagnostic;
+    }
+
+    void TearDown() override
+    {
+        (void)HcclPluginManager::GetInstance().StopAllPlugins();
+        (void)HcclSim::Storage::StorageRuntime::CloseProcessSession();
+        HcclPluginManagerTest::TearDown();
+    }
+
+private:
+    static constexpr const char* kRunnerDbPath = "/tmp/hccl_pm_ut_runner.db";
+    static constexpr const char* kOpDataDbPath = "/tmp/hccl_pm_ut_opdata.db";
+};
+
+TEST_F(HcclPluginManagerDatabaseTest, StopPluginsRemovesInstallRecord)
+{
+    MakeManifest(kPluginRoot + "/db_stop", "db_stop", "sleep 1");
+    auto& manager = HcclPluginManager::GetInstance();
+    ASSERT_EQ(manager.RegisterPlugin("db_stop"), HcclSim::HcclVmResult::HCCL_SIM_SUCCESS);
+    auto installed = sim::runtime::Db::Count<sim::runtime::Plugin>(
+        HcclSim::Storage::Eq(&sim::runtime::Plugin::tag, std::string{"db_stop"}));
+    ASSERT_TRUE(installed.ok()) << installed.diagnostic;
+    ASSERT_EQ(installed.value_or(0), 1U);
+
+    auto results = manager.StopPlugins({"db_stop"});
+    ASSERT_EQ(results.size(), 1U);
+    EXPECT_EQ(results[0], HcclSim::HcclVmResult::HCCL_SIM_SUCCESS);
+    auto remaining = sim::runtime::Db::Count<sim::runtime::Plugin>(
+        HcclSim::Storage::Eq(&sim::runtime::Plugin::tag, std::string{"db_stop"}));
+    ASSERT_TRUE(remaining.ok()) << remaining.diagnostic;
+    ASSERT_TRUE(remaining.value.has_value());
+    EXPECT_EQ(remaining.value_or(0), 0U);
+}
+
+TEST_F(HcclPluginManagerDatabaseTest, MonitorThreadRemovesInstallRecordWhenPluginExits)
+{
+    MakeManifest(kPluginRoot + "/db_exit", "db_exit", "sleep 1");
+    auto& manager = HcclPluginManager::GetInstance();
+    ASSERT_EQ(manager.RegisterPlugin("db_exit"), HcclSim::HcclVmResult::HCCL_SIM_SUCCESS);
+    auto installed = sim::runtime::Db::Count<sim::runtime::Plugin>(
+        HcclSim::Storage::Eq(&sim::runtime::Plugin::tag, std::string{"db_exit"}));
+    ASSERT_TRUE(installed.ok()) << installed.diagnostic;
+    ASSERT_EQ(installed.value_or(0), 1U);
+
+    bool erased = false;
+    for (int retry = 0; retry < 50; ++retry) {
+        {
+            std::lock_guard<std::mutex> lock(manager.m_mutex);
+            erased = manager.m_plugins.find("db_exit") == manager.m_plugins.end();
+        }
+        if (erased) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    ASSERT_TRUE(erased);
+    auto remaining = sim::runtime::Db::Count<sim::runtime::Plugin>(
+        HcclSim::Storage::Eq(&sim::runtime::Plugin::tag, std::string{"db_exit"}));
+    ASSERT_TRUE(remaining.ok()) << remaining.diagnostic;
+    ASSERT_TRUE(remaining.value.has_value());
+    EXPECT_EQ(remaining.value_or(0), 0U);
 }

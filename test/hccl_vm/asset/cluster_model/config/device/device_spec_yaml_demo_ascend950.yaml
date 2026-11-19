@@ -395,8 +395,8 @@ bandwidth:
 #      userMemTotal = 0xE00000000 + 0xF180000000 = 0xFF80000000（1022 GiB）> 0 ✓，段数 = 2 ✓
 #      rank_window_size(0x10000000000) ≤ rank_stride(0x10000000000) ✓
 #   6. （已取消）caps 由 GetCaps() 推导，见上
-#   7. rank_base + max_ranks × rank_stride 位宽: max_ranks 取 GetMaxRanks()
-#      （sim_capacity_limits.h:30-45，可被 HCCL_VM_MAX_RANKS 覆盖）；
+#   7. rank_base + rank 数 × rank_stride 位宽: rank 数取**拓扑实际值**（集群 rank 总数），
+#      模拟器不设 rank 规模上界（原 HCCL_VM_MAX_RANKS/GetMaxRanks 已删除）；
 #      1024 rank 时顶端 = 0x4008000000000（51 bit）→ 告警，见 R4
 #   8. max(regions ∪ ms 末端) ≤ resource_space_size ≤ die_size:
 #      0x940000 ≤ 0x4800000 ≤ 0x40000000 ✓（留白 62.75 MiB 为有意，见派生量节）

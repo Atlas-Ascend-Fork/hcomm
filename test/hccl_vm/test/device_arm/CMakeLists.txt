@@ -95,6 +95,28 @@ set_target_properties(test_data_op_channel_context_fake PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
 )
 
+# 真实共享内存和 pipe 响应：独立 device VA 共享复用池，及 CPU 访问/释放回归。
+add_executable(test_sim_aicpu_memory sim_aicpu_memory_test.cc)
+target_sources(test_sim_aicpu_memory PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/device_arm/common/sim_aicpu_pipe_handler.cc
+    # sim_aicpu_pipe_handler 的 kernel 执行窗口调用 sim::SetBarrierGateContext（方案二真等共享模块）；
+    # 生产形态该符号由 device 可执行 --export-dynamic 运行时解析，测试可执行须直接编入（同 test_sim_aicpu_comminit）。
+    ${CMAKE_SOURCE_DIR}/src/device_arm/common/barrier_real_wait.cc
+    ${CMAKE_SOURCE_DIR}/src/device_arm/common/hccl_device_pub.cc
+    ${CMAKE_SOURCE_DIR}/src/device_arm/common/hccl_task_collection.cc
+    ${CMAKE_SOURCE_DIR}/src/device_arm/common/sim_kernel_lib_mgr.cc
+    ${CMAKE_SOURCE_DIR}/src/common/sim_pipe_io.cc
+    ${CMAKE_SOURCE_DIR}/src/store/store_sim_memory_manager.cc
+    ${COMMON_SOURCES}
+)
+target_include_directories(test_sim_aicpu_memory PRIVATE ${COMMON_INCLUDE_DIRS})
+target_link_libraries(test_sim_aicpu_memory PRIVATE ${COMMON_LIBS})
+set_target_properties(test_sim_aicpu_memory PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
+)
+add_test(NAME sim_aicpu_memory COMMAND test_sim_aicpu_memory)
+set_tests_properties(sim_aicpu_memory PROPERTIES TIMEOUT 30)
+
 # 引擎专属测试子目录（test/device_arm/<模块名>/）：模块存在才接入
 #（真实 SQLite fixture/惰性默认会话依赖的 device_arm 用例随 sqlite 模块裁剪）。
 include(${CMAKE_SOURCE_DIR}/src/storage_backends/CMakeLists.txt)

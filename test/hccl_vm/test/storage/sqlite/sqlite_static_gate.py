@@ -36,8 +36,8 @@ def main():
         "src/storage_backends/sqlite/engine/sqlite_backend_factory.h",
         "src/storage_backends/sqlite/composition/sqlite_backend_module.h",
         "src/storage_backends/sqlite/composition/sqlite_backend_module.cc",
-        "src/storage_backends/sqlite/cmake/sqlite3_host.cmake",
-        "src/storage_backends/sqlite/cmake/sqlite3_device.cmake",
+        "cmake/third_party/sqlite3_host.cmake",
+        "cmake/third_party/sqlite3_device.cmake",
     ]
     for relative in required_files:
         if not (ROOT / relative).is_file():
@@ -57,7 +57,7 @@ def main():
             r"SqliteConnectionProfile\{10000, false, 200\}",
             r"StorageOpenMode::BACKUP_ONLY",
         ],
-        "src/storage_backends/sqlite/cmake/sqlite3_host.cmake": [
+        "cmake/third_party/sqlite3_host.cmake": [
             r"sqlite-amalgamation-3510300",
             r"SQLITE_THREADSAFE=1",
         ],

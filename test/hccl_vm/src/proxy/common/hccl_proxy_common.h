@@ -55,7 +55,7 @@ inline int GetDataTypeSize(HcclDataType dataType, uint32_t& size)
 // 的那份拷贝, 使 dlsym(RTLD_NEXT) 的"当前对象"变成 level0, 从而把符号解析回 level2
 // 自己的桩函数, 形成无限递归(stack overflow)。static 保证每个 .so 使用自身拷贝,
 // RTLD_NEXT 的返回地址始终位于调用方 .so 内。
-static inline void* DlsymRealWithFallback(const char* funcName, const char* fallbackSoName, bool logOnFailure = true)
+static inline void* DlsymRealWithFallback(const char* funcName, const char* fallbackSoName)
 {
     dlerror();
     void* func = dlsym(RTLD_NEXT, funcName);
@@ -92,14 +92,8 @@ static inline void* DlsymRealWithFallback(const char* funcName, const char* fall
     }
     const char* fallbackErrorMessage = dlerror();
     const std::string fallbackError = fallbackErrorMessage != nullptr ? fallbackErrorMessage : "unknown";
-    if (logOnFailure) {
-        HCCL_VM_ERROR(
-            "dlsym {} failed via RTLD_NEXT ({}), fallback {} ({})", funcName, nextError, fallbackSoName, fallbackError);
-    } else {
-        HCCL_VM_DEBUG(
-            "optional symbol {} unavailable via RTLD_NEXT ({}), fallback {} ({})", funcName, nextError, fallbackSoName,
-            fallbackError);
-    }
+    HCCL_VM_ERROR(
+        "dlsym {} failed via RTLD_NEXT ({}), fallback {} ({})", funcName, nextError, fallbackSoName, fallbackError);
     return nullptr;
 }
 

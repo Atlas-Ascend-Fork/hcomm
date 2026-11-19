@@ -26,10 +26,7 @@ static uint32_t ResolveTotalRankNum(const TopoMeta& topoMeta)
     if (total != 0) {
         return total;
     }
-    for (const auto& srv : sim::runtime::g_comm_config_data.servers) {
-        total += srv.devNum;
-    }
-    return total;
+    return sim::runtime::GetCommConfigTotalRankNum();
 }
 
 void MockCommCommand::Setup(CLI::App& app)

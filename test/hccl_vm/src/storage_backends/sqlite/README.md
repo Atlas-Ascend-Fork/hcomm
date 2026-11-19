@@ -10,7 +10,9 @@
 
 | 开源软件 | 版本 | 许可证 (SPDX) | 下载地址 |
 | --- | --- | --- | --- |
-| sqlite | 3.51.3 | Public domain | 随仓分发：third_party/sqlite-amalgamation-3510300.zip（[上游归档](https://www.sqlite.org/2026/sqlite-amalgamation-3510300.zip)） |
+| sqlite | 3.51.3 | Public domain | [sqlite-amalgamation-3510300.zip](https://www.sqlite.org/2026/sqlite-amalgamation-3510300.zip) |
+
+源码缓存位于仓库根 `third_party/`（归档与解包产物，git 忽略）。首次构建在线下载；离线场景可将原始归档按原名 `sqlite-amalgamation-3510300.zip` 复制到仓库根 `third_party/`，构建直接解包使用，无需网络。
 
 ## 3. 回到公共流程
 

@@ -234,7 +234,9 @@ def run_perf_pipeline(
             print(f"[MERGE-DPU] comm{group.comm_id}/iter{group.op_iter}: "
                   f"{merged} leading-block MEM_CPY merged into WRITE_WITH_NOTIFY "
                   f"(remaining {len(group.tasks)})")
-        builder = GraphBuilder(group, config, rank_map=rank_map)
+        builder = GraphBuilder(group, config, rank_map=rank_map,
+                               aiv_data_dirs=[os.path.dirname(
+                                   os.path.abspath(db_path))])
         _, dep = builder.build()
         if dep.task_count == 0:
             print(f"[SKIP] comm{group.comm_id}/iter{group.op_iter}: "

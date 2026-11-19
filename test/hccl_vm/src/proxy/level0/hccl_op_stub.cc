@@ -234,10 +234,8 @@ static uint32_t GetDeviceType()
 static void RecordOpCounterBuffer(HcclComm comm)
 {
     using GetCounterAddrFunc = HcclResult (*)(HcclComm, uint64_t*, uint64_t*, uint64_t*);
-    // 卡死检测是可选 DFX 特性：符号由 hcomm 导出，老版本 CANN 可能没有。查不到时保持静默
-    // （DEBUG），避免 [error] 日志被测试框架判为失败；特性不可用时 checker 行为与未开启一致。
     const auto getCounterAddr = reinterpret_cast<GetCounterAddrFunc>(
-        sim::DlsymRealWithFallback("HcclStuckDetectGetCounterAddr", "libhcomm.so", false));
+        sim::DlsymRealWithFallback("HcclStuckDetectGetCounterAddr", "libhccl.so"));
     if (getCounterAddr == nullptr) {
         HCCL_VM_DEBUG("HcclStuckDetectGetCounterAddr unavailable, skip counter buffer recording.");
         return;
@@ -295,13 +293,26 @@ int RecordOpDbInfo(
     uint32_t srcRank, uint32_t dstRank, const std::vector<uint8_t>& extInfo, HcclComm comm)
 {
     (void)cmdType;
-    auto convertRankToDeviceId = [](uint32_t commRank, uint32_t& deviceId) {
+    // 本次调用内复用相同 rank 的设备身份；不同 rank 仍按原顺序查询并传播失败。
+    uint32_t memoRanks[4] = {UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX};
+    uint32_t memoDevices[4] = {0, 0, 0, 0};
+    uint32_t memoCount = 0;
+    auto convertRankToDeviceId = [&](uint32_t commRank, uint32_t& deviceId) {
+        for (uint32_t m = 0; m < memoCount; ++m) {
+            if (memoRanks[m] == commRank) {
+                deviceId = memoDevices[m];
+                return true;
+            }
+        }
         sim::runtime::Device device{};
         if (sim::runtime::GetDeviceByCommRank(g_cur_comm_key, commRank, device) != ACL_SUCCESS) {
             HCCL_VM_ERROR("failed to map communicator rankId={} to deviceId, commId={}", commRank, g_cur_comm_key);
             return false;
         }
         deviceId = static_cast<uint32_t>(device.id);
+        memoRanks[memoCount] = commRank;
+        memoDevices[memoCount] = deviceId;
+        ++memoCount;
         return true;
     };
 
@@ -337,13 +348,14 @@ int RecordOpDbInfo(
 
     sim::operation::OpMemInfoTab opMemInfoTab{};
     opMemInfoTab.id = 0;
+    // 零长度缓冲区不参与内存布局，保留零初始化地址，避免转换非空的区间末尾指针。
     opMemInfoTab.inputSize = inputSize;
-    if (inputBuf != nullptr) {
+    if (inputBuf != nullptr && inputSize > 0) {
         opMemInfoTab.inputAddr = sim::GetVirPtrByDevPtr(reinterpret_cast<uint64_t>(inputBuf));
     }
 
     opMemInfoTab.outputSize = outputSize;
-    if (outputBuf != nullptr) {
+    if (outputBuf != nullptr && outputSize > 0) {
         opMemInfoTab.outputAddr = sim::GetVirPtrByDevPtr(reinterpret_cast<uint64_t>(outputBuf));
     }
 

@@ -35,6 +35,7 @@
 #include "runtime_state/db_sim_runner_ops.h"
 #include "operation_data/operation_data_ops.h"
 #include "storage/table_access.h"
+#include "store_sim_run_mode.h"
 #include "hccl_proxy_common.h"
 #include "level1_proxy_common.h"
 
@@ -90,6 +91,10 @@ uint64_t
 InsertOperatorMember(const std::string& name, uint32_t rankSize, uint32_t rankId, uint64_t deviceId, uint64_t commHash)
 {
     // 一条记录只描述一个 rank; 同一 comm_id 下的全部记录共同描述完整通信域.
+    // estimate 单通信域防护: 本 rank 已注册其他通信域时拒绝(多通信域 estimate 不支持).
+    if (!sim::runtime::EnsureEstimateSingleCommDomain(name.c_str(), commHash, rankId)) {
+        return 0;
+    }
     sim::runtime::Communicator record{};
     std::strncpy(record.comm_id, name.c_str(), sizeof(record.comm_id) - 1);
     record.comm_hash = commHash;
@@ -300,6 +305,11 @@ CreateLevel1Communicator(const char* clusterInfo, uint32_t rank, const HcclCommC
     }
     const uint64_t commHash = HashDeviceIds(memberDeviceIds);
 
+    // estimate 单通信域防护: 本 rank 已注册其他通信域时拒绝.
+    if (!sim::runtime::EnsureEstimateSingleCommDomain(commName, commHash, rank)) {
+        return HCCL_E_INTERNAL;
+    }
+
     const auto existingComms = sim::runtime::Db::GetByPred<sim::runtime::Communicator>(HcclSim::Storage::And(
         HcclSim::Storage::Eq(&sim::runtime::Communicator::comm_id, std::string(commName)),
         HcclSim::Storage::Eq(&sim::runtime::Communicator::comm_hash, commHash),
@@ -401,6 +411,11 @@ HcclResult CreateLevel1CommAll(uint32_t ndev, int32_t* devices, HcclComm* comms)
     const uint64_t commHash = HashDeviceIds(memberDeviceIds);
     constexpr const char* kWorldCommName = "hccl_world_group";
     const size_t bufferSizeBytes = static_cast<size_t>(GetLevel1DefaultBufferSizeMb()) * kSizeMb;
+
+    // estimate 单通信域防护: InitAll 只建一个 world 域, 循环前按 rank0 检查一次即可.
+    if (!sim::runtime::EnsureEstimateSingleCommDomain(kWorldCommName, commHash, 0)) {
+        return HCCL_E_INTERNAL;
+    }
 
     for (uint32_t index = 0; index < ndev; ++index) {
         const uint64_t deviceId = memberDeviceIds[index];
@@ -803,6 +818,13 @@ HcclResult HcclCreateSubCommConfig(
     HcclComm* comm, uint32_t rankNum, uint32_t* rankIds, uint64_t subCommId, uint32_t subCommRankId,
     HcclCommConfig* config, HcclComm* subComm)
 {
+    // estimate 单通信域防护: 子通信域意味着第二个通信域, 直接拒绝并明确提示用户.
+    if (sim::IsEstimateMode()) {
+        HCCL_VM_ERROR("estimate mode only supports a single communicator domain: creating sub-communicator "
+                      "(HcclCreateSubCommConfig) is not supported. Please run multi-communicator scenarios in "
+                      "normal mode (without --estimate).");
+        return HCCL_E_NOT_SUPPORT;
+    }
     if (IsLevel1Mode()) {
         (void)comm;
         (void)rankNum;

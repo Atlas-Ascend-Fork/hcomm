@@ -41,7 +41,9 @@ constexpr uint64_t SIZE_200MB = 200ULL * 1024 * 1024; // CCL 200MB
 constexpr uint32_t MAX_STREAM_COUNT = 40;
 constexpr uint32_t MAX_NOTIFY_COUNT = 64;
 
-#define MAX_DEV_NUM 1024
+// ★ 原 `#define MAX_DEV_NUM 1024` 已删除：deviceId 是全局唯一物理设备 id，取值范围由集群
+// 拓扑（super_node_num × server_num × 卡数）决定，不得设编译期上界。按 deviceId 索引的
+// 容器一律稀疏/动态（见 ccu_task_common_v3.h 的 waitInfoTmp_ / postInfoTmp_）。
 
 using ChannelHandle = uint64_t;
 using ThreadHandle = uint64_t;

@@ -40,11 +40,9 @@ namespace devspec {
         uint64_t RankWindowSize() const { return m_addr.rankWindowSize; }
         uint64_t RankStride() const { return m_addr.rankStride; }
 
-        /// rank 槽位硬上界 = `GetMaxRanks()`（默认 1024，可被 `HCCL_VM_MAX_RANKS` 覆盖）。
-        /// 用于 AllocVirMem 的 G1 守卫。
-        /// ★ 不得用 47-bit VA 位宽（约 127）作为硬上界 —— 那会让 128~1024 rank 的集群
-        ///   完全无法分配内存，属功能回退。位宽问题按 R4 只告警（见 Va47BitRankLimit）。
-        uint32_t MaxRankSlots() const;
+        /// ★ 本类【不提供】rank 槽位上界：集群 rank 数由拓扑决定，模拟器不设人为上限
+        ///   （原 `MaxRankSlots()` 已删除）。rankIdx 的合法性由 `RankBase()` 的 uint64
+        ///   溢出防护兜底（溢出返回 0，调用方按失败处理），47-bit 位宽只作诊断告警。
 
         /// 47-bit 规范用户 VA 下"窗口起点不越界"的最大 rank 数（诊断用，非硬约束）。
         /// 超过此值的 rank 其 VA 仍是有效的模拟 token（不被 host 解引用），只是超出

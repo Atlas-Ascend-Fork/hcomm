@@ -148,8 +148,10 @@ namespace TaskGraphGeneratorV3 {
         std::vector<NodeId> loopNodeIdStack_;
         std::map<TaskNode*, TaskNode*> localPostWaitPairs_;
         std::vector<TaskNode*> parallelNodes_;
-        std::vector<BilateralWaitInfoV3> waitInfoTmp_;
-        std::vector<BilateralPostInfoV3> postInfoTmp_;
+        // 按 peer deviceId 稀疏存储：deviceId 是全局唯一的物理设备 id（Device 表主键），
+        // 取值范围由集群拓扑决定，故不设编译期上界（原 resize(MAX_DEV_NUM) 已删除）。
+        std::map<DeviceId, BilateralWaitInfoV3> waitInfoTmp_;
+        std::map<DeviceId, BilateralPostInfoV3> postInfoTmp_;
         std::vector<std::map<TaskNode*, TaskNode*>> bilateralPart1_;
         std::vector<std::map<TaskNode*, TaskNode*>> bilateralPart2_;
         std::vector<std::vector<BilateralNodeV3>> bilateralNodes_;

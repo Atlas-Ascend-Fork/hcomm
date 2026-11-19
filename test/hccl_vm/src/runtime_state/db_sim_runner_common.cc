@@ -41,10 +41,6 @@ namespace sim::runtime {
 thread_local uint64_t g_cur_device_key = 0;
 thread_local uint64_t g_cur_comm_key = 0;
 
-// 进程级通信域配置缓存: mock-comm执行时经RefreshTopoMetaConfig刷新,
-// 其余进程首次使用时经LoadCommConfigData按TopoMetaConfig表项加载
-CommConfigData g_comm_config_data;
-
 namespace {
     constexpr uint32_t kCommunicatorWaitIntervalMs = 100;
     // 销毁同步(MarkAndSyncCommunicatorDestroy)独立预算: 固定 300s(64p+ 实测 60s 不够),
@@ -137,7 +133,8 @@ namespace {
 
     using json = nlohmann::json;
 
-    // 进程级通信域配置缓存锁与加载标记(仅本翻译单元访问)
+    // 缓存、锁与加载标记均保持私有，避免多个动态库加载时同名缓存被重复初始化。
+    CommConfigData g_comm_config_data;
     std::mutex g_comm_config_mutex;
     bool g_comm_config_loaded = false;
 
@@ -280,6 +277,36 @@ namespace {
     }
 } // namespace
 
+bool EnsureEstimateSingleCommDomain(const char* commName, uint64_t commHash, uint32_t rankId)
+{
+    if (!sim::IsEstimateMode()) {
+        return true;
+    }
+    if (!IsValidCommunicatorName(commName) || commName[0] == '\0') {
+        HCCL_VM_ERROR("estimate single-domain guard: invalid communicator name");
+        return false;
+    }
+    // estimate 为单进程评估, 表内只会有本 rank 的行; 扫描本 rank 已注册的通信域,
+    // 拒绝第二个不同身份(commName/commHash)的通信域注册。查询失败不拦截,
+    // 交由后续插入路径统一报错。
+    auto membersResult = Db::GetByPred<Communicator>(HcclSim::Storage::Eq(&Communicator::rank_id, rankId));
+    if (!membersResult.ok() || !membersResult.value.has_value()) {
+        return true;
+    }
+    for (const auto& member : *membersResult.value) {
+        if (IsSameCommunicator(member, commName, commHash)) {
+            continue; // 同一通信域重复初始化(幂等), 放行
+        }
+        HCCL_VM_ERROR(
+            "estimate mode only supports a single communicator domain: rank={} already registered domain "
+            "[{}](commHash={}), registering domain [{}](commHash={}) is rejected. "
+            "Please run multi-communicator scenarios in normal mode (without --estimate).",
+            rankId, CommunicatorNameOf(member.comm_id), member.comm_hash, std::string(commName), commHash);
+        return false;
+    }
+    return true;
+}
+
 bool GetOrInsertCommunicator(
     const char* commName, uint32_t rankSize, uint32_t rankId, uint64_t deviceId, uint64_t commHash, uint64_t& commId)
 {
@@ -288,6 +315,10 @@ bool GetOrInsertCommunicator(
         HCCL_VM_ERROR(
             "invalid communicator parameters: name={}, rankSize={}, rankId={}, deviceId={}",
             SafeCommunicatorName(commName), rankSize, rankId, deviceId);
+        return false;
+    }
+
+    if (!EnsureEstimateSingleCommDomain(commName, commHash, rankId)) {
         return false;
     }
 
@@ -475,9 +506,7 @@ bool WaitCommunicatorDestroyReady(uint64_t commId)
 // level 0 专用: 避免快卡提前销毁, 标记本 rank 已调用销毁接口并等待同通信域全部成员到达后再返回
 bool MarkAndSyncCommunicatorDestroy(uint64_t commId)
 {
-    // 首错诊断口径：self 读取失败 / 状态 Update 失败 / 轮询查询失败 / 成员未到齐
-    // 四类分开（code+diagnostic）；预算（kCommDestroyWaitTimeoutMs 固定 300000ms，
-    // 不受 HCCL_VM_COMMUNICATOR_WAIT_TIMEOUT_MS 覆盖）与完成判据不变。
+    // self 读取、状态标记、轮询查询与成员未到齐分别诊断。
     const auto self = Db::GetById<Communicator>(commId);
     if (!self.ok() || !IsValidCommunicatorName(self->comm_id) || self->comm_id[0] == '\0' || self->rank_size == 0
         || self->rank_id >= self->rank_size) {
@@ -498,90 +527,80 @@ bool MarkAndSyncCommunicatorDestroy(uint64_t commId)
         return false;
     }
 
-    // 等待同通信域(相同 comm_id + comm_hash)表内全部成员标记销毁;
-    // 轮询统计全部来自既有 GetByPred 返回集（不新增 COUNT/全表扫描）：
-    // 查询/错误次数、首个后端错误、末次结果、已见记录数/唯一 rank 数/
-    // DESTROYED/ACTIVE 计数与 ≤8 个未完成 rank 样本；只在超时收尾打印。
     const uint32_t budgetMs = kCommDestroyWaitTimeoutMs;
     const auto startTs = std::chrono::steady_clock::now();
     const auto deadline = startTs + std::chrono::milliseconds(budgetMs);
-    uint64_t queryCount = 0;
+    uint64_t probeCount = 0;
+    uint64_t confirmCount = 0;
     uint64_t queryErrorCount = 0;
-    bool sawBackendError = false;
     int firstDbCode = 0;
     std::string firstDbDiagnostic;
     int lastDbCode = 0;
-    size_t maxMembersSeen = 0;
-    size_t lastUniqueRanks = 0;
-    size_t lastDestroyed = 0;
-    size_t lastActive = 0;
-    std::vector<uint32_t> lastNotDestroyedSample;
+    uint32_t backoffMs = 100;
+    const auto waitNextPoll = [&]() {
+        const auto remainingMs
+            = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now())
+                  .count();
+        const auto sleepMs = std::min<int64_t>(remainingMs, backoffMs + self->rank_id % 10U);
+        if (sleepMs > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
+        }
+        backoffMs = std::min(backoffMs * 2U, 200U);
+    };
     while (std::chrono::steady_clock::now() < deadline) {
-        ++queryCount;
-        // 轮询只消费 id/rank_id/status：按需投影收窄读取；条件与 id 升序保持
-        // GetByPred 既有语义（诊断统计与样本顺序不变，判据不变）。
-        const auto recordsResult = HcclSim::Storage::Select<Communicator>(
-            CommunicatorIdentityCondition(self->comm_id, self->comm_hash),
-            HcclSim::Storage::OrderBy(&Communicator::id, HcclSim::Storage::SortDirection::ASC),
-            HcclSim::Storage::Fields(&Communicator::id, &Communicator::rank_id, &Communicator::status));
-        if (!recordsResult.ok() || !recordsResult.value.has_value()) {
+        ++probeCount;
+        const auto undestroyedResult = HcclSim::Storage::Select<Communicator>(
+            HcclSim::Storage::And(
+                CommunicatorIdentityCondition(self->comm_id, self->comm_hash),
+                HcclSim::Storage::Ne(&Communicator::status, static_cast<uint8_t>(COMM_STATUS_DESTROYED))),
+            HcclSim::Storage::Fields(&Communicator::id), HcclSim::Storage::Limit(1U));
+        if (!undestroyedResult.ok() || !undestroyedResult.value.has_value()) {
             ++queryErrorCount;
-            lastDbCode = static_cast<int>(recordsResult.code);
-            if (!sawBackendError) {
-                sawBackendError = true;
+            lastDbCode = static_cast<int>(undestroyedResult.code);
+            if (queryErrorCount == 1) {
                 firstDbCode = lastDbCode;
-                firstDbDiagnostic = recordsResult.diagnostic;
+                firstDbDiagnostic = undestroyedResult.diagnostic;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(kCommunicatorWaitIntervalMs));
+            waitNextPoll();
             continue;
         }
-        const auto& records = *recordsResult.value;
-        if (records.size() > maxMembersSeen) {
-            maxMembersSeen = records.size();
+        lastDbCode = 0;
+        if (!undestroyedResult.value->empty()) {
+            waitNextPoll();
+            continue;
         }
-        bool allDestroyed = !records.empty();
-        size_t destroyedCount = 0;
-        size_t activeCount = 0;
-        std::set<uint32_t> uniqueRanks;
-        lastNotDestroyedSample.clear();
-        for (const auto& record : records) {
-            uniqueRanks.insert(record.rank_id);
-            if (record.status == COMM_STATUS_DESTROYED) {
-                ++destroyedCount;
-            } else {
-                allDestroyed = false;
-                ++activeCount;
-                if (lastNotDestroyedSample.size() < 8U) {
-                    lastNotDestroyedSample.push_back(record.rank_id);
-                }
+
+        // 空探测不是成功：在预算内用一次聚合确认非空且全员已销毁。
+        if (std::chrono::steady_clock::now() >= deadline) {
+            break;
+        }
+        ++confirmCount;
+        const auto countsResult = HcclSim::Storage::CountMatches<Communicator>(
+            CommunicatorIdentityCondition(self->comm_id, self->comm_hash),
+            HcclSim::Storage::Eq(&Communicator::status, static_cast<uint8_t>(COMM_STATUS_DESTROYED)));
+        if (!countsResult.ok() || !countsResult.value.has_value()) {
+            ++queryErrorCount;
+            lastDbCode = static_cast<int>(countsResult.code);
+            if (queryErrorCount == 1) {
+                firstDbCode = lastDbCode;
+                firstDbDiagnostic = countsResult.diagnostic;
+            }
+        } else {
+            lastDbCode = 0;
+            if (countsResult.value->total > 0ULL && countsResult.value->matched == countsResult.value->total) {
+                return true;
             }
         }
-        lastUniqueRanks = uniqueRanks.size();
-        lastDestroyed = destroyedCount;
-        lastActive = activeCount;
-        lastDbCode = 0; // 末次查询成功
-        if (allDestroyed) {
-            return true;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(kCommunicatorWaitIntervalMs));
+        waitNextPoll();
     }
     const auto elapsedMs
         = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startTs).count();
-    std::string sampleText;
-    for (size_t i = 0; i < lastNotDestroyedSample.size(); ++i) {
-        if (i > 0) {
-            sampleText += ",";
-        }
-        sampleText += std::to_string(lastNotDestroyedSample[i]);
-    }
     HCCL_VM_ERROR(
         "wait communicator destroy sync timeout: name={}, commHash={}, rankSize={}, "
-        "budgetMs={}, elapsedMs={}, queries={}, queryErrors={}, firstDbCode={}, "
-        "firstDbDiagnostic={}, lastDbCode={}, maxMembersSeen={}, uniqueRanks={}, "
-        "destroyed={}, active={}, notDestroyedSample=[{}]",
-        SafeCommunicatorName(self->comm_id), self->comm_hash, self->rank_size, budgetMs, elapsedMs, queryCount,
-        queryErrorCount, firstDbCode, firstDbDiagnostic, lastDbCode, maxMembersSeen, lastUniqueRanks, lastDestroyed,
-        lastActive, sampleText);
+        "budgetMs={}, elapsedMs={}, probes={}, confirms={}, queryErrors={}, firstDbCode={}, "
+        "firstDbDiagnostic={}, lastDbCode={}",
+        SafeCommunicatorName(self->comm_id), self->comm_hash, self->rank_size, budgetMs, elapsedMs, probeCount,
+        confirmCount, queryErrorCount, firstDbCode, firstDbDiagnostic, lastDbCode);
     return false;
 }
 
@@ -1495,6 +1514,19 @@ void ResetCommConfigData()
     std::lock_guard<std::mutex> lock(g_comm_config_mutex);
     g_comm_config_data = CommConfigData{};
     g_comm_config_loaded = false;
+}
+
+uint32_t GetCommConfigTotalRankNum()
+{
+    if (!LoadCommConfigData()) {
+        return 0;
+    }
+    std::lock_guard<std::mutex> lock(g_comm_config_mutex);
+    uint32_t total = 0;
+    for (const auto& server : g_comm_config_data.servers) {
+        total += server.devNum;
+    }
+    return total;
 }
 
 bool GetServerKeyByRankId(uint32_t rankId, uint64_t& serverKey)

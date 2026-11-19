@@ -28,19 +28,6 @@ namespace AivSim {
 namespace {
     std::atomic<uint64_t> g_aivUbSequence{0};
 
-    /// 插入前物理清除本设备已标记释放的行（is_freed=1，2026-09-17 拆卸竞态修复；
-    /// 与 aclrt_memory_stub.cc 同一助手合同）：释放路径只置 is_freed=1 不删行，
-    /// 插入前先清同设备全部标记行 ⇒ 标记行与活跃行永不同址共存 ⇒ 等值/包含
-    /// 查询至多命中一行。拆卸期无插入 ⇒ 标记行存续过迟到读者窗口（修复目标：
-    /// FR1/R3K4 取证 43/48 次远端解析未命中全部晚于目标行成功删除 16.7s+）；
-    /// 运行期稳态表大小 = 活跃行数（写时压实），拆卸尾巴由下一轮 FLUSHALL 兜底。
-    template <typename T>
-    void PurgeFreedRowsOfDevice(uint64_t deviceId)
-    {
-        (void)sim::runtime::Db::Delete<T>(HcclSim::Storage::And(
-            HcclSim::Storage::Eq(&T::device_id, deviceId), HcclSim::Storage::Eq(&T::is_freed, uint64_t{1})));
-    }
-
     bool ResolveCurrentMemoryContext(sim::runtime::Runner& runner, uint64_t& deviceId)
     {
         const uint64_t serverId = sim::runtime::GetCurServerId();
@@ -100,8 +87,6 @@ namespace {
             return false;
         }
 
-        // 插入前先清本设备标记行（见 PurgeFreedRowsOfDevice 注释）
-        PurgeFreedRowsOfDevice<sim::runtime::PhyMemBlock>(deviceId);
         sim::runtime::PhyMemBlock physicalRecord{};
         physicalRecord.device_id = deviceId;
         std::snprintf(physicalRecord.name, sizeof(physicalRecord.name), "%s", shmName.c_str());
@@ -125,8 +110,6 @@ namespace {
             return false;
         }
 
-        // 插入前先清本设备标记行（见 PurgeFreedRowsOfDevice 注释）
-        PurgeFreedRowsOfDevice<sim::runtime::VirtualMemBlock>(deviceId);
         sim::runtime::VirtualMemBlock virtualRecord{};
         virtualRecord.start_ptr = reinterpret_cast<uint64_t>(virtualAddress);
         virtualRecord.dev_mapped_ptr = virtualRecord.start_ptr;

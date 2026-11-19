@@ -12,16 +12,33 @@
 #include "sim_aicpu_pipe_msg.h"
 #include <unistd.h>
 #include <string>
+#include <map>
 #include <dlfcn.h>
 #include "sim_log.h"
 #include "sim_common_api.h"
+#include "barrier_real_wait.h"
 #include "operation_data/operation_data_ops.h"
 #include "hccl_device_pub.h"
 #include "store_sim_memory_manager.h"
+#include "store_sim_shm_ops.h"
+#include "store_sim_comm_pool_policy.h"
 #include "sim_kernel_lib_mgr.h"
 #include "aicpu_args_stub.h"
 
 namespace sim {
+
+namespace {
+    // Pipe 命令由 device 主线程串行处理。按分配名保留独立 VA，后备物理内存仍共享池。
+    std::map<std::string, void*> g_commPoolMappings;
+} // namespace
+
+void CleanupCommPoolMappings()
+{
+    for (const auto& entry : g_commPoolMappings) {
+        ShmClose(entry.second);
+    }
+    g_commPoolMappings.clear();
+}
 
 int HandlePipeCmdSetDevId(uint8_t* payload, uint32_t payloadLen)
 {
@@ -42,9 +59,34 @@ int HandlePipeCmdSetDevId(uint8_t* payload, uint32_t payloadLen)
 
 int HandlePipeCmdGetDevPtr(uint8_t* payload, uint32_t payloadLen)
 {
+    if (payloadLen != sizeof(DevMemOpPayload)) {
+        RspGetDevPtrPayload donePayload{};
+        DeviceSendMsg(PIPE_RSP_GET_DEV_PTR, &donePayload, sizeof(donePayload));
+        return -1;
+    }
     DevMemOpPayload* req = reinterpret_cast<DevMemOpPayload*>(payload);
     RspGetDevPtrPayload donePayload{};
-    void* shmptr = sim::MemoryManager::GetInstance().AcquireMemByName(req->memName);
+    void* shmptr = nullptr;
+    if (req->useCommPool) {
+        const auto it = g_commPoolMappings.find(req->memName);
+        if (it != g_commPoolMappings.end()) {
+            shmptr = it->second;
+        } else {
+            size_t poolSize = 0;
+            // 不使用按池名缓存的 AcquireMemByName：每次 ShmOpen 都建立独立 MAP_SHARED 映射。
+            shmptr = ShmOpen(sim::CommPoolPolicy::kPoolName, &poolSize);
+            if (shmptr != nullptr && (req->size == 0 || req->size > poolSize)) {
+                HCCL_VM_ERROR("pool mapping size invalid: requested {}, pool {}", req->size, poolSize);
+                ShmClose(shmptr);
+                shmptr = nullptr;
+            }
+            if (shmptr != nullptr) {
+                g_commPoolMappings.emplace(req->memName, shmptr);
+            }
+        }
+    } else {
+        shmptr = sim::MemoryManager::GetInstance().AcquireMemByName(req->memName);
+    }
     if (shmptr == nullptr) {
         donePayload.ptr = 0;
         HCCL_VM_ERROR("acquire {} shm failed.", req->memName);
@@ -152,13 +194,16 @@ int HandlePipeCmdExecKernel(uint8_t* payload, uint32_t payloadLen)
         // InsertOpTask 仍通过该值把 device 任务写入本次 opDetail 的任务表；
         // 它不参与任务 metadata 的身份生成。
         sim::operation::CurrOpDetailId() = kernelReq->opDetailId;
+        sim::SetBarrierGateContext(kernelReq->opDetailId);
     } else {
         // 普通 kernel 不产生带通信域身份的 SQE，执行前必须清掉上一次算子的上下文。
         sim::operation::CurrOpDetailId() = 0;
+        sim::SetBarrierGateContext(0);
     }
 
     int execRet = ExecuteAicpuKernel(rankId, kernelReq, argsPtr);
     sim::operation::CurrOpDetailId() = 0;
+    sim::SetBarrierGateContext(0);
     RspExecKernelPayload donePayload{};
     donePayload.status = static_cast<int32_t>(execRet);
     DeviceSendMsg(PIPE_RSP_EXEC_KERNEL, &donePayload, sizeof(donePayload));
@@ -167,8 +212,20 @@ int HandlePipeCmdExecKernel(uint8_t* payload, uint32_t payloadLen)
 
 int HandlePipeCmdFreeDevPtr(uint8_t* payload, uint32_t payloadLen)
 {
+    if (payloadLen != sizeof(DevMemOpPayload)) {
+        RspFreeDevPtrPayload donePayload{};
+        donePayload.status = -1;
+        DeviceSendMsg(PIPE_RSP_FREE_DEV_PTR, &donePayload, sizeof(donePayload));
+        return -1;
+    }
     DevMemOpPayload* req = reinterpret_cast<DevMemOpPayload*>(payload);
-    sim::MemoryManager::GetInstance().ReleaseMemByName(req->memName);
+    const auto it = g_commPoolMappings.find(req->memName);
+    if (it != g_commPoolMappings.end()) {
+        ShmClose(it->second);
+        g_commPoolMappings.erase(it);
+    } else {
+        sim::MemoryManager::GetInstance().ReleaseMemByName(req->memName);
+    }
     HCCL_VM_INFO("[device] release memName:{} shm", req->memName);
     RspFreeDevPtrPayload donePayload{};
     donePayload.status = 0;

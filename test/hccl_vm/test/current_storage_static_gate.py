@@ -210,6 +210,62 @@ def main():
                     failures.append(str(recipe.relative_to(ROOT))
                                     + ": 模块依赖配方引用了另一模块 " + other_dir.name)
 
+    # ---- 6b. 仓库根 cmake/third_party/ 迁移配方的归属与跨后端引用检查 ----
+    # 五个迁移配方的归属为固定单值映射（verified_source.cmake 是 mariadb_host
+    # 的同目录共享子配方，归 MariaDB）。归属表不依赖模块目录存在——被引用
+    # 后端被裁剪时同样报错。引用面三类，共用同一段 include() 目标提取
+    # （直接路径与带 ${CMAKE_CURRENT_LIST_DIR} 的写法都取文件名）：
+    #  a) 公共构建文件（含根 CMakeLists.txt 与 device 入口）不得直接 include
+    #     任一后端配方——后端依赖只经 src/storage_backends/ 模块接线；
+    #  b) 后端模块 CMakeLists 与迁移配方不得 include 归属其他后端的配方
+    #     （同后端 include 正常放行）；
+    #  c) 迁移配方正文不得出现未归属后端名（与 6 节字面检查同构）。
+    # 无归属表条目的共享配方（yaml-cpp 等）不在本项检查范围；模块本地
+    # cmake/ 配方的既有模块名检查（上文 6 节）保留不变；归属表条目对应的
+    # 配方文件缺失直接报错（五个配方随仓库分发，不随模块裁剪）。
+    recipe_owner = {
+        "sqlite3_host.cmake": "sqlite",
+        "sqlite3_device.cmake": "sqlite",
+        "mariadb_host.cmake": "mariadb",
+        "mariadb_device.cmake": "mariadb",
+        "verified_source.cmake": "mariadb",
+    }
+    include_recipe_pattern = re.compile(r'include\s*\(\s*"?([^")]+\.cmake)\s*"?')
+
+    def included_recipe_names(text):
+        return [target.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+                for target in include_recipe_pattern.findall(text)]
+
+    for relative in common_build_files:
+        if not (ROOT / relative).is_file():
+            continue
+        for name in included_recipe_names(read(relative)):
+            if name in recipe_owner:
+                failures.append(relative + ": 公共构建文件直接 include 了后端配方 " + name)
+
+    for module_dir in module_dirs:
+        for build_file in module_dir.rglob("CMakeLists.txt"):
+            for name in included_recipe_names(build_file.read_text(encoding="utf-8")):
+                if name in recipe_owner and recipe_owner[name] != module_dir.name:
+                    failures.append(str(build_file.relative_to(ROOT)).replace("\\", "/")
+                                    + ": include 了归属其他后端的配方 " + name)
+
+    recipe_root = ROOT / "cmake" / "third_party"
+    for recipe_name in sorted(recipe_owner):
+        recipe = recipe_root / recipe_name
+        relative = "cmake/third_party/" + recipe_name
+        if not recipe.is_file():
+            failures.append("缺少迁移配方: " + relative)
+            continue
+        text = recipe.read_text(encoding="utf-8")
+        for name in included_recipe_names(text):
+            if name in recipe_owner and recipe_owner[name] != recipe_owner[recipe_name]:
+                failures.append(relative + ": include 了归属其他后端的配方 " + name)
+        for backend in set(recipe_owner.values()):
+            if backend != recipe_owner[recipe_name]:
+                if re.search(r'(?i)\b' + backend + r'\b', text) is not None:
+                    failures.append(relative + ": 依赖配方引用了未归属后端 " + backend)
+
     # ---- 7. Redis 生产路径不得回流 ----
     removed_paths = [
         "src/storage/placement/physical_mapping.h",

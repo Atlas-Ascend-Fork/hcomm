@@ -274,14 +274,14 @@ HCCL-VM 支持运行部分 PyTorch 的 `aclgraph` 图模式集合通信脚本。
 
 ```bash
 cd /home/workspace/hcomm/test/hccl_vm/hccl_vm_install/bin
+# 启动前启用，使 VM 主进程按各 server/board 的 local_rank 生成 ranktable，支持非等卡数拓扑。
+export HCCL_VM_ENABLE_PYTORCH=1
 ./hccl-vm start ascend950_cluster_32_server_normal.yaml
 ```
 
 进入 `(hvm)$>` 终端后执行以下命令。后续通信域配置、环境变量设置和 Python 启动均在该终端内完成，使 Python 进程继承模拟环境。
 
 ```bash
-# 启用 PyTorch 适配
-export HCCL_VM_ENABLE_PYTORCH=1
 # 激活虚拟环境（如有）
 source /path/to/torch_test/bin/activate
 
@@ -385,7 +385,7 @@ export HCOMM_CODE_HOME=/home/workspace/hcomm
 | ------------------------- | --------------------------------------------------------------------------------------------------------- | --------------------- |
 | `HCCL_CODE_HOME`         | HCCL-VM编译指定HCCL源码路径。默认未配置。     | `export HCCL_CODE_HOME=/home/workspace/hccl`                     |
 | `HCOMM_CODE_HOME`         | HCCL-VM编译指定HCOMM源码路径。默认未配置。     | `export HCOMM_CODE_HOME=/home/workspace/hcomm`                     |
-| `HCCL_VM_ENABLE_PYTORCH` | 设置为 `1` 时启用 PyTorch 适配，运行方式见 [PyTorch 用例示例](#33-pytorch用例示例)。 | `export HCCL_VM_ENABLE_PYTORCH=1` |
+| `HCCL_VM_ENABLE_PYTORCH` | 在 `hccl-vm start` 前设置为 `1`，启用 PyTorch 适配并按各 server/board 的 local_rank 生成 ranktable，运行方式见 [PyTorch 用例示例](#33-pytorch用例示例)。 | `export HCCL_VM_ENABLE_PYTORCH=1` |
 | `HCCL_VM_SERVER_INDEX` | PyTorch 进程模拟的**叶子节点（host节点）**序号，从 `0` 开始；仅在 `HCCL_VM_ENABLE_PYTORCH=1` 时生效，须与测试脚本的 `--server_index` 一致。server形态下叶子节点即 server；**POD形态（4层拓扑）下叶子节点为 board**，故按 board 计数与编号。 | `export HCCL_VM_SERVER_INDEX=0` |
 | `HCCLVM_ENABLE_DUMP_DATA` | 1. 使能性能仿真文件输出落盘。若使能，则在测试用例执行过程中输出3个runner_hcclvm_*_data.bin文件和1个ccu_channel_jetty_config.xml文件供性能仿真使用. <br> 2.使能Runner插件dump input\&output数据。若使能，则在测试用例执行过程中，会将每个算子的input\&output数据dump到all\_rank\_input\_output.txt文件中 | `export HCCLVM_ENABLE_DUMP_DATA=1 使能，export HCCLVM_ENABLE_DUMP_DATA=0 或不配置该环境变量 禁用` |
 | `HCCL_VM_RES_STAT_DUMP` | 使能劫持层资源统计落盘：设置后，业务进程 finalize 时将各设备资源计数（内存/Jetty/QP/Notify/AIV core 等）导出为 CSV，输出到安装目录 `data/stat/<podId>_<serverId>_<boardId>_<设备ID>_res_<时间戳>.csv`（`boardId` 为 POD 形态 4 层拓扑下的 board 序号，server 形态恒为 `0`）；未设置（默认）不导出。 | `export HCCL_VM_RES_STAT_DUMP=1` |
@@ -1306,7 +1306,7 @@ HCCL-VM 通过 `LD_PRELOAD` 多层劫持模拟 HCCL 通信算子：Level 0 劫�
 
 ### 开源第三方软件依赖
 
-编译本项目时，依赖的第三方开源软件列表如下，离线编译场景可下载并重命名软件包后放置在本项目内的third_party目录下。各存储后端模块的专属依赖及离线放置方式见对应模块目录内的 README。
+编译本项目时，依赖的第三方开源软件列表如下。离线编译场景可按下载地址获取归档，并按表中链接文字（即构建识别的归档名）放置或重命名后放入仓库根目录的 third_party/ 下。各存储后端模块的专属依赖及离线放置方式见对应模块目录内的 README。
 
 | 开源软件       | 版本          |下载地址 |
 | ------------  | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1316,6 +1316,8 @@ HCCL-VM 通过 `LD_PRELOAD` 多层劫持模拟 HCCL 通信算子：Level 0 劫�
 | yaml-cpp      | 0.8.0         | [yaml-cpp-0.8.0.tar.gz](https://raw.gitcode.com/src-openeuler/yaml-cpp/blobs/d1ead4fff417073b9cdbf98b8b55eb0efc00b0ba/yaml-cpp-0.8.0.tar.gz) |
 | googletest    | 1.14.0        | [googletest-1.14.0.tar.gz](https://gitcode.com/cann-src-third-party/googletest/releases/download/v1.14.0/googletest-1.14.0.tar.gz) |
 | cann-cmake    | master-044    | [cmake-master-044.tar.gz](https://raw.gitcode.com/cann/cmake/archive/refs/heads/master-044.tar.gz) |
+| SQLite        | 3.51.3        | [sqlite-amalgamation-3510300.zip](https://www.sqlite.org/2026/sqlite-amalgamation-3510300.zip) |
+| MariaDB Connector/C | 3.3.8  | [mariadb-connector-c-3.3.8-src.tar.gz](https://raw.gitcode.com/src-openeuler/mariadb-connector-c/blobs/9389ee06248685f68fe17b9d18a90c990e039020/mariadb-connector-c-3.3.8-src.tar.gz) |
 
 ### 术语表
 

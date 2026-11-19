@@ -246,8 +246,8 @@ namespace TaskGraphGeneratorV3 {
         curCcuTask->bilateralPart1_.resize(curCcuTask->queueNum_);
         curCcuTask->bilateralPart2_.resize(curCcuTask->queueNum_);
         curCcuTask->bilateralNodes_.resize(curCcuTask->queueNum_);
-        curCcuTask->waitInfoTmp_.resize(MAX_DEV_NUM);
-        curCcuTask->postInfoTmp_.resize(MAX_DEV_NUM);
+        curCcuTask->waitInfoTmp_.clear();
+        curCcuTask->postInfoTmp_.clear();
         // raw 成图阶段会轮流推进每个 queue，这样被阻塞的 queue 可以等待，
         // 其他 queue 则继续前进并发布所需的 post bit。
         for (uint32_t queId = 0; queId < curCcuTask->queueNum_; queId++) {

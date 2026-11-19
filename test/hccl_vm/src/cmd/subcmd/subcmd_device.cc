@@ -195,7 +195,7 @@ static void PrintSpec(std::ostream& os, const DeviceSpec& spec)
     }
     os << "  user_mem 合计     : " << Hex(spec.addr.userMemTotal) << " (" << (spec.addr.userMemTotal >> 30)
        << " GiB)\n";
-    os << "  MaxRankSlots      : " << ras.MaxRankSlots() << " (= GetMaxRanks()，硬上界)\n";
+    os << "  rank 槽位上界     : 无（集群 rank 数由拓扑决定，仅受 uint64 VA 溢出防护约束）\n";
     os << "  47-bit VA 上界    : " << ras.Va47BitRankLimit() << " (诊断用，超出仅告警不阻断，见 R4)\n";
 
     os << "\n  -- ccu --\n";

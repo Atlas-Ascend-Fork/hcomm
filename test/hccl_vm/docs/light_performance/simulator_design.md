@@ -51,7 +51,9 @@ light_performance 插件读取 db 文件 ──生成──> 性能仿真所需�
 - **参考代码**：
   - 成图基本逻辑：`src/plugin/checker/src/framework/task_graph_generator_v3/task_graph_generator_v3.cc/h`；
   - CCU 微码指令转任务图：`src/plugin/checker/src/framework/task_graph_generator_v3/ccu_graph_generator_v3/`；
-  - AIV 模式成图：暂不考虑。
+  - AIV 模式成图：已支持（`AIV_GRAPH` taskType=5 → 任务快照 JSON 展开为泳道子图，
+    移植自 checker `aiv_graph_generator_v3`，见 **12.6 节**）；AIV 在 estimate 单卡
+    评估下的采集侧支持（rank→device 回环、任务清单保真）见**第 12 章**。
 - **成图范围（核心设计前提）**：db 中为**单 rank 任务数据**，本插件做**单 rank 成图**——
   这是与 checker（多 rank 联合成图）的主要区别之一。原成图过程中的**跨 rank 任务边
   （post-wait 关系）全部忽略**：只关心单 rank 内的 post-wait 边，跨 rank 不考虑
@@ -568,7 +570,7 @@ taskData union 内部布局（相对偏移 69）：
 | 2 | `REDUCE` | → memcpy / local_copy（规约计算近似，第 5.7 节） |
 | 3 | `MEM_CPY` | → memcpy / local_copy（按 jettyId 判定） |
 | 4 | `CCU_GRAPH` | → CCU 子图展开（第 6 章） |
-| 5 | `AIV_GRAPH` | 暂不支持，跳过并告警 |
+| 5 | `AIV_GRAPH` | → AIV 子图展开（第 12.6 节）：launchIdx 定位任务快照 JSON，展开为 (block, pipe) 泳道子图 |
 | 6 | `SYNC_STREAM` | → 跳过不生成节点（第 5.6 节） |
 | 7 | `WRITE_WITH_NOTIFY` | → 单任务映射 `Write_With_Notify`（网络写 + 附带 notify，不拆分，第 5.2 节） |
 
@@ -839,7 +841,7 @@ DependencyGraph 只描述该 rank 的任务及其依赖。**跨 rank 的配对�
 | REDUCE (2) | jettyId 有效 | 同 MEM_CPY 走网分支（5.7 节近似） | 同上（含 data_type） | 同上 |
 | WRITE_WITH_NOTIFY (7) | 恒 write 方向（本端 src → 远端 dst，无方向推断） | `WRITE_WITH_NOTIFY`（**单任务，不拆分**） | size=len, notify_id=notifyId, src_rank=local, dst_rank=对端 rank（未解析经 eid→rank 索引回退）, src/dst_eid, jetty_id, protocol, is_write=True；isReduce=1 时 data_type=dataType 枚举名 | 端口 write 方向带宽共享 + 写落地后 notify 固定 record 时延（remote） |
 | CCU_GRAPH (4) | — | （展开，第 6 章） | — | — |
-| AIV_GRAPH (5) | — | 跳过 | — | 告警 |
+| AIV_GRAPH (5) | — | （展开，第 12.6 节） | — | — |
 | SYNC_STREAM (6) | — | **跳过**（host 侧流同步点，5.6 节） | — | — |
 
 > waitRank/recordRank 为 taskData 端点 rankId（deviceId 字段承载，src=record 侧、
@@ -985,7 +987,7 @@ host 侧 stream 同步点（样例主流上每轮迭代出现一次），表示 
 | CheckSlaveTaskQueue 从流结构校验 | 去除 | 非校验工具 |
 | 内存冲突/语义校验/同步冲突/可达性/单任务检查 | 全部去除 | 非校验工具 |
 | CompactSyncNodes（SYNC_STREAM 合并） | 跳过不生成节点（host 侧同步点，非设备侧任务） | makespan 即流链末任务结束时间（5.6 节） |
-| AIV 子图展开 | 不支持（告警跳过） | 需求明确暂不考虑 |
+| AIV 子图展开 | 已移植（12.6 节，单 rank 裁剪：无边界节点、无 CpGM 循环合并、跨 rank flag 不配对） | 任务快照 JSON → 泳道子图 |
 | CCU 子图：queue 并行化改造、loop merge、资源冲突校验 | queue 并行化简化实现（7.4.1 节：组装期骨架/单元切分 + fork/完成集汇接与挂接 extra 边 + `#v` 虚拟流）；loop merge 同等实现（6.5 节）；资源冲突校验去除 | 并行化消除队列串行化失真（7.4.1 节）；免校验，节点数可控 |
 
 ### 5.9 输出组装
@@ -2213,7 +2215,7 @@ eid 空串，其余字符串 `""`）：
 | db taskType / 旧类型 | 新模型 TaskType | 不匹配处理 |
 |---------------------|----------------|-----------|
 | SYNC_STREAM (taskType=6) | **无对应类型** | 跳过不生成节点（host 侧流同步点，非设备侧任务，5.6 节）；统计 `skipped_sync` |
-| AIV_GRAPH (taskType=5) | 无 | 跳过 + 告警（新旧模型一致，均不支持） |
+| AIV_GRAPH (taskType=5) | 无（占位，展开后为 Memcpy/Reduce_Inline/Notify_* 节点） | 已支持：展开为泳道子图（12.6 节，移植自 checker aiv_graph_generator_v3） |
 | WRITE_WITH_NOTIFY (taskType=7，db 新增) | `WRITE_WITH_NOTIFY`（新增，第 7 种） | 单任务映射（**不拆分**为写 + NOTIFY_RECORD）：写恒 write 方向走端口带宽共享，附带 notify 按固定 record 时延（5.2 节，10.3 节 #19 已支持） |
 | 旧 `REMOTE_RECORD` / `REMOTE_WAIT` | 已合并入 `NOTIFY_RECORD` / `NOTIFY_WAIT`（src≠dst 表达远端） | db 单 rank 路径的跨 rank notify 以 `src≠dst` 生成远端节点（5.2 节，保留节点不配对） |
 | 旧 `MEMCPY`（网络传输） | 语义变更：新 `Memcpy` = 片上内存拷贝 | 网络传输改由 `Ub_Write_Or_Read`（write/read 方向区分）表达；`Ub_Inline_Write` 仅保留 notify inline 写语义（固定时延） |
@@ -2427,7 +2429,7 @@ op 名（已切换 `profInfo.profTaskType` 驱动，10.3 节 #18 落地）；"�
 | `MEM_CPY` (3) | jettyId 有效 + read 方向 | `Ub_Write_Or_Read` | `TASK_UB` → `Ub_Write_Or_Read` ✓ | 网络接收；内部 TaskType=Ub_Write_Or_Read |
 | `WRITE_WITH_NOTIFY` (7) | 恒 write 方向（无方向推断，5.5 节） | `Write_With_Notify`（单任务，不拆分）；`udfFlag==1` 时 `Reduce_With_Notify` | `TASK_WRITE_WITH_NOTIFY` → `Write_With_Notify`；`udfFlag==1` 时 `TASK_WRITE_REDUCE_WITH_NOTIFY` → `Reduce_With_Notify`（hcomm 源码为错拼 `Reuce_With_Notify`，11.4.5 节） | 写+notify 组合任务（`WriteWithNotifyTask`，4.4.1 节）：端口 write 方向带宽共享 + 写后 notify 固定 record 时延；两种 profInfo 值均映射为同一内部 WRITE_WITH_NOTIFY（时延模型一致，显示名与 isReduce 区分） |
 | `CCU_GRAPH` (4) | — | （占位，不直接产出） | `TASK_CCU` → `Ccu` | 展开为 CCU 子图，最终产物见 11.3 节 |
-| `AIV_GRAPH` (5) | — | 无（跳过） | `TASK_AIV` → `AivKernel` | 告警 + `skipped_aiv` 计数（暂不支持） |
+| `AIV_GRAPH` (5) | — | （占位，展开为泳道子图，12.6 节） | `TASK_AIV` → `AivKernel` | 展开产物按内部时延模型归类（Memcpy/Reduce_Inline/Notify_*），显示名 `Aiv*` 前缀（12.6 节） |
 | `SYNC_STREAM` (6) | — | 无（跳过） | `UNKNOWN` → `Unknown` | host 侧流同步点，非设备侧任务（5.6 节），hcomm profiling 无对应类型 |
 
 > 跨 rank 判定（waitDev/recordDev）见 4.6 节；走网方向判定（write/read）见 5.5 节。
@@ -2563,7 +2565,7 @@ db 任务与仿真任务类型经 db taskType 列匹配（11.2 节），profInfo
 | 9 | TASK_WRITE_REDUCE_WITH_NOTIFY | `Reduce_With_Notify`（工具侧修正拼写；hcomm 源码/msprof 为错拼 `Reuce_With_Notify`，11.4.5 节） | `Write_With_Notify`（isReduce=1 的规约写载荷，data_type 区分显示） | WRITE_WITH_NOTIFY (7) isReduce=1 |
 | 10 | TASK_CCU | `Ccu` | （CCU 占位整 SQE，展开为第 6 章子图，11.3 节） | CCU 占位整 SQE ✓ |
 | 11/12 | TASK_AICPU_KERNEL / TASK_AICPU_REDUCE | `AicpuKernel` / `Aicpu_Reduce` | —（不消费） | AICPU kernel 下发（走 device 进程，当前无采集落点/不消费） |
-| 13 | TASK_AIV | `AivKernel` | —（跳过） | AIV kernel 任务（跳过） |
+| 13 | TASK_AIV | `AivKernel` | （占位整 SQE，展开为第 12.6 节泳道子图） | AIV kernel launch 占位（taskType=5，taskData=launchIdx）✓ |
 | 14 | TASK_UB_INLINE_WRITE | `Ub_Inline_Write` | `Notify_Record`（notify 固定 record 时延；显示名已归还 op 名 ✓） | UBDMA `inlineEn==1` 的 notify inline 写 |
 | 15 | TASK_UB_REDUCE_INLINE | `Ub_Reduce_Inline` | `Ub_Inline_Write`（write）/ `Ub_Write_Or_Read`（read）（走网规约近似，端口计费） | UBDMA `udfFlag==1` 走网规约 |
 | 16 | TASK_UB | `Ub_Write_Or_Read` | `Ub_Inline_Write`（write 方向）/ `Ub_Write_Or_Read`（read 方向）（方向由 direction/is_write 表达） | UBDMA 普通读写 WQE（write/read 两方向同值） |
@@ -2741,3 +2743,214 @@ notifyId、占收尾槽位）；无收尾的链不合并（独立纯写保持逐
 > estimate（-np 1）makespan 166.596us、原语拦截 16 次、精确合成 11 次、miss=0；
 > normal（-np 8）checker All Success（原语纯转发，拦截日志 0 条）；单机 8p
 > （118）SQE 路径回归无变化。
+
+---
+
+## 12. AIV 模式轻量性能仿真方案（estimate 单卡评估）
+
+> 本章记录 AIV 模式接入 estimate 单卡评估的**采集侧**设计、实现落点、任务清单保真度
+> 验证与遗留约束。成图侧（light_performance）当前仍跳过 `AIV_GRAPH`（见 4.4.2/5.2/
+> 11.2 节、`graph_builder.py:334`），本章聚焦"让 AIV 在 estimate 下正确产出**单 rank
+> 任务清单**"这一前置能力，为后续 AIV 成图/仿真铺路。
+
+### 12.1 背景：estimate 单卡评估前提与 AIV 的阻塞点
+
+estimate 模式的目的是**以单卡（rank0）流程评估全量模式性能**，其成立前提是：
+**对 rank0 而言，estimate 与 normal 两模式走过的流程必须一致**——否则单卡任务清单
+无法代表全量。estimate 为单进程幻影评估：`Communicator` 表只有本 rank 一行
+（`include/runtime_state/sim_models.h:38`），对端 rank 不注册、由幻影合成。
+
+AIV 此前在 estimate 下**直接报错阻塞**（无法产出任务清单）：
+
+```
+[aiv_model_init.cc][InitRankDeviceIds] failed to resolve rank communicator, commId=1, commName=hccl_world_group, rankId=1
+[aclrt_kernel_stub.cc][VirtualExecuteAivKernel] AIV environment initialization failed, kernel=aiv_reduce_scatter_int32_t
+→ aclrtLaunchKernelWithHostArgs error[500000] → hcclRet 15 → HcclReduceScatter 失败
+```
+
+根因：`InitRankDeviceIds`（多通信域改造引入，commit `33268178`）**无条件遍历
+`[0, rankSize)` 查 `Communicator` 表**为每个 rank 解析 deviceId，缺少 estimate 分支；
+而 estimate 下对端 rank 行根本不存在。该查表结果用于：① `TransDevMappedAddrToVirtual`
+把 buffIn 表中各 rank 的 dev-mapped 地址翻译为 host 指针并 `SetCommBuffer`；② 任务/slice
+元数据的 deviceId。缺任一 rank 即 `aiv_env_init` 失败，整个 AIV kernel 无法执行。
+
+### 12.2 为何 AIV 有流程分歧、CCU/AICPU 没有（架构对比）
+
+触发点：hcomm `RemoteIpcRmaBuffer` 构造函数按 `myPid == remotePid` 二选一
+（`remote_rma_buffer.cc:44/48`）：
+
+```cpp
+myPid = HrtDeviceGetBareTgid();
+if (myPid == remotePid) {        // estimate：单进程，本 rank 与幻影对端同 PID
+    HrtMemPrefetchToDevice(...);  // → aclrtMemP2PMap（orion_adapter_rts.cc:1400）
+    addr = ipcAddr + ipcOffset;
+} else {                          // normal：rank0/rank1 分属不同进程
+    OpenIpcMemory();              // IPC 导入，不碰 P2PMap
+}
+```
+
+而 `RemoteIpcRmaBuffer` **只被 AIV 数据面 `UbMemoryTransport` 使用**
+（`ascend950/unified_platform/aiv/ub_memory_transport.cc`，消费者全在 `framework/aiv/`、
+方法名如 `GetAllRankId2AivTagBufAddrList`）。三模式对"访问对端数据"的机制根本不同：
+
+| 模式 | kernel 执行位置 | 访问对端数据的方式 | estimate 幻影化层次 | 是否按进程拓扑分叉 |
+|---|---|---|---|---|
+| **AIV** | **host 进程内**（x86 仿真桩） | `GetGmIn/GetGmOut(rank)` → `*(ptr+offset)` **直接解引用对端 host 指针**，须先把对端 UB/GM/tag buffer **物化进本进程地址空间**（`UbMemoryTransport`→`RemoteIpcRmaBuffer`） | host buffer 映射层 | **是**（`myPid==remotePid`） |
+| **AICPU** | device 子进程 | RPC/transport socket 搬数据，host 不映射对端 buffer | socket 层（phantom slot） | 否 |
+| **CCU** | 记录 SQE 微码任务 | RDMA/EID 传输任务（`ParseDavidSDMASqe`），host 不映射对端 buffer | SQE/EID 层（`GetRmtDeviceIdByEidEstimate`、`ParseDavidSDMASqeEstimate`） | 否 |
+
+结论：AIV 是**唯一在 host 进程内直接解引用对端 buffer 地址**的模式，因此必须做 host 侧
+buffer 物化，而物化动作天然按进程拓扑分叉。CCU/AICPU 的对端访问一律抽象成"走线"
+（RPC/RDMA/SQE），与进程拓扑无关，estimate 幻影化统一发生在 socket/EID 层，rank0 流程
+两模式一致——这正是它们此前没有暴露该问题的原因。
+
+### 12.3 采集侧适配实现（代码落点）
+
+**① estimate 单通信域防护**（`EnsureEstimateSingleCommDomain`，
+`src/runtime_state/db_sim_runner_common.cc:283`，声明 `include/runtime_state/db_sim_runner_common.h:73`）：
+estimate 下同一 rank 已注册其他通信域（commName/commHash 不同）时拒绝并明确提示，同域
+重复初始化（幂等）放行，非 estimate 直通。接入点：`GetOrInsertCommunicator`（:324）、
+`InsertOperatorMember`（`hccl_comm_stub.cc:95`，覆盖 world+子域 level0/2）、
+`CreateLevel1Communicator`（:309）、`CreateLevel1CommAll`（:416）；子域 API
+`HcclCreateSubCommConfig` 在入口早拒绝（:824，返回 `HCCL_E_NOT_SUPPORT`）。
+理由：estimate 多通信域存在诸多致命问题（rankid+commid→物理卡对应关系、性能仿真不支持
+多域），先收敛到单域以控风险。
+
+**② AIV rank→device 回环映射**（`aiv_model_init.cc:80` estimate 分支）：本 rank 行照常
+校验（表行恒在），对端 rank **不查表**，全部 rank 统一映射到本地 `g_cur_device_key`。
+依据：hcomm 幻影建链已把对端 cclBuffer/aivCommInfo **回环分配到本地 device**（实测
+`HcclAllocAlgResourceAiv` 的 `local` 与 `remoteRank[1]` cclBufferAddr 相同），故地址翻译、
+slice 解析全部命中本地内存，`SetCommBuffer` 成功，AIV kernel 正常执行并记录完整任务清单。
+与 AICPU/CCU estimate 口径统一为"动态注册表只查本 rank，对端一律幻影/回环"。
+
+**③ `aclrtMemP2PMap` no-op 桩**（`src/proxy/level2/aclrt_memory_stub.cc:512`）：该 ACL API
+此前未打桩，estimate 的 `myPid==remotePid` 分支会透传到真实 CANN runtime，因无绑定的真实
+device context 报 `EE1018 / ret 107002 "context is a null pointer"`（error 级日志噪音，
+非致命，流程仍 `Alloc res success`）。与 `aclrtMemFlush`/`aclrtMemInvalidate` 同口径做
+no-op 成功——仿真环境所有 device 内存都是本进程可直接访问的 host 共享内存，P2P 映射/预取
+无实际语义。normal 模式从不走该分支，桩对其零影响。
+
+**④ runner/checker 插件 estimate 门禁**（`src/cmd/cmd_base_utils.cc`）：estimate 下
+`plugin install/run @runner`、`@checker` 均拒绝并提示"estimate 仅支持 @estimate 性能仿真
+插件，请用 normal 模式"（install :869，run :917）；`@estimate` 仅 estimate 可用。estimate
+下 checker/runner 不运行，只有性能仿真插件消费产物。
+
+### 12.4 任务清单保真度验证（rank0：normal vs estimate）
+
+对 `aiv_reduce_scatter_int32_t`（rankSize=2、4 cores、launchIndex=0）逐任务比对 normal
+（`hccl_vm_install/data/<ts>/hcclvm_aiv_device1_launch0_task.json`）与 estimate
+（`data/<ts>/hcclvm_aiv_device1_launch0_task.json`）：
+
+- **结构 100% 一致**：785 个任务，类型序列、顺序、每 core 每 pipe 数量
+  （40/106/107、35/96/97、7/72/73、7/72/73）完全相同；顶层元数据与 `curOp`
+  （kernelName/dataType/len/stride/reduceOp/root/sliceId）全等。
+- **仅 7 个任务有差异**，全部在 core1（负责与 rank1 通信的核），且**仅 2 个字段**：
+
+| # | 任务 | 差异字段 | normal | estimate | offset/size/bufferType/targetRank |
+|---|---|---|---|---|---|
+| 1,3 | RecvFlag | `flagBuffer.deviceId` / `virtualAddr` | 2 / 对端真实地址 | 1 / 本地回环地址 | **全一致，targetRank=1** |
+| 2,4,5,6 | SendFlag | `flagBuffer.deviceId` / `virtualAddr` | 2 / 对端真实地址 | 1 / 本地回环地址 | **全一致，targetRank=1** |
+| 7 | MemCopy | `src.deviceId` / `virtualAddr` | 2 / 对端真实地址 | 1 / 本地回环地址 | **全一致** |
+
+- `virtualAddr` 是运行时 host 指针（每次运行/每进程都不同，**无性能含义**）；
+  `deviceId`（2→1）是回环映射的预期结果。
+- **跨 rank 语义由 `targetRank=1` 完整承载**（两模式一致），未因 deviceId 回环丢失。
+- `aivCommInfoBuffers`：normal 为 `[{rank0,dev1},{rank1,dev2}]`，estimate 为
+  `[{rank0,dev1},{rank1,dev1(回环)}]`。
+
+> **结论**：rank0 的 AIV 任务序列在两模式下逐条一致，**"单卡评估全量"前提成立**。
+> §12.2 的 hcomm 分支分歧（`OpenIpcMemory` vs `PrefetchToDevice`）位于一次性 buffer
+> 建立阶段，**不产生任何性能相关任务**，故 `aclrtMemP2PMap` 桩只消错误日志、不损害保真度。
+
+### 12.5 遗留问题与约束
+
+1. **成图/仿真侧 AIV 支持**：已落地（12.6 节）——`AIV_GRAPH`（taskType=5）占位经
+   `aiv_graph_builder.py` 展开为泳道子图并进入仿真，不再跳过。
+2. **跨卡代价判据**：已成图侧按 **`targetRank`** 判定本端/远端（12.6 节映射表），
+   未使用被回环的 `slice.deviceId`，符合 12.4 节保真度结论。遗留细化项：远端
+   SEND/RECV_FLAG 目前按固定远端时延（remote_record/wait_delay）计费，未走端口
+   带宽模型（4B flag 写量级小，近似合理）；MEM_COPY 的 HBM ×2 计费未区分
+   UB↔GM（片上侧不占 HBM），数据面带宽为保守近似。
+3. **deviceId 保真的备选方案（A2）**：若后续确需 `slice.deviceId` 也保真，可改为"对端
+   deviceId 从 ranktable/RankEidMap 取真值（devKey=device_id+1）、仅地址翻译回环本地"
+   （`TransDevMappedAddrToVirtual` 增加 estimate 回退）。当前成图/仿真按 targetRank
+   判跨卡，暂无此需求，维持回环映射（方案 A）。
+4. **多通信域 estimate 不支持**：§12.3① 的防护会明确拒绝。放开前需解决 rankid+commid→
+   物理卡对应关系、性能仿真多域支持等致命问题。
+5. **checker/runner 在 estimate 不运行**（§12.3④ 门禁）：AIV 任务清单的正确性校验
+   （checker `aiv_snapshot_json_loader_v3`/`aiv_task_transform_v3`，按 deviceId 定位文件、
+   配对 flag）仅在 normal/check-only 模式进行；estimate 产物只服务性能仿真。
+6. **未移植的 checker 优化/校验**（12.6 节裁剪项）：CpGM2GM 双缓冲循环合并（图规模
+   优化）、TaskStart/TaskEnd 边界节点、barrier/syncAll 成员完备性硬校验（Python 侧
+   降级为告警）、跨 rank SendRecvFlag 全图配对（单 rank 前提不适用）。
+
+> **验证**（reduce_scatter int32，rankSize=2，estimate vs normal）：estimate 单进程
+> （-np 1）AIV env init 回环成功（`looped back to local deviceKey=1`）、`AIV launch task
+> inserted`、0 条 `[error]`（P2PMap 桩生效）、运行正常收尾；rank0 任务清单 785 条与
+> normal 逐条对齐，仅 7 条 deviceId/virtualAddr 差异（targetRank/offset/size 全一致）。
+
+### 12.6 AIV 成图的 Python 移植（light_performance 侧）
+
+> 移植自 checker `aiv_graph_generator_v3`（loader 287 行 + transform 2305 行 C++），
+> 按本插件单 rank 成图约束（1.3/5.1/5.4 节）裁剪。落点：
+> `src/plugin/light_performance/aiv_graph_builder.py`（新增）、`db_reader.py`
+> （AIV_GRAPH 解码 + RankEidMap 查询修复）、`graph_builder.py`（占位/展开/挂接）、
+> `pipeline.py`/`__main__.py`（快照目录传参）。
+
+**输入链路**：opTask 表 `taskType=5` 行（`taskData=<Q launchIdx`，解码为
+`AivGraphTaskData`）→ 占位 marker 入 SQE 流链（与 CCU 占位同一模式）→
+`_expand_aiv` 按 `(deviceId, launchIdx)` 定位快照
+`data/hcclvm_aiv_device{dev}_launch{idx}_task.json`（db 同目录及其一级时间戳
+子目录，多命中取 mtime 最新；校验 deviceId/launchIndex 一致，checker
+`LoadByDeviceAndLaunch` 同口径）→ 展开子图 → 占位移除、extra 边挂回 SQE 原流
+（入口边：SQE 前驱+前续 launch 完成集 → 各泳道头；出口边：完成集 → SQE 后继，
+7.4.1 节同一挂接语义）。
+
+**泳道模型**：每 `(block, pipe)` 一条虚拟流串行链（pipe 0=SCALAR/1=MTE2/2=MTE3），
+流标签 `s{原流}#a{launch}b{block}p{pipe}`（含 `#` → stream_meta 归类 virtual，
+parent 解析回占位所在 SQE 原流）；对应 checker `queueId = launch*3072 +
+block*3 + pipe` 的并行泳道语义。
+
+**任务映射与时延**（复用现有模型，未新增 TaskType/仿真器改动）：
+
+| 快照 taskType | → 内部 TaskType | 关键属性 | 时延模型 |
+|---|---|---|---|
+| MEM_COPY (0) | `Memcpy` | size=payload 字节数，src/dst_buf_type=bufferTypeName | hbm_latency + size×2/HBM 有效带宽 |
+| REDUCE (1) | `Reduce_Inline` | size、data_type（HcclDataType 名） | hbm_latency + size×3/HBM 有效带宽 |
+| SET_FLAG (2) | `Notify_Record`（local） | notify_id=eventId | 30ns 固定 + 触发配对 wait 事件 |
+| WAIT_FLAG (3) | `Notify_Wait`（local） | 同上 | 等事件 + 30ns |
+| PIPE_BARRIER (4) | 组内合并为单 join 节点（`Notify_Record` local 未配对，独占虚拟流） | — | 30ns 固定同步开销 |
+| SYNC_ALL (5) | 按 syncRound 跨 core 合并为单 join 节点（同上） | — | 同上 |
+| SEND_FLAG (6) | `Notify_Record`；targetRank≠本端 → remote | notify_id=flagBuffer.offset | local 30ns / remote 1us 固定 |
+| RECV_FLAG (7) | `Notify_Wait`；targetRank≠本端 → remote（**不配对**，对端节点不在本 db） | 同上 | local 30ns / remote 1us 固定 |
+
+显示名（trace/dump `task_name`）：`AivMemCopy`/`AivReduce`/`AivSetFlag`/
+`AivWaitFlag`/`AivPipeBarrier`/`AivSyncAll`/`AivSendFlag`/`AivRecvFlag`。
+
+**边生成**（对齐 checker，算法等价简化）：
+- SET/WAIT 配对：键 `(block, srcPipe, dstPipe, eventId)`，程序序 FIFO zip 后
+  `add_match(wait, set)`（checker Kahn 可执行性模拟的等价简化，良构 kernel 一致；
+  多 wait 少 set 时余量按固定时延，告警计数 `unmatched_waits`）；
+- PIPE_BARRIER：并查集按 `barrierGroupTaskIds` 聚组（成员不入链），join ← 各成员
+  链上前驱、各成员链上后继 ← join（checker `RewireGroupMember` 同一语义）；
+  跨 block/重复 pipe 告警不中断（checker 为硬报错，性能侧降级）；
+- SYNC_ALL：按 syncRound 跨 core 聚组，成员数 ≠ blocks×3 告警；
+- 链首 barrier（无成员前驱）→ join 列入入口集，由 SQE 前驱驱动；
+- 跨 rank SEND/RECV_FLAG **不建配对边**（单 rank 前提，对端节点丢弃，远端固定时延）。
+
+**裁剪项**（与 checker 差异，见 12.5.6）：无 TaskStart/TaskEnd 边界节点（CCU 展开
+先例，占位不产节点）；无 CpGM2GM 双缓冲循环合并（图规模优化，785 任务量级无需）；
+完成集 = 子图内无后继节点（checker `ConnectCurrentTailsToEnd` tails 语义）。
+
+**统计口径**：`GraphBuildStats.aiv`（summary 追加 `aiv(l=launches/t=tasks/
+lane=泳道/pb=barrier join/sa=syncAll join/sw=set-wait 配对/uw=未配对 wait/
+rf=远端 flag/lf=本地 flag/miss=快照缺失)`；`skipped_aiv` 语义变更为快照缺失计数。
+
+> **验证**（reduce_scatter int32 estimate 数据，1437050 轮次）：opTask 2 行
+> （AIV_GRAPH+SYNC_STREAM）→ 637 仿真节点，与快照 785 条精确对账
+> （581 运行时节点 = MemCopy187+Reduce1+SetFlag188+WaitFlag184+SendFlag13+
+> RecvFlag8；+52 barrier join（156 成员/3 pipe）+4 syncAll join（48 成员/
+> 4 block×3 pipe））；10 泳道、184 set/wait 全配对、0 未配对、6 远端 flag
+> （与 12.4 节 7 差异任务中的 6 个跨 rank flag 一致）、0 快照缺失；
+> makespan 24.334us、trace 772 事件、无死锁/未完成节点；安装树
+> （`hccl-vm plugin run @estimate` 同一代码路径）复跑结果一致。

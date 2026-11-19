@@ -588,20 +588,20 @@ namespace TaskGraphGeneratorV3 {
         }
         if (curCcuTask->GetNodeRole(node) == CcuNodeRoleV3::WAIT) {
             DeviceId peerDeviceId = curCcuTask->GetNodePeerDeviceId(node);
-            if (peerDeviceId == INVALID_DEVICE_ID || peerDeviceId >= curCcuTask->waitInfoTmp_.size()) {
+            if (peerDeviceId == INVALID_DEVICE_ID) {
                 return HCCL_SUCCESS;
             }
             curCcuTask->waitInfoTmp_[peerDeviceId].waitNodes.push_back(node);
         } else {
             DeviceId peerDeviceId;
             CHK_RET(GetPeerDeviceIdByTaskNode(curCcuTask, node, peerDeviceId));
-            if (peerDeviceId == INVALID_DEVICE_ID || peerDeviceId >= curCcuTask->waitInfoTmp_.size()) {
+            if (peerDeviceId == INVALID_DEVICE_ID) {
                 return HCCL_SUCCESS;
             }
-            auto waitSize = curCcuTask->waitInfoTmp_[peerDeviceId].waitNodes.size();
+            auto& waitInfo = curCcuTask->waitInfoTmp_[peerDeviceId];
             TaskNode* waitNode = nullptr;
-            if (waitSize > 0) {
-                waitNode = curCcuTask->waitInfoTmp_[peerDeviceId].waitNodes[waitSize - 1];
+            if (!waitInfo.waitNodes.empty()) {
+                waitNode = waitInfo.waitNodes.back();
             }
             curCcuTask->bilateralPart1_[queId].insert(std::make_pair(node, waitNode));
         }
@@ -614,14 +614,14 @@ namespace TaskGraphGeneratorV3 {
             return HCCL_E_PTR;
         }
         if (isLast) {
-            for (uint32_t devId = 0; devId < curCcuTask->postInfoTmp_.size(); devId++) {
-                if (devId == curCcuTask->deviceId) {
+            for (auto& entry : curCcuTask->postInfoTmp_) {
+                if (entry.first == curCcuTask->deviceId) {
                     continue;
                 }
-                for (auto* asynNode : curCcuTask->postInfoTmp_[devId].asyncNodes) {
+                for (auto* asynNode : entry.second.asyncNodes) {
                     curCcuTask->bilateralPart2_[queId].insert(std::make_pair(asynNode, nullptr));
                 }
-                curCcuTask->postInfoTmp_[devId].asyncNodes.clear();
+                entry.second.asyncNodes.clear();
             }
             return HCCL_SUCCESS;
         }
@@ -631,20 +631,21 @@ namespace TaskGraphGeneratorV3 {
         }
         if (curCcuTask->GetNodeRole(node) == CcuNodeRoleV3::POST) {
             DeviceId peerDeviceId = curCcuTask->GetNodePeerDeviceId(node);
-            if (peerDeviceId == INVALID_DEVICE_ID || peerDeviceId >= curCcuTask->postInfoTmp_.size()) {
+            if (peerDeviceId == INVALID_DEVICE_ID) {
                 return HCCL_SUCCESS;
             }
-            auto asynNodeSize = curCcuTask->postInfoTmp_[peerDeviceId].asyncNodes.size();
-            if (asynNodeSize > 0) {
-                for (auto* asynNode : curCcuTask->postInfoTmp_[peerDeviceId].asyncNodes) {
-                    curCcuTask->bilateralPart2_[queId].insert(std::make_pair(asynNode, node));
-                }
-                curCcuTask->postInfoTmp_[peerDeviceId].asyncNodes.clear();
+            auto postIt = curCcuTask->postInfoTmp_.find(peerDeviceId);
+            if (postIt == curCcuTask->postInfoTmp_.end() || postIt->second.asyncNodes.empty()) {
+                return HCCL_SUCCESS;
             }
+            for (auto* asynNode : postIt->second.asyncNodes) {
+                curCcuTask->bilateralPart2_[queId].insert(std::make_pair(asynNode, node));
+            }
+            postIt->second.asyncNodes.clear();
         } else {
             DeviceId peerDeviceId;
             CHK_RET(GetPeerDeviceIdByTaskNode(curCcuTask, node, peerDeviceId));
-            if (peerDeviceId == INVALID_DEVICE_ID || peerDeviceId >= curCcuTask->postInfoTmp_.size()) {
+            if (peerDeviceId == INVALID_DEVICE_ID) {
                 return HCCL_SUCCESS;
             }
             curCcuTask->postInfoTmp_[peerDeviceId].asyncNodes.push_back(node);

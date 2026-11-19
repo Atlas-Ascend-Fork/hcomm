@@ -105,6 +105,7 @@ done:
     uint32_t curRankId = 0;
     GetCurRankId(&curRankId);
     sim::KernelLibManager::GetInstance().Cleanup();
+    sim::CleanupCommPoolMappings();
     HCCL_VM_INFO("[device] rankId[{}] exiting.", curRankId);
 
     sim::PipeClose(h2dReadFd);

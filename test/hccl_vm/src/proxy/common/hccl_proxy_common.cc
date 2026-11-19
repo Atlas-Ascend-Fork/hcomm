@@ -21,25 +21,32 @@
 
 namespace sim {
 // 三态合同见头文件声明：命中 OK+true / 确定未命中 OK+false / 查询无法完成原样传播。
+// P5：分类只需要存在性——改为字段投影（id）+ LIMIT 1，取消无业务必要的首行
+// 排序（旧行为 GetOneByPred 固定 id ASC 取首行，行选择对存在性判定无意义）。
+// 条件保持不变：src_type 等值 + dev_mapped 区间包含，不加 is_freed 谓词——
+// 释放过的设备地址仍按设备地址分类（分类未命中≠host，不得据此走裸 memcpy）。
 HcclSim::Storage::DbResult<bool> IsDeviceAddress(void* addr)
 {
     uint64_t devPtr = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(addr));
     // 设备地址包含查询:下界 dev_mapped_ptr <= addr、上界派生列 dev_mapped_end_ptr > addr,全部下推。
-    auto virMemRes = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
-        HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, devPtr),
-        HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, devPtr),
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV)));
-    if (virMemRes.code == HcclSim::Storage::DbCode::NOT_FOUND) {
-        // 查询完成且确定未命中：host 地址（NOT_FOUND 是合法业务结果，不是错误）
-        return {HcclSim::Storage::DbCode::OK, false, 0, {}};
-    }
+    const auto virMemRes = HcclSim::Storage::Select<sim::runtime::VirtualMemBlock>(
+        HcclSim::Storage::And(
+            HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, devPtr),
+            HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, devPtr),
+            HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV)),
+        HcclSim::Storage::Fields(&sim::runtime::VirtualMemBlock::id), HcclSim::Storage::Limit(1U));
     if (!virMemRes.ok()) {
         // 查询无法完成：保留原错误码与诊断向上传播（不吞错、不冒充命中/未命中；
         // 失败结果不携带值载荷，避免未检查 ok() 的调用方把 false 误读为 host 地址）
         return {virMemRes.code, std::nullopt, virMemRes.affectedRows, virMemRes.diagnostic};
     }
-
-    return {HcclSim::Storage::DbCode::OK, true, 0, {}};
+    if (!virMemRes.value.has_value()) {
+        // 合同外状态（成功结果必带值载荷）：按查询无法完成传播，不冒充命中/未命中
+        return {HcclSim::Storage::DbCode::INVALID_STATE, std::nullopt, 0, "select returned ok without payload"};
+    }
+    // 查询完成：命中行存在 = 设备地址；空结果（含旧行为的 NOT_FOUND 业务语义）
+    // = 确定不是设备地址。两类"无行"与后端错误不混淆。
+    return {HcclSim::Storage::DbCode::OK, !virMemRes.value->empty(), 0, {}};
 }
 
 bool ParseKernelJson(const std::string& jsonPath, std::map<std::string, std::string>& out)
@@ -92,12 +99,25 @@ uint64_t GetVirPtrByDevPtr(uint64_t devAddr)
 uint64_t TryGetVirPtrByDevPtr(uint64_t devAddr)
 {
     uint64_t deviceKey = sim::runtime::GetCurrDeviceKey();
+    // 翻译族选择规则（合同见 hccl_device_pub.cc FindDevMappedVirMemByDeviceNormalAndCheckOnly）：
+    // 任务发射期（RDMA/D2D/算子参数偏移）按同步合同引用存活缓冲，活动行优先，
+    // 同址复用后新任务命中新分配；活动行未命中（NOT_FOUND）才回退原始无谓词查询，
+    // 保留迟到解析与取消 purge 前 free→下次分配窗口的原有行为；引擎错误不吞。
     auto virMemRes = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
         HcclSim::Storage::Ne(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, uint64_t{0}),
         HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, devAddr),
         HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, devAddr),
         HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV),
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceKey)));
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceKey),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::is_freed, uint64_t{0})));
+    if (!virMemRes.ok() && virMemRes.code == HcclSim::Storage::DbCode::NOT_FOUND) {
+        virMemRes = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
+            HcclSim::Storage::Ne(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, uint64_t{0}),
+            HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, devAddr),
+            HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, devAddr),
+            HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV),
+            HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceKey)));
+    }
     if (!virMemRes.ok()) {
         return 0;
     }
@@ -124,12 +144,24 @@ uint64_t TransRemoteAddrToVirtualByRank(uint64_t devAddr, uint32_t rankId)
 
 uint64_t TransRemoteAddrToVirtualByDeviceId(uint64_t devAddr, uint32_t deviceId)
 {
+    // 翻译族选择规则（合同见 hccl_device_pub.cc FindDevMappedVirMemByDeviceNormalAndCheckOnly）：
+    // RDMA/远端任务发射按同步合同引用存活缓冲，活动行优先；活动行未命中
+    // （NOT_FOUND）才回退原始无谓词查询，保留迟到解析与既有窗口行为；引擎错误不吞。
     auto virMemRes = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
         HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, devAddr),
         HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, devAddr),
         HcclSim::Storage::Eq(
             &sim::runtime::VirtualMemBlock::src_type, static_cast<uint8_t>(sim::runtime::VIR_MEM_TYPE_DEV)),
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceId)));
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceId),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::is_freed, uint64_t{0})));
+    if (!virMemRes.ok() && virMemRes.code == HcclSim::Storage::DbCode::NOT_FOUND) {
+        virMemRes = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
+            HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, devAddr),
+            HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, devAddr),
+            HcclSim::Storage::Eq(
+                &sim::runtime::VirtualMemBlock::src_type, static_cast<uint8_t>(sim::runtime::VIR_MEM_TYPE_DEV)),
+            HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceId)));
+    }
     if (!virMemRes.ok()) {
         HCCL_VM_ERROR("cannot find remote VirtualMemBlock by devAddr={}, deviceId={}", devAddr, deviceId);
         return 0;

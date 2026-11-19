@@ -105,12 +105,17 @@ namespace {
     std::unordered_map<uint64_t, std::vector<CachedVirMemBlock>> g_vmbCache; // deviceId → 按 devMappedPtr 升序区间
     std::unordered_map<uint64_t, uint64_t> g_phyMemOwnerCache;               // phyMemId → 物理属主 device_id
 
-    // 调用方须持有 g_vmbCacheMtx。整设备重载 VMB 区间；查询失败时保留旧缓存。
+    // 调用方须持有 g_vmbCacheMtx。整设备重载 VMB 活动区间；查询失败时保留旧缓存。
+    // 只装 is_freed=0 行（P1 取消运行内 purge 后历史行常驻库中，不再进缓存）：
+    // 缓存规模随并发映射数而非历史行数增长，查询身份恒为活动行；活动 DEV 映射
+    // 互不重叠（设备进程 mmap/复用区游标均不交叠发放），upper_bound 前驱查找的
+    // 不相交区间前提保持成立。
     void RefreshVmbCacheLocked(uint64_t deviceId)
     {
         auto rows = sim::runtime::Db::GetByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
             HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceId),
-            HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV)));
+            HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV),
+            HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::is_freed, uint64_t{0})));
         if (!rows.ok()) {
             return;
         }
@@ -127,9 +132,24 @@ namespace {
 } // namespace
 
 // normal/check-only：按设备和单个地址查所属区间，不访问估算缓存或锁。
+// 同址复用时优先返回活动映射；未命中才按原 id 顺序查历史行，供迟到解析使用。
+// 数据库错误直接返回，不回退。
 static HcclSim::Storage::DbResult<sim::runtime::VirtualMemBlock>
 FindDevMappedVirMemByDeviceNormalAndCheckOnly(uint64_t mappedAddress, uint64_t deviceId)
 {
+    // 活动区间不重叠，按起点倒序查唯一命中项；历史回退保留 id 升序。
+    const HcclSim::Storage::Condition<sim::runtime::VirtualMemBlock> activeWhere = HcclSim::Storage::And(
+        HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, mappedAddress),
+        HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, mappedAddress),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceId),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::is_freed, uint64_t{0}));
+    auto activeRes = HcclSim::Storage::SelectOne<sim::runtime::VirtualMemBlock>(
+        activeWhere, HcclSim::Storage::OrderBy(
+                         &sim::runtime::VirtualMemBlock::dev_mapped_ptr, HcclSim::Storage::SortDirection::DESC));
+    if (activeRes.ok() || activeRes.code != HcclSim::Storage::DbCode::NOT_FOUND) {
+        return activeRes;
+    }
     return sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
         HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, mappedAddress),
         HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, mappedAddress),
@@ -139,8 +159,9 @@ FindDevMappedVirMemByDeviceNormalAndCheckOnly(uint64_t mappedAddress, uint64_t d
 
 // 只返回原始查询结果：NOT_FOUND/后端错误由调用方按各自业务语义处置
 // （翻译函数记日志返回 0；ResolveTaskAddress 原样传播错误码），helper 不吞错、不打日志。
-// 性能：VMB 区间按 deviceId 进程内缓存（分配记录静态，SQE 解析期高频点查）；
-// 缓存内未命中地址时回源点查并刷新该设备缓存，覆盖运行期新增映射。
+// 性能：VMB 活动区间按 deviceId 进程内缓存（SQE 解析期高频点查，选择规则与
+// normal 路径一致，见 FindDevMappedVirMemByDeviceNormalAndCheckOnly 注释）；
+// 缓存内未命中地址时回源点查，活动命中则刷新该设备缓存，覆盖运行期新增映射。
 static HcclSim::Storage::DbResult<sim::runtime::VirtualMemBlock>
 FindDevMappedVirMemByDeviceEstimate(uint64_t mappedAddress, uint64_t deviceId)
 {
@@ -172,13 +193,13 @@ FindDevMappedVirMemByDeviceEstimate(uint64_t mappedAddress, uint64_t deviceId)
             }
         }
     }
-    // 缓存未命中：回源点查（运行期新增映射场景）；命中则刷新该设备缓存
-    auto res = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
-        HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, mappedAddress),
-        HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, mappedAddress),
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV),
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceId)));
-    if (res.ok()) {
+    // 缓存未命中：回源点查（运行期新增映射场景），选择规则与 normal/check-only
+    // 一致（活动行优先，仅历史行时回退迟到解析）；活动命中才刷新该设备缓存——
+    // 缓存只装活动行，历史命中（迟到解析冷路径）不触发整设备重载，重复迟到
+    // 查询每次回源，换取缓存身份恒为活动行。缓存条目在本进程不因 Free 失效
+    // （无失效通知，仅失配重载；该限制取消 purge 前已存在，见本文件注释）。
+    auto res = FindDevMappedVirMemByDeviceNormalAndCheckOnly(mappedAddress, deviceId);
+    if (res.ok() && res.value.has_value() && res.value->is_freed == 0) {
         std::lock_guard<std::mutex> lock(g_vmbCacheMtx);
         RefreshVmbCacheLocked(deviceId);
     }
@@ -622,29 +643,40 @@ bool GetWqebufferByJettyId(uint64_t jettyId, uint64_t& wqeBuffer)
     return true;
 }
 
-bool GetLocalEidByJettyId(uint64_t jettyId, uint8_t* lcEid)
+bool GetWqeBufferAndLocalEidByJettyId(uint64_t jettyId, uint64_t& wqeBuffer, uint8_t* lcEid, bool& eidResolved)
 {
-    // RaJetty 主键是自增行 id, jetty_id 是独立字段; 按 (jetty_id, 属主 pid, mode) 定位,
-    // 与同进程 GetWqebufferByJettyId 的判定一致
+    // 同次解析只读一次 RaJetty，供 WQE 和 EID 共用，不跨调用缓存。
+    // 返回 false 表示 RaJetty 定位失败；EID 链失败仅令 eidResolved=false。
+    eidResolved = false;
+    if (!HcclSim::IsAicpuJettyHwIdInRange(jettyId)) {
+        HCCL_VM_ERROR(
+            "jettyId[{}] outside USER_CTL_NORMAL range [{},{}]", jettyId,
+            HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN, HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_END);
+        return false;
+    }
     auto raJetty = sim::runtime::Db::GetOneByPred<sim::runtime::RaJetty>(HcclSim::Storage::And(
         HcclSim::Storage::Eq(&sim::runtime::RaJetty::jetty_id, static_cast<uint32_t>(jettyId)),
         HcclSim::Storage::Eq(&sim::runtime::RaJetty::pid, static_cast<uint64_t>(getppid())),
         HcclSim::Storage::Eq(&sim::runtime::RaJetty::mode, HcclSim::HCCL_VM_JETTY_MODE_USER_CTL_NORMAL)));
     if (!raJetty.ok()) {
-        HCCL_VM_ERROR("RaJetty jettyId:{:d} owner pid:{:d} not found", jettyId, getppid());
+        HCCL_VM_ERROR(
+            "RaJetty jettyId:{:d} owner pid:{:d} mode:{:d} not found", jettyId, getppid(),
+            HcclSim::HCCL_VM_JETTY_MODE_USER_CTL_NORMAL);
         return false;
     }
+
+    wqeBuffer = raJetty.value->sqBuffer;
 
     auto raCtx = sim::runtime::Db::GetById<sim::runtime::RaContext>(raJetty->ctx_handle);
     if (!raCtx.ok()) {
         HCCL_VM_ERROR("RaContext id:{:d} not found", raJetty->ctx_handle);
-        return false;
+        return true;
     }
 
     auto endPoint = sim::runtime::Db::GetById<sim::runtime::EndPoint>(raCtx->endpoint_id);
     if (!endPoint.ok()) {
         HCCL_VM_ERROR("EndPoint id:{:d} not found", raCtx->endpoint_id);
-        return false;
+        return true;
     }
 
     // EndPoint.eid 按十六进制串字节序入库, 与 ranktable.json 显示序一致;
@@ -655,6 +687,7 @@ bool GetLocalEidByJettyId(uint64_t jettyId, uint8_t* lcEid)
     HcclSim::Eid localEid{};
     (void)memcpy(localEid.raw, lcEid, HcclSim::URMA_EID_LEN);
     HCCL_VM_INFO("lcEid(ranktable order):{}, jettyId:{:d}", HcclSim::IpAddress(localEid).EidToHexString(), jettyId);
+    eidResolved = true;
     return true;
 }
 

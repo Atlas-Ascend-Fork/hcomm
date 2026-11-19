@@ -38,10 +38,7 @@ AivKernelExecutor& AivKernelExecutor::GetInstance()
 void AivKernelExecutor::Init(RankId rankId, size_t blockNum, uint32_t rankSize)
 {
     Reset();
-    if (rankSize > HcclSim::GetMaxRanks()) {
-        HCCL_VM_ERROR("Init rankSize={} exceeds max ranks={}", rankSize, HcclSim::GetMaxRanks());
-        return;
-    }
+    // ★ 不对 rankSize 设上界：容器按通信域实际 rank 数动态扩容（原 GetMaxRanks 检查已删除）。
     cclBuffer_.resize(rankSize);
     aivCommInfoBuffer_.resize(rankSize);
     rankDeviceIds_.resize(rankSize, UINT32_MAX);

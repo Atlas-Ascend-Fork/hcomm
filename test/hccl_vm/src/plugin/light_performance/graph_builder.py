@@ -37,11 +37,14 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
+from .aiv_graph_builder import (AivBuildStats, AivPlaceholder,
+                                expand_aiv_graph)
 from .ccu_graph_builder import (CCU_STREAM_BASE, CcuBuildStats, CcuPlaceholder,
                                 ccu_queue_origin_stream, expand_ccu_graph)
 from .db_reader import (HccLTaskMetaType, JETTY_INVALID, RANK_INVALID,
-                        OpExecutionGroup, RawTask, prof_link_type_name,
-                        prof_task_type_name, prof_transport_type_name)
+                        OpExecutionGroup, RawTask, _DATA_TYPE_NAMES,
+                        prof_link_type_name, prof_task_type_name,
+                        prof_transport_type_name)
 from .simulator.config import SimConfig
 from .simulator.dependency_graph import DependencyGraph
 from .simulator.task_model import INVALID, Task, TaskType
@@ -52,11 +55,6 @@ logger = logging.getLogger(__name__)
 # 通道建链协议, 与 DfxLinkType 维度的 link_type 为两个不同概念, 方案 a 迁移至此)
 _PROTOCOL_NAMES = {0: "HCCS", 1: "TCP", 2: "ROCE", 3: "UB_CTP",
                    4: "UB_TP", 5: "PCIE", 6: "SIO"}
-
-# HcclDataType (hccl_types.h) → 显示名 (v2 采集在 REDUCE 任务级填 dataType)
-_DATA_TYPE_NAMES = {0: "int8", 1: "int16", 2: "int32", 3: "fp16",
-                    4: "fp32", 5: "int64", 6: "uint64", 7: "uint8",
-                    8: "uint16", 9: "uint32", 10: "fp64", 11: "bfp16"}
 
 
 @dataclass
@@ -83,6 +81,7 @@ class GraphBuildStats:
     eid_unresolved: int = 0
     rank_unresolved: int = 0
     ccu: CcuBuildStats = field(default_factory=CcuBuildStats)
+    aiv: AivBuildStats = field(default_factory=AivBuildStats)
 
     def summary(self) -> str:
         return (f"{self.op_desc}: raw={self.total_raw} tasks={self.tasks} "
@@ -106,7 +105,8 @@ class GraphBuildStats:
                 f"pb={self.ccu.pipeline_chains_broken}/"
                 f"lp={self.ccu.local_posts}/rp={self.ccu.remote_posts}/"
                 f"wm={self.ccu.wait_matched}/rw={self.ccu.remote_waits}/"
-                f"eu={self.ccu.eid_unresolved}/ru={self.ccu.rank_unresolved})")
+                f"eu={self.ccu.eid_unresolved}/ru={self.ccu.rank_unresolved}) "
+                f"{self.aiv.summary()}")
 
 
 class GraphBuilder:
@@ -114,11 +114,14 @@ class GraphBuilder:
 
     def __init__(self, group: OpExecutionGroup,
                   sim_config: Optional[SimConfig] = None,
-                  rank_map: dict = None):
+                  rank_map: dict = None,
+                  aiv_data_dirs: list = None):
         self.group = group
         self.config = sim_config
         # eid(hex) → rank 索引 (4.7 节): 对端 rank 解析 (SQE 回退 + CCU 主路径)
         self._rank_map = rank_map or {}
+        # AIV 任务快照搜索目录 (第 12 章): db 同目录 data/ 及其时间戳子目录
+        self._aiv_data_dirs = aiv_data_dirs or []
         self.stats = GraphBuildStats(
             op_desc=f"comm{group.comm_id}_iter{group.op_iter}"
                     f"_dev{group.device_id}")
@@ -135,6 +138,7 @@ class GraphBuilder:
         self._next_ccu_stream = CCU_STREAM_BASE
         self._notify_tasks: list = []
         self._placeholders: list = []
+        self._aiv_placeholders: list = []
         self._jetty_channels = self._build_jetty_channels()
         self._local_eid = self._first_local_eid()
 
@@ -256,6 +260,7 @@ class GraphBuilder:
         self._build_stream_chains()
         self._pair_notify()
         self._expand_ccu()
+        self._expand_aiv()
         self._drop_cyclic_matches()
         self.stats.tasks = self.dep.task_count
         if self.config is None:
@@ -330,9 +335,20 @@ class GraphBuilder:
                     arg_size=data.arg_size, args=data.args,
                     queue=task.stream_id, order=task.global_id,
                     lc_eid=meta.lc_eid))
+            elif meta.task_type == HccLTaskMetaType.AIV_GRAPH:
+                # AIV launch 占位 (第 12 章): 详细任务在 JSON 快照,
+                # _expand_aiv 展开为泳道子图后拼回本流
+                marker = f"aiv{task.global_id}"
+                sid = self._sqe_stream(task.stream_id)
+                self._stream_tasks.setdefault(sid, []).append(marker)
+                self._aiv_placeholders.append(AivPlaceholder(
+                    marker=marker, device_id=task.device_id,
+                    launch_idx=data.launch_idx, order=task.global_id,
+                    origin_sid=sid))
             else:
                 self.stats.skipped_aiv += 1
-                logger.warning("AIV task not supported yet, skip: %s", self.stats.op_desc)
+                logger.warning("unsupported task type %s, skip: %s",
+                               meta.task_type, self.stats.op_desc)
 
     def _map_transfer(self, raw: RawTask) -> None:
         data = raw.meta.data
@@ -659,6 +675,73 @@ class GraphBuilder:
             self.dep.add_stream_chain(sid, chain)
         for sid, chain in result.virtual_chains.items():
             self.dep.add_stream_chain(sid, chain)
+        return
+
+    # ------------------------------------------------------------------
+    # ⑥ AIV 子图展开 (第 12 章)
+    # ------------------------------------------------------------------
+
+    def _expand_aiv(self) -> None:
+        """AIV 占位展开: 读任务快照 JSON, 每 launch 建 (block, pipe) 泳道
+        子图, 入口/出口经 extra 边挂回 SQE 原流 (与 _expand_ccu 同一挂接
+        模式, 占位节点不进入任务图)。
+
+        跨 rank 约束 (1.3/5.4 节): SEND/RECV_FLAG 的对端节点不在本 db,
+        节点保留、按 targetRank 判本端/远端时延, 不建跨 rank 配对边。
+        """
+        if not self._aiv_placeholders:
+            return
+        result = expand_aiv_graph(
+            self._aiv_placeholders, self.dep, self.local_rank,
+            self._alloc_stream, self._aiv_data_dirs)
+        self.stats.aiv = result.stats
+        self.stats.skipped_aiv = result.stats.missing_snapshots
+        markers = {ph.marker for ph in self._aiv_placeholders}
+        # SQE 流链重建: 在 CCU 展开后的现链上移除 AIV 占位并挂接子图
+        #   入口边: SQE 前驱 (及前续 launch 完成集) → 各泳道头/入口 join
+        #   出口边: 本 launch 完成集 (子图内无后继节点) → SQE 后继任务
+        for sid in list(self.dep.stream_ids):
+            chain = self.dep.get_chain(sid)
+            if not any(tid in markers for tid in chain):
+                continue
+            resolved: list = []
+            prev_real = None
+            pending: list = []
+            for tid in chain:
+                if tid not in markers:
+                    for p in pending:
+                        self.dep.add_edge(tid, p)       # 出口边
+                        result.stats.exit_edges += 1
+                    pending = []
+                    resolved.append(tid)
+                    prev_real = tid
+                    continue
+                att = result.attach.get(tid)
+                if att is None:
+                    continue    # 快照缺失 (已告警), 占位直接移除
+                parents = ([prev_real] if prev_real else []) + list(pending)
+                for head in att["heads"]:
+                    for p in parents:
+                        self.dep.add_edge(head, p)      # 入口边
+                        result.stats.entry_edges += 1
+                pending.extend(att["completion"])
+            if resolved:
+                self.dep.add_stream_chain(sid, resolved)
+            else:
+                self.dep.remove_stream_chain(sid)
+        for sid, chain in result.lane_chains.items():
+            self.dep.add_stream_chain(sid, chain)
+        # 安全网: 清除 extra 边中引用 AIV marker 的悬空父节点 (marker 不产
+        # 任务节点, 完成事件永不触发会死锁)。仅当同链混排 AIV/CCU 占位时
+        # CCU 展开才可能把 marker 当 prev_real 挂边; 单算子单引擎下不可达。
+        for child in list(self.dep.extra_edges):
+            parents = self.dep.extra_edges[child]
+            stale = [p for p in parents if p in markers]
+            for p in stale:
+                parents.remove(p)
+            if stale:
+                logger.warning("dropped %d dangling AIV marker parent edge(s) "
+                               "on %s", len(stale), child)
         return
 
 

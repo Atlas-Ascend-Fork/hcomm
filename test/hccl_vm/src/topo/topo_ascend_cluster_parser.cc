@@ -1010,6 +1010,8 @@ HcclVmResult AscendClusterTopoParser::CreateRankTableFile(const TopoMeta& topoMe
             topoMeta.size());
     }
 
+    const char* enablePytorch = std::getenv("HCCL_VM_ENABLE_PYTORCH");
+    const bool pytorchMode = enablePytorch != nullptr && std::string(enablePytorch) == "1";
     uint32_t rankId = 0;
 
     // rank_id分配顺序: superpod → server(POD) → board → device, 从0递增
@@ -1051,9 +1053,8 @@ HcclVmResult AscendClusterTopoParser::CreateRankTableFile(const TopoMeta& topoMe
                 std::set<int> commDomainLocalIds(nodeMeta.begin(), nodeMeta.end());
 
                 for (uint32_t deviceIdx = 0; deviceIdx < nodeMeta.size(); ++deviceIdx) {
-                    // logicDevId = rankId % 本叶子节点卡数, 与应用侧 aclrtSetDevice(rank % D) 公式一致
-                    // (D = 该叶子节点编入通信域的卡数; POD形态下即board内卡数, 如8)
-                    uint32_t logicDevId = rankId % static_cast<uint32_t>(nodeMeta.size());
+                    // PyTorch按本叶子节点的local_rank选卡；hccl_test沿用全局rank取模选卡。
+                    uint32_t logicDevId = pytorchMode ? deviceIdx : rankId % static_cast<uint32_t>(nodeMeta.size());
                     PhyDeviceId phyDevId = nodeMeta[logicDevId];
                     rankTable["rank_list"].push_back(BuildRankEntry(
                         *board, phyDevId, commDomainLocalIds, podId, serverId, boardId, rankId, skipLayerAbove2,

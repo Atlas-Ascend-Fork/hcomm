@@ -21,6 +21,8 @@
 #              日志根优先 ASCEND_PROCESS_LOG_PATH, 其次 ASCEND_WORK_PATH/log,
 #              未设置时为当前用户家目录下 ascend/log。
 #
+# 当前暂未使用的字段:file_base_name, enable_compress, 使用时保持默认即可
+#
 hccl_vm:
     console_level: 2
     file_level: 1

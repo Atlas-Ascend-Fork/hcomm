@@ -49,6 +49,8 @@ target_link_libraries(test_hccl_plugin_manager PRIVATE
     gtest
     gtest_main
     store
+    simulator_storage
+    storage
     log
     pthread
     dl

@@ -150,15 +150,10 @@ void* DeviceMemoryManager::AllocVirMem(uint64_t devPhyId, size_t size)
 
     const uint64_t rankIdx = devPhyId - 1; // 口径不变（D5）：rankIdx = Device.physical_id - 1
 
-    // ── G1 rank 槽位上界（防 VA 位宽失控 / 侵入不存在的 rank，R4）──────────
+    // ★ 无 rank 槽位上界：集群 rank 数由拓扑决定，模拟器不设人为上限（原 G1 守卫已删除）。
+    //   rankIdx 的唯一硬约束是 VA 计算不得溢出 uint64，由下方 RankBase() 的溢出防护兜底
+    //   （溢出返回 0 → 本次分配失败）；47-bit 位宽只是诊断量（R4），不阻断分配。
     const devspec::RankAddressSpace ras(*addrSpace);
-    if (rankIdx >= ras.MaxRankSlots()) {
-        HCCL_VM_ERROR(
-            "alloc vir mem failed: dev:{:d} rankIdx:{} >= max rank slots {} "
-            "(受 47-bit VA 与 HCCL_VM_MAX_RANKS 双重约束)",
-            devPhyId, rankIdx, ras.MaxRankSlots());
-        return nullptr;
-    }
 
     auto& cursors = m_deviceMemCursors[devPhyId];
     if (cursors.size() != ras.UserMemSegCount()) {
@@ -167,11 +162,13 @@ void* DeviceMemoryManager::AllocVirMem(uint64_t devPhyId, size_t size)
 
     // ── G3 分段 first-fit：块必须完整落在单个 user_mem 段内（保证不踩 CCU）──
     const uint64_t rankBase = ras.RankBase(rankIdx);
-    const uint64_t windowTop = rankBase + ras.RankWindowSize();
     if (rankBase == 0) {
-        HCCL_VM_ERROR("alloc vir mem failed: dev:{:d} rankBase overflow", devPhyId);
+        HCCL_VM_ERROR(
+            "alloc vir mem failed: dev:{:d} rankIdx:{} rank window base overflow (rank_stride={:#x})", devPhyId,
+            rankIdx, ras.RankStride());
         return nullptr;
     }
+    const uint64_t windowTop = rankBase + ras.RankWindowSize();
     for (size_t i = 0; i < ras.UserMemSegCount(); ++i) {
         const uint64_t segOff = ras.UserMemSegOffset(i);
         const uint64_t segSize = ras.UserMemSegSize(i);

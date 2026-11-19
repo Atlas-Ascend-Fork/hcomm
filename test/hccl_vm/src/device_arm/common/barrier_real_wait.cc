@@ -22,8 +22,8 @@
  * 防挂死闸门（2026-10-21 挂起事故教训）：runner 安装门禁（Plugin 表）/ 等待上限 / 零进度
  * 停滞 fail-open；任何异常一律放行回退基线时序，绝不无限挂起。
  *
- * 门控（2026-11 起为算子属性自动判定，不再使用环境变量/开关文件）：按"本设备最新
- * 落库算子"的 opDetail（opType/dataType/reduceType）判定是否命中内联 CPU 归约路径
+ * 门控：按当前 kernel 上下文的 opDetail（opType/dataType/reduceType）
+ * 判定是否命中内联 CPU 归约路径
  * （reduce 类 + 64bit|PROD，与 hccl LocalReduce→AicpuReduce 分支及 checker 语义盲区
  * 判定一致），命中才真等；其余算子保持基线时序，无需任何手工开关。
  */
@@ -34,6 +34,7 @@
 
 #include <unistd.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstring>
 #include <map>
@@ -133,22 +134,25 @@ namespace {
         return is64BitType || isProdOp;
     }
 
-    // 自动门控判定缓存：按"本设备最新算子行 id"缓存判定结果——同一算子执行期内
-    // （device 进程经 pipe RPC 串行执行 kernel，host 在 kernel 返回前不会落库下一行）
-    // id 不变，每次 SQ_HEAD/join 调用只付一次两列投影查询；算子切换（id 变化）才
-    // 重新解析 BLOB 判定并打一条 decision 日志（继承旧 gate-init 自检日志的诊断职责：
-    // 一眼区分"没生效"的三种情形——未调用/gate OFF/gate ON）。
+    // 按已校验的 kernel 上下文 id 缓存判定；同一上下文内的 SQ_HEAD/join 复用结果。
     std::mutex& GateMutex()
     {
         static std::mutex mutex;
         return mutex;
     }
 
+    // pipe handler 在 kernel 入口写入、出口清零；kernel 和 daemon 线程以 acquire 读取。
+    std::atomic<uint32_t>& KernelGateContext()
+    {
+        static std::atomic<uint32_t> context{0};
+        return context;
+    }
+
     struct GateDecision {
-        uint32_t opDetailId = 0; // 最近一次判定所依据的算子行 id（0 = 尚无算子行）
-        bool evaluated = false;  // 已按 opDetailId 完成判定（缓存命中键）
-        bool noOpLogged = false; // "尚无算子行"提示只打一次（init 阶段每次查询都会走到）
-        bool gate = false;       // 判定结果：true = 真等
+        uint32_t opDetailId = 0;      // 最近一次判定所依据的算子行 id（0 = 尚无算子行）
+        bool evaluated = false;       // 已按 opDetailId 完成判定（缓存命中键）
+        bool noContextLogged = false; // "无 kernel 上下文"提示只打一次
+        bool gate = false;            // 判定结果：true = 真等
         uint16_t opType = 0;
         uint16_t dataType = 0;
         uint16_t reduceType = 0;
@@ -160,44 +164,48 @@ namespace {
         return state;
     }
 
-    // 判定失败一律 OFF（基线时序，fail-open）：真等只是时序修复，判定不了就不改变现状。
+    // 无算子 kernel 上下文或属性判定失败时关闭真等，保持基线时序。
     bool RealWaitAutoGateHit()
     {
+        const uint32_t contextId = KernelGateContext().load(std::memory_order_acquire);
         std::unique_lock<std::mutex> lock(GateMutex());
         auto& state = GateState();
-        const uint32_t deviceKey = GetCurDeviceKey();
-        uint32_t latestId = 0;
-        std::vector<uint8_t> blob;
-        // deviceKey 未设置（PIPE_RSP_SET_DEV_ID 之前）不查库：无身份可判，静默 OFF。
-        // rc: 1=命中最新算子行；0=尚无算子行（init kernel 阶段，高频合法态）；-1=查询失败。
-        const int rc = (deviceKey == 0) ? 0 : operation::QueryLatestOpDetailBlobByDeviceId(deviceKey, latestId, blob);
-        if (rc != 1) {
-            // 尚无任何算子落库（RunAicpuCommInit 等 init kernel 阶段）或查询失败：
-            // 内联 CPU 归约只可能出现在算子 kernel 内，判 OFF 不影响修复目标。
-            // 提示日志整个"无算子"阶段只打一条（noOpLogged），避免逐次查询刷屏。
-            if (!state.noOpLogged) {
-                state.noOpLogged = true;
+        if (contextId == 0) {
+            if (!state.noContextLogged) {
+                state.noContextLogged = true;
                 lock.unlock();
                 HCCL_VM_INFO(
-                    "[BarrierRealWait] gate decision: no op recorded for deviceKey={} yet (rc={}), "
-                    "gate=OFF(baseline)",
-                    deviceKey, rc);
+                    "[BarrierRealWait] gate decision: no op-kernel context (normal kernel or between kernels), "
+                    "gate=OFF(baseline)");
             }
             return false;
         }
-        if (state.evaluated && state.opDetailId == latestId) {
-            return state.gate; // 同一算子：判定缓存命中，静默返回
+        if (state.evaluated && state.opDetailId == contextId) {
+            return state.gate; // 同一 kernel 上下文：判定缓存命中，零 SQL
         }
 
         state = GateDecision{};
-        state.opDetailId = latestId;
+        state.opDetailId = contextId;
         state.evaluated = true;
+        // 首次见到该 kernel 上下文：按确切 id 取一次 opDetail BLOB 解析算子属性。
+        // blobRc!=1：行在摘要读取时不存在（清库/越界窗口）或后端错误——按判定
+        // 失败 fail-open OFF，重置 evaluated 使下一轮重新探测。
+        std::vector<uint8_t> blob;
+        const int blobRc = operation::QueryOpDetailBlobById(contextId, blob);
+        if (blobRc != 1) {
+            state.evaluated = false;
+            lock.unlock();
+            HCCL_VM_WARN(
+                "[BarrierRealWait] gate decision: opDetailId={} attributes unavailable (rc={}), gate=OFF(baseline)",
+                contextId, blobRc);
+            return false;
+        }
         if (blob.size() < sizeof(OpDetails)) {
             state.gate = false;
             lock.unlock();
             HCCL_VM_WARN(
-                "[BarrierRealWait] gate decision: opDetailId={} blob truncated ({} < {}), gate=OFF(baseline)", latestId,
-                blob.size(), sizeof(OpDetails));
+                "[BarrierRealWait] gate decision: opDetailId={} blob truncated ({} < {}), gate=OFF(baseline)",
+                contextId, blob.size(), sizeof(OpDetails));
             return false;
         }
         OpDetails details{};
@@ -206,16 +214,19 @@ namespace {
         state.dataType = details.dataType;
         state.reduceType = details.reduceType;
         state.gate = IsInlineCpuReduceOp(details.opType, details.dataType, details.reduceType);
+        const bool gate = state.gate;
         lock.unlock();
         HCCL_VM_INFO(
-            "[BarrierRealWait] gate decision (auto by op attrs): pid={}, ppid={}, deviceKey={}, opDetailId={}, "
+            "[BarrierRealWait] gate decision (auto by op attrs): pid={}, ppid={}, kernelCtx={}, "
             "opType={}, dataType={}, reduceType={}, gate={}",
-            static_cast<uint64_t>(getpid()), static_cast<uint64_t>(getppid()), deviceKey, latestId, details.opType,
-            details.dataType, details.reduceType, state.gate ? "ON(real-wait)" : "OFF(baseline)");
-        return state.gate;
+            static_cast<uint64_t>(getpid()), static_cast<uint64_t>(getppid()), contextId, details.opType,
+            details.dataType, details.reduceType, gate ? "ON(real-wait)" : "OFF(baseline)");
+        return gate;
     }
 
 } // namespace
+
+void SetBarrierGateContext(uint32_t opDetailId) { KernelGateContext().store(opDetailId, std::memory_order_release); }
 
 bool BarrierRealWait(uint64_t streamId, bool wholeTable, const char* callerTag)
 {

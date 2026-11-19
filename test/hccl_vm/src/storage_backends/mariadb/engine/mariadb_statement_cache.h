@@ -19,7 +19,7 @@
  * 【设计边界】
  *   - 只做"同一 SQL 文本复用已预备语句"这一件事：命中省去 prepare 的两次
  *     网络往返；不解析 SQL、不感知表结构、不做参数缓存；
- *   - 上限 128 条 LRU（超出逐出最久未用语句并 mysql_stmt_close）；
+ *   - 上限 512 条 LRU，超出时关闭并逐出最久未用语句；
  *   - 线程安全由引擎的单一连接 mutex 提供（本类自身不加锁——全部调用都
  *     在 MariaDbEngine 持锁路径内发生）；
  *   - 执行失败的语句由调用方 Discard（不留脏 stmt）；连接关闭/放弃前
@@ -37,12 +37,11 @@
 #include <utility>
 
 namespace HcclSim::Storage {
-/// MariaDB 语句缓存（SQL 文本 → 已预备 MYSQL_STMT；LRU 上限 128）
+/// MariaDB 语句缓存（SQL 文本 → 已预备 MYSQL_STMT；LRU 上限 512）
 class MariadbStatementCache final {
 public:
-    /// 同一连接上缓存的语句数上限（超出按 LRU 逐出；语句键是完整 SQL 文本，
-    /// 动态 PID 表按 <表>_P_<pid> 天然产生不同键，由 LRU 自然约束总量）
-    static constexpr std::size_t kDefaultCapacity = 128;
+    /// 每连接缓存上限；动态表名产生不同 SQL 键，超出按 LRU 逐出。
+    static constexpr std::size_t kDefaultCapacity = 512;
 
     /// mysql 为该缓存所属的连接（本类不持有连接，只借用指针预备/关闭语句）
     explicit MariadbStatementCache(MYSQL* mysql, std::size_t capacity = kDefaultCapacity)

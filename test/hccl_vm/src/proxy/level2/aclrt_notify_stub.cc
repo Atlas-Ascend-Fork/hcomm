@@ -178,16 +178,18 @@ aclError aclrtCreateNotify(aclrtNotify* notify, uint64_t flag)
 
     auto& currCtxId = currCtx.value->id;
 
-    // GetCurrDeviceId 返回 Device 表主键；先取逻辑设备号，再由映射函数确定 Notify 所属 rank。
-    const auto currentDevice = sim::runtime::Db::GetById<sim::runtime::Device>(sim::runtime::GetCurrDeviceId());
+    // 复用当前 Context 的设备主键；读取 Device 后按逻辑设备号确定 Notify 所属 rank。
+    const auto currentDevice = sim::runtime::Db::GetById<sim::runtime::Device>(currCtx.value->device_id);
     if (!currentDevice.ok()) {
         HCCL_VM_ERROR("current device not found for notify");
         return ACL_ERROR_INVALID_PARAM;
     }
     uint32_t rankId = currentDevice.value->logic_id;
     uint64_t serverTmp = 0;
-    sim::runtime::GetRankIdByMPI(rankId, serverTmp);
-    if (rankId >= HcclSim::GetMaxRanks()) {
+    // ★ 不对 rank 设规模上界（原 GetMaxRanks 检查已删除）；改为校验取值链路本身：
+    // GetRankIdByMPI 失败或返回 0xFFFF 哨兵（MPI 未提供 rank）都属非法，必须显式报错，
+    // 否则非法 rank 会写进 Notify.device_notify_seq，后续 record/wait 静默错配。
+    if (!sim::runtime::GetRankIdByMPI(rankId, serverTmp) || rankId == 0xFFFF) {
         HCCL_VM_ERROR("invalid rank for notify allocation: {:d}", rankId);
         return ACL_ERROR_INVALID_PARAM;
     }

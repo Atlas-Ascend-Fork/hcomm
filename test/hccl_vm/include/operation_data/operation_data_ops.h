@@ -246,10 +246,15 @@ int QueryLatestOpDetailByDeviceId(uint32_t deviceId, OpDetailTab& out);
 // BLOB）；排序（id 降序取首条）与空表/失败的 -1 + WARN 处理同完整行接口。
 int QueryLatestOpDetailStreamByDeviceId(uint32_t deviceId, uint32_t& opDetailId, uint64_t& streamId);
 // 设备维度最新算子的属性摘要：只取 id/opDetail 两列（不读 opExtInfo 大 BLOB），
-// opDetail 为定长 OpDetails（opType/dataType/reduceType）序列化字节。供 device 侧
-// 屏障真等自动门控按当前算子属性判定。返回：1=命中（出参有效）；0=该设备尚无算子
-// 行（合法业务状态，静默不打日志——门控在算子落库前每次提交都会查询）；-1=后端错误。
+// opDetail 为定长 OpDetails（opType/dataType/reduceType）序列化字节。返回：1=命中
+// （出参有效）；0=该设备尚无算子行（合法业务状态，静默）；-1=后端错误。
 int QueryLatestOpDetailBlobByDeviceId(uint32_t deviceId, uint32_t& opDetailId, std::vector<uint8_t>& opDetail);
+// 按确切 id 取算子属性摘要：只取 id/opDetail 两列（不读 opExtInfo 大 BLOB）。
+// device 屏障真等门控在 kernel 上下文（HandlePipeCmdExecKernel 已校验过的显式
+// opDetailId）首次判定时使用——按确切行读取，不按时间/设备猜"最新行"。返回：
+// 1=命中（出参有效）；0=行不存在（清库/越界窗口，静默——上下文入口已做过身份
+// 校验，正常路径必命中，不刷屏）；-1=后端错误。
+int QueryOpDetailBlobById(uint32_t opDetailId, std::vector<uint8_t>& opDetail);
 // 按通信域 (commName, commHash) 解析全部成员，汇总各成员在指定 opIter 的复合算子明细
 // （detail + memInfo + 动态 opTask 表任务），上游 QueryCompositeOpDetailByOpIter 语义。
 int QueryCompositeOpDetailByOpIter(

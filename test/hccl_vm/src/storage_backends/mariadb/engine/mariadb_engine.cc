@@ -1182,25 +1182,11 @@ namespace {
         return {DbCode::OK, std::optional<std::string>{CapIdentifierLength(indexName)}, 0, {}};
     }
 
-    /// 严格匹配可按区间形状使用的普通联合索引时返回该索引的物理名，供 SELECT
-    /// 生成 FORCE INDEX 提示。候选索引（全部满足才参与匹配，任一不满足即跳过
-    /// 该索引——继续使用优化器默认计划，不做任何通用优化器假设）：
-    /// 1. 非唯一普通复合索引，列数 >= 2 且谓词子句数恰等于索引列数；
-    /// 2. 末两列是互不相同的 uint64 字段（UNSIGNED 且 byteWidth ==
-    ///    sizeof(uint64_t)）——半开区间端点 [start,end) 的类型合同（原区间索引
-    ///    声明的编译期校验等价检查，与 BASE 一致允许 Derived 端点：VMB 的
-    ///    start_end_ptr / dev_mapped_end_ptr 由 Hook 计算入库，是合法索引列；
-    ///    不满足的普通索引（如 (device_id, is_freed) purge 索引）不获得提示）；
-    /// 3. 谓词形状（全部满足才命中）：
-    ///    a. 条件为平铺子句组合，全部 AND 连接，无括号分组；
-    ///    b. 每个子句为单值比较（IN/PREFIX 不参与）；
-    ///    c. 索引前导等值列（columnCount-2 列）各恰有一个 EQUAL 子句；
-    ///    d. start 列恰有一个 LESS_OR_EQUAL、end 列恰有一个 GREATER——半开区间
-    ///       [start,end) 的唯一谓词形态（与 FindDevMappedVirMemByDevice 同形）；
-    ///    e. 无多余谓词；每列至多命中一次。
-    /// 索引名经 DerivedIndexName 生成——与 CREATE INDEX 路径同一命名函数
-    /// （含 64 字符截断与哈希后缀），不硬编码表名/索引名，保证提示的索引
-    /// 与实际建出的索引一致。遍历顺序保持目录声明顺序。
+    /// 为半开区间包含查询匹配 FORCE INDEX；无匹配时使用优化器默认计划。
+    /// 只接受非唯一联合索引：等值前缀 + 两个不同的 uint64 端点（含 Derived）。
+    /// 谓词须为无分组的 AND 单值比较，每个索引列恰好匹配一次；端点支持
+    /// (start<=addr, end>addr) 或反向列序，额外子句只允许等值残留过滤。
+    /// 按目录顺序匹配，物理索引名与 CREATE INDEX 共用 DerivedIndexName。
     std::optional<std::string> MatchedIntervalIndexName(const Ddl::CatalogTableMeta& meta, const ConditionData& where)
     {
         const auto* clauses = std::get_if<std::vector<ConditionClause>>(&where);
@@ -1209,7 +1195,7 @@ namespace {
         }
         for (std::size_t i = 0; i < meta.indexCount; ++i) {
             const Ddl::IndexDesc& index = meta.indexes[i];
-            if (index.unique || index.columnCount < 2U || clauses->size() != index.columnCount) {
+            if (index.unique || index.columnCount < 2U || clauses->size() < index.columnCount) {
                 continue;
             }
             uint16_t columnIds[Ddl::kMaxIndexColumns];
@@ -1237,45 +1223,72 @@ namespace {
             if (startId == endId || !isIntervalEndpoint(startId) || !isIntervalEndpoint(endId)) {
                 continue;
             }
-            std::array<bool, Ddl::kMaxIndexColumns> columnSeen{};
-            bool shapeOk = true;
-            for (const auto& clause : *clauses) {
-                if (clause.joinWithPrevious != ConditionJoin::NONE && clause.joinWithPrevious != ConditionJoin::AND) {
-                    shapeOk = false;
-                    break;
-                }
-                if (clause.openGroupsBefore != 0 || clause.closeGroupsAfter != 0
-                    || !std::holds_alternative<DbScalar>(clause.value)) {
-                    shapeOk = false;
-                    break;
-                }
-                int slot = -1;
-                if (clause.fieldId == startId && clause.compare == Compare::LESS_OR_EQUAL) {
-                    slot = static_cast<int>(index.columnCount) - 2;
-                } else if (clause.fieldId == endId && clause.compare == Compare::GREATER) {
-                    slot = static_cast<int>(index.columnCount) - 1;
-                } else if (clause.compare == Compare::EQUAL) {
-                    for (std::size_t e = 0; e + 2U < index.columnCount; ++e) {
-                        if (clause.fieldId == columnIds[e]) {
-                            slot = static_cast<int>(e);
-                            break;
+            // 依次匹配 (start,end) 与 (end,start) 列序；包含谓词不变。
+            const Compare orientationStartCompare[2] = {Compare::LESS_OR_EQUAL, Compare::GREATER};
+            const Compare orientationEndCompare[2] = {Compare::GREATER, Compare::LESS_OR_EQUAL};
+            for (int orientation = 0; orientation < 2; ++orientation) {
+                std::array<bool, Ddl::kMaxIndexColumns> columnSeen{};
+                bool shapeOk = true;
+                for (const auto& clause : *clauses) {
+                    if (clause.joinWithPrevious != ConditionJoin::NONE
+                        && clause.joinWithPrevious != ConditionJoin::AND) {
+                        shapeOk = false;
+                        break;
+                    }
+                    if (clause.openGroupsBefore != 0 || clause.closeGroupsAfter != 0
+                        || !std::holds_alternative<DbScalar>(clause.value)) {
+                        shapeOk = false;
+                        break;
+                    }
+                    int slot = -1;
+                    if (clause.fieldId == startId && clause.compare == orientationStartCompare[orientation]) {
+                        slot = static_cast<int>(index.columnCount) - 2;
+                    } else if (clause.fieldId == endId && clause.compare == orientationEndCompare[orientation]) {
+                        slot = static_cast<int>(index.columnCount) - 1;
+                    } else if (clause.compare == Compare::EQUAL) {
+                        for (std::size_t e = 0; e + 2U < index.columnCount; ++e) {
+                            if (clause.fieldId == columnIds[e]) {
+                                slot = static_cast<int>(e);
+                                break;
+                            }
                         }
                     }
+                    if (slot < 0) {
+                        // 超出索引列的多余子句：等值才可作为残留过滤参与（如 VMB
+                        // 活动行查询的 is_freed=0）；非等值（Ne/IN/PREFIX/第二区间
+                        // 端点变体等）不满足本索引形状。
+                        if (clause.compare != Compare::EQUAL) {
+                            shapeOk = false;
+                            break;
+                        }
+                        continue;
+                    }
+                    if (columnSeen[static_cast<std::size_t>(slot)]) {
+                        shapeOk = false;
+                        break;
+                    }
+                    columnSeen[static_cast<std::size_t>(slot)] = true;
                 }
-                if (slot < 0 || columnSeen[static_cast<std::size_t>(slot)]) {
-                    shapeOk = false;
-                    break;
+                if (!shapeOk) {
+                    continue;
                 }
-                columnSeen[static_cast<std::size_t>(slot)] = true;
+                // 必备形状齐全：等值前缀与区间端点列各恰命中一次（多余等值子句不豁免）。
+                bool requiredComplete = true;
+                for (std::size_t c = 0; c + 2U < index.columnCount; ++c) {
+                    if (!columnSeen[c]) {
+                        requiredComplete = false;
+                        break;
+                    }
+                }
+                if (!requiredComplete || !columnSeen[index.columnCount - 2U] || !columnSeen[index.columnCount - 1U]) {
+                    continue;
+                }
+                auto name = DerivedIndexName(meta, index);
+                if (name.ok() && name.value.has_value()) {
+                    return *name.value;
+                }
+                return std::nullopt;
             }
-            if (!shapeOk) {
-                continue;
-            }
-            auto name = DerivedIndexName(meta, index);
-            if (name.ok() && name.value.has_value()) {
-                return *name.value;
-            }
-            return std::nullopt;
         }
         return std::nullopt;
     }
@@ -2233,18 +2246,42 @@ struct MariaDbEngine::Impl {
     /// 在 MariaDB 方言下不存在）。当前业务流全部动态表首次 DML 均为非事务
     /// 路径（OpTaskTab 经 InsertOpTask 直插），本路径不触发；作为已知限制
     /// 记录于部署 runbook。
+    /// 预检已有表和索引，避免跨实例重复 DDL；保留并发首建的幂等处理。
     DbResult<void> EnsureDynamicTable(const Ddl::CatalogTableMeta& meta, const std::string& physicalTableName)
     {
         if (ensuredDynamicTables.count(physicalTableName) > 0) {
             return {DbCode::OK, 0, {}};
         }
-        auto createTable = RenderCreateTable(*catalog, meta, physicalTableName);
-        if (!createTable.ok()) {
-            return {createTable.code, createTable.affectedRows, createTable.diagnostic};
+        // 预检（information_schema 读，无 DDL/排他 MDL）：单表索引名快照。
+        // InnoDB 每张有主键的表在 statistics 中至少含 PRIMARY 一行，空结果即
+        // 表不存在。物理表名是目录生成的受限标识符，先经 ValidateIdentifier
+        // 再嵌入文本（与列名引用同一注入防线）。
+        const auto validatedTable = ValidateIdentifier(physicalTableName);
+        if (!validatedTable.ok()) {
+            return validatedTable;
         }
-        auto created = ExecuteSimpleLocked(*createTable.value, "create dynamic table", true);
-        if (!created.ok()) {
-            return created;
+        auto indexRows = QueryTextRows(
+            mysql, "SELECT INDEX_NAME FROM information_schema.statistics WHERE TABLE_SCHEMA = DATABASE() AND "
+                   "TABLE_NAME = '"
+                       + physicalTableName + "'");
+        if (!indexRows.ok()) {
+            return {indexRows.code, 0, indexRows.diagnostic};
+        }
+        std::set<std::string> existingIndexes;
+        for (const auto& row : *indexRows.value) {
+            if (!row.empty()) {
+                existingIndexes.insert(row[0]);
+            }
+        }
+        if (existingIndexes.empty()) {
+            auto createTable = RenderCreateTable(*catalog, meta, physicalTableName);
+            if (!createTable.ok()) {
+                return {createTable.code, createTable.affectedRows, createTable.diagnostic};
+            }
+            auto created = ExecuteSimpleLocked(*createTable.value, "create dynamic table", true);
+            if (!created.ok()) {
+                return created;
+            }
         }
         for (std::size_t i = 0; i < meta.indexCount; ++i) {
             auto baseName = DerivedIndexName(meta, meta.indexes[i]);
@@ -2254,11 +2291,14 @@ struct MariaDbEngine::Impl {
             // 物理索引名按物理表名派生，保证不同 pid scope 表的索引互不冲突；
             // 组合后再过 64 字符上限（基名截断+物理表名可能超限，方言差异 #14）
             const std::string indexName = CapIdentifierLength(*baseName.value + "_" + physicalTableName);
+            if (existingIndexes.count(indexName) > 0) {
+                continue; // 同名索引已存在，跳过重复 DDL。
+            }
             auto createIndex = RenderCreateIndex(meta, meta.indexes[i], indexName, physicalTableName);
             if (!createIndex.ok()) {
                 return {createIndex.code, createIndex.affectedRows, createIndex.diagnostic};
             }
-            // 1061 幂等容忍：跨进程重入时索引已存在（见 ExecuteSimpleLocked）
+            // 1061 幂等容忍：预检与创建间的并发竞态（见 ExecuteSimpleLocked）
             auto indexed = ExecuteSimpleLocked(*createIndex.value, "create dynamic index", false, true);
             if (!indexed.ok()) {
                 return indexed;

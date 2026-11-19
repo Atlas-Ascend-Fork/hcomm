@@ -26,7 +26,15 @@ target_sources(test_aclrt_memory_stub PRIVATE
 set_target_properties(test_aclrt_memory_stub PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
 )
-target_link_libraries(test_aclrt_memory_stub gtest_main)
+target_link_libraries(test_aclrt_memory_stub gtest_main sqlite3)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+target_compile_definitions(test_aclrt_memory_stub PRIVATE
+    AICPU_MEMORY_TEST_PYTHON="${Python3_EXECUTABLE}"
+    AICPU_MEMORY_TEST_PEER="${CMAKE_CURRENT_SOURCE_DIR}/memory_pipe_peer.py"
+)
+add_test(NAME aclrt_memory_stub COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/run_memory_tests.py $<TARGET_FILE:test_aclrt_memory_stub>)
+set_tests_properties(aclrt_memory_stub PROPERTIES TIMEOUT 45)
 
 # test_ascend_hal_proxy_stub —— 主机侧 drvMemcpy 地址分类与错误传播单测
 # （IsDeviceAddress 三态合同：命中/确定未命中/查询失败传播；拷贝失败不返回成功）

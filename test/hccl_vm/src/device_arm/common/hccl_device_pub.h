@@ -102,7 +102,11 @@ void UpdateSqTail(uint32_t sqId, uint32_t newTail);
 
 bool GetWqebufferByJettyId(uint64_t jettyId, uint64_t& wqeBuffer);
 
-bool GetLocalEidByJettyId(uint64_t jettyId, uint8_t* lcEid);
+// 一次 RaJetty 行读取同时供给 WQE 基址与本地 EID（ParseDavidUDMASqeWithIdentity
+// 原两次同谓词查询同一行的合并；逐分支返回语义见实现注释）。false=行定位失败
+// （含编号区间校验，致命）；true 且 eidResolved=false=行已取到、EID 链失败
+// （非致命，lcEid 全零）。不缓存跨调用行。
+bool GetWqeBufferAndLocalEidByJettyId(uint64_t jettyId, uint64_t& wqeBuffer, uint8_t* lcEid, bool& eidResolved);
 
 void InitPipeFds(int h2dReadFd, int d2hWriteFd);
 

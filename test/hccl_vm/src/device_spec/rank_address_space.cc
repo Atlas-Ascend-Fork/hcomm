@@ -12,7 +12,6 @@
 
 #include <limits>
 
-#include "sim_capacity_limits.h"
 #include "sim_log.h"
 
 namespace sim {
@@ -30,25 +29,17 @@ namespace devspec {
         if (m_addr.rankStride == 0) {
             return 0;
         }
-        // 溢出防护（仿 hcomm ccu_res_specs.cc:385-392 的写法）
-        if (rankIdx > 0
-            && m_addr.rankBase
-                   > std::numeric_limits<uint64_t>::max() - static_cast<uint64_t>(rankIdx) * m_addr.rankStride) {
+        // 溢出防护：rank 规模已无上界（原 MaxRankSlots/HCCL_VM_MAX_RANKS 已删除），本检查是
+        // rankIdx 的唯一硬约束，故必须自身不溢出 —— 用除法求"可容纳的最大 rankIdx"，
+        // 不能写成 `rankBase > UINT64_MAX - rankIdx * rankStride`（乘法先回绕则判不出溢出）。
+        const uint64_t maxRankIdx = (std::numeric_limits<uint64_t>::max() - m_addr.rankBase) / m_addr.rankStride;
+        if (static_cast<uint64_t>(rankIdx) > maxRankIdx) {
             HCCL_VM_ERROR(
-                "RankBase overflow: rankIdx={} rankBase={:#x} rankStride={:#x}", rankIdx, m_addr.rankBase,
-                m_addr.rankStride);
+                "RankBase overflow: rankIdx={} exceeds max addressable rankIdx={} (rankBase={:#x} rankStride={:#x})",
+                rankIdx, maxRankIdx, m_addr.rankBase, m_addr.rankStride);
             return 0;
         }
         return m_addr.rankBase + static_cast<uint64_t>(rankIdx) * m_addr.rankStride;
-    }
-
-    uint32_t RankAddressSpace::MaxRankSlots() const
-    {
-        // 硬上界 = GetMaxRanks()（默认 1024，可被 HCCL_VM_MAX_RANKS 覆盖）。
-        // ★ 不在此处引入 47-bit VA 位宽约束：模拟设备 VA 只是 token，不被 host 解引用或
-        //   用于 mmap（见 R4），若按位宽卡在 ~127 会让 128~1024 rank 的集群无法分配内存。
-        //   位宽问题由 Va47BitRankLimit() + 加载器校验 7 以 WARN 形式暴露。
-        return HcclSim::GetMaxRanks();
     }
 
     uint32_t RankAddressSpace::Va47BitRankLimit() const

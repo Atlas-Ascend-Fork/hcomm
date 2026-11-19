@@ -730,6 +730,26 @@ int QueryLatestOpDetailBlobByDeviceId(uint32_t deviceId, uint32_t& opDetailId, s
     return 1;
 }
 
+int QueryOpDetailBlobById(uint32_t opDetailId, std::vector<uint8_t>& opDetail)
+{
+    // 属性摘要（按确切 id）：SelectOne + Fields 只取 id/opDetail 两列（不读 opExtInfo
+    // 大 BLOB）。调用方（device 屏障真等门控）在 kernel 上下文首次判定时按
+    // HandlePipeCmdExecKernel 校验过的显式 opDetailId 读取，不按时间/设备猜"最新行"。
+    // 空结果（行被移除/清库窗口）与后端错误均静默返回 0/-1（fail-open 由调用方处理，
+    // 不在此打日志——上下文入口已做过身份校验，正常路径必命中）。
+    auto found = HcclSim::Storage::SelectOne<OpDetailTab>(
+        HcclSim::Storage::Eq(&OpDetailTab::id, opDetailId),
+        HcclSim::Storage::Fields(&OpDetailTab::id, &OpDetailTab::opDetail));
+    if (!found.ok()) {
+        return -1;
+    }
+    if (!found.value.has_value()) {
+        return 0;
+    }
+    opDetail = std::move(found.value->opDetail);
+    return 1;
+}
+
 int QueryCompositeOpDetailByOpIter(
     const std::string& commName, uint64_t commHash, uint32_t opIter, std::vector<CompositeOpDetail>& details)
 {

@@ -8,14 +8,19 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-// 主机侧单测：覆盖大块引流、上界报错、aclrtFreeHost 身份判定。
+// 主机侧单测：覆盖大块引流、地址解析、分配回滚及 reserve/map/unmap。
 // MallocHost 走真实 MemoryManager 和 HcclCommPool 共享内存，不用 mock。
 // memcpy/memset 的设备侧短路判定由 CommPoolPolicy::ShouldRedirect 的纯函数用例覆盖边界。
-// 本文件聚焦不依赖 RunnerDB/Runner 上下文的主机侧入口。
 
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <memory>
+#include <vector>
+#include <unistd.h>
 #include <sys/mman.h> // shm_unlink
+#include <sqlite3.h>
 #include <gtest/gtest.h>
 
 #include "acl/acl_base.h"
@@ -24,11 +29,75 @@
 #include "store_sim_device_memory_manager.h"
 #include "store_sim_memory_manager.h"
 #include "store_sim_run_mode.h"
+#include "store_sim_resource_root.h"
+#include "store_sim_shm_ops.h"
 #include "storage/internal/process_storage_context.h"
 #include "runtime_state/db_sim_runner_ops.h"
 #include "storage/storage_session.h"
 #include "runtime_state/sim_models.h"
 #include "sqlite/simulation_storage_test_helper.h"
+#include "sim_sub_process_manager.h"
+
+extern "C" bool GetDevMappedMemPtr(
+    uint64_t devPhyId, size_t size, std::string& memName, bool& isDevMapped, void** virPtr, void** devPtr);
+extern "C" void* GetRealPtrByAddr(const void* virPtr);
+
+namespace {
+// 仅替代 pipe 对端，校验真实 host 请求并构造响应；device 的真实 mmap 由
+// test_sim_aicpu_memory 覆盖。本对端返回哨兵地址，host 测试不得解引用。
+class MemoryPipePeer {
+public:
+    MemoryPipePeer(
+        size_t size, bool pooled, const std::string& response = "valid", const std::string& name = "mapping_probe")
+        : manager_(sim::GetAicpuProcMgr(43001))
+    {
+        char pattern[] = "/tmp/hccl_vm_memory_peer_XXXXXX";
+        int fd = ::mkstemp(pattern);
+        EXPECT_GE(fd, 0);
+        if (fd >= 0) {
+            ::close(fd);
+        }
+        report_ = pattern;
+        sim::SubProcessConfig config;
+        config.executable = AICPU_MEMORY_TEST_PYTHON;
+        config.args = {AICPU_MEMORY_TEST_PYTHON,
+                       AICPU_MEMORY_TEST_PEER,
+                       name,
+                       std::to_string(size),
+                       pooled ? "1" : "0",
+                       response,
+                       report_};
+        EXPECT_EQ(manager_.CreateProcess(config), 0);
+    }
+
+    ~MemoryPipePeer()
+    {
+        manager_.DestroyProcess();
+        ::unlink(report_.c_str());
+    }
+
+    bool IsAlive() const { return manager_.IsAlive(); }
+
+    std::vector<std::string> Requests(const std::string& command) const
+    {
+        std::ifstream input(report_);
+        std::vector<std::string> names;
+        std::string cmd, name;
+        while (input >> cmd >> name) {
+            if (cmd == command) {
+                names.push_back(name);
+            }
+        }
+        return names;
+    }
+
+    static constexpr uintptr_t kDevicePointer = 0x700000123000ULL;
+
+private:
+    sim::SubProcessManager& manager_;
+    std::string report_;
+};
+} // namespace
 
 extern "C" {
 aclError aclrtMallocHost(void** hostPtr, size_t size);
@@ -57,8 +126,9 @@ protected:
     }
     static void TearDownTestSuite()
     {
-        // 关闭并 unlink，保证 /dev/shm 不泄漏，独立重跑不撞 O_EXCL。
-        sim::MemoryManager::GetInstance().FreeMemByName(sim::CommPoolPolicy::kPoolName);
+        // 与产品一致保留 CacheCommPoolBase 的进程期引用，避免后续用例读到失效基址。
+        // 测试包装器在进程结束后删除隔离资源目录。
+        sim::MemoryManager::GetInstance().ReleaseMemByName(sim::CommPoolPolicy::kPoolName);
         // 清掉本套件写进共享 DB 的仅校验模式行，避免给其它测试二进制留下 check-only(mode=1)。
         runnerdb_test::ClearRecords<sim::runtime::RunModeConfig>();
     }
@@ -154,6 +224,52 @@ TEST_F(AclrtMemStubTest, MallocHostWithCfg_BigBlock_DelegatesToPool)
     aclrtFreeHost(viaCfg);
 }
 
+TEST_F(AclrtMemStubTest, GetDevMappedMemPtr_PooledBufferRequestsDeviceMapping)
+{
+    const size_t size = sim::CommPoolPolicy::kBigBlockThreshold;
+    MemoryPipePeer peer(size, true);
+    ASSERT_TRUE(peer.IsAlive());
+    std::string name = "mapping_probe";
+    bool mapped = false;
+    void* virtualPtr = nullptr;
+    void* devicePtr = nullptr;
+    ASSERT_TRUE(GetDevMappedMemPtr(1, size, name, mapped, &virtualPtr, &devicePtr));
+    EXPECT_TRUE(mapped);
+    EXPECT_NE(virtualPtr, nullptr);
+    EXPECT_NE(devicePtr, virtualPtr);
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(devicePtr), MemoryPipePeer::kDevicePointer);
+}
+
+TEST_F(AclrtMemStubTest, GetDevMappedMemPtr_SmallBufferDoesNotRequestPool)
+{
+    MemoryPipePeer peer(4096, false);
+    ASSERT_TRUE(peer.IsAlive());
+    std::string name = "mapping_probe";
+    bool mapped = false;
+    void* virtualPtr = nullptr;
+    void* devicePtr = nullptr;
+    ASSERT_TRUE(GetDevMappedMemPtr(1, 4096, name, mapped, &virtualPtr, &devicePtr));
+    EXPECT_TRUE(mapped);
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(devicePtr), MemoryPipePeer::kDevicePointer);
+}
+
+TEST_F(AclrtMemStubTest, GetDevMappedMemPtr_RejectsInvalidResponses)
+{
+    const size_t size = sim::CommPoolPolicy::kBigBlockThreshold;
+    for (const std::string response : {"null", "wrong_command", "short"}) {
+        SCOPED_TRACE(response);
+        MemoryPipePeer peer(size, true, response);
+        ASSERT_TRUE(peer.IsAlive());
+        std::string name = "mapping_probe";
+        bool mapped = true;
+        void* virtualPtr = nullptr;
+        void* devicePtr = nullptr;
+        EXPECT_FALSE(GetDevMappedMemPtr(1, size, name, mapped, &virtualPtr, &devicePtr));
+        EXPECT_FALSE(mapped);
+        EXPECT_EQ(devicePtr, nullptr);
+    }
+}
+
 // ==================== 对称内存统一 reserve/map/unmap 模型回归 ====================
 // 新合同：reserve 只发跨 rank 同址对称 VA、不写 DB；aclrtMapMem 是唯一写表点，
 // 行内 start_ptr 为 map 时另发的按设备唯一本地址（与对称 VA 不同），dev_mapped_ptr
@@ -171,7 +287,7 @@ aclError aclrtUnmapMem(void* virPtr);
 extern uint64_t g_cur_server_key;
 
 namespace {
-const std::string kReserveDbPath = "/tmp/test_aclrt_reserve_ownership.db";
+const std::string kReserveDbPath = "/tmp/test_aclrt_reserve_ownership_" + std::to_string(::getpid()) + ".db";
 }
 
 class AclrtReserveOwnershipTest : public testing::Test {
@@ -393,4 +509,266 @@ TEST_F(AclrtReserveOwnershipTest, RemapAfterUnmapAllocatesFreshUniqueStart)
 
     // 清理重建后仍存活的窗口。
     ASSERT_EQ(aclrtUnmapMem(virPtr), ACL_SUCCESS);
+}
+
+namespace {
+void SetMemoryTestMode(uint8_t mode)
+{
+    ASSERT_TRUE(runnerdb_test::ClearRecords<sim::runtime::RunModeConfig>());
+    sim::runtime::RunModeConfig config{};
+    config.mode = mode;
+    ASSERT_NE(runnerdb_test::InsertRecord(config), 0U);
+    sim::ResetRunModeCache();
+    ASSERT_EQ(sim::IsCheckOnlyMode(), mode == sim::RUN_MODE_CHECK_ONLY);
+    ASSERT_EQ(sim::IsEstimateMode(), mode == sim::RUN_MODE_ESTIMATE);
+}
+} // namespace
+
+class AclrtMappedMemoryTest : public AclrtReserveOwnershipTest, public testing::WithParamInterface<uint8_t> {
+protected:
+    void SetUp() override
+    {
+        AclrtReserveOwnershipTest::SetUp();
+        ASSERT_NO_FATAL_FAILURE(SetMemoryTestMode(GetParam()));
+    }
+
+    void ExpectNoLiveAllocations()
+    {
+        EXPECT_TRUE(runnerdb_test::SelectRecords<sim::runtime::VirtualMemBlock>(
+                        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::is_freed, uint8_t{0}))
+                        .empty());
+        EXPECT_TRUE(runnerdb_test::SelectRecords<sim::runtime::PhyMemBlock>(
+                        HcclSim::Storage::Eq(&sim::runtime::PhyMemBlock::is_freed, uint8_t{0}))
+                        .empty());
+    }
+
+    template <typename T>
+    void RejectInsert()
+    {
+        // 先通过正式查询创建表，再用测试私有 SQLite 触发器注入写入失败。
+        (void)runnerdb_test::SelectRecords<T>(HcclSim::Storage::All<T>());
+        sqlite3* db = nullptr;
+        ASSERT_EQ(sqlite3_open(kReserveDbPath.c_str(), &db), SQLITE_OK);
+        std::unique_ptr<sqlite3, decltype(&sqlite3_close)> connection(db, &sqlite3_close);
+        const auto& meta = HcclSim::Storage::RecordSchema<T>::Meta();
+        const std::string sql = "CREATE TRIGGER fail_alloc BEFORE INSERT ON \"" + std::string(meta.tableId)
+                                + "\" BEGIN SELECT RAISE(FAIL, 'injected allocation failure'); END";
+        char* error = nullptr;
+        const int status = sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &error);
+        const std::string diagnostic = error == nullptr ? "" : error;
+        sqlite3_free(error);
+        ASSERT_EQ(status, SQLITE_OK) << diagnostic;
+    }
+
+    void ExpectInsertFailureCleanup()
+    {
+        MemoryPipePeer peer(4096, false, "valid", "*");
+        ASSERT_TRUE(peer.IsAlive());
+        void* ptr = nullptr;
+        ASSERT_NE(aclrtMalloc(&ptr, 4096, ACL_MEM_MALLOC_NORMAL_ONLY), ACL_SUCCESS);
+        EXPECT_EQ(ptr, nullptr);
+        ASSERT_EQ(peer.Requests("GET").size(), 1U);
+        EXPECT_EQ(peer.Requests("FREE"), peer.Requests("GET"));
+        EXPECT_FALSE(std::filesystem::exists(sim::SimResourceRoot::BuildName(peer.Requests("GET")[0])));
+        EXPECT_EQ(
+            sim::DeviceMemoryManager::GetInstance().GetHostPtrByDevPtr(
+                deviceId, reinterpret_cast<void*>(MemoryPipePeer::kDevicePointer)),
+            nullptr);
+        ExpectNoLiveAllocations();
+    }
+};
+
+TEST_P(AclrtMappedMemoryTest, MallocD2DAndFreeUseDeviceMappedAddress)
+{
+    MemoryPipePeer peer(4096, false, "valid", "*");
+    ASSERT_TRUE(peer.IsAlive());
+    void* ptr = nullptr;
+    ASSERT_EQ(aclrtMalloc(&ptr, 4096, ACL_MEM_MALLOC_NORMAL_ONLY), ACL_SUCCESS);
+    ASSERT_EQ(reinterpret_cast<uintptr_t>(ptr), MemoryPipePeer::kDevicePointer);
+    auto row = FindWindowBySymVa(MemoryPipePeer::kDevicePointer);
+    ASSERT_TRUE(row.has_value());
+    EXPECT_NE(row->start_ptr, row->dev_mapped_ptr);
+    auto* backing = static_cast<uint8_t*>(sim::DeviceMemoryManager::GetInstance().GetHostPtrByDevPtr(deviceId, ptr));
+    ASSERT_NE(backing, nullptr);
+    const uint8_t source[] = {1, 3, 5, 7};
+    auto* src = reinterpret_cast<uint8_t*>(ptr) + 16;
+    auto* dst = reinterpret_cast<uint8_t*>(ptr) + 64;
+    EXPECT_EQ(GetRealPtrByAddr(src), backing + 16); // CCU 微码上传使用同一地址解析入口。
+    ASSERT_EQ(aclrtMemcpy(src, sizeof(source), source, sizeof(source), ACL_MEMCPY_HOST_TO_DEVICE), ACL_SUCCESS);
+    ASSERT_EQ(aclrtMemcpy(dst, sizeof(source), src, sizeof(source), ACL_MEMCPY_DEVICE_TO_DEVICE), ACL_SUCCESS);
+    uint8_t copied[sizeof(source)]{};
+    ASSERT_EQ(aclrtMemcpy(copied, sizeof(copied), dst, sizeof(copied), ACL_MEMCPY_DEVICE_TO_HOST), ACL_SUCCESS);
+    EXPECT_EQ(std::memcmp(source, copied, sizeof(source)), 0);
+    EXPECT_EQ(aclrtFree(ptr), ACL_SUCCESS);
+    EXPECT_EQ(peer.Requests("FREE"), peer.Requests("GET"));
+    EXPECT_EQ(sim::DeviceMemoryManager::GetInstance().GetHostPtrByDevPtr(deviceId, ptr), nullptr);
+    EXPECT_FALSE(std::filesystem::exists(sim::SimResourceRoot::BuildName(peer.Requests("GET")[0])));
+    ExpectNoLiveAllocations();
+}
+
+TEST_P(AclrtMappedMemoryTest, MallocWithoutDeviceKeepsLogicalAddressAndCanFree)
+{
+    ASSERT_FALSE(sim::GetAicpuProcMgr().IsAlive());
+    void* ptr = nullptr;
+    ASSERT_EQ(aclrtMalloc(&ptr, 4096, ACL_MEM_MALLOC_NORMAL_ONLY), ACL_SUCCESS);
+    auto row = FindWindowBySymVa(reinterpret_cast<uintptr_t>(ptr));
+    ASSERT_TRUE(row.has_value());
+    EXPECT_EQ(row->start_ptr, row->dev_mapped_ptr);
+    auto* backing = sim::DeviceMemoryManager::GetInstance().GetHostPtrByDevPtr(deviceId, ptr);
+    EXPECT_EQ(GetRealPtrByAddr(ptr), backing);
+    EXPECT_EQ(aclrtFree(ptr), ACL_SUCCESS);
+    EXPECT_EQ(sim::DeviceMemoryManager::GetInstance().GetHostPtrByDevPtr(deviceId, ptr), nullptr);
+    ExpectNoLiveAllocations();
+}
+
+TEST_P(AclrtMappedMemoryTest, FreeFailurePreservesHostAllocationForRetry)
+{
+    MemoryPipePeer peer(4096, false, "free_fail_once", "*");
+    ASSERT_TRUE(peer.IsAlive());
+    void* ptr = nullptr;
+    ASSERT_EQ(aclrtMalloc(&ptr, 4096, ACL_MEM_MALLOC_NORMAL_ONLY), ACL_SUCCESS);
+    auto* backing = GetRealPtrByAddr(ptr);
+    ASSERT_NE(backing, nullptr);
+    EXPECT_NE(aclrtFree(ptr), ACL_SUCCESS);
+    EXPECT_EQ(GetRealPtrByAddr(ptr), backing);
+    auto row = FindWindowBySymVa(reinterpret_cast<uintptr_t>(ptr));
+    ASSERT_TRUE(row.has_value());
+    EXPECT_EQ(row->is_freed, 0U);
+    EXPECT_EQ(aclrtFree(ptr), ACL_SUCCESS);
+    ExpectNoLiveAllocations();
+}
+
+TEST_P(AclrtMappedMemoryTest, PointerAttributesDisambiguateSameAddressAcrossDevices)
+{
+    MemoryPipePeer peer(4096, false, "valid", "*");
+    ASSERT_TRUE(peer.IsAlive());
+    void* ptr = nullptr;
+    ASSERT_EQ(aclrtMalloc(&ptr, 4096, ACL_MEM_MALLOC_NORMAL_ONLY), ACL_SUCCESS);
+    sim::runtime::Device other{};
+    other.server_id = serverId;
+    other.logic_id = 7;
+    const auto otherId = runnerdb_test::InsertRecord(other);
+    ASSERT_NE(otherId, 0U);
+    auto row = FindWindowBySymVa(reinterpret_cast<uintptr_t>(ptr));
+    ASSERT_TRUE(row.has_value());
+    const auto localPhy = runnerdb_test::SelectRecord<sim::runtime::PhyMemBlock>(row->phy_mem_id);
+    ASSERT_TRUE(localPhy.has_value());
+    auto foreignPhy = *localPhy;
+    foreignPhy.device_id = otherId;
+    row->phy_mem_id = runnerdb_test::InsertRecord(foreignPhy);
+    ASSERT_NE(row->phy_mem_id, 0U);
+    row->device_id = otherId;
+    ASSERT_NE(runnerdb_test::InsertRecord(*row), 0U);
+    aclrtPtrAttributes attrs{};
+    EXPECT_EQ(aclrtPointerGetAttributes(ptr, &attrs), ACL_SUCCESS);
+    EXPECT_EQ(attrs.location.id, 0); // 当前设备，而非同地址的另一个设备。
+    EXPECT_EQ(aclrtFree(ptr), ACL_SUCCESS);
+}
+
+TEST_P(AclrtMappedMemoryTest, LargeAllocationUsesModeSpecificBacking)
+{
+    const size_t size = sim::CommPoolPolicy::kBigBlockThreshold;
+    const bool pooled = GetParam() == sim::RUN_MODE_CHECK_ONLY;
+    MemoryPipePeer peer(size, pooled, "valid", "*");
+    ASSERT_TRUE(peer.IsAlive());
+    void* ptr = nullptr;
+    ASSERT_EQ(aclrtMalloc(&ptr, size, ACL_MEM_MALLOC_NORMAL_ONLY), ACL_SUCCESS);
+    auto* backing = static_cast<uint8_t*>(GetRealPtrByAddr(ptr));
+    ASSERT_NE(backing, nullptr);
+    backing[16] = 0x12;
+    backing[64] = 0x34;
+    EXPECT_EQ(
+        aclrtMemcpy(
+            reinterpret_cast<uint8_t*>(ptr) + 64, 1, reinterpret_cast<uint8_t*>(ptr) + 16, 1,
+            ACL_MEMCPY_DEVICE_TO_DEVICE),
+        ACL_SUCCESS);
+    EXPECT_EQ(backing[64], pooled ? 0x34 : 0x12); // chk-only 大块跳过实际写入。
+    ASSERT_EQ(peer.Requests("GET").size(), 1U);
+    const auto allocationPath = sim::SimResourceRoot::BuildName(peer.Requests("GET")[0]);
+    EXPECT_EQ(std::filesystem::exists(allocationPath), !pooled);
+    EXPECT_EQ(aclrtFree(ptr), ACL_SUCCESS);
+    EXPECT_EQ(peer.Requests("FREE"), peer.Requests("GET"));
+    EXPECT_FALSE(std::filesystem::exists(allocationPath));
+    ExpectNoLiveAllocations();
+}
+
+TEST_P(AclrtMappedMemoryTest, MappingFailuresReleasePhysicalAllocation)
+{
+    for (const std::string response : {"null", "wrong_command", "short", "eof"}) {
+        SCOPED_TRACE(response);
+        MemoryPipePeer peer(4096, false, response, "*");
+        ASSERT_TRUE(peer.IsAlive());
+        void* ptr = nullptr;
+        EXPECT_NE(aclrtMalloc(&ptr, 4096, ACL_MEM_MALLOC_NORMAL_ONLY), ACL_SUCCESS);
+        EXPECT_EQ(ptr, nullptr);
+        ASSERT_EQ(peer.Requests("GET").size(), 1U);
+        if (response != "eof") {
+            EXPECT_EQ(peer.Requests("FREE"), peer.Requests("GET"));
+        }
+        EXPECT_FALSE(std::filesystem::exists(sim::SimResourceRoot::BuildName(peer.Requests("GET")[0])));
+        ExpectNoLiveAllocations();
+    }
+}
+
+TEST_P(AclrtMappedMemoryTest, PhysicalRecordInsertFailureReleasesBothMappings)
+{
+    ASSERT_NO_FATAL_FAILURE(RejectInsert<sim::runtime::PhyMemBlock>());
+    ExpectInsertFailureCleanup();
+}
+
+TEST_P(AclrtMappedMemoryTest, VirtualRecordInsertFailureReleasesBothMappings)
+{
+    ASSERT_NO_FATAL_FAILURE(RejectInsert<sim::runtime::VirtualMemBlock>());
+    ExpectInsertFailureCleanup();
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    RunModes, AclrtMappedMemoryTest,
+    testing::Values(
+        static_cast<uint8_t>(sim::RUN_MODE_NORMAL), static_cast<uint8_t>(sim::RUN_MODE_CHECK_ONLY),
+        static_cast<uint8_t>(sim::RUN_MODE_ESTIMATE)),
+    [](const testing::TestParamInfo<uint8_t>& info) {
+        return info.param == sim::RUN_MODE_NORMAL     ? "Normal" :
+               info.param == sim::RUN_MODE_CHECK_ONLY ? "CheckOnly" :
+                                                        "Estimate";
+    });
+
+// 自行 exec 全新进程，直接运行整个二进制也不受前面用例的池缓存影响。
+TEST_F(AclrtReserveOwnershipTest, PooledMappingFailuresReleasePoolReferences)
+{
+    if (std::getenv("HCCL_VM_POOL_ROLLBACK_CHILD") == nullptr) {
+        const auto root = std::filesystem::path(sim::SimResourceRoot::GetInstance().GetRoot()) / "pool_rollback";
+        std::filesystem::create_directories(root);
+        EXPECT_EXIT(
+            {
+                ::setenv("HCCL_VM_POOL_ROLLBACK_CHILD", "1", 1);
+                ::setenv("HCCL_VM_RESOURCE_ROOT", root.c_str(), 1);
+                ::execl(
+                    "/proc/self/exe", "test_aclrt_memory_stub",
+                    "--gtest_filter=AclrtReserveOwnershipTest.PooledMappingFailuresReleasePoolReferences",
+                    static_cast<char*>(nullptr));
+                ::_exit(127);
+            },
+            testing::ExitedWithCode(0), "");
+        std::filesystem::remove_all(root);
+        return;
+    }
+    ASSERT_NO_FATAL_FAILURE(SetMemoryTestMode(sim::RUN_MODE_CHECK_ONLY));
+    const size_t size = sim::CommPoolPolicy::kBigBlockThreshold;
+    std::unique_ptr<void, decltype(&ShmClose)> owner(ShmCreate(sim::CommPoolPolicy::kPoolName, size), &ShmClose);
+    ASSERT_NE(owner.get(), nullptr);
+    const auto* head = reinterpret_cast<const ShmHead*>(static_cast<const char*>(owner.get()) - sizeof(ShmHead));
+    const uint32_t initialRefs = head->refCount;
+    for (const std::string response : {"null", "wrong_command", "short", "eof"}) {
+        SCOPED_TRACE(response);
+        MemoryPipePeer peer(size, true, response, "*");
+        ASSERT_TRUE(peer.IsAlive());
+        void* ptr = nullptr;
+        EXPECT_NE(aclrtMalloc(&ptr, size, ACL_MEM_MALLOC_NORMAL_ONLY), ACL_SUCCESS);
+        EXPECT_EQ(ptr, nullptr);
+        EXPECT_EQ(static_cast<uint32_t>(head->refCount), initialRefs);
+        if (response != "eof") {
+            EXPECT_EQ(peer.Requests("FREE"), peer.Requests("GET"));
+        }
+    }
 }

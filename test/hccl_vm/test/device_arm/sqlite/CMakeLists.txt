@@ -70,6 +70,9 @@ target_include_directories(test_kern_comminit PRIVATE
 add_executable(test_sim_aicpu_comminit sim_aicpu_comminit_test.cc)
 target_sources(test_sim_aicpu_comminit PRIVATE
     ${CMAKE_SOURCE_DIR}/src/device_arm/common/sim_aicpu_pipe_handler.cc
+    # sim_aicpu_pipe_handler 的 kernel 执行窗口调用 sim::SetBarrierGateContext（方案二真等共享模块）；
+    # 生产形态该符号由 device 可执行 --export-dynamic 运行时解析，测试可执行须直接编入（同 test_ascend_hal_stub）。
+    ${CMAKE_SOURCE_DIR}/src/device_arm/common/barrier_real_wait.cc
     ${CMAKE_SOURCE_DIR}/src/device_arm/common/hccl_device_pub.cc
     ${CMAKE_SOURCE_DIR}/src/device_arm/common/hccl_task_collection.cc
     ${CMAKE_SOURCE_DIR}/src/device_arm/common/sim_kernel_lib_mgr.cc

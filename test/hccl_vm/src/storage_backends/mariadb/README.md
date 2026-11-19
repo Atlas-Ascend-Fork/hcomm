@@ -69,6 +69,8 @@ sudo chmod 644 /etc/mysql/mariadb.conf.d/z-hccl-vm.cnf
 编辑 `/etc/mysql/mariadb.conf.d/z-hccl-vm.cnf`（需 sudo 权限），将 `thread_pool_size`（示例值 224）按数据库可用的逻辑 CPU 数填写，修改后重启。如16/32/64 个可用逻辑 CPU 的实例分别填 16/32/64。设置了 CPU 亲和性时以限制后的额度为准。
 [MariaDB 线程池说明](https://mariadb.com/docs/server/ha-and-performance/optimization-and-tuning/buffers-caches-and-threads/thread-pool/thread-pool-in-mariadb)。
 
+`innodb_buffer_pool_size` 默认 32G。同机运行模拟器时需预留模拟器和系统内存；内存不足的环境调低此值，并同步调整下方核对 SQL 的期望值。
+
 ```bash
 sudo systemctl restart mariadb
 sudo mariadb-admin ping
@@ -84,7 +86,7 @@ SELECT * FROM (
     SELECT 'transaction_isolation' AS parameter, @@global.tx_isolation AS actual_value, 'READ-COMMITTED' AS expected_value, IF(@@global.tx_isolation = 'READ-COMMITTED', 1, -1) AS status
     UNION ALL SELECT 'thread_handling', @@global.thread_handling, 'pool-of-threads', IF(@@global.thread_handling = 'pool-of-threads', 1, -1)
     UNION ALL SELECT 'thread_pool_size', CAST(@@global.thread_pool_size AS CHAR), '224', IF(@@global.thread_pool_size = 224, 1, -1)
-    UNION ALL SELECT 'innodb_buffer_pool_size', CONCAT(ROUND(@@global.innodb_buffer_pool_size / 1073741824, 0), 'G'), '8G', IF(ROUND(@@global.innodb_buffer_pool_size / 1073741824, 0) = 8, 1, -1)
+    UNION ALL SELECT 'innodb_buffer_pool_size', CONCAT(ROUND(@@global.innodb_buffer_pool_size / 1073741824, 0), 'G'), '32G', IF(ROUND(@@global.innodb_buffer_pool_size / 1073741824, 0) = 32, 1, -1)
     UNION ALL SELECT 'max_connections', CAST(@@global.max_connections AS CHAR), '8192', IF(@@global.max_connections = 8192, 1, -1)
     UNION ALL SELECT 'back_log', CAST(@@global.back_log AS CHAR), '4096', IF(@@global.back_log = 4096, 1, -1)
     UNION ALL SELECT 'max_prepared_stmt_count', CAST(@@global.max_prepared_stmt_count AS CHAR), '1048576', IF(@@global.max_prepared_stmt_count = 1048576, 1, -1)
@@ -254,7 +256,9 @@ script:
 
 | 开源软件 | 版本 | 许可证 (SPDX) | 下载地址 |
 | --- | --- | --- | --- |
-| mariadb-connector-c | 3.3.8 | LGPL-2.1-or-later | [v3.3.8-src.tar.gz](https://gitee.com/src-openeuler/mariadb-connector-c/raw/openEuler-24.03-LTS-SP2/mariadb-connector-c-3.3.8-src.tar.gz) |
+| mariadb-connector-c | 3.3.8 | LGPL-2.1-or-later | [mariadb-connector-c-3.3.8-src.tar.gz](https://raw.gitcode.com/src-openeuler/mariadb-connector-c/blobs/9389ee06248685f68fe17b9d18a90c990e039020/mariadb-connector-c-3.3.8-src.tar.gz) |
+
+源码缓存位于仓库根 `third_party/`（归档与解包产物，git 忽略，构建按 SHA-256 与内容指纹校验）。首次构建在线下载；离线场景可将原始归档按原名 `mariadb-connector-c-3.3.8-src.tar.gz` 复制到仓库根 `third_party/`，构建校验通过后直接解包使用，无需网络。
 
 许可原文位于 [licenses/](licenses/)。
 

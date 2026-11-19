@@ -153,7 +153,7 @@ std::shared_ptr<spdlog::sinks::stdout_color_sink_mt> InitConsoleSink(const LogCo
 {
     auto sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
     sink->set_level(static_cast<spdlog::level::level_enum>(config.consoleLevel));
-    sink->set_pattern("[%l][PID:%P][TID:%t][%s][%!] %v");
+    sink->set_pattern("[%l][PID:%P][TID:%t][%s:%#][%!] %v");
     return sink;
 }
 

@@ -1,41 +1,41 @@
-# PyTorch Mode Run Guide
+# PyTorch Mode Running Guide
 
-HCCL-VM can now run some PyTorch `aclgraph` graph mode related collective communication scripts. Scripts should use `torch.multiprocessing.spawn` to start device processes. Multi-server use cases require starting multiple Python main processes on the same host machine, each simulating a different server.
+HCCL-VM can now run collective communication scripts related to the `aclgraph` graph mode of PyTorch. Scripts should use `torch.multiprocessing.spawn` to start the process of each device. Multi-server cases require multiple Python main processes on the same host machine, each simulating one server.
 
-## 1. Prepare Environment
+## 1. Preparing the Environment
 
-First complete HCCL-VM build and installation and CANN environment configuration according to [README](../README.md). Prepare a Python virtual environment with compatible versions of `torch` and `torch_npu` installed.
+First, complete the HCCL-VM build, installation, and CANN environment configuration as described in the [README](../README.md), and prepare a Python virtual environment where compatible versions of `torch` and `torch_npu` are installed.
 
 ```bash
 cd /path/to/CheckerL2/hccl_vm_install/bin
 
-# Select communicator configuration file as needed. PyTorch currently only supports Ascend950 series.
-# To use Ascend960 series, install A6 ops package and modify soc_version in topology cluster configuration to real models such as Ascend960DT_961BY.
+# Select a communicator configuration file as required. PyTorch currently supports only the Ascend950 series.
+# To use the Ascend960 series, install the A6 ops package and change soc_version in the topology cluster configuration to a real model such as Ascend960DT_961BY.
+# Enable this environment variable before startup so that the VM main process generates the rank table based on the local_rank of each server/board. Topologies with different device counts are supported.
+export HCCL_VM_ENABLE_PYTORCH=1
 ./hccl-vm start ascend950_cluster_32_server_normal.yaml
 ```
 
-After entering the `(hvm)$>` terminal, execute:
+After the `(hvm)$>` terminal is displayed, run:
 
 ```bash
-# Enable PyTorch mode
-export HCCL_VM_ENABLE_PYTORCH=1
-# Activate virtual environment (if applicable)
+# Activate the virtual environment (if any)
 source /path/to/torch_test/bin/activate
 
-# Install Runner when simulation execution is needed
+# Install Runner if simulated execution is required
 hccl-vm plugin install @runner
 ```
 
-All subsequent communicator configuration, environment variable settings, and Python startup are executed within this HCCL-VM terminal, so the Python process inherits the simulation environment.
+Perform subsequent communicator configuration, environment variable settings, and Python startup in this HCCL-VM terminal so that the Python process inherits the simulation environment.
 
-## 2. Single Server Run
+## 2. Single-Server Running
 
-Take `118` configuration as an example: 1 server with 8 devices.
+The following example uses the `118` configuration, which contains one server and eight devices:
 
 ```bash
 hccl-vm mock-comm 118
 
-# Run the use case directly
+# Run the case directly
 python -u /path/to/torch/pytorch_test.py \
     --master_ip 127.0.0.1 \
     --master_port 50001 \
@@ -47,14 +47,14 @@ python -u /path/to/torch/pytorch_test.py \
     --optype sum > server0.log 2>&1
 ```
 
-## 3. Multi-Server Run
+## 3. Multi-Server Running
 
-Take `128` configuration as an example: 2 servers with 8 devices each, totaling 16 ranks. Both servers must start concurrently using the same master address and port.
+The following example uses the `128` configuration, which contains two servers with eight devices each, totaling 16 ranks. The two servers must be started concurrently, using the same master address and port.
 
 ```bash
 hccl-vm mock-comm 128
 export HCCL_VM_ENABLE_PYTORCH=1
-# Activate virtual environment (if applicable)
+# Activate the virtual environment (if any)
 source /path/to/torch_test/bin/activate
 
 # Start server 0
@@ -85,28 +85,28 @@ source /path/to/torch_test/bin/activate
         --optype sum
 ) > server1.log 2>&1 &
 
-# Wait for both servers to finish separately
+# Wait for both servers to finish
 ```
 
 | Configuration Item | Description |
 | --- | --- |
-| `HCCL_VM_ENABLE_PYTORCH=1` | Enable PyTorch adaptation; `HCCL_VM_SERVER_INDEX` only takes effect when set to `1` |
-| `HCCL_VM_SERVER_INDEX` | Zero-based server index in current communicator configuration; set separately for each server subprocess |
-| `--server_index` | Server index for test script; must match `HCCL_VM_SERVER_INDEX` for that process |
-| `--dev_num` / `--server_num` | Device count per server and total server count; must match `mock-comm` configuration |
-| `--master_ip` / `--master_port` | All servers use the same rendezvous address; processes in this example run on the same host machine using `127.0.0.1:50001`, which can be customized |
-| `--data_list` / `--dtype` / `--optype` | This example executes AllReduce SUM on 1024 int32 elements |
+| `HCCL_VM_ENABLE_PYTORCH=1` | Enables the PyTorch adaptation. `HCCL_VM_SERVER_INDEX` takes effect only when this variable is set to `1`. |
+| `HCCL_VM_SERVER_INDEX` | Zero-based server index in the current communicator configuration. Set this variable separately for the subprocesses of each server. |
+| `--server_index` | Server index of the test script, which must be the same as `HCCL_VM_SERVER_INDEX` of the process. |
+| `--dev_num` / `--server_num` | Number of devices on each server and total number of servers, which must be consistent with the `mock-comm` configuration. |
+| `--master_ip` / `--master_port` | Rendezvous address shared by all servers. In this example, the processes run on the same host machine and use `127.0.0.1:50001`. You can set your own address. |
+| `--data_list` / `--dtype` / `--optype` | In this example, an AllReduce SUM is performed on 1024 int32 elements. |
 
-Each server has local logical device numbers `0–7`; in this example, server 0 corresponds to global ranks `0–7` and server 1 corresponds to global ranks `8–15`. Setting environment variables within parentheses prevents the two server indexes from overwriting each other. The script calculates global ranks assuming equal device counts per server, so other scales should select communicator configurations with consistent device counts.
+The local logical device ID of each server ranges from 0 to 7. In this example, server 0 corresponds to global ranks 0–7, and server 1 corresponds to global ranks 8–15. Setting environment variables inside parentheses prevents the indexes of the two servers from overwriting each other. The script calculates global ranks based on an equal number of devices on each server. Therefore, for other scales, select a communicator configuration with the same number of devices on each server.
 
-## 4. View Results
+## 4. Viewing Results
 
-After all processes finish, check `server0.log` and `server1.log` for exit status, exceptions, and related log output.
+After all processes finish, check `server0.log` and `server1.log`, focusing on the exit status, exceptions, and related log output.
 
-Then use Checker for result verification:
+Then use Checker to verify the results:
 
 ```bash
 hccl-vm plugin run @checker
 ```
 
-After all use cases and verification complete, execute `exit` to leave the HCCL-VM terminal.
+After all cases and verifications are complete, run `exit` to exit the HCCL-VM terminal.

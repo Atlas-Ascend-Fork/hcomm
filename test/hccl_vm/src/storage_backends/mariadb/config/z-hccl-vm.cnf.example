@@ -9,14 +9,14 @@
 # -----------------------------------------------------------------------------------------------------------
 
 # HCCL-VM MariaDB 10.11 服务端配置；与本模块 README 第 1 章的部署配置保持一致。
-# 参考现场：10.11.14 / Ubuntu 24.04 / 224 个逻辑 CPU / 8 GiB buffer pool。
+# 参考环境：10.11.14 / Ubuntu 24.04 / 224 个逻辑 CPU。
 # 安装为 /etc/mysql/mariadb.conf.d/z-hccl-vm.cnf；同一 include 目录按文件名
 # 排序，z-hccl-vm.cnf 晚于原 60-hcclvm.cnf、99-hccl-vm-scale.cnf、hccl.cnf。
 # 新部署只需这一份调优文件；重启后按 README 回读生效值及来源。
 #
 # 换机器时按 README 1.2 节调整 thread_pool_size。
 # 224 是现场自动选出的 CPU 数，显式写入以复现该现场；其他 CPU 规格不能照抄。
-# 8G 是该工作负载的起始值；独占数据库机也不必按大内存比例盲目放大。
+# buffer pool 默认 32G；同机运行模拟器时须为模拟器和系统预留内存。
 # 本配置用于可丢弃、可重建的模拟器数据；关闭持久化保护不等于关闭事务或 redo。
 # thread_cache_size 在线程池模式下无效，不纳入配置；不使用已移除的
 # innodb_buffer_pool_instances。模拟器连接配置另见 storage_mariadb.yaml.example。
@@ -45,7 +45,7 @@ net_write_timeout=600
 # 资源项：按 README 1.2 节修改 thread_pool_size
 thread_handling=pool-of-threads
 thread_pool_size=224
-innodb_buffer_pool_size=8G
+innodb_buffer_pool_size=32G
 
 # 可重建数据的写入配置；redo 仍生成并由后台周期写入
 innodb_flush_log_at_trx_commit=0

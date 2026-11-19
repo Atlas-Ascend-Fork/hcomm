@@ -498,7 +498,8 @@ bandwidth:
       explicit RankAddressSpace(const AddrSpace& a);
       uint64_t RankBase(uint32_t rankIdx) const;
       uint64_t RankWindowSize() const;                  // 0x10000000000
-      uint32_t MaxRankSlots() const;                    // 由 GetMaxRanks() / 校验 7 决定
+      // ★ 无 MaxRankSlots()：rank 槽位不设规模上界（原 HCCL_VM_MAX_RANKS/GetMaxRanks 已删除），
+      //   rankIdx 合法性由 RankBase() 的 uint64 溢出防护兜底；47-bit 位宽仅诊断（Va47BitRankLimit）。
       // CCU
       uint64_t CcuWindowOffset() const;                 // 0xE00000000
       uint64_t CcuWindowSize() const;                   // 0x80000000
@@ -541,7 +542,7 @@ bandwidth:
   5. **partitions 铺满性与 user_mem 派生**：按 offset 升序、互不重叠、**完整铺满** `[0, rank_window_size)`（首段 `offset == 0`；末段 `offset+size == rank_window_size`；相邻段首尾相接）；恰好一个 `name=="ccu"` 段；`name` 只允许 `user_mem`/`ccu`（本期白名单）；`partitions[ccu].offset + max(die_offsets) + die_size ≤ partitions[ccu].offset + partitions[ccu].size`；`userMemTotal = Σ user_mem 段 > 0` 且段数 ≥ 1；`rank_window_size ≤ rank_stride`。
      ★ 不再有 `alloc_guard.user_mem_limit == partitions[user_mem].size`（该字段已删，§4.2.3）；
   6. ~~`caps.*` 与对应 `regions[*].count` 一致~~ —— **已取消**：`caps` 不入 yaml，改由 `DeviceSpec::GetCaps()` 推导（§4.2.3），不存在需要校验的第二份数据（编号保留以免交叉引用失效）；
-  7. `rank_base + GetMaxRanks() × rank_stride` 的位宽检查 → 超 47-bit 打 **WARN**（见 §6.1 R4）。注：`GetMaxRanks()`（`sim_capacity_limits.h:30-45`）可被 `HCCL_VM_MAX_RANKS` 覆盖，故本校验结果依赖运行时环境，须在 `start` 阶段（拓扑已知后）执行，不能在 `LoadAll()` 内做；
+  7. `rank_base + rank 数 × rank_stride` 的位宽检查 → 超 47-bit 打 **WARN**（见 §6.1 R4）。注：rank 数取**拓扑实际值**（集群 rank 总数），模拟器不设 rank 规模上界（原 `HCCL_VM_MAX_RANKS`/`GetMaxRanks()` 已删除），故本校验须在 `start` 阶段（拓扑已知后）执行，不能在 `LoadAll()` 内做；
   8. `max(regions ∪ ms 末端) ≤ ccu.resource_space_size ≤ ccu.die_size`（实算：A5 `0x940000 ≤ 0x4800000`，留白 62.75 MiB；A6 `0x4800000 ≤ 0x4800000`，取等）；
   9. 扫描 `config/cluster/*.yaml` + `config/server_or_pod/*.yaml` 出现的全部 `soc_version` 值，每个必须**唯一命中**一份 spec（大小写不敏感最长前缀）；反向：每份 spec 的 `name` 至少被一个 `soc_version` 命中（防 spec 腐化）。注：spec 内的 `soc.soc_version` 字段**不参与**此校验（决策 (i)）。
 - **依赖**：`device_spec` 仅依赖 `log` + `yaml-cpp`。**checker 与 runner 都已链接 `yaml-cpp::yaml-cpp`**（`src/plugin/checker/CMakeLists.txt:58`、`src/plugin/runner/CMakeLists.txt:62`），无新增三方依赖。库骨架照抄 `src/topo/CMakeLists.txt`（`add_library(... STATIC "")` + `target_sources` + `hcclvm_apply_common_flags` + `HCCL_VM_MODULE`）。
@@ -915,15 +916,15 @@ void* DeviceMemoryManager::AllocVirMem(uint64_t devPhyId, size_t size)
 
     const uint64_t rankIdx = devPhyId - 1;                    // 口径不变（D5）
 
-    // ── G1 rank 槽位上界 = GetMaxRanks()（默认 1024）──────────────────────
-    // ★ 不得用 47-bit VA 位宽（≈127）作硬上界：那会让 128~1024 rank 的集群
-    //   完全无法分配内存。位宽问题按 R4 只告警，诊断量见 Va47BitRankLimit()。
+    // ── G1（已删除）rank 槽位上界 ─────────────────────────────────────────
+    // ★ 原实现为 `rankIdx >= MaxRankSlots()`（= GetMaxRanks()，默认 1024）直接失败。
+    //   该上界把"集群 rank 数"与"Device 表主键"混为一谈：rankIdx 此处取的是 devPhyId-1，
+    //   而 aclrtMalloc 传入的是全局 Device 主键（= (serverKey-1)×卡数 + logicId + 1），
+    //   于是只要集群选到第 129 台及以后的服务器（跨 superpod），主键即 >1024，
+    //   8 卡用例也会被判为"rank 越界"而分配失败（实测 32 卡跨 superpod 用例 rank16~31 全挂）。
+    //   现改为：不设 rank 规模上界，唯一硬约束是 VA 计算不得溢出 uint64
+    //   （RankBase() 溢出返回 0 → 分配失败）；47-bit 位宽按 R4 只告警（Va47BitRankLimit）。
     const devspec::RankAddressSpace ras(*addrSpace);
-    if (rankIdx >= ras.MaxRankSlots()) {
-        HCCL_VM_ERROR("alloc vir mem failed: devPhyId:{} rankIdx:{} >= max rank slots {}",
-                      devPhyId, rankIdx, ras->MaxRankSlots());
-        return nullptr;
-    }
 
     // ── G2 size 合法性（★ 修 latent bug B3：size==0 会返回非空指针并插入
     //    start_end_ptr == start_ptr 的零长度块，范围查询 Le&&Gt 永不命中）──
@@ -1427,7 +1428,7 @@ bool LoadDeviceSpecFromDb(uint64_t deviceKey, sim::devspec::DeviceSpec& out);  /
 - `include/sim_common_defs.h:34-47`（`DIE_NUM`/`CCU_*_MAX`/`MS_NUM`）
 - `src/plugin/plugin_common/ccu_microcode_v1.h:20-50,847-853`（`CcuInstr` 32B）
 - `src/plugin/runner/ccu_executor/ccu_microcode_common_v1.h:64-79` / `_v2.h:72-87`（`SimCcuV1`/`SimCcuV2` 容量）
-- `include/sim_capacity_limits.h:21-28,133-147`（`HCCL_VM_MAX_RANKS=1024` 等）
+- `include/sim_capacity_limits.h`（`HCCL_VM_MAX_CHANNEL_JETTIES`、notify id 位宽合同、AICPU Jetty 编号合同；★ 原 `HCCL_VM_MAX_RANKS=1024`/`GetMaxRanks()` 已删除，rank 规模不设上界）
 - `include/runtime_state/sim_models.h:164-170`（`Ccu`）、`:429-443`（`SimModelData`）
 - `include/sim_binary_data_type_pub.h:140-196`（`ModelInfoCommInner`/`HcclVmSynData`）
 

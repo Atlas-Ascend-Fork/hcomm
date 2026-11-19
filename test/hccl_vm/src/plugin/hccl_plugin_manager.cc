@@ -400,6 +400,7 @@ void HcclPluginManager::MonitorThread()
                             "Plugin [{}] (PID: {}) exit with failure. Code {} ({})", it.second->GetTag(), terminatedPid,
                             WTERMSIG(status), strsignal(WTERMSIG(status)));
                     }
+                    RemoveInstallRecordFromDB(it.first);
                     m_plugins.erase(it.first);
                     break;
                 }
@@ -425,13 +426,11 @@ void HcclPluginManager::AddInstallRecordToDB(const std::string& pluginTag)
 
 void HcclPluginManager::RemoveInstallRecordFromDB(const std::string& pluginTag)
 {
-    // 正常情况一个tag只会有一行db记录，使用vector接口删除此tag相关的全部行，可以应对意外场景
-    auto pluginRows = sim::runtime::Db::GetByPred<sim::runtime::Plugin>(
-        HcclSim::Storage::Eq(&sim::runtime::Plugin::tag, pluginTag));
-    if (!pluginRows.ok() || !pluginRows.value.has_value()) {
-        return;
-    }
-    for (const sim::runtime::Plugin& row : *pluginRows.value) {
-        sim::runtime::Db::Delete<sim::runtime::Plugin>(HcclSim::Storage::Eq(&sim::runtime::Plugin::id, row.id));
+    auto deleted
+        = sim::runtime::Db::Delete<sim::runtime::Plugin>(HcclSim::Storage::Eq(&sim::runtime::Plugin::tag, pluginTag));
+    if (!deleted.ok() || !deleted.value.has_value()) {
+        HCCL_VM_ERROR(
+            "Failed to remove install record for plugin [{}], dbCode={}, diagnostic={}", pluginTag,
+            static_cast<int>(deleted.code), deleted.diagnostic);
     }
 }

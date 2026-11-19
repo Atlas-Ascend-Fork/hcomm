@@ -40,9 +40,9 @@ def main():
         "src/storage_backends/mariadb/composition/mariadb_backend_module.cc",
         "src/storage_backends/mariadb/composition/mariadb_deploy_section.h",
         "src/storage_backends/mariadb/composition/mariadb_deploy_section.cc",
-        "src/storage_backends/mariadb/cmake/mariadb_host.cmake",
-        "src/storage_backends/mariadb/cmake/mariadb_device.cmake",
-        "src/storage_backends/mariadb/cmake/verified_source.cmake",
+        "cmake/third_party/mariadb_host.cmake",
+        "cmake/third_party/mariadb_device.cmake",
+        "cmake/third_party/verified_source.cmake",
         "src/storage_backends/mariadb/config/storage_mariadb.yaml.example",
         "src/storage_backends/mariadb/config/z-hccl-vm.cnf.example",
         "src/storage_backends/mariadb/licenses/LGPL-2.1.txt",
@@ -58,14 +58,14 @@ def main():
             r"composition/mariadb_backend_module\.h",
             r"sim::backends::MariadbBackendModule",
         ],
-        "src/storage_backends/mariadb/cmake/mariadb_host.cmake": [
-            r'set\(MARIADB_VERSION "3\.3\.5"\)',
-            r"c0fda1fa6e52dc85de27156cd847088a72d40d9de6514f7efa57c8d93134a54c",
-            r"f7db6810ea82bcdcd11babafae2b7d9c02ca8fec0c3200bcb33c3ce48196a9d1",
+        "cmake/third_party/mariadb_host.cmake": [
+            r'set\(MARIADB_VERSION "3\.3\.8"\)',
+            r"f9f076b4aa9fb22cc94b24f82c80f9ef063805ecd6533a2eb5d5060cf93833e8",
+            r"58efcf2b5a3440432b54d5d96ad915ef2c32ca8d5bf69dc49e5beaf6057b04f9",
             r"hcclvm_prepare_verified_source",
             r"CLIENT_PLUGIN_CACHING_SHA2_PASSWORD=OFF",
         ],
-        "src/storage_backends/mariadb/cmake/mariadb_device.cmake": [
+        "cmake/third_party/mariadb_device.cmake": [
             r"MARIADB_SOURCE_MANIFEST_SHA256",
             r"mariadb_connector_device",
             r"BUILD_SHARED_LIBS=OFF",

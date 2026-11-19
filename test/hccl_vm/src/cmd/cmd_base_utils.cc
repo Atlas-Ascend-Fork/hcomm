@@ -775,12 +775,12 @@ static void ArchiveLogsAndData()
 HcclVmResult HcclVmExit()
 {
     // hccl-vm 退出清除所有使用资源
+    HcclPluginManager& pluginManager = HcclPluginManager::GetInstance();
+    auto ret = pluginManager.StopAllPlugins();
     StopListenThreads();
     HCCL_VM_INFO("start Destroy SharedMemory.");
 
     CleanupMessageQueues();
-    HcclPluginManager& pluginManager = HcclPluginManager::GetInstance();
-    auto ret = pluginManager.StopAllPlugins();
 
     const fs::path backupDir = fs::path(InstallPath::ResolveToInstallRoot("data/" + MakeDataBackupTimestamp()));
     BackupAivTaskFiles(backupDir);
@@ -858,17 +858,22 @@ HcclVmResult InstallUserPlugin(std::string argStr)
     }
     argStr.erase(argStr.begin());
 
-    // 模式门禁检查：check-only 和 estimate 模式禁止安装 @runner
-    if (argStr == "runner") {
+    // 模式门禁检查：estimate 模式仅支持 @estimate 性能仿真插件，禁止安装 @runner/@checker；
+    // check-only 模式禁止安装 @runner
+    if (argStr == "runner" || argStr == "checker") {
         bool isCheckOnly = sim::IsCheckOnlyMode();
         bool isEstimate = sim::IsEstimateMode();
 
-        if (isCheckOnly) {
-            HCCL_VM_ERROR("Installing @runner is not allowed in check-only mode");
+        if (isEstimate) {
+            HCCL_VM_ERROR(
+                "Installing @{} is not supported in estimate mode: estimate mode only supports the "
+                "@estimate performance-simulation plugin. Please switch to normal mode "
+                "(hccl-vm mode normal) to use @{}.",
+                argStr, argStr);
             return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
         }
-        if (isEstimate) {
-            HCCL_VM_ERROR("Installing @runner is not allowed in estimate mode");
+        if (isCheckOnly && argStr == "runner") {
+            HCCL_VM_ERROR("Installing @runner is not allowed in check-only mode");
             return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
         }
     }
@@ -905,10 +910,20 @@ HcclVmResult RunUserPlugin(std::string argStr)
                 isCheckOnly ? "check-only" : "normal");
             return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
         }
-    } else if (pluginName == "checker") {
-        // @checker 在 estimate 模式不可用
+    } else if (pluginName == "runner" || pluginName == "checker") {
+        // estimate 模式仅支持 @estimate 性能仿真插件，@runner/@checker 不支持
         if (isEstimate) {
-            HCCL_VM_ERROR("Plugin @checker is not available in estimate mode");
+            HCCL_VM_ERROR(
+                "Plugin @{} is not supported in estimate mode: estimate mode only supports the "
+                "@estimate performance-simulation plugin. Please switch to normal mode "
+                "(hccl-vm mode normal) to use @{}.",
+                pluginName, pluginName);
+            return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
+        }
+        // check-only 模式禁止 @runner（与 install 门禁同一口径）
+        if (pluginName == "runner" && isCheckOnly) {
+            HCCL_VM_ERROR("Plugin @runner is not supported in check-only mode. Please switch to normal mode "
+                          "(hccl-vm mode normal) to use @runner.");
             return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
         }
     }

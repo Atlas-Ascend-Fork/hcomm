@@ -205,12 +205,30 @@ int SetCcuResourceBasicInfo(channel_info_out* output, uint8_t dieId, uint32_t de
 }
 extern void* GetRealPtrByAddr(const void* devPtr);
 
+using CcuInstrParser = decltype(&hcomm::CcuRep::ParseInstr);
+
+static CcuInstrParser ResolveCcuInstrParser(bool isV2)
+{
+    // hcomm可能经RTLD_LOCAL加载，不能依赖proxy的直接符号重定位。
+    const char* symbol = isV2 ? "_ZN5hcomm6CcuRep5CcuV212ParseInstrV2EPKNS0_8CcuInstrE" :
+                                "_ZN5hcomm6CcuRep10ParseInstrEPKNS0_8CcuInstrE";
+    auto parser = reinterpret_cast<CcuInstrParser>(sim::DlsymRealWithFallback(symbol, "libhcomm.so"));
+    if (parser == nullptr) {
+        HCCL_VM_WARN("CCU V{} instruction text decoding unavailable, skip text dump", isV2 ? 2 : 1);
+    }
+    return parser;
+}
+
 void DumpInstrDecToFile(uint32_t instrCnt, const hcomm::CcuRep::CcuInstr* instrData, const std::string& fileName)
 {
+    auto parseInstr = ResolveCcuInstrParser(false);
+    if (parseInstr == nullptr) {
+        return;
+    }
     std::ofstream ofs(fileName, std::ios::out | std::ios::trunc);
     ofs << "ccu total instruction number: " << instrCnt << "\n";
     for (uint32_t idx = 0; idx < instrCnt; idx++) {
-        ofs << "[InstrData][ " + std::to_string(idx) + "]" + hcomm::CcuRep::ParseInstr(&instrData[idx]) + "\n";
+        ofs << "[InstrData][ " + std::to_string(idx) + "]" + parseInstr(&instrData[idx]) + "\n";
     }
     return;
 }
@@ -317,19 +335,19 @@ int LoadMicrocodeInstructionStub(uint32_t devId, uint8_t dieId, const channel_in
     fileName << "mc_instr_info_device_" << deviceId << "_die_" << static_cast<uint32_t>(dieId) << ".txt";
     std::ostringstream mcData;
     mcData << "ccu total instruction number: " << instrCnt << "\n";
+    CcuInstrParser parseInstr = nullptr;
     if (strncmp(device.soc_version, "Ascend950", strlen("Ascend950")) == 0) {
-        for (uint32_t idx = 0; idx < instrCnt; idx++) {
-            mcData << "[InstrData][ " + std::to_string(startId + idx) + "]"
-                          + hcomm::CcuRep::ParseInstr(&instructionData[idx]) + "\n";
-        }
+        parseInstr = ResolveCcuInstrParser(false);
     } else if (strncmp(device.soc_version, "Ascend960", strlen("Ascend960")) == 0) {
-        for (uint32_t idx = 0; idx < instrCnt; idx++) {
-            mcData << "[InstrData][ " + std::to_string(startId + idx) + "]"
-                          + hcomm::CcuRep::CcuV2::ParseInstrV2(&instructionData[idx]) + "\n";
-        }
+        parseInstr = ResolveCcuInstrParser(true);
     } else {
         HCCL_VM_ERROR("not support device soc version: {:s}", device.soc_version);
         return HCCL_E_NOT_SUPPORT;
+    }
+    if (parseInstr != nullptr) {
+        for (uint32_t idx = 0; idx < instrCnt; idx++) {
+            mcData << "[InstrData][ " + std::to_string(startId + idx) + "]" + parseInstr(&instructionData[idx]) + "\n";
+        }
     }
 
     auto status = write_or_overwrite_in_cwd(InstallPath::ResolveToInstallRoot("data/" + fileName.str()), mcData.str());
@@ -377,7 +395,18 @@ uint64_t GetRemoteCcuVa(const ChannelCtxDataV1& chDataTmp)
     return dstVa << REMOTE_CCU_VA_RIGHT_SHIFT_NUM;
 }
 
-int GetLocalEndPointByJetty(uint64_t jettyId, uint16_t dieId, sim::runtime::EndPoint& endPoint)
+/**
+ * @brief 按 jetty 编号解析本端 EndPoint。jetty 编号是 per-device 命名空间，隔离原依赖
+ *        "每设备一进程"（查询带 pid）；level2 南向单进程托管多设备时，同
+ *        (jetty_id, pid, dieId) 会命中多个设备的 RaJetty 行，须再按 deviceId 过滤，
+ *        否则 srcDeviceId 张冠李戴、checker 查 channel map 失败(ErrorCode 107)。
+ * @param jettyId  通道起始 jetty 硬件编号；CCU 域编号，AICPU 域编号显式拒绝
+ * @param dieId    jetty 所在 die
+ * @param deviceId 期望设备的逻辑 device key（匹配 RaContext.device_id）
+ * @param endPoint 解析出的本端 endpoint（仅成功时有效）
+ * @return 0 成功；非 0 未找到匹配设备的 jetty、或 ctx/endpoint 查库失败（诊断已打出）。
+ */
+int GetLocalEndPointByJetty(uint64_t jettyId, uint16_t dieId, uint32_t deviceId, sim::runtime::EndPoint& endPoint)
 {
     // CCU 与 AICPU 使用不同编号域。必须显式拒绝 AICPU 编号：仅按编号/pid/dieId
     // 查询不会自动隔离模式，误传时可能读到同一进程创建的 AICPU 行。
@@ -385,32 +414,80 @@ int GetLocalEndPointByJetty(uint64_t jettyId, uint16_t dieId, sim::runtime::EndP
         HCCL_VM_ERROR("AICPU jetty {} cannot be used for a CCU channel", jettyId);
         return -1;
     }
-    auto localJetty = sim::runtime::Db::GetOneByPred<sim::runtime::RaJetty>(HcclSim::Storage::And(
+    auto jettyRes = sim::runtime::Db::GetByPred<sim::runtime::RaJetty>(HcclSim::Storage::And(
         HcclSim::Storage::Eq(&sim::runtime::RaJetty::jetty_id, jettyId),
         HcclSim::Storage::Eq(&sim::runtime::RaJetty::pid, getpid()),
         HcclSim::Storage::Eq(&sim::runtime::RaJetty::dieId, dieId)));
-    if (!localJetty.ok()) {
+    if (!jettyRes.ok() || !jettyRes.value.has_value() || jettyRes.value->empty()) {
         HCCL_VM_ERROR("can not find jetty {} die:{} in local jetty map", jettyId, dieId);
         return -1;
     }
 
-    auto ctxRes = sim::runtime::Db::GetById<sim::runtime::RaContext>(localJetty.value->ctx_handle);
-    if (!ctxRes.ok()) {
-        HCCL_VM_ERROR("can not find context {} in local context map", localJetty.value->ctx_handle);
-        return -1;
+    // 单进程多设备时同一编号属于每个设备各一条，逐条经 RaContext 按 deviceId 过滤取本设备的行。
+    for (const auto& jetty : *jettyRes.value) {
+        auto ctxRes = sim::runtime::Db::GetById<sim::runtime::RaContext>(jetty.ctx_handle);
+        if (!ctxRes.ok() || ctxRes.value->device_id != deviceId) {
+            continue;
+        }
+        auto endPointOpt = sim::runtime::Db::GetById<sim::runtime::EndPoint>(ctxRes.value->endpoint_id);
+        if (!endPointOpt.ok()) {
+            HCCL_VM_ERROR("can not find endpoint:{:d}", ctxRes.value->endpoint_id);
+            return -1;
+        }
+        endPoint = *endPointOpt.value;
+        return 0;
     }
+    HCCL_VM_ERROR("can not find jetty {} die:{} dev:{} in local jetty map", jettyId, dieId, deviceId);
+    return -1;
+}
 
-    auto localEp = ctxRes.value->endpoint_id;
-    auto endPointOpt = sim::runtime::Db::GetById<sim::runtime::EndPoint>(localEp);
-    if (!endPointOpt.ok()) {
-        HCCL_VM_ERROR("can not find endpoint:{:d}", localEp);
+/**
+ * @brief 为已建立的 CCU 通道补写 EndPointPair 记录，保证"通道在 ⇒ pair 在"的不变量。
+ *        dump 链路(CreateChannelInfo)按 CcuChannelTab 的 leid/reid 反查 EndPointPair，而 pair
+ *        原本只在 RaCtxQpImport 写入、其 endpoint 取自逐 peer 的 import 上下文；南向建链时
+ *        import 上下文与通道 jetty 所属上下文各自独立、endpoint 命名不一致，导致大部分通道
+ *        查无 pair、整轮 DumpHcclVmSynthesisData 中止。此处随通道落库一并 upsert 通道视角的
+ *        pair，已存在则直接成功返回。
+ * @param localEp  通道本端 endpoint（leid 解析结果，须已落库、id 有效）
+ * @param remoteEp 通道对端 endpoint（reid 解析结果，须已落库、id 有效）
+ * @return 0 成功（含 pair 已存在）；非 0 查询/写库失败（诊断已打出）。
+ * @note tp_type 暂取 0，与 CcuChannelTab.protocol 的口径一致；写库失败仅告警不中断
+ *       南向建链流程（dump 属辅助链路，不应影响通信主流程）。
+ */
+int EnsureChannelEndPointPair(const sim::runtime::EndPoint& localEp, const sim::runtime::EndPoint& remoteEp)
+{
+    auto pairOpt = sim::runtime::Db::GetOneByPred<sim::runtime::EndPointPair>(HcclSim::Storage::And(
+        HcclSim::Storage::Eq(&sim::runtime::EndPointPair::local_enpoint_id, localEp.id),
+        HcclSim::Storage::Eq(&sim::runtime::EndPointPair::remote_enpoint_id, remoteEp.id)));
+    if (pairOpt.ok()) {
+        return 0;
+    }
+    if (pairOpt.code != HcclSim::Storage::DbCode::NOT_FOUND) {
+        HCCL_VM_ERROR("query EndPointPair failed, local={}, remote={}", localEp.id, remoteEp.id);
         return -1;
     }
-    endPoint = *endPointOpt.value;
+    sim::runtime::EndPointPair pair{};
+    pair.id = 0;
+    pair.local_enpoint_id = localEp.id;
+    pair.remote_enpoint_id = remoteEp.id;
+    pair.tp_type = 0;
+    auto inserted = sim::runtime::Db::Add<sim::runtime::EndPointPair>(pair);
+    if (!inserted.ok() || !inserted.value.has_value()) {
+        HCCL_VM_ERROR("insert EndPointPair failed, local={}, remote={}", localEp.id, remoteEp.id);
+        return -1;
+    }
+    HCCL_VM_INFO("channel endpoint pair ensured, local={} remote={}", localEp.id, remoteEp.id);
     return 0;
 }
 
-// 配置channel信息：input->op == Hccl::CcuOpcodeType::CCU_U_OP_SET_CHANNEL
+/**
+ * @brief 配置 CCU SET_CHANNEL 通道：解析驱动下发的通道数据(ChannelDataT)，推导 die/jetty 信息，
+ *        组装并落库 CcuChannelTab（leid 取本端 jetty 所属 endpoint 的 eid，reid 取对端 endpoint），
+ *        随后补写通道视角的 EndPointPair 供 dump 反查。
+ * @param input    南向 SET_CHANNEL 请求体（通道数据数组）
+ * @param deviceId 通道所在物理设备 ID
+ * @return 0 成功；非 0 失败（设备解析/die 推导/落库失败，pair 补写失败仅告警不中断）。
+ */
 int ConfigChannelInfo(channel_info_in* input, uint32_t deviceId)
 {
     sim::runtime::Device locDevice{};
@@ -500,7 +577,7 @@ int ConfigChannelInfo(channel_info_in* input, uint32_t deviceId)
     auto jettyNum = (uint16_t)((chDataTmp.jettyNumHigh << 4) | chDataTmp.jettyNumLow);
     // 根据endPointPair获取src eid
     sim::runtime::EndPoint localEndPoint{};
-    if (GetLocalEndPointByJetty(srcJettyId, srcDieId, localEndPoint) != 0) {
+    if (GetLocalEndPointByJetty(srcJettyId, srcDieId, locDevice.id, localEndPoint) != 0) {
         HCCL_VM_ERROR("can not find local endPoint by jettyId: {}", srcJettyId);
         return -1;
     }
@@ -544,6 +621,12 @@ int ConfigChannelInfo(channel_info_in* input, uint32_t deviceId)
     if (ret != 0) {
         HCCL_VM_ERROR("insert ccu channel table failed for channel id: {}", chId);
         return -1;
+    }
+    // 补写通道视角的 EndPointPair，供 dump 链路(CreateChannelInfo)按 leid/reid 反查；
+    // 失败仅告警不中断建链（dump 属辅助链路，不影响通信主流程）。
+    if (EnsureChannelEndPointPair(localEndPoint, rmtEndPoint) != 0) {
+        HCCL_VM_WARN(
+            "ensure endpoint pair failed, chId={}, localEp={}, remoteEp={}", chId, localEndPoint.id, rmtEndPoint.id);
     }
 
     return 0;

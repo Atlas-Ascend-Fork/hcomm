@@ -155,6 +155,24 @@ TEST_F(DeviceMemoryManagerTest, AllocVirMem_SameDevice_Sequential_Success)
     EXPECT_NE(ptr1, ptr2);
 }
 
+// 回归：rank 槽位不设规模上界（原 HCCL_VM_MAX_RANKS=1024 的 G1 守卫已删除）。
+// 复现 32 卡跨 superpod 用例：集群选到 serverKey=129/130 时 Device 主键为 1025~1040，
+// 旧实现在 rankIdx=1024 处直接返回 nullptr，导致 rank16~31 的 aclrtMalloc/建域全挂。
+TEST_F(DeviceMemoryManagerTest, AllocVirMem_DeviceKeyBeyondOldRankCap_Success)
+{
+    // 旧上界的第一个越界值（rankIdx=1024）
+    void* ptrFirstOverCap = sim::DeviceMemoryManager::GetInstance().AllocVirMem(1025, 4096);
+    EXPECT_NE(ptrFirstOverCap, nullptr);
+    // 1024 server × 8 卡织物的尾部主键（rankIdx=8191）
+    void* ptrFabricTail = sim::DeviceMemoryManager::GetInstance().AllocVirMem(8192, 4096);
+    EXPECT_NE(ptrFabricTail, nullptr);
+    EXPECT_NE(ptrFirstOverCap, ptrFabricTail);
+    // 同一设备连续分配仍单调推进
+    void* ptrSecond = sim::DeviceMemoryManager::GetInstance().AllocVirMem(1025, 4096);
+    EXPECT_NE(ptrSecond, nullptr);
+    EXPECT_NE(ptrSecond, ptrFirstOverCap);
+}
+
 TEST_F(DeviceMemoryManagerTest, FreeVirMem_Normal_DoNothing)
 {
     void* ptr = sim::DeviceMemoryManager::GetInstance().AllocVirMem(0, 1024);

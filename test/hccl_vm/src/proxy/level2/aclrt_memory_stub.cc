@@ -41,24 +41,6 @@
 std::mutex g_hostAllocMutx;
 std::map<uint64_t, uint32_t> g_hostAllocRecord;
 
-/// 插入前物理清除本设备已标记释放的行（is_freed=1，2026-09-17 拆卸竞态修复）。
-/// 不变量（成败点）：释放路径只置 is_freed=1 不删行——没有本 purge，标记行会
-/// 与同设备同址新行并存，GetOneByPred（Free/Release/MapMem 的等值查找）多命中
-/// 破坏管理路径；每次插入前先清同设备全部标记行 ⇒ 标记行与活跃行永不同址
-/// 共存 ⇒ 任何等值/包含查询至多命中一行，无歧义。拆卸期无插入 ⇒ 标记行存续
-/// 过迟到读者窗口（正是修复目标：FR1/R3K4 取证 43/48 次远端解析未命中全部
-/// 晚于目标行成功删除 16.7s+，行保留即消除该窗口）；purge 窗口
-/// （free→下次插入）严格优于现状的立即删除（窗口从 0 变宽，无回归）。
-/// 附带收益：运行期稳态表大小 = 活跃行数（写时压实）；拆卸尾巴由下一轮
-/// FLUSHALL 兜底。尽力而为：purge 失败不阻断插入（新行已保证不同址——
-/// 同址标记行先于新行存在时 purge 才可能遗漏，而同址复用恰由本 purge 清理）。
-template <typename T>
-static void PurgeFreedRowsOfDevice(uint64_t deviceId)
-{
-    (void)sim::runtime::Db::Delete<T>(HcclSim::Storage::And(
-        HcclSim::Storage::Eq(&T::device_id, deviceId), HcclSim::Storage::Eq(&T::is_freed, uint64_t{1})));
-}
-
 // rank 进程加载本库时先于 main 预热仅校验模式缓存，使后续引流判定拿到确定值。
 // 只读 DB、不打日志（此刻日志组件可能尚未初始化）。
 #ifdef __cplusplus
@@ -97,11 +79,17 @@ bool GetPhyMemBlockByVirPtr(const void* virPtr, uint64_t& offset, sim::runtime::
     uint64_t devPtr = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(virPtr));
     uint64_t deviceKey = sim::runtime::GetCurrDeviceKey();
     // host侧根据虚拟地址查询时需要根据device_id匹配；地址包含查询经派生端点列下推。
-    auto virResult = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
+    // 管理操作只选择活动映射，历史行不遮蔽同址新分配。按映射起点
+    // DESC 探测，避免按 id 排序诱发 PRIMARY 全索引扫描。
+    const HcclSim::Storage::Condition<sim::runtime::VirtualMemBlock> where = HcclSim::Storage::And(
         HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, devPtr),
         HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, devPtr),
         HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV),
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceKey)));
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceKey),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::is_freed, uint64_t{0}));
+    auto virResult = HcclSim::Storage::SelectOne<sim::runtime::VirtualMemBlock>(
+        where, HcclSim::Storage::OrderBy(
+                   &sim::runtime::VirtualMemBlock::dev_mapped_ptr, HcclSim::Storage::SortDirection::DESC));
     if (!virResult.ok()) {
         // 未命中（NOT_FOUND）是常规语义：传入地址不属于任何 VM 设备虚拟区间，典型为主机指针。
         // 是否算错误由调用方按自身语义决定：aclrtMemset 退化为主机写，aclrtMemcpy 在调用点报错。
@@ -150,23 +138,27 @@ void* GetRealPtrByAddr(const void* virPtr)
     uint64_t devPtr = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(virPtr));
     uint64_t deviceKey = sim::runtime::GetCurrDeviceKey();
     // 设备地址包含查询:范围条件经派生端点列完整下推。
-    auto virMemRes = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
+    // 同 GetPhyMemBlockByVirPtr，仅为活动映射取得 backing。
+    const HcclSim::Storage::Condition<sim::runtime::VirtualMemBlock> where = HcclSim::Storage::And(
         HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, devPtr),
         HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, devPtr),
         HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV),
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceKey)));
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceKey),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::is_freed, uint64_t{0}));
+    auto virMemRes = HcclSim::Storage::SelectOne<sim::runtime::VirtualMemBlock>(
+        where, HcclSim::Storage::OrderBy(
+                   &sim::runtime::VirtualMemBlock::dev_mapped_ptr, HcclSim::Storage::SortDirection::DESC));
     if (!virMemRes.ok()) {
         HCCL_VM_ERROR("can not find this buff offset ptr:{:p}", virPtr);
         return nullptr;
     }
 
     const auto& virMem = *virMemRes;
-    void* virStartPtr = (void*)(uintptr_t)virMem.start_ptr;
     void* devStartPtr = (void*)(uintptr_t)virMem.dev_mapped_ptr;
-    // 反查按 (deviceKey, start_ptr) 复合键：start_ptr 为 host 侧每设备独立编址，deviceKey 兜底消歧。
-    auto hostPtr = sim::DeviceMemoryManager::GetInstance().GetHostPtrByDevPtr(virMem.device_id, virStartPtr);
+    // 与 aclrtMalloc / AIV UB 一致，按用户可见的设备基址反查，deviceKey 消歧跨设备同址。
+    auto hostPtr = sim::DeviceMemoryManager::GetInstance().GetHostPtrByDevPtr(virMem.device_id, devStartPtr);
     if (hostPtr == nullptr) {
-        HCCL_VM_ERROR("can not find host ptr by dev ptr:{:p}", virStartPtr);
+        HCCL_VM_ERROR("can not find host ptr by dev ptr:{:p}", devStartPtr);
         return nullptr;
     }
 
@@ -332,26 +324,44 @@ aclError aclrtFreeHost(void* hostPtr)
     return ACL_SUCCESS;
 }
 
+static bool ReleaseDevMappedMemByName(const char* memName)
+{
+    if (!sim::GetAicpuProcMgr().IsAlive()) {
+        return true; // device 已退出，内核已回收其映射；host 仍需完成清理。
+    }
+    DevMemOpPayload payload{};
+    strncpy(payload.memName, memName, sizeof(payload.memName) - 1);
+    uint8_t rspCmd = 0;
+    uint32_t rspLen = 0;
+    RspFreeDevPtrPayload response{};
+    if (sim::GetAicpuProcMgr().Request(
+            PIPE_CMD_FREE_DEV_PTR, &payload, sizeof(payload), rspCmd, &response, sizeof(response), rspLen)
+            != 0
+        || rspCmd != PIPE_RSP_FREE_DEV_PTR || rspLen != sizeof(response) || response.status != 0) {
+        HCCL_VM_ERROR("release device mapping failed for {}", memName);
+        return false;
+    }
+    return true;
+}
+
 bool GetDevMappedMemPtr(
     uint64_t devPhyId, size_t size, std::string& memName, bool& isDevMapped, void** virPtr, void** devPtr)
 {
     isDevMapped = false;
+    *devPtr = nullptr;
     *virPtr = sim::DeviceMemoryManager::GetInstance().AllocVirMem(devPhyId, size);
     if (*virPtr == nullptr) {
         HCCL_VM_ERROR("alloc vir mem devPhyId:{:d}, size:{:d} fail", devPhyId, size);
         return false;
     }
 
-    // --check-only 模式下大块引流到复用区，设备侧无需真实地址映射
-    if (sim::CommPoolPolicy::ShouldRedirect(size, sim::IsCheckOnlyMode())) {
-        *devPtr = *virPtr;
-        HCCL_VM_INFO("check-only pool-redirect: use virAddr {:p} as devPtr", *virPtr);
-        return true;
-    }
-
     if (sim::GetAicpuProcMgr().IsAlive()) {
         DevMemOpPayload payload{};
         strncpy(payload.memName, memName.c_str(), sizeof(payload.memName) - 1);
+        payload.size = size;
+        // CPU 归约会直接访问该指针；大块也必须取得 device 中可访问的地址。
+        // 每块 buffer 独立映射同一个池，避免逻辑地址区间合并。
+        payload.useCommPool = sim::CommPoolPolicy::ShouldRedirect(size, sim::IsCheckOnlyMode());
 
         uint8_t rspCmd;
         uint32_t rspLen = 0;
@@ -360,6 +370,12 @@ bool GetDevMappedMemPtr(
                 PIPE_CMD_GET_DEV_PTR, &payload, sizeof(payload), rspCmd, &rspPayload, sizeof(rspPayload), rspLen)
             != 0) {
             HCCL_VM_ERROR("Request PIPE_CMD_GET_DEV_PTR failed.");
+            return false;
+        }
+        if (rspCmd != PIPE_RSP_GET_DEV_PTR || rspLen != sizeof(rspPayload) || rspPayload.ptr == 0) {
+            HCCL_VM_ERROR("invalid PIPE_CMD_GET_DEV_PTR response for {}", memName);
+            // 已收到完整响应帧，但不能确认 device 是否创建了映射；按分配名幂等释放。
+            ReleaseDevMappedMemByName(memName.c_str());
             return false;
         }
 
@@ -403,7 +419,8 @@ aclError aclrtMalloc(void** devPtr, size_t size, aclrtMemMallocPolicy policy)
         return ACL_ERROR_INTERNAL_ERROR;
     }
 
-    auto curDeviceId = (uint32_t)sim::runtime::GetCurrDeviceId();
+    // 复用上方已校验的设备身份。
+    auto curDeviceId = (uint32_t)deviceId;
 
     std::string memName = GenDevMemName(deviceId);
     auto hostPtr = sim::DeviceMemoryManager::GetInstance().AllocPhyMem(memName.c_str(), deviceId, size);
@@ -411,21 +428,30 @@ aclError aclrtMalloc(void** devPtr, size_t size, aclrtMemMallocPolicy policy)
         HCCL_VM_ERROR("can not alloc phy mem deviceId:{:d}, size:{:d}", deviceId, size);
         return ACL_ERROR_INTERNAL_ERROR;
     }
-    // 大块引流到复用区时缓存池基址，供 IsInCommPool 判定（与主机侧共用同一基址）。
-    if (sim::CommPoolPolicy::ShouldRedirect(size, sim::IsCheckOnlyMode())) {
-        CacheCommPoolBase(hostPtr);
-    }
-
     bool isDevMapped = false;
     void* virPtr = nullptr;
     void* devMappedPtr = nullptr;
+    const bool pooled = sim::CommPoolPolicy::ShouldRedirect(size, sim::IsCheckOnlyMode());
+    auto rollbackAllocation = [&]() {
+        if (isDevMapped) {
+            ReleaseDevMappedMemByName(memName.c_str());
+        }
+        if (virPtr != nullptr) {
+            sim::DeviceMemoryManager::GetInstance().FreeVirMem(curDeviceId, virPtr);
+        }
+        if (pooled) {
+            sim::MemoryManager::GetInstance().ReleaseMemByName(sim::CommPoolPolicy::kPoolName);
+        } else {
+            sim::DeviceMemoryManager::GetInstance().FreePhyMem(memName.c_str(), deviceId);
+        }
+    };
     if (!GetDevMappedMemPtr(curDeviceId, size, memName, isDevMapped, &virPtr, &devMappedPtr)) {
         HCCL_VM_ERROR("can not alloc vir mem deviceId:{:d}, curDeviceId:{:d}, size:{:d}", deviceId, curDeviceId, size);
+        rollbackAllocation();
         return ACL_ERROR_INTERNAL_ERROR;
     }
 
-    // 记录物理内存信息到数据库（插入前先清本设备标记行：见 PurgeFreedRowsOfDevice）
-    PurgeFreedRowsOfDevice<sim::runtime::PhyMemBlock>(deviceId);
+    // 历史记录由会话清理，分配路径直接插入本次物理块。
     sim::runtime::PhyMemBlock phyMem{};
     phyMem.device_id = deviceId;
     memcpy(phyMem.name, memName.c_str(), memName.size());
@@ -435,13 +461,12 @@ aclError aclrtMalloc(void** devPtr, size_t size, aclrtMemMallocPolicy policy)
     auto phyInserted = sim::runtime::Db::Add<sim::runtime::PhyMemBlock>(phyMem);
     if (!phyInserted.ok() || !phyInserted.value.has_value()) {
         // 失败路径不泄漏已分配的物理内存（迁移前此处忽略 DB 失败继续执行）。
-        sim::DeviceMemoryManager::GetInstance().FreePhyMem(memName.c_str(), deviceId);
+        rollbackAllocation();
         return ACL_ERROR_INTERNAL_ERROR;
     }
     auto phyMemId = phyInserted.value->value;
 
-    // 记录虚拟内存信息到数据库（插入前先清本设备标记行：见 PurgeFreedRowsOfDevice）
-    PurgeFreedRowsOfDevice<sim::runtime::VirtualMemBlock>(deviceId);
+    // 历史映射保留供迟到解析，管理查询通过 is_freed 选择当前对象。
     sim::runtime::VirtualMemBlock virMem{};
     virMem.start_ptr = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(virPtr));
     virMem.dev_mapped_ptr = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(devMappedPtr));
@@ -458,17 +483,21 @@ aclError aclrtMalloc(void** devPtr, size_t size, aclrtMemMallocPolicy policy)
     auto virInserted = sim::runtime::Db::Add<sim::runtime::VirtualMemBlock>(virMem);
     if (!virInserted.ok()) {
         // 失败路径回滚已写入的物理内存记录并释放物理内存，避免残留（回滚同走
-        // is_freed 标记：行不硬删，由本设备下次插入前 purge 物理清除）。
+        // is_freed 标记：行不硬删，由会话收尾清理）。
         (void)sim::runtime::Db::Update<sim::runtime::PhyMemBlock>(
             HcclSim::Storage::Eq(&sim::runtime::PhyMemBlock::id, phyMemId),
             HcclSim::Storage::Set(&sim::runtime::PhyMemBlock::is_freed, uint64_t{1}));
-        sim::DeviceMemoryManager::GetInstance().FreePhyMem(memName.c_str(), deviceId);
+        rollbackAllocation();
         return ACL_ERROR_INTERNAL_ERROR;
     }
 
+    // 成功分配才固定池基址，失败重试不额外持有池引用。
+    if (pooled) {
+        CacheCommPoolBase(hostPtr);
+    }
     *devPtr = isDevMapped ? devMappedPtr : virPtr;
     // 缓存设备地址到host地址（按归属设备 deviceKey 复合键，多 rank 同址数值下唯一）
-    sim::DeviceMemoryManager::GetInstance().MapDevPtrHostPtr(deviceId, virPtr, hostPtr);
+    sim::DeviceMemoryManager::GetInstance().MapDevPtrHostPtr(deviceId, *devPtr, hostPtr);
     HCCL_VM_STAT_MEM_ALLOC_DEV(deviceId, size);
     HCCL_VM_INFO("malloc dev addr:{:p}, devMapAddr:{:p} memName:{}, size:{:d}", virPtr, devMappedPtr, memName, size);
     return ACL_SUCCESS;
@@ -503,6 +532,22 @@ aclError aclrtMemInvalidate(void* devPtr, size_t size)
     return ACL_SUCCESS;
 }
 
+// P2P 映射(把对端 device 内存映射进本 device 地址空间供 peer 访问)与其内部的
+// prefetch 都是硬件级优化：仿真环境下所有 device 内存都是本进程可直接访问的 host
+// 共享内存，映射/预取无实际意义。若不打桩会透传到真实 CANN runtime，因无绑定的
+// 真实 device context 而报 EE1018(ret 107002 "context is a null pointer")。
+// estimate 单进程幻影回环(myPid==remotePid)会对本地回环 buffer 触发该调用，故这里
+// 与 aclrtMemFlush/aclrtMemInvalidate 同口径做 no-op 成功，避免误报 error。
+aclError aclrtMemP2PMap(void* devPtr, size_t size, int32_t dstDevId, uint64_t flags)
+{
+    (void)devPtr;
+    (void)size;
+    (void)dstDevId;
+    (void)flags;
+    HCCL_VM_INFO("..");
+    return ACL_SUCCESS;
+}
+
 aclError aclrtMallocWithCfg(void** devPtr, size_t size, aclrtMemMallocPolicy policy, aclrtMallocConfig* cfg)
 {
     (void)cfg;
@@ -524,7 +569,8 @@ aclError aclrtFree(void* devPtr)
     auto virMemRes = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
         HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, startPtr),
         HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV),
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceKey)));
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceKey),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::is_freed, uint64_t{0})));
     if (!virMemRes.ok()) {
         HCCL_VM_ERROR("can not find this buff offset ptr:0x{:x}", startPtr);
         return ACL_ERROR_INTERNAL_ERROR;
@@ -554,19 +600,8 @@ aclError aclrtFree(void* devPtr)
 
     auto devPhyId = dev.value->physical_id;
 
-    if (sim::GetAicpuProcMgr().IsAlive()) {
-        DevMemOpPayload freePayload{};
-        strncpy(freePayload.memName, phyMem.name, sizeof(freePayload.memName) - 1);
-
-        uint8_t rspCmd;
-        uint32_t rspLen = 0;
-        RspFreeDevPtrPayload rspPayload{};
-        if (sim::GetAicpuProcMgr().Request(
-                PIPE_CMD_FREE_DEV_PTR, &freePayload, sizeof(freePayload), rspCmd, &rspPayload, sizeof(rspPayload),
-                rspLen)
-            != 0) {
-            HCCL_VM_ERROR("Request PIPE_CMD_FREE_DEV_PTR failed for {}", phyMem.name);
-        }
+    if (!ReleaseDevMappedMemByName(phyMem.name)) {
+        return ACL_ERROR_INTERNAL_ERROR; // 保留 host 资源与记录，允许调用方重试。
     }
 
     // 先取这块内存的真实地址，判断它是否在复用区（必须在 Unmap 之前取）。
@@ -585,22 +620,22 @@ aclError aclrtFree(void* devPtr)
         sim::DeviceMemoryManager::GetInstance().FreePhyMem(phyMem.name, deviceId);
     }
 
-    // 删除数据库记录 → 标记释放（行保留，不硬删）：FR1 128p / R3K4 256p 拆卸期
-    // 取证显示 43/48 次远端地址解析未命中全部晚于目标行成功删除 16.7s 以上
-    // （删除回执全部 code=0/affectedRows=1）——行保留使慢 rank 设备进程的迟到
-    // 解析仍命中，任务行不再丢失；标记行由本设备下次插入前
-    // PurgeFreedRowsOfDevice 物理清除（保证标记行与活跃行永不同址共存）；
-    // 二次释放由入口 is_freed 守卫挡住。已披露语义边界：对已标记缓冲的
-    // MapMem/UnmapMem/IPC 导入等管理操作会命中标记行（use-after-free 场景）。
+    // 标记已释放并保留历史行供迟到解析，管理查询仅选择活动行。
+    // Phy 行同步标记（与 main 上的管理查询/测试合同一致：行保留至会话收尾清理）。
     (void)sim::runtime::Db::Update<sim::runtime::PhyMemBlock>(
         HcclSim::Storage::Eq(&sim::runtime::PhyMemBlock::id, phyMemId),
         HcclSim::Storage::Set(&sim::runtime::PhyMemBlock::is_freed, uint64_t{1}));
-    (void)sim::runtime::Db::Update<sim::runtime::VirtualMemBlock>(
+    const auto freed = sim::runtime::Db::Update<sim::runtime::VirtualMemBlock>(
         HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::id, virMem.id),
         HcclSim::Storage::Set(&sim::runtime::VirtualMemBlock::is_freed, uint64_t{1}));
+    if (!freed.ok()) {
+        HCCL_VM_ERROR(
+            "mark VirtualMemBlock freed failed, id:{}, code:{}, diagnostic:{}", virMem.id, static_cast<int>(freed.code),
+            freed.diagnostic);
+    }
     HCCL_VM_STAT_MEM_FREE_DEV(virMem.device_id, virMem.size);
     HCCL_VM_INFO("free dev addr:{:p}, memName:{}, size:{:d}", devPtr, phyMem.name, virMem.size);
-    return ACL_SUCCESS;
+    return freed.ok() ? ACL_SUCCESS : ACL_ERROR_INTERNAL_ERROR;
 }
 
 aclError aclrtMemset(void* devPtr, size_t maxCount, int32_t value, size_t count)
@@ -1009,8 +1044,7 @@ aclError aclrtMallocPhysical(aclrtDrvMemHandle* handle, size_t size, const aclrt
         CacheCommPoolBase(hostPtr);
     }
 
-    // 记录物理内存信息到数据库（插入前先清本设备标记行：见 PurgeFreedRowsOfDevice）
-    PurgeFreedRowsOfDevice<sim::runtime::PhyMemBlock>(deviceId);
+    // 历史记录由会话清理，分配路径直接插入本次物理块。
     sim::runtime::PhyMemBlock phyMem{};
     phyMem.device_id = deviceId;
     memcpy(phyMem.name, memName.c_str(), memName.size());
@@ -1057,13 +1091,7 @@ aclError aclrtFreePhysical(aclrtDrvMemHandle handle)
     } else {
         sim::DeviceMemoryManager::GetInstance().FreePhyMem(phyMemRes.value->name, phyMemRes.value->device_id);
     }
-    // 删除数据库记录 → 标记释放（行保留；合同与清理时机见 aclrtFree 处注释）
-    auto freed = sim::runtime::Db::Update<sim::runtime::PhyMemBlock>(
-        HcclSim::Storage::Eq(&sim::runtime::PhyMemBlock::id, phyMemId),
-        HcclSim::Storage::Set(&sim::runtime::PhyMemBlock::is_freed, uint64_t{1}));
-    if (!freed.ok()) {
-        return ACL_ERROR_INTERNAL_ERROR;
-    }
+    // Phy.is_freed 无读者；历史行保留供迟到解析，由会话清理。
     HCCL_VM_STAT_MEM_FREE_VIR(phyMemRes.value->device_id, phyMemRes.value->size);
     HCCL_VM_INFO("free phy mem, id:{:d}", phyMemId);
 
@@ -1514,7 +1542,9 @@ aclError aclrtPointerGetAttributes(const void* ptr, aclrtPtrAttributes* attribut
     auto virMemRes = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
         HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, devPtr),
         HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, devPtr),
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV)));
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, sim::runtime::GetCurrDeviceKey()),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::is_freed, uint64_t{0})));
     if (!virMemRes.ok()) {
         HCCL_VM_ERROR("can not find this buff offset ptr: 0x{:x}", devPtr);
         return ACL_ERROR_INVALID_PARAM;
@@ -1604,7 +1634,8 @@ aclError aclrtIpcMemGetExportKey(void* devPtr, size_t size, char* key, size_t le
         HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, devMappedPtr),
         HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, devMappedPtr),
         HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV),
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceKey)));
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceKey),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::is_freed, uint64_t{0})));
     if (!virMemRes.ok()) {
         HCCL_VM_ERROR("can not find dev mapped buffer ptr: 0x{:x}", devMappedPtr);
         return ACL_ERROR_INVALID_PARAM;
@@ -1723,29 +1754,6 @@ static void RecordIpcMemImport(
     importRecord.owner_device_id = virMem.device_id;
     importRecord.owner_phy_device_id = ownerPhyDeviceId;
     importRecord.id = 0;
-
-    // 自检：导入区间不得与导入方自己在用 VMB 重叠——重叠即"同一宿主 VA 双属主"歧义复活
-    // （SQE 解析退化为自拷贝、解引用读错数据），必须立刻暴露而不是等到数据校验失败。
-    // check-only 复用区模式下所有大块同走 pool 基址，重叠属预期降级（数值本就不保证）。
-    auto overlapRes = sim::runtime::Db::GetByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, importerDeviceId),
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::is_freed, uint8_t{0}),
-        HcclSim::Storage::Lt(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, importRecord.addr_end),
-        HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, importRecord.addr_base)));
-    if (overlapRes.ok() && overlapRes.value.has_value() && !overlapRes.value->empty()) {
-        if (sim::CommPoolPolicy::ShouldRedirect(virMem.size, sim::IsCheckOnlyMode())) {
-            HCCL_VM_WARN(
-                "ipc import range overlaps importer's own VMB (check-only pool degradation, data not tracked), "
-                "importer device: {:d}, addr: [0x{:x},0x{:x})",
-                importerDeviceId, importRecord.addr_base, importRecord.addr_end);
-        } else {
-            HCCL_VM_ERROR(
-                "ipc import range ALIASES importer's own VMB, importer device: {:d}, addr: [0x{:x},0x{:x}), "
-                "overlap vmb id: {:d} — cross-device tasks would degenerate to self-copies",
-                importerDeviceId, importRecord.addr_base, importRecord.addr_end, overlapRes.value->front().id);
-        }
-    }
-
     auto inserted = sim::runtime::Db::Add<sim::runtime::IpcMemImport>(importRecord);
     if (!inserted.ok() || !inserted.value.has_value()) {
         HCCL_VM_ERROR(
@@ -1785,35 +1793,10 @@ aclError aclrtIpcMemImportByKey(void** devPtr, const char* key, uint64_t flags)
             recordRes->vir_mem_id, recordRes->offset, virMemRes->size);
         return ACL_ERROR_INVALID_PARAM;
     }
-
-    // 不得透传属主的 dev_mapped_ptr：那是属主进程地址空间里的值，而各 device/host 进程是同一
-    // 镜像克隆、按相同顺序 mmap 各自 shm，宿主 VA 布局相同——透传会使导入区间与导入方自己的
-    // VMB 逐字节重叠（"同一 VA 双属主"歧义）：hcomm 据此算出 remoteBuff==localBuff，SDMA SQE
-    // 退化为 src==dst 自拷贝，跨卡数据永不落地；CPU 直接解引用也只会读到本进程数据。
-    // 正确语义 = 把属主物理块按 shm 名重映射进本进程（内核选址，与本进程既有映射天然不重叠），
-    // 返回的 VA 解引用即属主真实数据，device 侧按 IpcMemImport 表反查属主也恢复唯一性。
-    auto phyMemRes = sim::runtime::Db::GetById<sim::runtime::PhyMemBlock>(virMemRes->phy_mem_id);
-    if (!phyMemRes.ok()) {
-        HCCL_VM_ERROR("cannot find phy mem block: {:d}, ipc record: {:d}", virMemRes->phy_mem_id, ipcRecordIdx);
-        return ACL_ERROR_INTERNAL_ERROR;
-    }
-    char* localBase = static_cast<char*>(
-        sim::DeviceMemoryManager::GetInstance().AcquirePhyMem(phyMemRes->name, phyMemRes->device_id, phyMemRes->size));
-    if (localBase == nullptr) {
-        HCCL_VM_ERROR(
-            "cannot map owner phy mem into importer process, name: {}, ipc record: {:d}", phyMemRes->name,
-            ipcRecordIdx);
-        return ACL_ERROR_INTERNAL_ERROR;
-    }
-    const uint64_t addrBase = reinterpret_cast<uint64_t>(localBase) + recordRes->offset;
+    const uint64_t addrBase = virMemRes->dev_mapped_ptr + recordRes->offset;
     *devPtr = reinterpret_cast<void*>(addrBase);
     // 返回地址即将被 hcomm 当作对端地址写进 SDMA SQE，此处登记"地址区间 → 属主"供 device 侧反查
     RecordIpcMemImport(ipcRecordIdx, *virMemRes, recordRes->offset, addrBase);
-    HCCL_VM_INFO(
-        "ipc import mapped in importer process: ipcRecord={:d}, ownerPhyDev={:d}, name={}, localBase={:p}, "
-        "addrBase=0x{:x}, offset={:d}",
-        ipcRecordIdx, phyMemRes->device_id, phyMemRes->name, static_cast<void*>(localBase), addrBase,
-        recordRes->offset);
 
     return ACL_SUCCESS;
 }
@@ -1839,32 +1822,6 @@ aclError aclrtIpcMemClose(const char* key)
     if (!sim::runtime::GetCurrRunnerTls(serverId, runner)) {
         return ACL_ERROR_INVALID_PARAM;
     }
-
-    // 导入方收尾：释放导入时在本进程建立的属主物理块映射（与 aclrtIpcMemImportByKey 的
-    // AcquirePhyMem 引用计数配平），并删除本设备的导入行。best-effort：无设备上下文、
-    // 无导入行或记录已被导出方级联清理时静默跳过（映射随进程退出兜底回收）。
-    const uint64_t importerDeviceId = sim::runtime::GetCurrDeviceId();
-    if (importerDeviceId != 0) {
-        auto importRes = sim::runtime::Db::GetOneByPred<sim::runtime::IpcMemImport>(HcclSim::Storage::And(
-            HcclSim::Storage::Eq(&sim::runtime::IpcMemImport::ipc_record_id, recordRes.value->id),
-            HcclSim::Storage::Eq(&sim::runtime::IpcMemImport::importer_device_id, importerDeviceId)));
-        if (importRes.ok() && importRes.value.has_value()) {
-            auto virMemRes = sim::runtime::Db::GetById<sim::runtime::VirtualMemBlock>(recordRes.value->vir_mem_id);
-            if (virMemRes.ok()) {
-                auto phyMemRes = sim::runtime::Db::GetById<sim::runtime::PhyMemBlock>(virMemRes->phy_mem_id);
-                if (phyMemRes.ok()) {
-                    if (sim::CommPoolPolicy::ShouldRedirect(phyMemRes->size, sim::IsCheckOnlyMode())) {
-                        sim::MemoryManager::GetInstance().ReleaseMemByName(sim::CommPoolPolicy::kPoolName);
-                    } else {
-                        sim::DeviceMemoryManager::GetInstance().ReleasePhyMem(phyMemRes->name, phyMemRes->device_id);
-                    }
-                }
-            }
-            (void)sim::runtime::Db::Delete<sim::runtime::IpcMemImport>(
-                HcclSim::Storage::Eq(&sim::runtime::IpcMemImport::id, importRes.value->id));
-        }
-    }
-
     if (runner.pid == recordRes.value->create_pid) {
         if (!sim::runtime::Db::Delete<sim::runtime::IpcMemRecord>(
                  HcclSim::Storage::Eq(&sim::runtime::IpcMemRecord::id, recordRes.value->id))

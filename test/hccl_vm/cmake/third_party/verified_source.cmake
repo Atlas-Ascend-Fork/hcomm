@@ -11,7 +11,7 @@
 # See the License in the root of the software repository for the full text of the License.
 
 # 公共 verified-source 基础设施：第三方源码归档的下载、SHA-256 校验、内容
-# 指纹复核与解包重建。各依赖（mariadb 等）的 .cmake 文件必须在本文件之后
+# 指纹复核与解包重建。各依赖的 .cmake 配方文件必须在本文件之后
 # include，并携带各自的版本/来源/哈希与目标定义。
 
 include_guard(GLOBAL)

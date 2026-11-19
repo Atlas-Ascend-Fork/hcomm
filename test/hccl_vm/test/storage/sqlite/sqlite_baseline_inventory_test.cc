@@ -311,16 +311,16 @@ TEST_F(SqliteBaselineInventoryTest, FixedIndexQueriesUseIndexSearch)
         runner, "SELECT * FROM VirtualMemBlock WHERE src_type = 0 AND start_ptr = 4096", "src_type=? AND start_ptr=?");
     ExpectIndexSearch(runner, "SELECT * FROM VirtualMemBlock WHERE dev_mapped_ptr >= 4096", "dev_mapped_ptr");
     ExpectIndexSearch(runner, "SELECT * FROM VirtualMemBlock WHERE start_ptr >= 4096", "start_ptr");
-    // 2026-09-13 B 轮新增联合索引（src_type, dev_mapped_ptr, dev_mapped_end_ptr）：
-    // IsDeviceAddress 包含查询形状（无 device_id/rank_id 前导）的代表计划
+    // 2026-11-08 端点顺序调整后的联合索引（src_type, dev_mapped_end_ptr,
+    // dev_mapped_ptr）：IsDeviceAddress 高地址未命中形状以 end_ptr 作索引范围。
     ExpectIndexSearch(
-        runner, "SELECT * FROM VirtualMemBlock WHERE src_type = 0 AND dev_mapped_ptr >= 4096",
-        "src_type=? AND dev_mapped_ptr");
+        runner, "SELECT * FROM VirtualMemBlock WHERE src_type = 0 AND dev_mapped_end_ptr > 4096",
+        "src_type=? AND dev_mapped_end_ptr");
     ExpectIndexSearch(
         runner,
         "SELECT * FROM VirtualMemBlock WHERE src_type = 0 AND dev_mapped_ptr <= 6144 "
         "AND dev_mapped_end_ptr > 4096",
-        "src_type=? AND dev_mapped_ptr");
+        "src_type=? AND dev_mapped_end_ptr");
     // 2026-09-20 VMB purge 复合索引（device_id, is_freed）：释放标记行的插入前
     // 物理清除（aclrt_memory_stub.cc 的 Delete And(Eq(device_id), Eq(is_freed,1))）
     // 的 DELETE 计划必须走该复合索引（SEARCH，不允许全表 SCAN）
@@ -448,7 +448,7 @@ TEST_F(SqliteBaselineInventoryTest, OpTaskDynamicTableLifecycle)
     EXPECT_EQ(std::find(after.begin(), after.end(), "OpTaskTab_P_111"), after.end());
 }
 
-// 新增普通联合索引（src_type, dev_mapped_ptr, dev_mapped_end_ptr——区间包含
+// 新增普通联合索引（src_type, dev_mapped_end_ptr, dev_mapped_ptr——区间包含
 // 查询形状的代表索引）的旧库补建合同：旧二进制发布的库文件缺该索引（等价于
 // 直接 DROP INDEX 模拟），重新打开后齐备性预检发现缺失 → 原子单事务
 // CREATE INDEX IF NOT EXISTS 补建并由 SQLite 对全部既有行回填；补建后计划
@@ -456,7 +456,7 @@ TEST_F(SqliteBaselineInventoryTest, OpTaskDynamicTableLifecycle)
 TEST_F(SqliteBaselineInventoryTest, NewCompositeIndexBackfilledOnReopen)
 {
     using sim::runtime::VirtualMemBlock;
-    const std::vector<std::string> kNewIndexColumns{"src_type", "dev_mapped_ptr", "dev_mapped_end_ptr"};
+    const std::vector<std::string> kNewIndexColumns{"src_type", "dev_mapped_end_ptr", "dev_mapped_ptr"};
 
     // 现场形状造数：相邻块 A/B + 覆盖 A 末尾的重叠块 C（主键升序 limit 1 取 A）
     const auto addVmb = [](uint64_t ptr, uint64_t size) {
@@ -509,6 +509,6 @@ TEST_F(SqliteBaselineInventoryTest, NewCompositeIndexBackfilledOnReopen)
         kRunnerPath,
         "SELECT * FROM VirtualMemBlock WHERE src_type = 0 AND dev_mapped_ptr <= " + std::to_string(kProbe)
             + " AND dev_mapped_end_ptr > " + std::to_string(kProbe),
-        "src_type=? AND dev_mapped_ptr");
+        "src_type=? AND dev_mapped_end_ptr");
 }
 } // namespace

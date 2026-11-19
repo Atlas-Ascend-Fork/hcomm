@@ -63,6 +63,9 @@ typedef struct {
 
 typedef struct {
     char memName[DEVICE_MEMORY_NAME_LEN_MAX];
+    uint64_t size;
+    // GET: 为该 memName 独立映射复用池；FREE 按 memName 找到对应映射。
+    uint8_t useCommPool;
 } DevMemOpPayload;
 
 typedef struct {

@@ -115,17 +115,17 @@ public:
         return reinterpret_cast<GM_ADDR>(executor.GetAivCommInfoBuffer(rank).addr + gmOutOffset_);
     }
 
-    // 对称内存路径：hccl_vm 不建模对称内存，symInEnable_/symOutEnable_ 恒为 0，
-    // kernel 侧 UseSymPath() 判定失败后落回原有两跳路径，不会调用以下接口。
     __aicore__ inline GM_ADDR GetGmSymOut(uint32_t rank)
     {
         (void)rank;
+        HCCL_VM_ERROR("Not support yet!"); // 对称内存
         return nullptr;
     }
 
     __aicore__ inline GM_ADDR GetGmSymIn(uint32_t rank)
     {
         (void)rank;
+        HCCL_VM_ERROR("Not support yet!"); // 对称内存
         return nullptr;
     }
 
@@ -148,7 +148,6 @@ public:
     __aicore__ inline void
     DataCopyUB2GM(const GlobalTensor<T>& dstGlobal, const LocalTensor<T>& srcLocal, const uint32_t calCount);
 
-    // 带地址的拷贝：地址或长度非 32B 对齐时走 DataCopyPad，与 hccl 上游实现保持一致
     template <typename T>
     __aicore__ inline void DataCopyGM2UBByAddr(
         const LocalTensor<T>& dstLocal, const GlobalTensor<T>& srcGlobal, const uint32_t calCount, uint64_t srcAddr);
@@ -241,9 +240,8 @@ public:
     uint64_t gmInOffset_ = 0;
     __gm__ uint64_t* gmOutBase_ = nullptr;
     uint64_t gmOutOffset_ = 0;
-    // 对称内存未建模，恒为 0，kernel 走原有两跳路径（与 hccl UT 桩策略一致）
-    uint64_t symOutEnable_ = 0;
-    uint64_t symInEnable_ = 0;
+    uint64_t symOutEnable_ = 0; // 对称内存未支持, 恒为0, kernel 走原有两跳路径
+    uint64_t symInEnable_ = 0;  // 对称内存未支持, 恒为0, kernel 走原有两跳路径
     GM_ADDR myGmIn_ = nullptr;  // 本rank的GetGmIn(rank_)缓存，InitBuffArray后设置
     GM_ADDR myGmOut_ = nullptr; // 本rank的myGmOut_缓存
     uint32_t rank_;
@@ -370,7 +368,6 @@ __aicore__ inline void AivCommBase::SendRecvBarrierForFirstOP(uint32_t myRank, u
 
 __aicore__ inline void AivCommBase::BarrierAll(uint32_t barrierSeq)
 {
-    // 仿真为单算子顺序执行，不同 barrierSeq 复用同一 flag 槽即可，仅需保证编译兼容
     (void)barrierSeq;
     SyncAll<true>();
 
@@ -474,28 +471,14 @@ template <typename T>
 __aicore__ inline void AivCommBase::DataCopyGM2UBByAddr(
     const LocalTensor<T>& dstLocal, const GlobalTensor<T>& srcGlobal, const uint32_t calCount, uint64_t srcAddr)
 {
-    if (((srcAddr % UB_ALIGN_SIZE) == 0) && ((calCount * sizeof(T)) % UB_ALIGN_SIZE == 0)) {
-        DataCopy(dstLocal, srcGlobal, calCount);
-    } else {
-        DataCopyExtParams copyParams{1, static_cast<uint32_t>(calCount * sizeof(T)), 0, 0, 0};
-        DataCopyPadExtParams<T> padParams;
-        padParams.isPad = true;
-        padParams.leftPadding = 0;
-        padParams.rightPadding = 1;
-        DataCopyPad(dstLocal, srcGlobal, copyParams, padParams);
-    }
+    HCCL_VM_ERROR("Not support yet!"); // 对称内存
 }
 
 template <typename T>
 __aicore__ inline void AivCommBase::DataCopyUB2GMByAddr(
     const GlobalTensor<T>& dstGlobal, const LocalTensor<T>& srcLocal, const uint32_t calCount, uint64_t dstAddr)
 {
-    if (((dstAddr % UB_ALIGN_SIZE) == 0) && ((calCount * sizeof(T)) % UB_ALIGN_SIZE == 0)) {
-        DataCopy(dstGlobal, srcLocal, calCount);
-    } else {
-        DataCopyExtParams copyParams{1, static_cast<uint32_t>(calCount * sizeof(T)), 0, 0, 0};
-        DataCopyPad(dstGlobal, srcLocal, copyParams);
-    }
+    HCCL_VM_ERROR("Not support yet!"); // 对称内存
 }
 
 template <typename T>

@@ -14,9 +14,14 @@
 #include "ai_core_stub.h"
 #include "aiv_task.h"
 #include "ascendc_base_stub.h"
-#include "sim_capacity_limits.h"
 
 using namespace AivSim;
+
+namespace {
+// 越界探测用的 rank 下标：远大于各用例的 rankSize(=1)，验证容器按实际 rankSize 判界，
+// 而非依赖任何编译期 rank 上界（原 HcclSim::GetMaxRanks() 已删除）。
+constexpr uint32_t kOobRankId = 4096U;
+} // namespace
 
 namespace AivSim {
 extern bool AivBufferContains(const Mem& buffer, uint64_t addr, uint64_t size);
@@ -47,10 +52,14 @@ TEST_F(AiCoreStubTest, Init_NormalParams_SetsFields)
     EXPECT_EQ(AivKernelExecutor::GetInstance().GetBlockNum(), 4);
 }
 
-TEST_F(AiCoreStubTest, Init_RankSizeExceedsMax_Rejected)
+TEST_F(AiCoreStubTest, Init_LargeRankSize_Accepted)
 {
-    AivKernelExecutor::GetInstance().Init(1, 2, HcclSim::GetMaxRanks() + 1);
-    EXPECT_EQ(AivKernelExecutor::GetInstance().GetRankSize(), 0u);
+    // rank 数不设上界：容器按实际 rankSize 动态扩容（原 GetMaxRanks 拒绝逻辑已删除）
+    constexpr uint32_t kLargeRankSize = 8192U;
+    AivKernelExecutor::GetInstance().Init(1, 2, kLargeRankSize);
+    EXPECT_EQ(AivKernelExecutor::GetInstance().GetRankSize(), kLargeRankSize);
+    AivKernelExecutor::GetInstance().SetCommBuffer(kLargeRankSize - 1, 0x3000, 2048, 0x4000, 256);
+    EXPECT_EQ(AivKernelExecutor::GetInstance().GetCclBuffer(kLargeRankSize - 1).addr, 0x3000u);
 }
 
 TEST_F(AiCoreStubTest, Init_ZeroRankSize_NoClamp)
@@ -125,15 +134,15 @@ TEST_F(AiCoreStubTest, SetCommBuffer_ValidRankId_SetsBuffers)
 TEST_F(AiCoreStubTest, SetCommBuffer_RankIdOutOfRange_Skipped)
 {
     AivKernelExecutor::GetInstance().Init(0, 1, 1);
-    AivKernelExecutor::GetInstance().SetCommBuffer(HcclSim::GetMaxRanks(), 0x3000, 2048, 0x4000, 256);
-    EXPECT_EQ(AivKernelExecutor::GetInstance().GetCclBuffer(HcclSim::GetMaxRanks()).addr, 0u);
-    EXPECT_EQ(AivKernelExecutor::GetInstance().GetAivCommInfoBuffer(HcclSim::GetMaxRanks()).addr, 0u);
+    AivKernelExecutor::GetInstance().SetCommBuffer(kOobRankId, 0x3000, 2048, 0x4000, 256);
+    EXPECT_EQ(AivKernelExecutor::GetInstance().GetCclBuffer(kOobRankId).addr, 0u);
+    EXPECT_EQ(AivKernelExecutor::GetInstance().GetAivCommInfoBuffer(kOobRankId).addr, 0u);
 }
 
 TEST_F(AiCoreStubTest, GetCclBuffer_RankIdOutOfRange_ReturnsEmpty)
 {
     AivKernelExecutor::GetInstance().Init(0, 1, 1);
-    auto mem = AivKernelExecutor::GetInstance().GetCclBuffer(HcclSim::GetMaxRanks());
+    auto mem = AivKernelExecutor::GetInstance().GetCclBuffer(kOobRankId);
     EXPECT_EQ(mem.addr, 0u);
     EXPECT_EQ(mem.size, 0u);
 }
@@ -141,7 +150,7 @@ TEST_F(AiCoreStubTest, GetCclBuffer_RankIdOutOfRange_ReturnsEmpty)
 TEST_F(AiCoreStubTest, GetAivCommInfoBuffer_RankIdOutOfRange_ReturnsEmpty)
 {
     AivKernelExecutor::GetInstance().Init(0, 1, 1);
-    auto mem = AivKernelExecutor::GetInstance().GetAivCommInfoBuffer(HcclSim::GetMaxRanks());
+    auto mem = AivKernelExecutor::GetInstance().GetAivCommInfoBuffer(kOobRankId);
     EXPECT_EQ(mem.addr, 0u);
     EXPECT_EQ(mem.size, 0u);
 }

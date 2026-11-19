@@ -113,39 +113,26 @@
         Field(start_end_ptr, Derived), Field(dev_mapped_end_ptr, Derived), \
         Field(is_freed), Field(is_symmetric), \
         PrimaryKey(id), \
-            Index(device_id, src_type, dev_mapped_ptr), Index(rank_id, src_type, dev_mapped_ptr), \
-            Index(device_id, src_type, start_ptr), Index(src_type, start_ptr), \
+            /* 长索引承接等值前缀查询，移除重复前缀和无独立消费者的终点索引。
+               Prepare 只补建缺失表和索引，不按指纹拒绝旧布局或删除旧索引；
+               完整应用新索引布局需重建可弃置数据库。 */ \
             Index(dev_mapped_ptr), Index(start_ptr), \
-            Index(dev_mapped_end_ptr), Index(start_end_ptr), \
             Index(device_id, src_type, dev_mapped_ptr, dev_mapped_end_ptr), \
             Index(rank_id, src_type, dev_mapped_ptr, dev_mapped_end_ptr), \
             Index(device_id, src_type, start_ptr, start_end_ptr), \
             Index(src_type, start_ptr, start_end_ptr), \
-            /* 无 device_id/rank_id 前导的设备映射地址包含查询（IsDeviceAddress 形状：
-               src_type 等值 + dev_mapped_ptr<=addr<dev_mapped_end_ptr，查询条件不变）：
-               三列普通联合索引形态（MariaDB FORCE INDEX 选择按谓词形状匹配）。 */ \
-            Index(src_type, dev_mapped_ptr, dev_mapped_end_ptr), \
-            /* (device_id, is_freed) purge 复合索引（2026-09-20；先例 PhyMemBlock \
-               2026-09-17 同形索引）：释放路径改标记（Update is_freed=1）后，\
-               插入前 purge（Delete And(Eq(device_id), Eq(is_freed,1))，1024p \
-               实测观测一度约 4096 次/秒）在 MariaDB 默认计划下无覆盖索引走\
-               全表扫描；复合索引使 purge 谓词完全被前缀覆盖。仅新增索引：\
-               不改 purge 调用频率与 is_freed 生命周期语义。索引变更混入表\
-               指纹，旧布局由装配期显式拒绝，沿用 367dc4517 惯例不升 Version */ \
+            /* IsDeviceAddress 保持 start<=addr<end 谓词，以 end>addr 限制扫描范围。
+               优先缩小高地址未命中扫描；低地址未命中仍可能扫描大量行。
+               MariaDB 的 MatchedIntervalIndexName 按端点方向匹配此索引。 */ \
+            Index(src_type, dev_mapped_end_ptr, dev_mapped_ptr), \
+            /* 按设备选择活动映射；历史行保留供迟到解析。 */ \
             Index(device_id, is_freed))) \
     Table(sim::runtime::PhyMemBlock, (Version(2), Scope::Static, \
         Field(id, AutoIncrement), Field(device_id), Field(name, Text), Field(size), Field(type), \
         Field(ref_count), Field(is_freed), \
-        PrimaryKey(id), \
-            /* (device_id, is_freed) 复合二级索引（2026-09-17 is_freed 软删轮）：
-               释放路径改标记（Update is_freed=1）后，插入前 purge（Delete
-               And(Eq(device_id), Eq(is_freed,1))）若无索引将全表扫描
-               （128p 实测 purge 重试耗尽、单次 10-18s、负载 135 死亡螺旋：
-               标记行被并发标记持续失效+标记行累积放大扫描）；复合索引使
-               purge 谓词完全被前缀覆盖——稳态（零标记行）索引扫描即空结果。
-               索引变更混入表指纹，旧布局由装配期显式拒绝，
-               沿用 367dc4517 惯例不升 Version */ \
-            Index(device_id, is_freed))) \
+        PrimaryKey(id))) \
+    /* Phy.is_freed 不再用于查询或释放标记，移除无消费者的索引，保留列定义。
+       旧索引不会自动删除，布局更新方式同 VirtualMemBlock。 */ \
     Table(sim::runtime::IpcMemRecord, (Version(2), Scope::Static, \
         Field(id, AutoIncrement), Field(vir_mem_id), Field(offset), Field(create_pid), \
         PrimaryKey(id))) \
@@ -350,7 +337,7 @@
         Field(sym_win_size), Field(sym_win_registered), Field(status), Field(dpu_mem_addr), Field(dpu_mem_size), \
         PrimaryKey(id), \
             Index(comm_id, comm_hash), Index(device_id), \
-            Index(comm_id, comm_hash, device_id))) \
+            Index(comm_id, comm_hash, device_id), Index(comm_id, comm_hash, status))) \
     Table(sim::runtime::CommunicatorDestroySync, (Version(2), Scope::Static, \
         Field(id, AutoIncrement), Field(comm_id, Text), Field(comm_hash), Field(rank_size), \
         Field(rank_id), \

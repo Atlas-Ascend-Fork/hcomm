@@ -18,31 +18,19 @@
 #include <unordered_map>
 
 namespace HcclSim {
-constexpr uint32_t HCCL_VM_MAX_RANKS = 1024;
+// ★ 本头**不定义任何 rank / 卡数规模上界**：集群规模由拓扑配置（super_node_num ×
+// server_num × 卡数）决定，模拟器不对 rank 数设人为上限，也不提供 HCCL_VM_MAX_RANKS
+// 这类编译期/环境变量上界。需要边界的地方一律用"物理合同"或"运行时实际值"：
+//   - VA 窗口：uint64 溢出防护（RankAddressSpace::RankBase 返回 0 即失败）；
+//   - notify/事件 id：字段位宽合同（见下方 MakeNotifyTaskId）；
+//   - AICPU jetty：硬件编号空间 [5312,9407]（见下方 Jetty 编号合同）；
+//   - 容器：按实际 rankSize / deviceId 动态扩容。
 // 每 RaContext 的通道 jetty 数上界 = 超节点内跨服务器对端数（每对端一条
 // mode=USER_CTL_NORMAL jetty），随拓扑取 (服务器数×卡数−本服务器卡数)：
-// 116_8/2_16_8=120、2_32_8=248、1_128_8=1016。上界不超过板卡规模上限
-// （MAX_RANKS−1），故直接派生自 HCCL_VM_MAX_RANKS，不独立设数。
+// 116_8/2_16_8=120、2_32_8=248、1_128_8=1016。
 // 注意：该常量进入 ChannelData 定长数组与 dump 文件步长（sizeof 烤入格式），
 // 调整即文件格式变更，全部读方（含仓外工具）须以新头重编。
-constexpr uint32_t HCCL_VM_MAX_CHANNEL_JETTIES = HCCL_VM_MAX_RANKS;
-
-inline uint32_t GetMaxRanks()
-{
-    static const uint32_t cached = []() {
-        const char* env = std::getenv("HCCL_VM_MAX_RANKS");
-        if (env == nullptr || env[0] == '\0') {
-            return HCCL_VM_MAX_RANKS;
-        }
-        char* end = nullptr;
-        unsigned long v = std::strtoul(env, &end, 10);
-        if (end == env || v == 0 || v > UINT32_MAX) {
-            return HCCL_VM_MAX_RANKS;
-        }
-        return static_cast<uint32_t>(v);
-    }();
-    return cached;
-}
+constexpr uint32_t HCCL_VM_MAX_CHANNEL_JETTIES = 1024;
 
 // UB 多 channel（jetty）数的默认值：1 表示一个 channel 一个 jetty（不使能多 jetty），
 // 与 hccl::GetEnvUbConfig().GetUbMultiChannelNum() 的默认口径一致。
@@ -50,7 +38,7 @@ constexpr uint32_t HCCL_VM_UB_MULTI_CHANNEL_NUM_DEFAULT = 1;
 
 // 解析 HCCL_UB_MULTI_CHANNEL_NUM（一个 channel 上并行的 jetty 数）。
 // 未设置/空串/非十进制/带多余字符/0/溢出 uint32 一律视为非法：out 置默认值并返回
-// false，是否告警由调用方决定（本头不引入日志依赖，口径同上方 GetMaxRanks）。
+// false，是否告警由调用方决定（本头不引入日志依赖）。
 inline bool ParseUbMultiChannelNum(uint32_t& out)
 {
     out = HCCL_VM_UB_MULTI_CHANNEL_NUM_DEFAULT;
@@ -136,10 +124,16 @@ constexpr uint32_t HCCL_VM_DEVICE_NOTIFY_ID_BITS = 17;
 constexpr uint32_t HCCL_VM_DEVICE_NOTIFY_ID_CAPACITY = 1U << HCCL_VM_DEVICE_NOTIFY_ID_BITS;
 constexpr uint32_t HCCL_VM_DEVICE_NOTIFY_ID_MASK = HCCL_VM_DEVICE_NOTIFY_ID_CAPACITY - 1;
 constexpr uint64_t HCCL_VM_INVALID_NOTIFY_TASK_ID = UINT64_MAX;
+// rank 段的位宽合同：id 布局为 [rank(47bit) | deviceNotifyId(17bit)]，而
+// GetNotifyTaskRankId 以 uint32 返回 rank，故 rank 段实际可用上限 = uint32 的表达能力。
+// ★ 这是**编码位宽**约束（rank 必须能无损还原），不是集群规模上限；它同时把事件级 id
+//   （高位 tag 0xD，见 MakeNotifyEventTaskId）排除在 task id 空间之外。
+constexpr uint64_t HCCL_VM_NOTIFY_TASK_RANK_MAX = UINT32_MAX;
 
+// rankId 为 uint32，天然满足 HCCL_VM_NOTIFY_TASK_RANK_MAX，故此处只校验 notifyId 段。
 inline uint64_t MakeNotifyTaskId(uint32_t rankId, uint32_t deviceNotifyId)
 {
-    if (rankId >= GetMaxRanks() || deviceNotifyId >= HCCL_VM_DEVICE_NOTIFY_ID_CAPACITY) {
+    if (deviceNotifyId >= HCCL_VM_DEVICE_NOTIFY_ID_CAPACITY) {
         return HCCL_VM_INVALID_NOTIFY_TASK_ID;
     }
     return (static_cast<uint64_t>(rankId) << HCCL_VM_DEVICE_NOTIFY_ID_BITS) | deviceNotifyId;
@@ -153,7 +147,7 @@ constexpr uint32_t GetDeviceNotifyId(uint64_t notifyTaskId)
 inline bool IsValidNotifyTaskId(uint64_t notifyTaskId)
 {
     return notifyTaskId != HCCL_VM_INVALID_NOTIFY_TASK_ID
-           && (notifyTaskId >> HCCL_VM_DEVICE_NOTIFY_ID_BITS) < GetMaxRanks();
+           && (notifyTaskId >> HCCL_VM_DEVICE_NOTIFY_ID_BITS) <= HCCL_VM_NOTIFY_TASK_RANK_MAX;
 }
 
 constexpr uint32_t GetNotifyTaskRankId(uint64_t notifyTaskId)
@@ -222,9 +216,10 @@ inline bool TryReserveAicpuJettyHwId(std::atomic<uint32_t>& localSeq, uint32_t& 
 static_assert(
     HCCL_VM_AICPU_USER_CTL_JETTY_ID_END < (1U << HCCL_VM_AICPU_JETTY_ID_BITS),
     "AICPU Jetty hardware IDs must fit the 16-bit SQE jettyId1 field");
-static_assert(
-    HCCL_VM_AICPU_JETTY_CAPACITY_PER_RANK >= HCCL_VM_MAX_RANKS + 1,
-    "per-rank AICPU Jetty capacity must cover a full mesh plus the local jetty");
+// ★ 原 static_assert(CAPACITY_PER_RANK >= MAX_RANKS + 1) 已随 rank 规模上界一并删除。
+// 每 rank 的 USER_CTL jetty 编号空间是硬件合同（4096 个），与集群 rank 数**无关**：
+// 全连接场景下单 rank 的对端 jetty 数超过 4096 时由 TryReserveAicpuJettyHwId 在运行期
+// 稳定返回 false（耗尽不回绕），调用方须按建链失败处理，不再由编译期断言代管。
 } // namespace HcclSim
 
 #endif
