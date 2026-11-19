@@ -60,7 +60,7 @@ CcuResult HcommCcuGetTaskArgsNum(CcuKernelHandle kernelHandle, uint32_t *taskArg
 
 ```c
 // insHandle 从通信域中获取，kernelHandle 由 HcommCcuKernelRegister 返回
-// Kernel 函数体内调用了 CcuLoadArg(0) 和 CcuLoadArg(1)
+// Kernel函数体内调用了 CcuLoadArg(0) 和 CcuLoadArg(1)
 CcuKernelHandle kernelHandle = 0;
 // ... 此处省略 HcommCcuKernelRegisterStart / HcommCcuKernelRegister / HcommCcuKernelRegisterEnd ...
 

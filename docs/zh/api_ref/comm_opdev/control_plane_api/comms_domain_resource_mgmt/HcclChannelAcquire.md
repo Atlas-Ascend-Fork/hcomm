@@ -38,7 +38,7 @@ HcclResult HcclChannelAcquire(HcclComm comm, CommEngine engine, const HcclChanne
 | engine | 输入 | 通信引擎类型。<br>CommEngine类型的定义可参见[CommEngine](../../datatype_definition/CommEngine.md)。 |
 | channelDescs | 输入 | 通信通道描述列表，列表长度为channelNum。<br>HcclChannelDesc类型的定义可参见[HcclChannelDesc](../../datatype_definition/HcclChannelDesc.md)，可通过[HcclRankGraphGetLinks](../topo_info_query/HcclRankGraphGetLinks.md)获取链路信息后填充。 |
 | channelNum | 输入 | 通信通道数量，channelNum的取值范围为(0, 1024 * 1024]。 |
-| channels | 输出 | 通信通道句柄列表，通信通道句柄列表长度为channelNum。 |
+| channels | 输出 | 通信通道句柄列表，列表长度为channelNum。 |
 
 ## 返回值
 

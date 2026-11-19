@@ -33,7 +33,7 @@ HcclResult HcclRankGraphGetEndpointInfo(HcclComm comm, uint32_t rankId, const En
 | 参数名 | 输入/输出 | 描述 |
 | --- | --- | --- |
 | comm | 输入 | 通信域。<br>HcclComm类型的定义如下：<br>typedef void *HcclComm; |
-| rankId | 输入 | 需要查询的端点的所属的rank ID。 |
+| rankId | 输入 | 需要查询的端点所属的rank ID。 |
 | endpointDesc | 输入 | EndPoint描述符，为通过[HcclRankGraphGetEndpointDesc](HcclRankGraphGetEndpointDesc.md)接口获取到的“endpointDesc”。 |
 | endpointAttr | 输入 | 需要查询的EndPoint属性类型。<br>EndpointAttr类型的定义请参见[EndpointAttr](../../datatype_definition/EndpointAttr.md)。 |
 | infoLen | 输入 | 提供的info缓冲区大小（字节）。 |

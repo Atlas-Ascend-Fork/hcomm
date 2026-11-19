@@ -78,7 +78,7 @@ HcclResult HcclThreadAcquire(HcclComm comm, CommEngine engine, uint32_t threadNu
 ```c
 // 通信域句柄
 HcclComm comm;
-// 申请5条AICPU_TS类型的thread通信线程，每条thread包含2个notify
+// 申请5条AICPU_TS类型的通信线程，每条thread包含2个notify
 CommEngine engine = COMM_ENGINE_AICPU_TS;
 ThreadHandle threads[5];
 HcclThreadAcquire(comm, engine, 5, 2, threads);
@@ -99,7 +99,7 @@ HcclThreadAcquireWithStream(comm, COMM_ENGINE_CPU_TS, stream, 1, &cpuThread);
 aclrtSynchronizeStream(stream);
 ```
 
-同步AICPU线程资源示例如下：
+同步AI CPU线程资源示例如下：
 
 ```c
 // --Host侧调用流程--
@@ -117,7 +117,7 @@ HcclThreadAcquire(comm, COMM_ENGINE_AICPU_TS, 1, 1, &aicpuThread);
 // 把创建的AICPU_TS类型的thread导出为CPU上可用的thread
 ThreadHandle exportedCpuThread;
 HcclThreadExportToCommEngine(comm, 1, &aicpuThread, COMM_ENGINE_CPU_TS, &exportedCpuThread);
-// 把创建的CPU类型的thread导出为AICPU上可用的thread
+// 把创建的CPU类型的thread导出为AI CPU上可用的thread
 ThreadHandle exportedAicpuThread;
 HcclThreadExportToCommEngine(comm, 1, &cpuThread, COMM_ENGINE_AICPU_TS, &exportedAicpuThread);
 

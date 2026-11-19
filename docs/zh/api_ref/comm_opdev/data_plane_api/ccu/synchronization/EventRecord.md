@@ -23,7 +23,7 @@
 在CCU kernel内显式标记本地Event的指定掩码位完成。
 
 > [!NOTE]说明
-> 绝大多数场景下无需显式调用本接口。[数据搬运接口](../data_movement/README.md)（如`LocalCopy`、`Read`、`Write`等）末位的`(event, mask)`参数由硬件在搬运完成时自动置位，等价于隐式的`EventRecord`。仅在需要将控制流的某个分支结束或无搬运操作的位置作为同步点时，才需要显式调用本接口。
+> 绝大多数场景下无需显式调用本接口。[数据搬运接口](../data_movement/README.md)（如`LocalCopy`、`Read`、`Write`等）末尾的`(event, mask)`参数由硬件在搬运完成时自动置位，等价于隐式的`EventRecord`。仅在需要将控制流的某个分支结束或无搬运操作的位置作为同步点时，才需要显式调用本接口。
 
 ## 函数原型
 

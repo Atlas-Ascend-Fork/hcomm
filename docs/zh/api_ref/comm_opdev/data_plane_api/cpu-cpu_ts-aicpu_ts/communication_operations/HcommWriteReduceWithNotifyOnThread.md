@@ -47,6 +47,7 @@ int32_t HcommWriteReduceWithNotifyOnThread(ThreadHandle thread, ChannelHandle ch
 
 <!-- npu="950" id6 -->
 针对Ascend 950PR&950DT系列产品：
+
 - AICPU_TS路径：支持int8、int16、int32、uint8、uint16、uint32、int64、uint64、float16、float32、float64、bfp16，以及int128、hif8、fp8e4m3、fp8e5m2、fp8e8m0（部分类型按产品形态裁剪）；归约操作支持sum、max、min、prod。
 - 内置Host通道路径（COMM_ENGINE_CPU，HostCpuRoceChannel）：支持int8、int16、int32、float16、float32、bfp16；归约操作支持sum、max、min。不满足该矩阵时返回HCCL_E_PARA。
 <!-- end id6 -->

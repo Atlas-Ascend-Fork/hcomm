@@ -71,7 +71,7 @@ struct AlgResourceCtx {
     CommBuffer localBuffer;                                 // 本端通信内存
     CommBuffer remoteBuffer;                                // 远端通信内存
     ChannelHandle channelHandle;                            // 通信通道资源
-    uint32_t notifyIds[AICPU_CONTROL_NOTIFY_NUM];           // aicpu模式下device侧控制notify
+    uint32_t notifyIds[AICPU_CONTROL_NOTIFY_NUM];           // AI CPU模式下device侧控制notify
 };
 
 struct OpParam {

@@ -91,7 +91,7 @@ config-based构造使用的参数结构，字段如下：
   - 建议避免在body内调用[NotifyRecord](../synchronization/NotifyRecord.md)、[WriteVariableWithNotify](../synchronization/WriteVariableWithNotify.md)：这两个接口在body内不会报错，但Loop body会被并行展开，远端notify语义在并行环境中不唯一，应谨慎使用。
 - `ccu::Loop`必须加入`ccu::LoopGroup`才能下发硬件循环指令（详见[功能说明](#功能说明)），不要单独使用。
 - `ccu::Loop`对象不可在`ccu::LoopGroup`中被重复添加。
-- 通过var-based方式构造`ccu::Loop`时，需要保证`loopCfg`的值符合运行时预期，其中[12:0]位表示期望的循环次数；[44:13]位表示每次循环期望的地址偏移值；[52:45]位表示EngineID，该EngineID需要预留位0，框架自动分配EngineID。
+- 通过var-based方式构造`ccu::Loop`时，需要保证`loopCfg`的值符合运行时预期，其中[12:0]位表示期望的循环次数；[44:13]位表示每次循环期望的地址偏移值；[52:45]位表示EngineID，该EngineID需要预留为0，框架自动分配EngineID。
 
 ## 调用示例
 

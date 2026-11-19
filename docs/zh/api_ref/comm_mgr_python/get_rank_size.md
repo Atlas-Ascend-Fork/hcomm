@@ -44,7 +44,7 @@ int类型，返回group内的rank数量。
 - 调用该接口的rank必须在当前接口入参group定义的范围内，不在此范围内的rank调用该接口会失败。
 
 - [create_group](create_group.md)完成之后，调用此API获取本group的rank数量；
-- 如果传入"hccl_world_group"，返回hccl world group的rank数量。
+- 如果传入"hccl_world_group"，返回hccl_world_group的rank数量。
 
 ## 调用示例
 

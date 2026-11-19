@@ -20,7 +20,7 @@
 
 ## 功能说明
 
-当集群信息中存在Device网口通信链路不稳定、出现网络拥塞的情况时，Device日志中会存在“error cqe”的打印，我们称这种错误为“RDMA ERROR CQE”错误。
+当集群中存在Device网口通信链路不稳定、出现网络拥塞的情况时，Device日志中会存在“error cqe”的打印，我们称这种错误为“RDMA ERROR CQE”错误。
 
 当前版本，此接口仅支持查询通信域内是否存在“RDMA ERROR CQE”的错误。
 

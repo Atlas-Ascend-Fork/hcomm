@@ -22,7 +22,7 @@
 
 查询指定HCCL通信域自有的CCU实例句柄，返回实例句柄用于后续CCU Kernel的注册与下发。
 
-通信域在初始化阶段不再主动创建CCU实例。本接口查询通信域自有的CCU实例句柄（即以固定资源量创建、由通信域自有的句柄）；当该句柄尚未存在（值为`0`）时，接口会根据通信域的算子扩展模式（opExpansionMode）创建一个CCU实例并保存到通信域，随后返回该句柄。查询成功时固定返回1个实例：insHandles[0]为通信域自有的实例句柄，*insNum为1。
+通信域在初始化阶段不再主动创建CCU实例。本接口查询通信域自有的CCU实例句柄（即以固定资源量创建、由通信域自有的句柄）；当该句柄尚未存在（值为`0`）时，接口会根据通信域的算子展开模式（opExpansionMode）创建一个CCU实例并保存到通信域，随后返回该句柄。查询成功时固定返回1个实例：insHandles[0]为通信域自有的实例句柄，*insNum为1。
 
 当前一个通信域最多持有一个自有的CCU实例，多次查询返回同一句柄，不会重复创建。
 
@@ -51,14 +51,14 @@ HcclResult HcclCommQueryCcuIns(HcclComm comm, CcuInsHandle *insHandles, uint32_t
 
 - 当comm、insHandles或insNum为nullptr时，返回HCCL_E_PTR。
 - 当通信域代际不支持CCU（早于Ascend 950PR&950DT系列产品）时，返回HCCL_E_NOT_SUPPORT。
-- 当通信域的自有CCU实例句柄为`0`、且算子扩展模式未使能CCU时，返回HCCL_E_UNAVAIL，不创建实例。
+- 当通信域的自有CCU实例句柄为`0`、且算子展开模式未使能CCU时，返回HCCL_E_UNAVAIL，不创建实例。
 - 当通信域缓存的CCU实例已不存在（如被外部销毁或不属于当前device）时，返回HCCL_E_NOT_FOUND，本接口不会重建实例。
 - 当创建CCU实例失败时，返回创建接口的原始错误码（透传CcuResult，如CCU_E_DRV_BUSY、CCU_E_UNAVAIL等）。
 
 > [!NOTE]说明
 > 资源不足时，进行以下处理：
 >
-> - 当算子扩展模式为CCU_MS且CCU资源不足以创建CCU_MS实例时，本接口会自动降级到CCU_SCHED重试创建一次。
+> - 当算子展开模式为CCU_MS且CCU资源不足以创建CCU_MS实例时，本接口会自动降级到CCU_SCHED重试创建一次。
 > - 当CCU_SCHED实例也无法创建（资源仍不足）时，返回HCCL_E_UNAVAIL。**本接口不会自动降级到AICPU_TS**，调用方需在收到HCCL_E_UNAVAIL后自行决定是否降级。
 
 ## 约束说明

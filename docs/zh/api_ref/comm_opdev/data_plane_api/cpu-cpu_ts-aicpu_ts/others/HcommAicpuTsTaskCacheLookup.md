@@ -20,7 +20,7 @@
 
 ## 功能说明
 
-查找AICPU Task Cache中是否已缓存指定tag对应的算子展开任务。该接口是AICPU Task Cache使用的入口接口，根据查找结果决定后续走cache hit流程（调用HcommAicpuTsTaskCacheExecute）还是cache miss流程（调用HcommAicpuTsTaskCacheStart和HcommAicpuTsTaskCacheEnd）。
+查找AI CPU Task Cache中是否已缓存指定tag对应的算子展开任务。该接口是AI CPU Task Cache使用的入口接口，根据查找结果决定后续走cache hit流程（调用HcommAicpuTsTaskCacheExecute）还是cache miss流程（调用HcommAicpuTsTaskCacheStart和HcommAicpuTsTaskCacheEnd）。
 
 ## 函数原型
 

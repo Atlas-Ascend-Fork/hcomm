@@ -2,9 +2,9 @@
 
 ## 通信资源计算
 
-通信算子在任务编排前，需要根据算法的并发方式和通信对象计算资源。AICPU通信主要使用以下资源：
+通信算子在任务编排前，需要根据算法的并发方式和通信对象计算资源。AI CPU通信主要使用以下资源：
 
-- **Context**：保存Thread、Channel、通信内存等资源信息。Host侧完成资源创建后，将Context序列化并拷贝到Device，供AICPU Kernel反序列化使用。
+- **Context**：保存Thread、Channel、通信内存等资源信息。Host侧完成资源创建后，将Context序列化并拷贝到Device，供AI CPU Kernel反序列化使用。
 - **Thread**：表达单个rank内任务的串行和并发关系。同一Thread上的任务顺序执行，不同Thread上的任务可以并发执行。算法Thread通常由1个主Thread和若干个从Thread组成。
 - **Thread Notify**：用于同一rank内主从Thread之间的同步。
 - **Channel**：连接本rank与远端rank，用于跨rank数据传输和同步。
@@ -15,7 +15,7 @@ Thread Notify和Channel Notify的作用域不同，计算资源时应分别统�
 
 ## Mesh全连接资源示例
 
-以当前自定义AllGather AICPU样例的单机4卡Mesh全连接为例，每个rank与其余3个rank直接通信：
+以当前自定义AllGather AI CPU样例的单机4卡Mesh全连接为例，每个rank与其余3个rank直接通信：
 
 ![Mesh算法硬件拓扑示例](./figures/mesh.png)
 
@@ -57,12 +57,12 @@ Thread Notify和Channel Notify的作用域不同，计算资源时应分别统�
 
 因此每个rank的Channel Notify申请数量为 `3条Channel * 3 = 9`。当前任务编排主要使用前两个Notify索引，资源申请仍以代码中的Channel描述为准。
 
-### Host与AICPU控制同步
+### Host与AI CPU控制同步
 
-除算法Thread外，样例还创建了一对用于Host与AICPU Kernel控制同步的Thread：
+除算法Thread外，样例还创建了一对用于Host与AI CPU Kernel控制同步的Thread：
 
-- Host Thread在Kernel下发前通知AICPU控制Thread可以开始执行。
-- AICPU控制Thread完成任务编排后通知Host Thread。
+- Host Thread在Kernel下发前通知AI CPU控制Thread可以开始执行。
+- AI CPU控制Thread完成任务编排后通知Host Thread。
 - 两侧各使用1个控制Notify，该资源不计入算法主从Thread的4个逻辑Notify中。
 
 单机4卡样例的资源汇总如下：
@@ -73,11 +73,11 @@ Thread Notify和Channel Notify的作用域不同，计算资源时应分别统�
 | 算法Thread Notify | 4 | 主Thread 2个，两个从Thread各1个 |
 | Channel | 3 | 分别连接其余3个rank |
 | Channel Notify | 9 | 每条Channel申请3个 |
-| Host/AICPU控制Notify | 2 | Host和AICPU控制Thread各1个 |
+| Host/AI CPU控制Notify | 2 | Host和AI CPU控制Thread各1个 |
 
 ## 代码示例
 
-下面的代码片段展示当前AICPU自定义AllGather样例的主要资源计算方式。
+下面的代码片段展示当前AI CPU自定义AllGather样例的主要资源计算方式。
 
 1. 计算算法Thread和Thread Notify。
 
@@ -124,4 +124,4 @@ Thread Notify和Channel Notify的作用域不同，计算资源时应分别统�
                              &remoteAddr, &remoteSize);
     ```
 
-资源创建完成后，Host将Context序列化并拷贝到Device。AICPU Kernel启动后反序列化该Context，再使用其中的Thread、Notify、Channel和通信内存进行任务编排。
+资源创建完成后，Host将Context序列化并拷贝到Device。AI CPU Kernel启动后反序列化该Context，再使用其中的Thread、Notify、Channel和通信内存进行任务编排。

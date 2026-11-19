@@ -42,7 +42,7 @@ int32_t：接口成功返回0，其他失败。
 ## 约束说明
 
 <!-- npu="950" id6 -->
-- 针对Ascend 950PR&950DT系列产品，本接口仅支持在Host CPU上调用，不支持在AICPU侧调用。
+- 针对Ascend 950PR&950DT系列产品，本接口仅支持在Host CPU上调用，不支持在AI CPU侧调用。
 - 调用[HcommChannelCreate](../../../control_plane_api/basic_resource_mgmt/HcommChannelCreate.md)或[HcclChannelAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclChannelAcquire.md)申请入参channel时，需传入`engine = COMM_ENGINE_CPU`，且`channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE`。URMA/UBC等协议通道当前不支持本接口。
 - `remoteNotifyIdx`必须小于通信通道另一端的Notify数量，且通信通道创建时的`notifyNum`需大于0。
 <!-- end id6 -->

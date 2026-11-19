@@ -20,7 +20,7 @@
 
 ## 功能说明
 
-在cache miss场景下，算子展开完成后调用该接口，通知AICPU Task Cache停止缓存task。该接口会提交cache entry，更新内部地址刷新信息和token信息，并统计cache空间消耗。
+在cache miss场景下，算子展开完成后调用该接口，通知AI CPU Task Cache停止缓存task。该接口会提交cache entry，更新内部地址刷新信息和token信息，并统计cache空间消耗。
 
 ## 函数原型
 

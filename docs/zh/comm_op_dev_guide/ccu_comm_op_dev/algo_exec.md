@@ -13,7 +13,7 @@ Kernel中算法主要包含以下几个步骤：
 
 1. 初始化资源。
 
-    算法需要使用的Variable、LocalAddr、RemoteAddr和CompetedEvent等变量，需要进行声明。如果是需要从远端rank来写入的Variable，则需要初始化时，和channel进行绑定，例如：
+    算法需要使用的Variable、LocalAddr、RemoteAddr和CompletedEvent等变量，需要进行声明。如果是需要从远端rank来写入的Variable，则需要初始化时，和channel进行绑定，例如：
 
     ```c
     auto *kernelArg = static_cast<CcuKernelArgAllGatherMesh1DMem2Mem *>(arg);

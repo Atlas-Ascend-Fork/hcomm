@@ -44,7 +44,7 @@ int32_t：接口成功返回0，其他失败。
 ## 约束说明
 
 <!-- npu="950" id6 -->
-- 针对Ascend 950PR&950DT系列产品，本接口仅支持在Host CPU上调用，不支持在AICPU侧调用。
+- 针对Ascend 950PR&950DT系列产品，本接口仅支持在Host CPU上调用，不支持在AI CPU侧调用。
 - 调用[HcommChannelCreate](../../../control_plane_api/basic_resource_mgmt/HcommChannelCreate.md)或[HcclChannelAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclChannelAcquire.md)申请入参channel时，需传入`engine = COMM_ENGINE_CPU`，且`channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE`，并配置基于Hi1825芯片的SP561系列网卡或第三方网卡。
 <!-- end id6 -->
 - `[dst, dst + len)`必须落在本端已注册或获取的内存范围内，`[src, src + len)`必须落在对端已导入或获取的内存范围内。

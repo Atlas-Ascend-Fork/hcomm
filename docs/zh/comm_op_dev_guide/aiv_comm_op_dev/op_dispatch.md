@@ -2,7 +2,7 @@
 
 开发者完成通信算子任务编排后，需要将Kernel函数下发给具体的通信引擎执行。
 
-定义AIV Kernel函数，格式如下，其中`<aiv_kernel_func_name>`为AIV Kernel函数名字。
+定义AIV Kernel函数，格式如下，其中`<aiv_kernel_func_name>`为AIV Kernel函数名。
 
 ```c
 extern "C" __global__ __aicore__ void <aiv_kernel_func_name>(void *param)

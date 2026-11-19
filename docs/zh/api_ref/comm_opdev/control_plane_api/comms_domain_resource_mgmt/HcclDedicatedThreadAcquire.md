@@ -65,7 +65,7 @@ HcclResult HcclDedicatedThreadAcquire(HcclComm comm, HcclDedicatedThreadType use
 
 4. 保序类型在以下场景返回的thread句柄为0（接口仍返回HCCL_SUCCESS），表示无需创建专用保序线程：
 
-   - 当前context下已注册的通信域数量不超过设备AICPU block数量时，OPBASE/ACLGRAPH/DEVICE/GE类型均不创建专用线程。
+   - 当前context下已注册的通信域数量不超过设备AI CPU block数量时，OPBASE/ACLGRAPH/DEVICE/GE类型均不创建专用线程。
    - GE类型未通过HcomSetAttachedStream设置附属流时。
 
 5. 图模式下（useType为HCCL_DED_THREAD_TYPE_AICPU_LAUNCH_GE）若通信域中尚未缓存该专用线程，接口不会实际创建线程，返回的thread句柄为0。
@@ -77,7 +77,7 @@ HcclResult HcclDedicatedThreadAcquire(HcclComm comm, HcclDedicatedThreadType use
 
 ## 调用示例
 
-申请AICPU任务下发的专用线程示例如下：
+申请AI CPU任务下发的专用线程示例如下：
 
 ```c
 // 通信域句柄

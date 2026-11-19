@@ -72,7 +72,7 @@ typedef struct {
     uint32_t loopCount;
 } MyKernelArg;
 
-// 用户自定义Kernel 函数，函数体内调用Ccu* 系列接口
+// 用户自定义Kernel函数，函数体内调用Ccu* 系列接口
 CcuResult MyKernel(CcuKernelArg arg)
 {
     // CcuKernelArg即void*（见 ccu_types.h），用户可自定义入参结构体并通过kernelArgs传入
@@ -93,9 +93,9 @@ CcuKernelHandle kernelHandle = 0;
 CcuResult ret = HcommCcuKernelRegister(
     insHandle,
     dieId,                          // 指定Kernel运行的die
-    "MyKernel",                     // Kernel 名称，用于调试，可为空
-    (const void *)MyKernel,         // Kernel 函数指针
-    kernelArgs,                     // Kernel 入参指针数组
+    "MyKernel",                     // Kernel名称，用于调试，可为空
+    (const void *)MyKernel,         // Kernel函数指针
+    kernelArgs,                     // Kernel入参指针数组
     argNum,                         // 入参个数
     &kernelHandle);
 if (ret != CCU_SUCCESS) {

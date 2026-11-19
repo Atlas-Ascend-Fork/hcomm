@@ -20,9 +20,9 @@
 
 ## 功能说明
 
-初始化HcclKernelLaunchCfg结构体，用于描述AICPU运行核函数的配置信息。
+初始化HcclKernelLaunchCfg结构体，用于描述AI CPU运行核函数的配置信息。
 
-该接口会先用0xFF填充整个结构体，再设置ABI头部信息（包含版本号、魔数字、结构体大小），使结构体处于可用初始状态。调用该接口后，开发者需根据实际任务按需设置timeOut等字段，再将配置传入[HcclAicpuKernelLaunch](./HcclAicpuKernelLaunch.md)接口下发任务。
+该接口会先用0xFF填充整个结构体，再设置ABI头部信息（包含版本号、魔数、结构体大小），使结构体处于可用初始状态。调用该接口后，开发者需根据实际任务按需设置timeOut等字段，再将配置传入[HcclAicpuKernelLaunch](./HcclAicpuKernelLaunch.md)接口下发任务。
 
 ## 函数原型
 
@@ -53,7 +53,7 @@ HcclKernelLaunchCfg kernelLaunchCfg;
 HcclKernelLaunchCfgInit(&kernelLaunchCfg);
 kernelLaunchCfg.timeOut = 60;  // 设置超时时间，单位为秒
 
-// 运行AICPU核函数
+// 运行AI CPU核函数
 HcclResult ret = HcclAicpuKernelLaunch(comm, &opInfo, &funcInfo, aicpuThreadHandle, userStream, &kernelLaunchCfg);
 if (ret != HCCL_SUCCESS) {
     // 处理错误

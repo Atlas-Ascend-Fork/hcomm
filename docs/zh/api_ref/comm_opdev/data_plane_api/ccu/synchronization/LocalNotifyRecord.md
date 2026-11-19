@@ -59,7 +59,7 @@ CcuResult EventRecord(const char *notifyTag, uint16_t mask = 1);
 - `notifyTag`必须在kernel注册期间保持有效，应使用字符串字面量（如`"phase1_done"`）或kernel内的`static char[]`，禁止使用栈上临时`char[]`。
 - 生产侧`LocalNotifyRecord`与消费侧`LocalNotifyWait`必须使用完全相同的`notifyTag`字符串内容进行配对。
 - 同一tag可承载多组配对，由`mask`的不同bit区分；等待侧`mask`必须与此处一致。
-- `LocalNotifyRecord`与对应的`LocalNotifyWait`必须成对出现，且`LocalNotifyWait`位于`LocalNotifyRecord`的后序位置。任何无配对的`LocalNotifyWait`将永久阻塞，导致硬件级死锁。
+- `LocalNotifyRecord`与对应的`LocalNotifyWait`必须成对出现，且`LocalNotifyWait`位于`LocalNotifyRecord`的后续位置。任何无配对的`LocalNotifyWait`将永久阻塞，导致硬件级死锁。
 
 ## 调用示例
 

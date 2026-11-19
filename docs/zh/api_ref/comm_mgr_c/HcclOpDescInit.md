@@ -22,7 +22,7 @@
 
 初始化HcclOpDesc结构体，用于描述AI CPU运行核函数时的算子信息。
 
-该接口会先用0xFF填充整个结构体，再设置ABI头部信息（包含版本号、魔数字、结构体大小），使结构体处于可用初始状态。调用该接口后，开发者需根据实际通信任务按需设置opDescType、opName及联合体成员（如p2p）等字段，再传入[HcclAicpuKernelLaunch](./HcclAicpuKernelLaunch.md)接口下发任务。
+该接口会先用0xFF填充整个结构体，再设置ABI头部信息（包含版本号、魔数、结构体大小），使结构体处于可用初始状态。调用该接口后，开发者需根据实际通信任务按需设置opDescType、opName及联合体成员（如p2p）等字段，再传入[HcclAicpuKernelLaunch](./HcclAicpuKernelLaunch.md)接口下发任务。
 
 ## 函数原型
 
@@ -81,7 +81,7 @@ HcclKernelLaunchCfg kernelLaunchCfg;
 HcclKernelLaunchCfgInit(&kernelLaunchCfg);
 kernelLaunchCfg.timeOut = 60;
 
-// 运行AICPU核函数
+// 运行AI CPU核函数
 ret = HcclAicpuKernelLaunch(comm, &opInfo, &funcInfo, aicpuThreadHandle, userStream, &kernelLaunchCfg);
 if (ret != HCCL_SUCCESS) {
     // 处理错误

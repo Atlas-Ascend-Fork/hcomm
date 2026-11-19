@@ -27,7 +27,7 @@
 - 运算符即device操作：Variable上的赋值与算术运算符描述的是device端（硬件）执行的操作，运行期操作对应的标量寄存器，而非在host端立即计算。
 
 > [!NOTE]说明
-> CCU资源分配采用"先虚后实"两阶段模型：注册阶段的`Variable()`构造仅产生虚拟句柄，真正的物理标量寄存器分配在 `HcommCcuKernelRegister` 阶段（kernel 函数执行完后）完成。
+> CCU资源分配采用"先虚后实"两阶段模型：注册阶段的`Variable()`构造仅产生虚拟句柄，真正的物理标量寄存器分配在 `HcommCcuKernelRegister` 阶段（kernel函数执行完后）完成。
 
 ## 类声明
 

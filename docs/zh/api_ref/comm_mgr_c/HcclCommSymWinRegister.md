@@ -31,7 +31,7 @@
 
   - 通信引擎为AIV，通信协议为URMA：用户将已申请的Device内存注册为对称内存窗口，该场景需要配合[HcclTeamCreate](../comm_opdev/control_plane_api/comms_domain_resource_mgmt/HcclTeamCreate.md)接口使用。
 
-  - 通信引擎为AICPU，通信协议为URMA：用户将已申请的Device内存注册为对称内存窗口。该场景下，[HcclCommSymWinRegister](HcclCommSymWinRegister.md)仅完成本端对称内存窗口登记；跨rank的内存注册、memHandle交换和远端内存信息更新在相关UB/URMA通信通道创建时完成。使用集合通信接口时，该流程由集合通信算子内部触发。在远端内存信息更新完成前，不应调用[HcclSymWinGetRemoteAddr](HcclSymWinGetRemoteAddr.md)获取远端地址。
+  - 通信引擎为AI CPU，通信协议为URMA：用户将已申请的Device内存注册为对称内存窗口。该场景下，[HcclCommSymWinRegister](HcclCommSymWinRegister.md)仅完成本端对称内存窗口登记；跨rank的内存注册、memHandle交换和远端内存信息更新在相关UB/URMA通信通道创建时完成。使用集合通信接口时，该流程由集合通信算子内部触发。在远端内存信息更新完成前，不应调用[HcclSymWinGetRemoteAddr](HcclSymWinGetRemoteAddr.md)获取远端地址。
 
   - 通信引擎为AIV，通信协议为UB Memory：用户在申请虚拟内存和物理内存并完成映射后，将虚拟内存注册为对称内存。该场景通过提前预留相同大小、相同布局的虚拟地址来实现对称内存。
 <!-- end id6 -->
@@ -105,8 +105,8 @@ HcclResult HcclCommSymWinRegister(HcclComm comm, void *addr, uint64_t size, Hccl
 <!-- npu="950" id11 -->
 - 针对Ascend 950PR&950DT系列产品：
   - 通信引擎为AIV时，仅支持URMA场景和UB Memory场景。
-  - 通信引擎为AICPU时，仅支持URMA场景。
-  - 通信引擎为AICPU的URMA场景下，仅支持集合通信算子ReduceScatter、AllReduce、AllGather、Broadcast、AlltoAll、AlltoAllVC。
+  - 通信引擎为AI CPU时，仅支持URMA场景。
+  - 通信引擎为AI CPU的URMA场景下，仅支持集合通信算子ReduceScatter、AllReduce、AllGather、Broadcast、AlltoAll、AlltoAllVC。
   - URMA场景不要求对称组网，所有参与rank输入的size参数需要保持一致。
   - UB Memory场景下，需确保同一通信域内所有LSA WorldTeam成员同时调用本接口。各成员的注册调用次序及每次注册的输入地址所映射的物理内存大小必须保持一致，否则注册失败。
   - UB Memory场景的注册包含LSA WorldTeam成员间的集合操作。若集合操作完成后成员本地执行失败（如本地映射失败、资源不足），本通信域的UB Memory对称内存将进入不可用状态，后续注册直接返回错误；此时需解注册已注册的窗口并销毁、重建通信域。
@@ -117,7 +117,6 @@ HcclResult HcclCommSymWinRegister(HcclComm comm, void *addr, uint64_t size, Hccl
   - 仅支持对称组网，即每个Server内卡数相同的场景。
   - 仅支持超节点内AI Server间使用HCCS链路进行SDMA通信的场景，不支持使用RoCE进行RDMA通信的场景（即不支持设置环境变量HCCL_INTER_HCCS_DISABLE为"TRUE"，单机场景该环境变量无效）。
   - 仅支持集合通信算子AllGather、ReduceScatter、AllReduce、AlltoAll。
-  - 仅支持集合通信算子。
   - 需确保通信域中的所有rank同时调用本接口。
   - 所有rank的输入地址映射的物理内存大小一致（对称内存注册按物理内存的大小对齐）。
 <!-- end id12 -->

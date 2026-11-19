@@ -26,4 +26,4 @@ typedef struct {
 - **dataType**：数据类型，类型定义请参见[HcclDataType](./HcclDataType.md)。
 - **count**：数据个数，指定需要传输的数据元素数量。需与dataType匹配buffer的实际数据大小和类型。
 - **remoteRank**：对端rank编号，指定通信的对端节点编号。需在通信域的有效rank编号范围内。
-- **unfoldStream**：展开流，用于AICPU通信任务的流控制。
+- **unfoldStream**：展开流，用于AI CPU通信任务的流控制。

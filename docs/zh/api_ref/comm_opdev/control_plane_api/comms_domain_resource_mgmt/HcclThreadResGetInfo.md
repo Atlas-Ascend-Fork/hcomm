@@ -33,7 +33,7 @@ HcclResult HcclThreadResGetInfo(HcclComm comm, ThreadHandle thread, ThreadResTyp
 | 参数名 | 输入/输出 | 描述 |
 | --- | --- | --- |
 | comm | 输入 | 通信域句柄。<br>HcclComm类型的定义可参见[HcclComm](../../../comm_mgr_c/data_type_definition/HcclComm.md)。 |
-| thread | 输入 | 线程句柄。<br>ThreadHandle类型的定义可参见[ThreadHandle](../../datatype_definition/ThreadHandle.md)。可通过[HcclThreadAcquire](./HcclThreadAcquire.md)、[HcclThreadAcquireWithConfig](./HcclThreadAcquireWithConfig.md)、[HcclThreadAcquireWithStream](./HcclThreadAcquireWithStream.md)接等接口创建通信线程。 |
+| thread | 输入 | 线程句柄。<br>ThreadHandle类型的定义可参见[ThreadHandle](../../datatype_definition/ThreadHandle.md)。可通过[HcclThreadAcquire](./HcclThreadAcquire.md)、[HcclThreadAcquireWithConfig](./HcclThreadAcquireWithConfig.md)、[HcclThreadAcquireWithStream](./HcclThreadAcquireWithStream.md)等接口创建通信线程。 |
 | resType | 输入 | 底层资源类型（如stream等）。<br>ThreadResType类型的定义可参见[ThreadResType](../../datatype_definition/ThreadResType.md)。 |
 | infoLen | 输入 | 目标资源信息大小。 |
 | info | 输出 | 资源信息输出缓冲区。返回类型为获取的对应资源类型。 |

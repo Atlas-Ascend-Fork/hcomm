@@ -20,7 +20,7 @@
 
 ## 功能说明
 
-在cache miss场景下，算子展开前调用该接口，通知AICPU Task Cache开始缓存task。该接口会将传入的内存基址和大小信息保存到cache entry中，后续算子展开过程中下发的SQE/WQE将被捕获并缓存。
+在cache miss场景下，算子展开前调用该接口，通知AI CPU Task Cache开始缓存task。该接口会将传入的内存基址和大小信息保存到cache entry中，后续算子展开过程中下发的SQE/WQE将被捕获并缓存。
 
 ## 函数原型
 
@@ -77,7 +77,7 @@ HcommResult：接口成功返回0，其他失败。
 2. 仅在cache miss场景下调用（即HcommAicpuTsTaskCacheLookup返回isHit为false时），否则返回错误。
 3. tag需与HcommAicpuTsTaskCacheLookup传入的tag一致，否则返回错误。
 4. 该接口需与HcommAicpuTsTaskCacheEnd配套使用，在两者之间执行算子展开操作。
-5. 如果AICPU Task Cache容量已满，不会添加新的cache entry，此时算子展开仍可正常执行但不会被缓存。
+5. 如果AI CPU Task Cache容量已满，不会添加新的cache entry，此时算子展开仍可正常执行但不会被缓存。
 6. V格式需由调用方使用所有peer的发送和接收count均非零的预热算子录制完整任务模板，并通过准入保证每个远端peer最多一条有效channel、数据无需循环拆分、缓存复用期间通信资源保持不变。
 7. 非V格式支持input/output完全同址或部分重叠，调用方须保证算子和算法支持该布局。本端以及携带远端内存时各rank的input/output均须在回放时保持录制时的重叠布局，具体要求见[Execute约束说明](HcommAicpuTsTaskCacheExecute.md#约束说明)。
 

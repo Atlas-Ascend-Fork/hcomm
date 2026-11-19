@@ -2,7 +2,7 @@
 
 HCOMM（Huawei Communication，华为通信基础库）是HCCL的通信基础库，提供通信域与通信资源管理能力，是CANN集合通信栈的底层基座。HCCL通过dlsym动态加载HCOMM接口，HCCL与HCOMM独立编译、独立版本演进。
 
-本章节介绍HCOMM对外接口的头文件与库文件说明。
+本章节介绍HCOMM对外接口的头文件与库文件。
 
 ## 接口分类
 

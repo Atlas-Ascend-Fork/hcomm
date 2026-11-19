@@ -23,7 +23,7 @@ typedef enum {
 | 成员 | 描述 |
 | --- | --- |
 | HCCL_DED_THREAD_TYPE_INVALID | 无效的专用线程类型。 |
-| HCCL_DED_THREAD_TYPE_AICPU_LAUNCH | 单算子用于AI CPU任务下发的专用线程。 |
+| HCCL_DED_THREAD_TYPE_AICPU_LAUNCH | 单算子模式下用于AI CPU任务下发的专用线程。 |
 | HCCL_DED_THREAD_TYPE_AICPU_LAUNCH_GE | 图模式下用于AI CPU任务下发的专用线程。 |
 | HCCL_DED_THREAD_TYPE_AICPU_ORDER_LAUNCH_OPBASE | 单算子模式下用于AI CPU保序任务下发的专用线程。 |
 | HCCL_DED_THREAD_TYPE_AICPU_ORDER_LAUNCH_ACLGRAPH | aclgraph模式下用于AI CPU保序任务下发的专用线程。 |

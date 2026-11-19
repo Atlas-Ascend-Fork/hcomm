@@ -24,7 +24,7 @@
 - **注册CCU Kernel**：调用HcommCcuKernelRegister\(\)接口创建CCU Kernel，生成CCU指令，用于在CCU上执行。
 - **获取本端通信内存**：调用HcclGetHcclBuffer\(\)接口获取本端的通信内存信息。
 - **准备输入数据**：调用HcommLocalCopyOnThread\(\)接口将输入数据拷贝到本端通信内存。
-- **生成Token秘钥**：调用HcommCcuGetMemToken\(\)接口生成秘钥，唯一标识一块地址信息，用于远端交互。
+- **生成Token密钥**：调用HcommCcuGetMemToken\(\)接口生成密钥，唯一标识一块地址信息，用于远端交互。
 - **下发CCU Kernel**：调用HcommCcuKernelLaunch\(\)接口下发CCU Kernel。
 - **前同步**：调用ccu::WriteVariableWithNotify\(\)接口告知远端数据已经准备完成；
 - **写入数据**：调用ccu::Write\(\)接口将本端数据写入到远端通信内存。
@@ -167,7 +167,7 @@ rankId: 1, output: [ 0 1 ]
     HcommLocalCopyOnThread(resCtx.threads[0], param.outputPtr, param.inputPtr, dataSize);
     ```
 
-7. 生成Token秘钥，唯一标识一块地址信息，用于远端交互。
+7. 生成Token密钥，唯一标识一块地址信息，用于远端交互。
 
     ```c
     uint64_t token = 0;

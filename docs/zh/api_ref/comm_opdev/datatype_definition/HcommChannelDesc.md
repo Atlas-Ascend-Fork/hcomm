@@ -17,17 +17,17 @@ typedef struct {
     HcommMemHandle *memHandles;       /* 注册到通信域的待交换内存句柄，exchangeAllMems为True时无效 */
     uint32_t memHandleNum;            /* 注册到通信域的待交换内存句柄数量，exchangeAllMems为True时无效 */
     HcommSocket socket;               /* Socket句柄 */
-    HcommSocketRole role;             /* 本端角色(SERVER或CLIENT) */
+    HcommSocketRole role;             /* 本端角色（SERVER或CLIENT） */
     uint16_t port;                    /* Socket监听指定端口*/
     union {
         uint8_t raws[128];            /* 通用缓存 */
         struct {
-            uint32_t queueNum;        /* QP数量，取值范围：[1,32]，建议配置范围：[1,8]；未配置(0xFFFFFFFF)时默认为1 */
+            uint32_t queueNum;        /* QP数量，取值范围：[1,32]，建议配置范围：[1,8]；未配置（0xFFFFFFFF）时默认为1 */
             uint32_t retryCnt;        /* 最大重传次数，范围为0~7，默认为7 */
-            uint32_t retryInterval;   /* 重传间隔，范围为5~24，默认为20 (对应时间4.096*2^20us) */
-            uint8_t tc;               /* 流量类别(QoS)，范围为0~255，默认为132 */
-            uint8_t sl;               /* 服务等级(QoS)，范围为0~7，默认为4 */
-            uint32_t qpThreshold;     /* 多QP场景下，每个QP最小数据量(B) */
+            uint32_t retryInterval;   /* 重传间隔，范围为5~24，默认为20（对应时间4.096*2^20us） */
+            uint8_t tc;               /* 流量类别（QoS），范围为0~255，默认为132 */
+            uint8_t sl;               /* 服务等级（QoS），范围为0~7，默认为4 */
+            uint32_t qpThreshold;     /* 多QP场景下，每个QP最小数据量（B） */
             uint32_t cqAttrFlags;     /* CQ属性标志位，用于配置ibv_cq_init_attr_ex的flags标志位，默认0。
                                          备注：NPU网卡不支持该配置；第三方网卡场景下是否有效，与各自网卡能力相关 */
             uint16_t* srcPortList;    /* QP源端口号列表，用于RoCE网络哈希分流。NULL表示不配置。
@@ -46,10 +46,10 @@ typedef struct {
         } hccsAttr;
         struct {
             uint32_t sqDepth;         /* UB队列深度，0和0xffffffff表示使用默认值 */
-            uint32_t scqDepth;        /* UB SCQ队列深度，0和0xffffffff表示使用默认值；有效值时JFC以独占模式创建；HOST场景取值范围[64, 32768]，AICPU场景[64, 16384]，AIV场景[64, 32768] */
+            uint32_t scqDepth;        /* UB SCQ队列深度，0和0xffffffff表示使用默认值；有效值时JFC以独占模式创建；HOST场景取值范围[64, 32768]，AI CPU场景[64, 16384]，AIV场景[64, 32768] */
         } ubAttr;
         struct {
-            uint8_t pathMode;         /* UB_MEM访问路径模式，取值范围：0、1、2和0xFF(默认值为0，配置为0xFF时按照0处理）。0：自动模式(优先单路径，若无则使用多路径），1：强制单路径模式，2：强制多路径模式 */
+            uint8_t pathMode;         /* UB_MEM访问路径模式，取值范围：0、1、2和0xFF（默认值为0，配置为0xFF时按照0处理）。0：自动模式（优先单路径，若无则使用多路径），1：强制单路径模式，2：强制多路径模式 */
         } ubMemAttr;
     };
     uint32_t qos;             /* 通道 QoS（与协议解耦；集合通信场景通常来自通信域 hcclQos）；取值范围：[0, 7]，或 0xFFFFFFFF 表示未配置。

@@ -2,12 +2,12 @@
 
 ## 选择策略
 
-AICPU通信算子应根据实际物理拓扑选择通信算法，例如：
+AI CPU通信算子应根据实际物理拓扑选择通信算法，例如：
 
 - 单Server多卡Mesh拓扑，建议采用Mesh算法，利用卡间直连链路并行通信。
 - 多Server、每个Server单卡的拓扑，建议采用NHR算法，按跨Server链路组织通信。
 
-AICPU通信算法选择示意图如下所示：
+AI CPU通信算法选择示意图如下所示：
 
 ![](./figures/algo_select_new.png)
 
@@ -21,7 +21,7 @@ AICPU通信算法选择示意图如下所示：
 ```c
 CommEngine engine;
 if (engine == CommEngine::COMM_ENGINE_AICPU_TS) {
-    algName = "AicpuMesh";  // 选择使用aicpu展开的Mesh算法
+    algName = "AicpuMesh";  // 选择使用AI CPU展开的Mesh算法
 } else {
     return HCCL_E_NOT_SUPPORT;
 }

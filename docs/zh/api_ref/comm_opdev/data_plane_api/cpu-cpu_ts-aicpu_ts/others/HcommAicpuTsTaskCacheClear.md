@@ -20,7 +20,7 @@
 
 ## 功能说明
 
-清理AICPU Task Cache中指定tag对应的cache entry。释放该cache entry占用的缓存空间，用于在通信域销毁或故障快速恢复等场景下清理不再需要的缓存。
+清理AI CPU Task Cache中指定tag对应的cache entry。释放该cache entry占用的缓存空间，用于在通信域销毁或故障快速恢复等场景下清理不再需要的缓存。
 
 ## 函数原型
 
