@@ -75,6 +75,7 @@ static int ProcessLayerMesh(int npu_id, NetLayer* layer, dcmi_urma_eid_info_t* e
 
 static int ProcessLayerMesh2P(int npu_id, NetLayer* layer, dcmi_urma_eid_info_t* eid_list, size_t eid_cnt)
 {
+    (void)npu_id;
     if (eid_cnt == 0) {
         return -1;
     }
@@ -82,8 +83,7 @@ static int ProcessLayerMesh2P(int npu_id, NetLayer* layer, dcmi_urma_eid_info_t*
     char net_instance_id[MAX_INSTANCE_ID_LEN] = {0};
     get_server_id(server_id, sizeof(server_id));
     // 2p标卡每2个NPU一组， 可分多组， 标卡机头无单独的server id，因此使用mac地址作为server id
-    // 和组ID组合起来作为mesh域的ID
-    int ret = sprintf_s(net_instance_id, sizeof(net_instance_id), "%s_%d", server_id, (npu_id / CARD_2P_MESH_NUM));
+    int ret = sprintf_s(net_instance_id, sizeof(net_instance_id), "%s", server_id);
     if (ret < 0) {
         return -1;
     }
