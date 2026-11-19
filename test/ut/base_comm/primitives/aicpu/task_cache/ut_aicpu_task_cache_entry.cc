@@ -79,11 +79,12 @@ constexpr uint32_t TEST_SQ_DEPTH = 128;
 
 ChannelHandle queriedWqeChannel = 0;
 uint32_t wqeRankQueryCount = 0;
+uint32_t wqeRemoteRank = 1;
 HcclResult GetWqeRemoteRankForTest(ChannelHandle channel, u32& rank)
 {
     queriedWqeChannel = channel;
     ++wqeRankQueryCount;
-    rank = 1;
+    rank = wqeRemoteRank;
     return HCCL_SUCCESS;
 }
 
@@ -231,6 +232,7 @@ protected:
         savedRankCallback_ = AicpuTaskCacheManager::getChannelRemoteRankIdCallback_.load(std::memory_order_acquire);
         queriedWqeChannel = 0;
         wqeRankQueryCount = 0;
+        wqeRemoteRank = 1;
         rtsq_ = std::make_unique<Hccl::RtsqA5>(0, 0, 0);
         rtsqPtr_ = rtsq_.get();
         aicpuTsThread_ = std::make_unique<hccl::AicpuTsThread>(std::string("ut_thread"));
@@ -259,7 +261,293 @@ protected:
                 g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
             HCCL_SUCCESS);
     }
+
+    void PrepareVNotifyEntry(
+        AicpuTaskCacheEntry& entry, VOpMode mode, bool fused = false, bool submit = true, bool profiling = false)
+    {
+        uint64_t bases[] = {TEST_BASE_ADDR_0, TEST_BASE_ADDR_1};
+        uint64_t sizes[] = {TEST_MEM_SIZE_0, TEST_MEM_SIZE_1};
+        VOpInfo warm{
+            {8, 8, 8, 8, 8, 8, 8, 8},
+            {8, 8, 8, 8, 8, 8, 8, 8},
+            {0, 8, 16, 24, 32, 40, 48, 56},
+            {0, 8, 16, 24, 32, 40, 48, 56}};
+        ASSERT_EQ(entry.InitCacheEntry(bases, sizes, 2, warm), HCCL_SUCCESS);
+        AicpuTaskCacheManager::RegisterGetChannelRemoteRankIdCallback(GetWqeRemoteRankForTest);
+        for (uint32_t index = 0; index < 2; ++index) {
+            std::vector<char> dto(2 * sizeof(uint32_t), 0);
+            uint32_t id = 100 + index;
+            ASSERT_EQ(memcpy_s(dto.data(), dto.size(), &id, sizeof(id)), EOK);
+            ubTransport_->locNotifyVec.emplace_back(std::make_unique<NotifyLite>(dto));
+            ubTransport_->rmtNotifyVec.push_back({0x900000 + index * 8, 8, 0, 0, 200 + index});
+        }
+        std::vector<WqeTask> tasks{MakeWqeTaskWrite(0, 0x900000, true), MakeWqeTaskWrite(0, 0x900008, true)};
+        if (fused) {
+            tasks[1] = MakeWqeTaskWriteWithNotify(TEST_BASE_ADDR_0 + 8, 0xA00000);
+            tasks[1].wqeWriteWithNotify.notify.notifyAddrLow = 0x900008;
+            tasks[1].wqeWriteWithNotify.localU.sge.length = 8;
+            tasks[1].wqeWriteWithNotify.comm.sgeNum = 1;
+        }
+        auto profInfo = MakeDbSqeProfInfo(profiling);
+        profInfo.taskParamType = TaskParamType::TASK_UB_INLINE_WRITE;
+        profInfo.rmtAddr = 0x900000;
+        profInfo.size = 8;
+        profInfo.notifyId = 200;
+        ASSERT_EQ(
+            entry.AddWqeArray(ubConnLite_.get(), ubTransport_.get(), tasks, 0, 0, profiling, profInfo), HCCL_SUCCESS);
+        AddUbdmaSqeToClearTmpMap(entry);
+        for (uint32_t id : {100U, 101U, 999U}) {
+            auto sqe = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
+            reinterpret_cast<Rt91095StarsNotifySqe*>(sqe.data())->notifyId = id;
+            ASSERT_EQ(
+                entry.AddSqeArray(
+                    rtsqPtr_, aicpuTsThread_.get(), 1, sqe.data(), 0, g_defaultTransports.data(),
+                    g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+                HCCL_SUCCESS);
+        }
+        // 通过真实的 PreCopy/PostCopy 录制路径识别模式，避免直接写 cache 私有状态。
+        if (mode != VOpMode::kUnknown) {
+            AddVModeCopy(entry, mode);
+        }
+        if (submit) {
+            ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+            ASSERT_EQ(entry.vOpMode_, mode);
+        }
+    }
+
+    void AddVModeCopy(AicpuTaskCacheEntry& entry, VOpMode mode)
+    {
+        const uint64_t cclAddr = 0xB00000;
+        auto copy = MakeSqeArray(
+            Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA, mode == VOpMode::kRead ? TEST_BASE_ADDR_0 + 8 : cclAddr,
+            mode == VOpMode::kRead ? cclAddr : TEST_BASE_ADDR_1 + 8, 8);
+        reinterpret_cast<Rt91095StarsMemcpySqe*>(copy.data())->opcode = 0; // SDMA memcpy
+        ASSERT_EQ(
+            entry.AddSqeArray(
+                rtsqPtr_, aicpuTsThread_.get(), 1, copy.data(), 0, g_defaultTransports.data(),
+                g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+            HCCL_SUCCESS);
+    }
+
+    void CheckVNotifyReplay(
+        AicpuTaskCacheEntry& entry, const VOpInfo& current, bool waitAck, bool waitData, bool recordAck,
+        bool recordData)
+    {
+        uint64_t bases[] = {TEST_BASE_ADDR_0, TEST_BASE_ADDR_1};
+        uint64_t sizes[] = {TEST_MEM_SIZE_0, TEST_MEM_SIZE_1};
+        ASSERT_EQ(entry.ValidateVOpWqeMetadata_(current), HCCL_SUCCESS);
+        for (auto& sqes : entry.sqeArrayInfos_) {
+            ASSERT_EQ(entry.RefreshSqeTasks_(sqes, bases, current), HCCL_SUCCESS);
+        }
+        const uint8_t wait = static_cast<uint8_t>(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
+        const uint8_t placeholder = static_cast<uint8_t>(Rt91095StarsSqeType::RT_91095_SQE_TYPE_PLACE_HOLDER);
+        EXPECT_EQ(
+            static_cast<uint8_t>(reinterpret_cast<Rt91095StarsSqeHeader*>(entry.sqeArrayInfos_[1].sqeArray)->type),
+            waitAck ? wait : placeholder);
+        EXPECT_EQ(
+            static_cast<uint8_t>(reinterpret_cast<Rt91095StarsSqeHeader*>(entry.sqeArrayInfos_[2].sqeArray)->type),
+            waitData ? wait : placeholder);
+        EXPECT_EQ(
+            static_cast<uint8_t>(reinterpret_cast<Rt91095StarsSqeHeader*>(entry.sqeArrayInfos_[3].sqeArray)->type),
+            wait);
+        auto& wqes = entry.wqeTaskArrayInfos_[0];
+        ASSERT_EQ(entry.RefreshWqeTasks_(wqes, bases, sizes, 2, current), HCCL_SUCCESS);
+        EXPECT_EQ(
+            static_cast<uint8_t>(wqes.wqeTaskArray[0].wqeWrite.comm.opcode),
+            recordAck ? wqes.originalOpcodes[0] : static_cast<uint8_t>(UdmaSqOpcode::UDMA_OPC_NOP));
+        EXPECT_EQ(
+            static_cast<uint8_t>(wqes.wqeTaskArray[1].wqeWrite.comm.opcode),
+            recordData ? wqes.originalOpcodes[1] : static_cast<uint8_t>(UdmaSqOpcode::UDMA_OPC_NOP));
+    }
 };
+
+TEST_F(AicpuTaskCacheEntryTest, VNotifyWriteSparseZeroAndDenseReplay)
+{
+    AicpuTaskCacheEntry entry;
+    PrepareVNotifyEntry(entry, VOpMode::kWrite);
+    ASSERT_FALSE(HasFatalFailure());
+    auto current = entry.vOpInfo_;
+    current.sendCounts.assign(8, 0);
+    current.recvCounts.assign(8, 0);
+    current.sendCounts[1] = 8; // rank0 只向 rank1 发送。
+    CheckVNotifyReplay(entry, current, true, false, false, true);
+    current.sendCounts[1] = 0;
+    CheckVNotifyReplay(entry, current, false, false, false, false);
+    current.recvCounts[1] = 8; // 后续反向通信不能消费之前残留的 record。
+    CheckVNotifyReplay(entry, current, false, true, true, false);
+    CheckVNotifyReplay(entry, entry.vOpInfo_, true, true, true, true);
+}
+
+TEST_F(AicpuTaskCacheEntryTest, VNotifyReadUsesOppositeCountDirection)
+{
+    AicpuTaskCacheEntry entry;
+    PrepareVNotifyEntry(entry, VOpMode::kRead);
+    ASSERT_FALSE(HasFatalFailure());
+    auto current = entry.vOpInfo_;
+    current.sendCounts.assign(8, 0);
+    current.recvCounts.assign(8, 0);
+    current.sendCounts[1] = 8;
+    CheckVNotifyReplay(entry, current, false, true, true, false);
+    current.sendCounts[1] = 0;
+    current.recvCounts[1] = 8;
+    CheckVNotifyReplay(entry, current, true, false, false, true);
+    CheckVNotifyReplay(entry, entry.vOpInfo_, true, true, true, true);
+}
+
+TEST_F(AicpuTaskCacheEntryTest, VNotifyInactivePeerDoesNotWaitForZeroRank)
+{
+    AicpuTaskCacheEntry entry;
+    wqeRemoteRank = 2;
+    PrepareVNotifyEntry(entry, VOpMode::kWrite);
+    ASSERT_FALSE(HasFatalFailure());
+    auto current = entry.vOpInfo_;
+    current.sendCounts.assign(8, 0);
+    current.recvCounts.assign(8, 0);
+    current.sendCounts[1] = 8;
+    CheckVNotifyReplay(entry, current, false, false, false, false);
+    EXPECT_EQ(entry.sqeArrayInfos_[1].notifyRefreshInfos[0].rankId, 2U);
+}
+
+TEST_F(AicpuTaskCacheEntryTest, VNotifyFusedRecordRestoresAfterZero)
+{
+    std::vector<uint8_t> sqStorage(TEST_SQ_DEPTH * 64, 0);
+    ubConnLite_ = std::make_unique<UbConnLite>(
+        UbJettyLiteId(0, 0, 0), UbJettyLiteAttr(0, reinterpret_cast<uint64_t>(sqStorage.data()), TEST_SQ_DEPTH, 0),
+        Eid{});
+    AicpuTaskCacheEntry entry;
+    PrepareVNotifyEntry(entry, VOpMode::kWrite, true);
+    ASSERT_FALSE(HasFatalFailure());
+    auto current = entry.vOpInfo_;
+    current.sendCounts.assign(8, 0);
+    current.recvCounts.assign(8, 0);
+    CheckVNotifyReplay(entry, current, false, false, false, false);
+    ASSERT_EQ(entry.LaunchWqeTasks_(entry.wqeTaskArrayInfos_[0]), HCCL_SUCCESS);
+    EXPECT_EQ(ubConnLite_->pi, 3U);
+    for (size_t i = 0; i < 3; ++i) {
+        const auto* nop = reinterpret_cast<const UdmaSqeWrite*>(sqStorage.data() + i * 64);
+        EXPECT_EQ(static_cast<uint32_t>(nop->comm.opcode), static_cast<uint32_t>(UdmaSqOpcode::UDMA_OPC_NOP));
+        EXPECT_EQ(static_cast<uint32_t>(nop->comm.inlineEn), 0U);
+        EXPECT_EQ(static_cast<uint32_t>(nop->comm.sgeNum), 0U);
+    }
+    EXPECT_EQ(entry.wqeTaskArrayInfos_[0].wqeTaskArray[1].wqeWriteWithNotify.localU.sge.length, 0U);
+    CheckVNotifyReplay(entry, entry.vOpInfo_, true, true, true, true);
+    EXPECT_EQ(entry.wqeTaskArrayInfos_[0].wqeTaskArray[1].wqeWriteWithNotify.localU.sge.length, 8U);
+    EXPECT_EQ(static_cast<uint32_t>(entry.wqeTaskArrayInfos_[0].wqeTaskArray[1].wqeWriteWithNotify.comm.sgeNum), 1U);
+    EXPECT_EQ(entry.connOverflowInfos_[0].wqebbCount, 3U);
+}
+
+TEST_F(AicpuTaskCacheEntryTest, VNotifyRejectsConflictingLocalIds)
+{
+    AicpuTaskCacheEntry entry;
+    PrepareVNotifyEntry(entry, VOpMode::kWrite);
+    ASSERT_FALSE(HasFatalFailure());
+    ubTransport_->locNotifyVec[1]->notifyId = ubTransport_->locNotifyVec[0]->GetId();
+    EXPECT_EQ(entry.SubmitVNotifyRefreshInfo_(), HCCL_E_PARA);
+}
+
+TEST_F(AicpuTaskCacheEntryTest, VNotifyRejectsAmbiguousRemoteAddress)
+{
+    AicpuTaskCacheEntry entry;
+    PrepareVNotifyEntry(entry, VOpMode::kWrite);
+    ASSERT_FALSE(HasFatalFailure());
+    ubTransport_->rmtNotifyVec[1].addr = ubTransport_->rmtNotifyVec[0].addr;
+    EXPECT_EQ(entry.SubmitVRecordRefreshInfo_(entry.wqeTaskArrayInfos_[0]), HCCL_E_PARA);
+}
+
+TEST_F(AicpuTaskCacheEntryTest, VNotifyRejectsInvalidIndexOrRank)
+{
+    AicpuTaskCacheEntry entry;
+    PrepareVNotifyEntry(entry, VOpMode::kWrite);
+    ASSERT_FALSE(HasFatalFailure());
+    NotifyRefreshInfo info;
+    EXPECT_EQ(entry.BuildVNotifyInfo_(8, 0, true, info), HCCL_E_PARA);
+    EXPECT_EQ(entry.BuildVNotifyInfo_(1, 2, true, info), HCCL_E_PARA);
+    entry.sqeArrayInfos_[1].notifyRefreshInfos[0].rankId = 8;
+    EXPECT_EQ(entry.ValidateVOpWqeMetadata_(entry.vOpInfo_), HCCL_E_PARA);
+}
+
+TEST_F(AicpuTaskCacheEntryTest, VNotifyRejectsConflictingRecordedCopyModes)
+{
+    for (VOpMode firstMode : {VOpMode::kRead, VOpMode::kWrite}) {
+        SCOPED_TRACE(static_cast<uint32_t>(firstMode));
+        ubTransport_->locNotifyVec.clear();
+        ubTransport_->rmtNotifyVec.clear();
+        AicpuTaskCacheEntry entry;
+        PrepareVNotifyEntry(entry, firstMode, false, false);
+        ASSERT_FALSE(HasFatalFailure());
+        AddVModeCopy(entry, firstMode == VOpMode::kRead ? VOpMode::kWrite : VOpMode::kRead);
+        ASSERT_FALSE(HasFatalFailure());
+        EXPECT_EQ(entry.SubmitCacheEntry(), HCCL_E_PARA);
+        EXPECT_EQ(entry.vOpMode_, firstMode);
+    }
+}
+
+TEST_F(AicpuTaskCacheEntryTest, VNotifyAcceptsRepeatedRecordedCopyMode)
+{
+    AicpuTaskCacheEntry entry;
+    PrepareVNotifyEntry(entry, VOpMode::kWrite, false, false);
+    ASSERT_FALSE(HasFatalFailure());
+    AddVModeCopy(entry, VOpMode::kWrite);
+    ASSERT_FALSE(HasFatalFailure());
+    EXPECT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+    EXPECT_EQ(entry.vOpMode_, VOpMode::kWrite);
+}
+
+TEST_F(AicpuTaskCacheEntryTest, VNotifyRejectsRecordingWithoutModeCopy)
+{
+    AicpuTaskCacheEntry entry;
+    PrepareVNotifyEntry(entry, VOpMode::kUnknown, false, false);
+    ASSERT_FALSE(HasFatalFailure());
+    EXPECT_EQ(entry.SubmitCacheEntry(), HCCL_E_PARA);
+    EXPECT_EQ(entry.vOpMode_, VOpMode::kUnknown);
+}
+
+TEST_F(AicpuTaskCacheEntryTest, VNotifyRejectsFusedRecordInReadMode)
+{
+    AicpuTaskCacheEntry entry;
+    PrepareVNotifyEntry(entry, VOpMode::kRead, true, false);
+    ASSERT_FALSE(HasFatalFailure());
+    EXPECT_EQ(entry.SubmitCacheEntry(), HCCL_E_PARA);
+    EXPECT_EQ(entry.vOpMode_, VOpMode::kRead);
+}
+
+TEST_F(AicpuTaskCacheEntryTest, VNotifyRejectsFusedAckInWriteMode)
+{
+    AicpuTaskCacheEntry entry;
+    PrepareVNotifyEntry(entry, VOpMode::kWrite, true, false);
+    ASSERT_FALSE(HasFatalFailure());
+    entry.wqeTaskArrayInfos_[0].wqeTaskArray[1].wqeWriteWithNotify.notify.notifyAddrLow = 0x900000;
+    EXPECT_EQ(entry.SubmitCacheEntry(), HCCL_E_PARA);
+}
+
+TEST_F(AicpuTaskCacheEntryTest, VNotifyRejectsMissingWqeRankMetadata)
+{
+    AicpuTaskCacheEntry entry;
+    PrepareVNotifyEntry(entry, VOpMode::kWrite);
+    ASSERT_FALSE(HasFatalFailure());
+    entry.wqeTaskArrayInfos_[0].locAddrRefreshInfoArray.clear();
+    EXPECT_EQ(entry.SubmitVNotifyRefreshInfo_(), HCCL_E_INTERNAL);
+}
+
+TEST_F(AicpuTaskCacheEntryTest, VNotifyUnmatchedFusedRecordRemainsActive)
+{
+    AicpuTaskCacheEntry entry;
+    PrepareVNotifyEntry(entry, VOpMode::kWrite, true, false);
+    ASSERT_FALSE(HasFatalFailure());
+    entry.wqeTaskArrayInfos_[0].wqeTaskArray[1].wqeWriteWithNotify.notify.notifyAddrLow = 0x900010;
+    ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+    EXPECT_FALSE(entry.wqeTaskArrayInfos_[0].notifyRefreshInfos[1].conditional);
+    uint64_t bases[] = {TEST_BASE_ADDR_0, TEST_BASE_ADDR_1};
+    uint64_t sizes[] = {TEST_MEM_SIZE_0, TEST_MEM_SIZE_1};
+    auto current = entry.vOpInfo_;
+    current.sendCounts.assign(8, 0);
+    current.recvCounts.assign(8, 0);
+    ASSERT_EQ(entry.RefreshWqeTasks_(entry.wqeTaskArrayInfos_[0], bases, sizes, 2, current), HCCL_SUCCESS);
+    EXPECT_EQ(
+        static_cast<uint8_t>(entry.wqeTaskArrayInfos_[0].wqeTaskArray[1].wqeWriteWithNotify.comm.opcode),
+        static_cast<uint8_t>(WRITE_WITH_NOTIFY_OPCODE));
+    EXPECT_EQ(entry.wqeTaskArrayInfos_[0].wqeTaskArray[1].wqeWriteWithNotify.localU.sge.length, 0U);
+}
 
 // ===================== GetUbLinkTypeVal Tests =====================
 
@@ -1984,6 +2272,16 @@ TEST_F(AicpuTaskCacheEntryTest, LaunchTasksByOrder_VSdmaRestoresTypesAfterRefres
             HCCL_SUCCESS);
         ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
 
+        // 先裁剪为 PLACE_HOLDER，确保失败后恢复依据录制快照，而非本轮入口的可变类型。
+        const VOpInfo zeroCounts{{0, 0}, {0, 0}, {0, 16}, {0, 16}};
+        ASSERT_EQ(entry.RefreshSqeTasks_(entry.sqeArrayInfos_[0], baseAddrs, zeroCounts), HCCL_SUCCESS);
+        for (uint64_t index = 0; index < entry.sqeArrayInfos_[0].sqeCount; ++index) {
+            const auto* header = reinterpret_cast<const Rt91095StarsSqeHeader*>(
+                entry.sqeArrayInfos_[0].sqeArray + index * Hccl::AC_SQE_SIZE);
+            ASSERT_EQ(
+                static_cast<Rt91095StarsSqeType>(header->type), Rt91095StarsSqeType::RT_91095_SQE_TYPE_PLACE_HOLDER);
+        }
+
         // 第一条改成PLACE_HOLDER后，让第二条长度溢出，或让下发因pending SQE失败。
         const uint64_t secondCount = failDuringRefresh ? uint64_t{UINT32_MAX} + 1 : 0;
         const VOpInfo failing{{0, secondCount}, {0, secondCount}, {0, 16}, {0, 16}};
@@ -2008,6 +2306,54 @@ TEST_F(AicpuTaskCacheEntryTest, LaunchTasksByOrder_VSdmaRestoresTypesAfterRefres
             EXPECT_EQ(sdma->u.strideMode0.lengthMove, retry.sendCounts[index]);
             EXPECT_EQ(sdma->u.strideMode0.srcAddrLow, baseAddrs[0] + retry.sdispls[index]);
             EXPECT_EQ(sdma->u.strideMode0.dstAddrLow, baseAddrs[1] + retry.rdispls[index]);
+        }
+    }
+}
+
+TEST_F(AicpuTaskCacheEntryTest, LaunchTasksByOrder_VRejectsInvalidSqeMetadata)
+{
+    AicpuTaskCacheEntry entry;
+    uint64_t bases[] = {TEST_BASE_ADDR_0, TEST_BASE_ADDR_1};
+    uint64_t sizes[] = {TEST_MEM_SIZE_0, TEST_MEM_SIZE_1};
+    const VOpInfo counts{{8, 8}, {8, 8}, {0, 16}, {0, 16}};
+    ASSERT_EQ(entry.InitCacheEntry(bases, sizes, 2, counts), HCCL_SUCCESS);
+    auto sqes = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA, bases[0], bases[1], 8);
+    const auto second = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA, bases[0] + 16, bases[1] + 16, 8);
+    sqes.insert(sqes.end(), second.begin(), second.end());
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 2, sqes.data(), 0, g_defaultTransports.data(), g_defaultLinkTypes.data(),
+            g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
+    ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+    auto& info = entry.sqeArrayInfos_[0];
+    const VOpInfo zeroCounts{{0, 0}, {0, 0}, {0, 16}, {0, 16}};
+    ASSERT_EQ(entry.RefreshSqeTasks_(info, bases, zeroCounts), HCCL_SUCCESS);
+    const std::vector<uint8_t> before(info.sqeArray, info.sqeArray + sqes.size());
+    const auto originalTypes = info.originalTypes;
+    const auto notifyInfos = info.notifyRefreshInfos;
+    for (bool invalidTypes : {true, false}) {
+        SCOPED_TRACE(invalidTypes);
+        info.originalTypes = originalTypes;
+        info.notifyRefreshInfos = notifyInfos;
+        if (invalidTypes) {
+            info.originalTypes.pop_back();
+        } else {
+            info.notifyRefreshInfos.pop_back();
+        }
+        // 长度校验必须发生在任何 SQE 修改前；快照无效时恢复路径也不能越界。
+        EXPECT_EQ(entry.RefreshSqeTasks_(info, bases, counts), HCCL_E_INTERNAL);
+        EXPECT_EQ(std::memcmp(info.sqeArray, before.data(), before.size()), 0);
+        EXPECT_EQ(entry.LaunchTasksByOrder_(bases, sizes, 2, false, counts), HCCL_E_INTERNAL);
+        // notify 元数据无效但类型快照有效时，外层仍将类型恢复为录制值。
+        if (invalidTypes) {
+            EXPECT_EQ(std::memcmp(info.sqeArray, before.data(), before.size()), 0);
+        } else {
+            for (uint64_t index = 0; index < info.sqeCount; ++index) {
+                const auto* header
+                    = reinterpret_cast<const Rt91095StarsSqeHeader*>(info.sqeArray + index * Hccl::AC_SQE_SIZE);
+                EXPECT_EQ(static_cast<uint8_t>(header->type), originalTypes[index]);
+            }
         }
     }
 }
@@ -2316,6 +2662,43 @@ TEST_F(AicpuTaskCacheEntryTest, ReportDbSqeProfiling_VReplayUsesCurrentWqeAndPre
             EXPECT_EQ(entry.vOpInfo_.sdispls, warmup.sdispls);
             EXPECT_EQ(entry.vOpInfo_.rdispls, warmup.rdispls);
             EXPECT_EQ(entry.GetEntryBytes(), entryBytes);
+        }
+    }
+}
+
+TEST_F(AicpuTaskCacheEntryTest, ReportDbSqeProfiling_VAllNopNotifyDoesNotConsumeTaskSlot)
+{
+    AicpuTaskCacheEntry entry;
+    PrepareVNotifyEntry(entry, VOpMode::kWrite, false, true, true);
+    ASSERT_FALSE(HasFatalFailure());
+    ASSERT_EQ(entry.dbSqeLocInfoMap_.size(), 1U);
+    uint64_t addrs[] = {TEST_BASE_ADDR_0, TEST_BASE_ADDR_1};
+    uint64_t sizes[] = {TEST_MEM_SIZE_0, TEST_MEM_SIZE_1};
+    StreamLite stream(0, 0, 0, 0);
+    auto* queue = stream.GetTaskInfos();
+    for (bool active : {true, false, true}) {
+        SCOPED_TRACE(active);
+        auto current = entry.vOpInfo_;
+        if (!active) {
+            current.sendCounts.assign(8, 0);
+            current.recvCounts.assign(8, 0);
+        }
+        ASSERT_EQ(entry.RefreshWqeTasks_(entry.wqeTaskArrayInfos_[0], addrs, sizes, 2, current), HCCL_SUCCESS);
+        for (const auto& task : entry.wqeTaskArrayInfos_[0].wqeTaskArray) {
+            EXPECT_EQ(
+                static_cast<uint8_t>(task.wqeWrite.comm.opcode),
+                static_cast<uint8_t>(active ? UdmaSqOpcode::UDMA_OPC_WRITE : UdmaSqOpcode::UDMA_OPC_NOP));
+        }
+        queue->MarkAllRead();
+        ASSERT_EQ(
+            entry.ReportDbSqeProfiling_(entry.sqeArrayInfos_[0].sqeArray, 0, 0, addrs, sizes, 2, &stream, 0, 1),
+            HCCL_SUCCESS);
+        ASSERT_EQ(queue->GetCount(), active ? 1U : 0U);
+        if (active) {
+            const auto* slot = queue->GetSlot(queue->GetBegin());
+            EXPECT_EQ(slot->taskType, static_cast<uint8_t>(TaskParamType::TASK_UB_INLINE_WRITE));
+            EXPECT_EQ(slot->taskPara.ubDma.dstAddr, 0x900000U);
+            EXPECT_EQ(slot->taskPara.ubDma.size, 8U);
         }
     }
 }

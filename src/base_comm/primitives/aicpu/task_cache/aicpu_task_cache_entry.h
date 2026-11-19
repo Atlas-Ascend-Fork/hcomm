@@ -75,6 +75,15 @@ struct AddrRefreshInfo {
     size_t offset = 0;        // 刷新地址的偏移
 };
 
+// V-cache 支持的单轮 mesh 握手；仅匹配到 channel notify 的任务参与裁剪。
+enum class VOpMode : uint8_t { kUnknown = 0, kRead = 1, kWrite = 2 };
+
+struct NotifyRefreshInfo {
+    bool conditional = false;
+    bool useSendCount = false;
+    uint32_t rankId = 0;
+};
+
 struct SqeArrayInfo {
     uint8_t* sqeArray = nullptr;
     Hccl::RtsqA5* rtsqPtr = nullptr;
@@ -85,12 +94,15 @@ struct SqeArrayInfo {
     std::vector<u64> sqeTransports;
     std::vector<u8> sqeLinkTypes;
     std::vector<u8> sqeTransportTypes;
+    std::vector<NotifyRefreshInfo> notifyRefreshInfos;
+    std::vector<uint8_t> originalTypes;
 
     uint64_t GetSize() const
     {
         return sqeCount * Hccl::AC_SQE_SIZE + sizeof(Hccl::RtsqA5*) + sizeof(hccl::AicpuTsThread*) + sizeof(uint64_t)
                + sizeof(AddrRefreshInfo) * sqeCount + sizeof(AddrRefreshInfo) * sqeCount + sizeof(u64) * sqeCount
-               + sizeof(u8) * sqeCount + sizeof(u8) * sqeCount;
+               + sizeof(u8) * sqeCount + sizeof(u8) * sqeCount + sizeof(NotifyRefreshInfo) * notifyRefreshInfos.size()
+               + originalTypes.size();
     }
 };
 
@@ -100,6 +112,7 @@ struct WqeTaskArrayInfo {
     // 刷新会原地改写 opcode/SGE；保留录制值供下一次命中恢复。
     std::vector<uint8_t> originalOpcodes;
     std::vector<uint8_t> originalSgeNums;
+    std::vector<NotifyRefreshInfo> notifyRefreshInfos;
     Hccl::UbConnLite* ubConnLitePtr = nullptr;
     Hccl::UbTransportLiteImpl* ubTransportLiteImplPtr = nullptr;
     DbSqeLocation dbSqeLocation; // 根据DbSqeLocation定位对应的SQE数组和其中的DbSqe
@@ -111,7 +124,8 @@ struct WqeTaskArrayInfo {
         return wqeTaskArray.size() * sizeof(Hccl::WqeTask) + sizeof(Hccl::UbConnLite*)
                + sizeof(Hccl::UbTransportLiteImpl*) + sizeof(remoteRankId) + sizeof(DbSqeLocation)
                + sizeof(AddrRefreshInfo) * wqeTaskArray.size() + sizeof(AddrRefreshInfo) * wqeTaskArray.size()
-               + originalOpcodes.size() + originalSgeNums.size();
+               + originalOpcodes.size() + originalSgeNums.size()
+               + sizeof(NotifyRefreshInfo) * notifyRefreshInfos.size();
     }
 };
 
@@ -272,6 +286,12 @@ private:
 
     // SubmitCacheEntry子方法
     inline HcclResult SubmitSqeAddrRefreshInfo_();
+    HcclResult SubmitVNotifyRefreshInfo_();
+    HcclResult BuildVNotifyInfo_(uint32_t rankId, uint32_t notifyIndex, bool isWait, NotifyRefreshInfo& info) const;
+    HcclResult SubmitVRecordRefreshInfo_(WqeTaskArrayInfo& arrayInfo) const;
+    HcclResult IsVNotifyInactive_(const NotifyRefreshInfo& info, const VOpInfo& vOpInfo, bool& inactive) const;
+    HcclResult
+    UpdateVOpMode_(const uint8_t* sqePtr, const AddrRefreshInfo& srcAddrInfo, const AddrRefreshInfo& dstAddrInfo);
     inline HcclResult SubmitWqeAddrRefreshInfoAndTokenInfo_();
     inline HcclResult SubmitDbSqeProfRefreshInfo_();
     inline HcclResult ValidateLaunchOrder_();
@@ -373,6 +393,7 @@ private:
 
     // 持有参数副本，生命周期与 cache entry 一致。
     VOpInfo vOpInfo_;
+    VOpMode vOpMode_ = VOpMode::kUnknown;
     bool isVOp_ = false;        // InitCacheEntry 保存完整 V 类参数后置为 true
     bool hasRemoteMem_ = false; // 远端段按rank排列，每个rank固定input/output两项，包含本端rank槽位
 

@@ -246,6 +246,13 @@ HcclResult AicpuTaskCacheEntry::AddSqeArray(
         sqeArrayInfo.sqeLinkTypes[i] = sqeLinkTypes[i];
         sqeArrayInfo.sqeTransportTypes[i] = sqeTransportTypes[i];
     }
+    if (isVOp_) {
+        sqeArrayInfo.originalTypes.reserve(sqeCount);
+        for (size_t i = 0; i < sqeCount; ++i) {
+            const auto* header = reinterpret_cast<const Rt91095StarsSqeHeader*>(sqeArray + i * AC_SQE_SIZE);
+            sqeArrayInfo.originalTypes.push_back(header->type);
+        }
+    }
     entryBytes_ += sqeArrayInfo.GetSize();
 
     // 更新下发顺序
@@ -359,10 +366,172 @@ HcclResult AicpuTaskCacheEntry::SubmitCacheEntry()
 
     CHK_RET(SubmitSqeAddrRefreshInfo_());
     CHK_RET(SubmitWqeAddrRefreshInfoAndTokenInfo_());
+    if (isVOp_) {
+        CHK_RET(SubmitVNotifyRefreshInfo_());
+    }
     CHK_RET(SubmitDbSqeProfRefreshInfo_());
     CHK_RET(ValidateLaunchOrder_());
     CHK_RET(BuildConnOverflowInfos_());
 
+    return HCCL_SUCCESS;
+}
+
+HcclResult AicpuTaskCacheEntry::BuildVNotifyInfo_(
+    uint32_t rankId, uint32_t notifyIndex, bool isWait, NotifyRefreshInfo& info) const
+{
+    // 当前 V notify 裁剪仅支持上层准入的 AllToAllV SoleMesh 单轮模板，
+    // 使用 index 0 = ACK，index 1 = DATA_SIGNAL；不能泛化到其它 V 类算法。
+    // Write: wait ACK 随 send，wait DATA 随 recv；Read 相反；record 与 wait 方向相反。
+    constexpr uint32_t ACK_INDEX = 0;
+    constexpr uint32_t DATA_INDEX = 1;
+    CHK_PRT_RET(
+        notifyIndex > DATA_INDEX || vOpMode_ == VOpMode::kUnknown || rankId >= vOpInfo_.sendCounts.size()
+            || rankId >= vOpInfo_.recvCounts.size(),
+        HCCL_ERROR(
+            "[AicpuTaskCacheEntry][%s] unsupported V notify: rank[%u] index[%u] mode[%u]", __func__, rankId,
+            notifyIndex, static_cast<uint32_t>(vOpMode_)),
+        HCCL_E_PARA);
+    info.conditional = true;
+    info.rankId = rankId;
+    bool waitUsesSend = false;
+    if (vOpMode_ == VOpMode::kWrite) {
+        waitUsesSend = (notifyIndex == ACK_INDEX);
+    } else {
+        waitUsesSend = (notifyIndex == DATA_INDEX);
+    }
+
+    if (isWait) {
+        info.useSendCount = waitUsesSend;
+    } else {
+        // Record 与 Wait 使用相反的通信方向。
+        info.useSendCount = !waitUsesSend;
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult AicpuTaskCacheEntry::SubmitVRecordRefreshInfo_(WqeTaskArrayInfo& arrayInfo) const
+{
+    const auto* transport = arrayInfo.ubTransportLiteImplPtr;
+    CHK_PTR_NULL(transport);
+    for (size_t i = 0; i < arrayInfo.wqeTaskArray.size(); ++i) {
+        const auto& task = arrayInfo.wqeTaskArray[i];
+        const uint8_t opcode = arrayInfo.originalOpcodes[i];
+        const bool fused = opcode == WRITE_WITH_NOTIFY_OPCODE;
+        if (!fused && !(opcode == UdmaSqOpcode::UDMA_OPC_WRITE && task.wqeWrite.comm.inlineEn != 0)) {
+            continue;
+        }
+        uint64_t addr = 0;
+        if (fused) {
+            CombineUint32ToUint64(
+                addr, task.wqeWriteWithNotify.notify.notifyAddrHigh, task.wqeWriteWithNotify.notify.notifyAddrLow);
+        } else {
+            CombineUint32ToUint64(addr, task.wqeWrite.comm.rmtAddrHigh, task.wqeWrite.comm.rmtAddrLow);
+        }
+        bool matched = false;
+        size_t matchedIndex = 0;
+        for (size_t index = 0; index < transport->rmtNotifyVec.size(); ++index) {
+            if (transport->rmtNotifyVec[index].addr != addr) {
+                continue;
+            }
+            CHK_PRT_RET(
+                matched,
+                HCCL_ERROR(
+                    "[AicpuTaskCacheEntry][%s] ambiguous remote notify: transport[%p] addr[0x%llx] "
+                    "wqeIdx[%zu] rank[%u] notifyIndices[%zu, %zu]",
+                    __func__, transport, static_cast<unsigned long long>(addr), i,
+                    arrayInfo.locAddrRefreshInfoArray[i].rankId, matchedIndex, index),
+                HCCL_E_PARA);
+            matched = true;
+            matchedIndex = index;
+            auto& info = arrayInfo.notifyRefreshInfos[i];
+            CHK_RET(BuildVNotifyInfo_(
+                arrayInfo.locAddrRefreshInfoArray[i].rankId, static_cast<uint32_t>(index), false, info));
+            CHK_PRT_RET(
+                fused && (vOpMode_ != VOpMode::kWrite || !info.useSendCount),
+                HCCL_ERROR(
+                    "[AicpuTaskCacheEntry][%s] unsupported fused V notify: transport[%p] wqeIdx[%zu] "
+                    "addr[0x%llx] rank[%u] notifyIndex[%zu] mode[%u] useSendCount[%d]",
+                    __func__, transport, i, static_cast<unsigned long long>(addr), info.rankId, index,
+                    static_cast<uint32_t>(vOpMode_), info.useSendCount),
+                HCCL_E_PARA);
+        }
+        if (fused && !matched) {
+            HCCL_WARNING(
+                "[AicpuTaskCacheEntry][%s] unmatched fused V notify, keep record: transport[%p] "
+                "wqeIdx[%zu] addr[0x%llx] rank[%u] remoteNotifyCount[%zu]",
+                __func__, transport, i, static_cast<unsigned long long>(addr),
+                arrayInfo.locAddrRefreshInfoArray[i].rankId, transport->rmtNotifyVec.size());
+        }
+        // 非 channel 控制写（例如 drain）不按用户 counts 裁剪。
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult AicpuTaskCacheEntry::SubmitVNotifyRefreshInfo_()
+{
+    // 全 peer 预热的 WQE 已携带 transport；无需新增原语接口或依赖 profiling。
+    using NotifyOwner = std::pair<uint32_t, uint32_t>; // peer rank, channel notify index
+    std::unordered_map<uint32_t, NotifyOwner> waitOwners;
+    for (auto& arrayInfo : wqeTaskArrayInfos_) {
+        const auto* transport = arrayInfo.ubTransportLiteImplPtr;
+        CHK_PTR_NULL(transport);
+        CHK_PRT_RET(
+            arrayInfo.locAddrRefreshInfoArray.empty(),
+            HCCL_ERROR(
+                "[AicpuTaskCacheEntry][%s] missing WQE rank metadata: transport[%p] wqeCount[%zu]", __func__, transport,
+                arrayInfo.wqeTaskArray.size()),
+            HCCL_E_INTERNAL);
+        // 一个 WQE 数组绑定一个 transport，其 rank 元数据均由同一 channel 查询结果填充。
+        const uint32_t rankId = arrayInfo.locAddrRefreshInfoArray[0].rankId;
+        for (size_t index = 0; index < transport->locNotifyVec.size(); ++index) {
+            CHK_PTR_NULL(transport->locNotifyVec[index]);
+            const NotifyOwner owner{rankId, static_cast<uint32_t>(index)};
+            auto inserted = waitOwners.emplace(transport->locNotifyVec[index]->GetId(), owner);
+            CHK_PRT_RET(
+                !inserted.second && inserted.first->second != owner,
+                HCCL_ERROR(
+                    "[AicpuTaskCacheEntry][%s] ambiguous local notify: transport[%p] notifyId[%u] "
+                    "oldOwner[rank=%u, index=%u] newOwner[rank=%u, index=%u]",
+                    __func__, transport, transport->locNotifyVec[index]->GetId(), inserted.first->second.first,
+                    inserted.first->second.second, owner.first, owner.second),
+                HCCL_E_PARA);
+        }
+        arrayInfo.notifyRefreshInfos.resize(arrayInfo.wqeTaskArray.size());
+        entryBytes_ += sizeof(NotifyRefreshInfo) * arrayInfo.notifyRefreshInfos.size();
+        CHK_RET(SubmitVRecordRefreshInfo_(arrayInfo));
+    }
+    for (auto& arrayInfo : sqeArrayInfos_) {
+        arrayInfo.notifyRefreshInfos.resize(arrayInfo.sqeCount);
+        entryBytes_ += sizeof(NotifyRefreshInfo) * arrayInfo.notifyRefreshInfos.size();
+        for (size_t i = 0; i < arrayInfo.sqeCount; ++i) {
+            const auto* sqe
+                = reinterpret_cast<const Hccl::Rt91095StarsNotifySqe*>(arrayInfo.sqeArray + i * AC_SQE_SIZE);
+            if (sqe->header.type != static_cast<uint8_t>(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT)) {
+                continue;
+            }
+            auto owner = waitOwners.find(sqe->notifyId);
+            if (owner != waitOwners.end()) {
+                CHK_RET(BuildVNotifyInfo_(
+                    owner->second.first, owner->second.second, true, arrayInfo.notifyRefreshInfos[i]));
+            }
+            // 本地 thread wait（包括主从流、入口同步）不在 channel notify 映射中，原样保留。
+        }
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult
+AicpuTaskCacheEntry::IsVNotifyInactive_(const NotifyRefreshInfo& info, const VOpInfo& vOpInfo, bool& inactive) const
+{
+    inactive = false;
+    if (!info.conditional) {
+        return HCCL_SUCCESS;
+    }
+    const auto& counts = info.useSendCount ? vOpInfo.sendCounts : vOpInfo.recvCounts;
+    CHK_PRT_RET(
+        info.rankId >= counts.size(),
+        HCCL_ERROR("[AicpuTaskCacheEntry][%s] invalid notify rank[%u]", __func__, info.rankId), HCCL_E_PARA);
+    inactive = counts[info.rankId] == 0;
     return HCCL_SUCCESS;
 }
 
@@ -378,6 +547,12 @@ inline HcclResult AicpuTaskCacheEntry::SubmitSqeAddrRefreshInfo_()
             CHK_RET(UpdateSqeAddrRefreshInfo_(
                 sqePtr, sqeArrayInfo.srcAddrRefreshInfoArray[sqeIdx], sqeArrayInfo.dstAddrRefreshInfoArray[sqeIdx]));
 
+            if (isVOp_) {
+                CHK_RET(UpdateVOpMode_(
+                    sqePtr, sqeArrayInfo.srcAddrRefreshInfoArray[sqeIdx],
+                    sqeArrayInfo.dstAddrRefreshInfoArray[sqeIdx]));
+            }
+
             // 打印SQE AddrRefreshInfo
             HCCL_INFO(
                 "[AicpuTaskCacheEntry][SubmitCacheEntry] sqeArrayInfos_[%u][%u]: "
@@ -388,6 +563,42 @@ inline HcclResult AicpuTaskCacheEntry::SubmitSqeAddrRefreshInfo_()
                 sqeArrayInfo.dstAddrRefreshInfoArray[sqeIdx].memIdx);
             sqePtr += AC_SQE_SIZE;
         }
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult AicpuTaskCacheEntry::UpdateVOpMode_(
+    const uint8_t* sqePtr, const AddrRefreshInfo& srcAddrInfo, const AddrRefreshInfo& dstAddrInfo)
+{
+    const auto* header = reinterpret_cast<const Rt91095StarsSqeHeader*>(sqePtr);
+    if (static_cast<Rt91095StarsSqeType>(header->type) != Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA) {
+        return HCCL_SUCCESS;
+    }
+    const auto* sdmaSqe = reinterpret_cast<const Rt91095StarsMemcpySqe*>(sqePtr);
+    if (sdmaSqe->opcode != SDMA_OPCODE_MEMCPY) {
+        return HCCL_SUCCESS;
+    }
+
+    // Alltoallv local copy 中未命中 user buffer 的一端为 CCL buffer。
+    // input -> output 是本 rank 自拷贝，两端均需刷新，不用于判断模式。
+    constexpr uint32_t INPUT_MEM_IDX = 0;
+    constexpr uint32_t OUTPUT_MEM_IDX = 1;
+    VOpMode detectedMode = VOpMode::kUnknown;
+    if (srcAddrInfo.needRefresh && srcAddrInfo.memIdx == INPUT_MEM_IDX && !dstAddrInfo.needRefresh) {
+        detectedMode = VOpMode::kRead; // input -> CCL buffer (PreCopy)
+    } else if (!srcAddrInfo.needRefresh && dstAddrInfo.needRefresh && dstAddrInfo.memIdx == OUTPUT_MEM_IDX) {
+        detectedMode = VOpMode::kWrite; // CCL buffer -> output (PostCopy)
+    }
+    if (detectedMode != VOpMode::kUnknown) {
+        CHK_PRT_RET(
+            vOpMode_ != VOpMode::kUnknown && vOpMode_ != detectedMode,
+            HCCL_ERROR(
+                "[AicpuTaskCacheEntry][%s] conflicting V copy modes: recorded[%u] detected[%u] "
+                "src[refresh=%d, memIdx=%u] dst[refresh=%d, memIdx=%u]",
+                __func__, static_cast<uint32_t>(vOpMode_), static_cast<uint32_t>(detectedMode), srcAddrInfo.needRefresh,
+                srcAddrInfo.memIdx, dstAddrInfo.needRefresh, dstAddrInfo.memIdx),
+            HCCL_E_PARA);
+        vOpMode_ = detectedMode;
     }
     return HCCL_SUCCESS;
 }
@@ -677,14 +888,27 @@ inline HcclResult AicpuTaskCacheEntry::CheckWqeOverflow_()
 
 HcclResult AicpuTaskCacheEntry::ValidateVOpWqeMetadata_(const VOpInfo& vOpInfo) const
 {
+    for (const auto& arrayInfo : sqeArrayInfos_) {
+        CHK_PRT_RET(
+            arrayInfo.originalTypes.size() != arrayInfo.sqeCount
+                || arrayInfo.notifyRefreshInfos.size() != arrayInfo.sqeCount,
+            HCCL_ERROR("[AicpuTaskCacheEntry][%s] invalid SQE notify metadata", __func__), HCCL_E_INTERNAL);
+        for (const auto& info : arrayInfo.notifyRefreshInfos) {
+            bool inactive = false;
+            CHK_RET(IsVNotifyInactive_(info, vOpInfo, inactive));
+        }
+    }
     for (const WqeTaskArrayInfo& arrayInfo : wqeTaskArrayInfos_) {
         CHK_PRT_RET(
             arrayInfo.originalOpcodes.size() != arrayInfo.wqeTaskArray.size()
                 || arrayInfo.originalSgeNums.size() != arrayInfo.wqeTaskArray.size()
+                || arrayInfo.notifyRefreshInfos.size() != arrayInfo.wqeTaskArray.size()
                 || arrayInfo.locAddrRefreshInfoArray.size() != arrayInfo.wqeTaskArray.size()
                 || arrayInfo.rmtAddrRefreshInfoArray.size() != arrayInfo.wqeTaskArray.size(),
             HCCL_ERROR("[AicpuTaskCacheEntry][%s] invalid WQE cache metadata", __func__), HCCL_E_INTERNAL);
         for (size_t wqeIdx = 0; wqeIdx < arrayInfo.wqeTaskArray.size(); ++wqeIdx) {
+            bool inactive = false;
+            CHK_RET(IsVNotifyInactive_(arrayInfo.notifyRefreshInfos[wqeIdx], vOpInfo, inactive));
             const auto* wqeCommonPtr
                 = static_cast<const UdmaSqeCommon*>(static_cast<const void*>(&arrayInfo.wqeTaskArray[wqeIdx]));
             const uint8_t wqeCode = arrayInfo.originalOpcodes[wqeIdx];
@@ -717,18 +941,7 @@ inline HcclResult AicpuTaskCacheEntry::LaunchTasksByOrder_(
             // 注意: sqeArrayIdx已在SubmitCacheEntry校验, 无需重复校验
             const SqeArrayInfo& sqeArrayInfo = sqeArrayInfos_[sqeArrayIdx];
 
-            // V 类命中时保存每条 SQE 的类型，成功或失败均在返回前恢复。
-            std::vector<Rt91095StarsSqeType> originalSqeType;
             const uint64_t sqeCount = sqeArrayInfo.sqeCount;
-            if (isVOp_) {
-                originalSqeType.reserve(sqeCount);
-                for (uint64_t sqeIndex = 0; sqeIndex < sqeCount; ++sqeIndex) {
-                    auto* sqeHeaderPtr = static_cast<Rt91095StarsSqeHeader*>(
-                        static_cast<void*>(sqeArrayInfo.sqeArray + sqeIndex * AC_SQE_SIZE));
-                    const Rt91095StarsSqeType sqeType = static_cast<Rt91095StarsSqeType>(sqeHeaderPtr->type);
-                    originalSqeType.push_back(sqeType);
-                }
-            }
             // 刷新SQE数组
             HcclResult sqeResult = RefreshSqeTasks_(sqeArrayInfo, baseAddrs, vOpInfo);
 
@@ -742,11 +955,13 @@ inline HcclResult AicpuTaskCacheEntry::LaunchTasksByOrder_(
                 sqeResult = ReportSqeArrayProfiling_(sqeArrayIdx, baseAddrs, memSizes, count);
             }
 
-            if (isVOp_) {
+            // 统一使用录制期快照，成功或失败均恢复类型，不再逐轮分配和保存临时快照。
+            // 快照长度异常时，RefreshSqeTasks_ 在修改 SQE 前返回，无需恢复。
+            if (isVOp_ && sqeArrayInfo.originalTypes.size() == sqeCount) {
                 for (uint64_t sqeIndex = 0; sqeIndex < sqeCount; ++sqeIndex) {
                     auto* sqeHeaderPtr = static_cast<Rt91095StarsSqeHeader*>(
                         static_cast<void*>(sqeArrayInfo.sqeArray + sqeIndex * AC_SQE_SIZE));
-                    sqeHeaderPtr->type = static_cast<uint8_t>(originalSqeType[sqeIndex]);
+                    sqeHeaderPtr->type = sqeArrayInfo.originalTypes[sqeIndex];
                 }
             }
             CHK_RET(sqeResult);
@@ -1163,6 +1378,14 @@ inline HcclResult AicpuTaskCacheEntry::RefreshSqeTasks_(
     RtsqA5* rtsqA5Ptr = sqeArrayInfo.rtsqPtr; // 注意: rtsqPtr已在AddSqeArray校验, 无需再校验
     const vector<AddrRefreshInfo>& sqeSrcAddrRefreshInfoArray = sqeArrayInfo.srcAddrRefreshInfoArray;
     const vector<AddrRefreshInfo>& sqeDstAddrRefreshInfoArray = sqeArrayInfo.dstAddrRefreshInfoArray;
+    CHK_PRT_RET(
+        isVOp_ && (sqeArrayInfo.originalTypes.size() != sqeCount || sqeArrayInfo.notifyRefreshInfos.size() != sqeCount),
+        HCCL_ERROR(
+            "[AicpuTaskCacheEntry][%s] invalid SQE metadata: sqeCount[%llu] originalTypes[%zu] "
+            "notifyRefreshInfos[%zu]",
+            __func__, static_cast<unsigned long long>(sqeCount), sqeArrayInfo.originalTypes.size(),
+            sqeArrayInfo.notifyRefreshInfos.size()),
+        HCCL_E_INTERNAL);
     if (UNLIKELY(isTaskConfigDebug_)) {
         PLF_CONFIG_INFO(
             PLF_TASK, "[AicpuTaskCacheEntry][RefreshSqeTasks_] dump %llu cached SQEs in stream[%u]", sqeCount,
@@ -1171,9 +1394,19 @@ inline HcclResult AicpuTaskCacheEntry::RefreshSqeTasks_(
     for (size_t sqeIdx = 0; sqeIdx < sqeCount; ++sqeIdx) {
         // 获取当前SQE的信息
         Rt91095StarsSqeHeader* sqeHeaderPtr = static_cast<Rt91095StarsSqeHeader*>(static_cast<void*>(sqeArrayPtr));
+        if (isVOp_) {
+            sqeHeaderPtr->type = sqeArrayInfo.originalTypes[sqeIdx];
+        }
 
         CHK_RET(RefreshOneSqe_(
             sqeArrayPtr, sqeSrcAddrRefreshInfoArray[sqeIdx], sqeDstAddrRefreshInfoArray[sqeIdx], baseAddrs, vOpInfo));
+        if (isVOp_ && !sqeArrayInfo.notifyRefreshInfos.empty()) {
+            bool inactive = false;
+            CHK_RET(IsVNotifyInactive_(sqeArrayInfo.notifyRefreshInfos[sqeIdx], vOpInfo, inactive));
+            if (inactive) {
+                sqeHeaderPtr->type = static_cast<uint8_t>(Rt91095StarsSqeType::RT_91095_SQE_TYPE_PLACE_HOLDER);
+            }
+        }
 
         // 刷新streamId, taskId
         rtsqA5Ptr->RefreshSqeHeaderTaskField(sqeHeaderPtr);
@@ -1379,6 +1612,19 @@ inline HcclResult AicpuTaskCacheEntry::RefreshWqeTasks_(
         }
         const uint8_t wqeCode
             = static_cast<uint8_t>(wqeCommonPtr->opcode); // opcode来自于UdmaSqOpcode, 一定在uint8范围内
+
+        if (isVOp_ && !wqeTaskArrayInfo.notifyRefreshInfos.empty()) {
+            bool inactive = false;
+            CHK_RET(IsVNotifyInactive_(wqeTaskArrayInfo.notifyRefreshInfos[wqeIdx], vOpInfo, inactive));
+            if (inactive) {
+                wqeCommonPtr->opcode = UdmaSqOpcode::UDMA_OPC_NOP;
+                wqeCommonPtr->sgeNum = 0;
+                if (wqeCode == WRITE_WITH_NOTIFY_OPCODE) {
+                    wqeTask.wqeWriteWithNotify.localU.sge.length = 0;
+                }
+                continue;
+            }
+        }
 
         if (isVOp_ && !(wqeCode == UdmaSqOpcode::UDMA_OPC_WRITE && wqeCommonPtr->inlineEn != 0)) {
             const uint32_t rankId = locAddrRefreshInfo.rankId;
@@ -1615,9 +1861,19 @@ inline HcclResult AicpuTaskCacheEntry::LaunchWqeTasks_(WqeTaskArrayInfo& wqeTask
                 // write with notify (对于给定slice的最后一个UB chunk)
                 CHK_RET(ubConnLitePtr->LaunchOneWqeWithNotify(&wqeTask.wqeWriteWithNotify, WRITE_WITH_NOTIFY_OPCODE));
                 break;
-            case UdmaSqOpcode::UDMA_OPC_NOP:
-                CHK_RET(ubConnLitePtr->LaunchOneWqe(&wqeTask.wqeWrite, UdmaSqOpcode::UDMA_OPC_NOP));
+            case UdmaSqOpcode::UDMA_OPC_NOP: {
+                // 使用独立 NOP，避免 inline notify 的地址/配置泄漏到 NOP，保留缓存内容供恢复。
+                Hccl::UdmaSqeWrite nop{};
+                nop.comm = wqeTask.wqeWrite.comm;
+                nop.comm.inlineEn = 0;
+                nop.comm.sgeNum = 0;
+                CHK_RET(ubConnLitePtr->LaunchOneWqe(&nop, UdmaSqOpcode::UDMA_OPC_NOP));
+                if (isVOp_ && wqeTaskArrayInfo.originalOpcodes[wqeIdx] == WRITE_WITH_NOTIFY_OPCODE) {
+                    // 融合通知占两个 WQEBB；保持录制时的队列占位与溢出检查一致。
+                    CHK_RET(ubConnLitePtr->LaunchOneWqe(&nop, UdmaSqOpcode::UDMA_OPC_NOP));
+                }
                 break;
+            }
             default:
                 // ub_conn_lite.cc中未使用的WQE类型, 告警后报错
                 HCCL_ERROR("[AicpuTaskCacheEntry][LaunchWqeTasks_] unexpected wqeCode[%u]", wqeCode);
@@ -1699,6 +1955,18 @@ HcclResult AicpuTaskCacheEntry::ReportDbSqeProfiling_(
         dbSqeIdx, arrayIdx, sqeHeaderPtr->type, taskId, sqId);
 
     // 每次上报只刷新临时副本，保留录制时的地址、长度和刷新元数据。
+    if (isVOp_) {
+        bool allNop = true;
+        for (const auto& task : wqeTaskArrayInfos_[it->second.wqeArrayIdx].wqeTaskArray) {
+            if (task.wqeWrite.comm.opcode != UdmaSqOpcode::UDMA_OPC_NOP) {
+                allNop = false;
+                break;
+            }
+        }
+        if (allNop) {
+            return HCCL_SUCCESS; // 不将已屏蔽的通知上报成真实的远端 record。
+        }
+    }
     DbSqeProfAndRefreshInfo profAndRefreshInfo = it->second;
     if (isVOp_
         && static_cast<u8>(profAndRefreshInfo.dbSqeProfInfo.taskParamType) != TaskParamTypeVal::TASK_UB_INLINE_WRITE) {
