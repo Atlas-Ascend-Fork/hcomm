@@ -68,6 +68,8 @@ HcclResult HcclThreadAcquire(HcclComm comm, CommEngine engine, uint32_t threadNu
 
 3. 该接口不支持COMM_ENGINE_AIV和COMM_ENGINE_CCU两种通信引擎。
 4. comm必须为有效的通信域句柄（由通信域创建接口获得，调用期间保持有效）。禁止传入空指针、野指针或已销毁的句柄。
+5. 该接口仅创建THREAD_TYPE_TS（TS类型）通信线程；申请Host CPU线程（`THREAD_TYPE_CPU`）须使用[HcclThreadAcquireWithConfig](./HcclThreadAcquireWithConfig.md)接口。
+6. 同一通信域内以相同engine重复申请时，返回已创建的通信线程句柄，不重复创建；需要多条线程时应一次申请。
 
 ## 调用示例
 

@@ -47,6 +47,8 @@ HcommResult：接口成功返回0，其他失败。
 
 2. 该接口不支持COMM_ENGINE_AIV和COMM_ENGINE_CCU两种通信引擎。
 
+3. 该接口仅创建THREAD_TYPE_TS（TS类型）通信线程；申请Host CPU线程（`THREAD_TYPE_CPU`）须使用[HcclThreadAcquireWithConfig](../comms_domain_resource_mgmt/HcclThreadAcquireWithConfig.md)接口。
+
 ## 调用示例
 
 ```c

@@ -24,6 +24,8 @@ typedef enum {
 针对Ascend 950PR&950DT系列产品，支持的通信引擎如下：
 
   - COMM_ENGINE_CPU
+  - COMM_ENGINE_CPU_TS
+  - COMM_ENGINE_AICPU
   - COMM_ENGINE_AICPU_TS
   - COMM_ENGINE_AIV
   - COMM_ENGINE_CCU

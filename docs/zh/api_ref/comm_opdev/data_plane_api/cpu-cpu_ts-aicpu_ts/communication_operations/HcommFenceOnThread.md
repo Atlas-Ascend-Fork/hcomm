@@ -20,7 +20,7 @@
 
 ## 功能说明
 
-在Host CPU侧触发数据面全局Fence操作，对当前已初始化的内部Flush资源执行Flush并等待完成。
+在Host CPU侧触发数据面全局Fence操作，对当前已初始化的内部Flush资源执行Flush并等待完成。Host CPU线程模式下，该接口将全局Flush任务提交至Host CPU线程的任务队列后立即返回，接口返回成功仅表示提交成功，不代表Flush已完成。
 
 该接口不绑定具体通信通道。如需等待指定通信通道上已提交的读写操作完成，应先调用[HcommChannelFenceOnThread](HcommChannelFenceOnThread.md)。
 
@@ -34,7 +34,7 @@ int32_t HcommFenceOnThread(ThreadHandle thread)
 
 | 参数名 | 输入/输出 | 描述 |
 | --- | --- | --- |
-| thread | 输入 | 通信线程句柄。Host CPU侧调用时，该参数无作用，传入0即可。<br>ThreadHandle类型的定义可参见[ThreadHandle](../../../datatype_definition/ThreadHandle.md)。 |
+| thread | 输入 | 通信线程句柄。Host CPU侧调用时，该参数无作用，传入0即可；Host CPU线程（`THREAD_TYPE_CPU`）仅可由[HcclThreadAcquireWithConfig](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquireWithConfig.md)接口申请。<br>ThreadHandle类型的定义可参见[ThreadHandle](../../../datatype_definition/ThreadHandle.md)。 |
 
 ## 返回值
 
@@ -43,7 +43,8 @@ int32_t：接口成功返回0，其他失败。
 ## 约束说明
 
 <!-- npu="950" id6 -->
-- 针对Ascend 950PR&950DT系列产品，仅支持Host CPU侧调用。
+- 针对Ascend 950PR&950DT系列产品，支持Host CPU侧调用，也支持在Device侧以Host CPU线程（[HcclThreadAcquireWithConfig](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquireWithConfig.md)接口申请的`THREAD_TYPE_CPU`线程）调用。
+- Host CPU线程模式下，该接口将全局Flush任务提交至Host CPU线程的任务队列后立即返回，由Host侧按提交顺序执行，接口返回成功仅表示提交成功。
 <!-- end id6 -->
 - Host CPU侧调用时，通信引擎为CPU，支持通信协议RoCE，`thread`参数无作用，可传入0。
 - 该接口用于Host CPU侧数据面Flush，不等待指定通信通道上的读写操作完成。如需等待通道上已提交的读写操作完成，应先调用[HcommChannelFenceOnThread](HcommChannelFenceOnThread.md)。

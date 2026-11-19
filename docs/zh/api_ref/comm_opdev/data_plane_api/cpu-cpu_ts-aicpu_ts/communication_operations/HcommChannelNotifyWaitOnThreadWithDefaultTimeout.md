@@ -20,7 +20,7 @@
 
 ## 功能说明
 
-等待同步信号，阻塞等待指定Channel上的Notify完成。**使用通过HcommSetNotifyWaitTimeOut设置的默认超时时间**，无需手动传入超时参数。
+等待同步信号，阻塞等待指定Channel上的Notify完成。**使用通过HcommSetNotifyWaitTimeOut设置的默认超时时间**，无需手动传入超时参数。Host CPU线程模式下，该接口将等待任务提交至Host CPU线程的任务队列后立即返回，接口返回成功仅表示提交成功。
 
 ## 函数原型
 
@@ -32,14 +32,14 @@ int32_t HcommChannelNotifyWaitOnThreadWithDefaultTimeout(ThreadHandle thread, Ch
 
 | 参数名 | 输入/输出 | 描述 |
 | --- | --- | --- |
-| thread | 输入 | 通信线程句柄。<br>ThreadHandle类型的定义可参见[ThreadHandle](../../../datatype_definition/ThreadHandle.md)。 |
+| thread | 输入 | 通信线程句柄。CPU_TS/AICPU_TS场景下，为通过[HcclThreadAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquire.md)或[HcclThreadAcquireWithConfig](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquireWithConfig.md)接口获取到的threads；Host CPU侧调用时无作用，可传入0；Host CPU线程（`THREAD_TYPE_CPU`）仅可由[HcclThreadAcquireWithConfig](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquireWithConfig.md)接口申请。<br>ThreadHandle类型的定义可参见[ThreadHandle](../../../datatype_definition/ThreadHandle.md)。 |
 | channel | 输入 | 通信通道句柄，为通过[HcclChannelAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclChannelAcquire.md)接口获取到的channels。<br>ChannelHandle类型的定义可参见[ChannelHandle](../../../datatype_definition/ChannelHandle.md)。 |
 | localNotifyIdx | 输入 | 本地Notify索引。<br>取值范围：[0, notifyNum)。<br>notifyNum为[HcommChannelCreate](../../../control_plane_api/basic_resource_mgmt/HcommChannelCreate.md)或[HcclChannelAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclChannelAcquire.md)接口传入的channelDescs参数中的notifyNum。 |
 
 <!-- npu="950" id7 -->
 **补充说明**：
 
-**thread参数**：针对Ascend 950PR&950DT系列产品，CPU引擎RoCE场景，“thread”参数无作用，传入0即可；CPU_TS/AICPU_TS场景，“thread”参数为通过[HcclThreadAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquire.md)接口获取到的threads。
+**thread参数**：针对Ascend 950PR&950DT系列产品，CPU引擎RoCE场景Host CPU侧调用时，“thread”参数无作用，传入0即可；CPU_TS/AICPU_TS场景，“thread”参数为通过[HcclThreadAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquire.md)或[HcclThreadAcquireWithConfig](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquireWithConfig.md)接口获取到的threads；Host CPU线程模式下，“thread”参数为Host CPU线程，仅可由[HcclThreadAcquireWithConfig](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquireWithConfig.md)接口申请。
 <!-- end id7 -->
 
 ## 返回值
@@ -49,15 +49,16 @@ int32_t：接口成功返回0，其他失败。
 ## 默认超时时间说明
 
 - 默认超时时间通过[HcommSetNotifyWaitTimeOut](./HcommSetNotifyWaitTimeOut.md)接口设置
-- 如果未设置，AICPU_TS模式下，Device侧默认超时时间为1836秒
-- 设置为0表示永久等待
+- 如果未设置，AICPU_TS模式下，Device侧默认超时时间为1836秒；Host CPU线程模式下，默认超时时间为1836秒
+- 设置为0表示永久等待；Host CPU线程模式下0不表示永久等待，对端为Host CPU侧的通道立即超时返回，对端为NPU侧的通道回落为固定30秒超时
 - 设置大于0表示具体的超时时间（单位：秒）
 
 ## 约束说明
 
 - 该接口需要配合[HcommChannelNotifyRecordOnThread](HcommChannelNotifyRecordOnThread.md)使用。
 <!-- npu="950" id6 -->
-- 在Ascend 950PR&950DT系列产品上，仅支持AICPU_TS模式下、在Device侧调用该接口。
+- 在Ascend 950PR&950DT系列产品上，支持AICPU_TS模式下在Device侧调用，也支持以Host CPU线程（[HcclThreadAcquireWithConfig](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquireWithConfig.md)接口申请的`THREAD_TYPE_CPU`线程）在Device侧调用。
+- Host CPU线程模式下，`thread`为该Host CPU线程句柄，该接口将等待任务提交至Host CPU线程的任务队列后立即返回，由Host侧按提交顺序执行，接口返回成功仅表示提交成功；入参`channel`须为以`COMM_ENGINE_CPU`引擎申请且`channelDesc.remoteEndpoint.protocol`为`COMM_PROTOCOL_ROCE`的通道，默认超时时间设置为0时不表示永久等待（对端为Host CPU侧时立即超时返回，对端为NPU侧时回落为固定30秒超时）。
 - AICPU_TS模式下，在Device侧调用该接口前，如需设置超时时间，需要调用[HcommSetNotifyWaitTimeOut](./HcommSetNotifyWaitTimeOut.md)设置，不调用设置接口则默认超时时间为1836秒。
 - 针对Ascend 950PR&950DT系列产品的AICPU_TS模式，`localNotifyIdx`必须小于本端通信通道的Notify数量，且通信通道创建时的`notifyNum`需大于0。
 <!-- end id6 -->

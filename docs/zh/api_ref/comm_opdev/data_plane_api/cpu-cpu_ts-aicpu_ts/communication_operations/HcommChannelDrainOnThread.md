@@ -20,7 +20,7 @@
 
 ## 功能说明
 
-阻塞等待指定通道上已提交的通信操作自然完成，直到待完成任务为空。
+阻塞等待指定通道上已提交的通信操作自然完成，直到待完成任务为空。Host CPU线程模式下，该接口将排空任务提交至Host CPU线程的任务队列后立即返回，接口返回成功仅表示提交成功，不代表通道已排空。
 
 本接口用于等待调用前已经提交的任务完成，不为调用后提交的任务增加保序约束。若需要保证屏障前后的通道读写操作顺序，请调用[HcommChannelFenceOnThread](HcommChannelFenceOnThread.md)。
 
@@ -34,7 +34,7 @@ int32_t HcommChannelDrainOnThread(ThreadHandle thread, ChannelHandle channel)
 
 | 参数名 | 输入/输出 | 描述 |
 | --- | --- | --- |
-| thread | 输入 | 通信线程句柄。AI CPU侧调用时，为通过[HcclThreadAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquire.md)接口获取到的thread；Host CPU侧调用时，可传入0。<br>ThreadHandle类型的定义可参见[ThreadHandle](../../../datatype_definition/ThreadHandle.md)。 |
+| thread | 输入 | 通信线程句柄。AI CPU侧调用时，为通过[HcclThreadAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquire.md)或[HcclThreadAcquireWithConfig](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquireWithConfig.md)接口获取到的thread；Host CPU侧调用时，可传入0；Host CPU线程（`THREAD_TYPE_CPU`）仅可由[HcclThreadAcquireWithConfig](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquireWithConfig.md)接口申请。<br>ThreadHandle类型的定义可参见[ThreadHandle](../../../datatype_definition/ThreadHandle.md)。 |
 | channel | 输入 | 通信通道句柄，为通过[HcommChannelCreate](../../../control_plane_api/basic_resource_mgmt/HcommChannelCreate.md)或[HcclChannelAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclChannelAcquire.md)接口获取到的channel。<br>ChannelHandle类型的定义可参见[ChannelHandle](../../../datatype_definition/ChannelHandle.md)。 |
 
 ## 返回值
@@ -54,6 +54,7 @@ int32_t：接口成功返回0，其他失败。
 <!-- end id6 -->
 <!-- npu="950" id9 -->
 - 针对Ascend 950PR&950DT系列产品，在Host CPU侧调用时，申请入参`channel`使用的通信引擎须为`COMM_ENGINE_CPU`，且`channelDesc.remoteEndpoint.protocol`须为`COMM_PROTOCOL_ROCE`或`COMM_PROTOCOL_UB_CTP`。
+- 针对Ascend 950PR&950DT系列产品，也支持在Device侧以Host CPU线程（[HcclThreadAcquireWithConfig](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquireWithConfig.md)接口申请的`THREAD_TYPE_CPU`线程）调用：该接口将排空任务提交至Host CPU线程的任务队列后立即返回，由Host侧按提交顺序执行，接口返回成功仅表示提交成功；入参`channel`须满足上述Host CPU侧调用时的通道约束。
 <!-- end id9 -->
 - 同一个`ChannelHandle`不支持多线程并发访问。
 - 同一个`ThreadHandle`不支持多线程并发访问。

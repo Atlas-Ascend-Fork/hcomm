@@ -32,9 +32,9 @@ int32_t HcommThreadNotifyRecordOnThread(ThreadHandle thread, ThreadHandle dstThr
 
 | 参数名 | 输入/输出 | 描述 |
 | --- | --- | --- |
-| thread | 输入 | 通信线程句柄，为通过[HcclThreadAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquire.md)接口获取到的threads。<br>ThreadHandle类型的定义请参见[ThreadHandle](../../../datatype_definition/ThreadHandle.md)。 |
-| dstThread | 输入 | 目标通信线程句柄，为通过[HcclThreadAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquire.md)接口获取到的threads。<br>ThreadHandle类型的定义请参见[ThreadHandle](../../../datatype_definition/ThreadHandle.md)。 |
-| dstNotifyIdx | 输入 | 目标Notify索引。<br>取值范围为：[0, [HcclThreadAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquire.md)接口传入的notifyNumPerThread参数的值)。 |
+| thread | 输入 | 通信线程句柄，为通过[HcclThreadAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquire.md)或[HcclThreadAcquireWithConfig](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquireWithConfig.md)接口获取到的threads；Host CPU线程（`THREAD_TYPE_CPU`）仅可由[HcclThreadAcquireWithConfig](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquireWithConfig.md)接口申请。<br>ThreadHandle类型的定义请参见[ThreadHandle](../../../datatype_definition/ThreadHandle.md)。 |
+| dstThread | 输入 | 目标通信线程句柄，为通过[HcclThreadAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquire.md)或[HcclThreadAcquireWithConfig](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquireWithConfig.md)接口获取到的threads，TS类型线程或Host CPU线程均可。<br>ThreadHandle类型的定义请参见[ThreadHandle](../../../datatype_definition/ThreadHandle.md)。 |
+| dstNotifyIdx | 输入 | 目标Notify索引。<br>取值范围为：[0, 申请目标线程时配置的notifyNumPerThread参数的值)。 |
 
 ## 返回值
 
@@ -45,7 +45,8 @@ int32_t：接口成功返回0，其他失败。
 - 该接口需要配合[HcommThreadNotifyWaitOnThread](HcommThreadNotifyWaitOnThread.md)使用。
 
 <!-- npu="950" id6 -->
-- 在Ascend 950PR&950DT系列产品上，仅支持AICPU_TS模式下、在Device侧调用该接口。
+- 在Ascend 950PR&950DT系列产品上，支持AICPU_TS模式下在Device侧调用，也支持以Host CPU线程（[HcclThreadAcquireWithConfig](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquireWithConfig.md)接口申请的`THREAD_TYPE_CPU`线程）在Device侧调用。
+- Host CPU线程模式下，该接口将记录任务提交至Host CPU线程的任务队列后立即返回，由Host侧按提交顺序执行，接口返回成功仅表示提交成功；`dstThread`支持Host CPU线程与TS类型线程（`THREAD_TYPE_TS`）。
 <!-- end id6 -->
 
 - 同一个`ThreadHandle`不支持多线程并发访问。
@@ -78,8 +79,7 @@ HcclComm comm;
 CommEngine engine = COMM_ENGINE_AICPU_TS;
 ThreadHandle threads[2];
 uint32_t notifyNumPerThread = 2;
-HcclThreadAcquire(comm, engine, 1, notifyNumPerThread, &threads[0]);
-HcclThreadAcquire(comm, engine, 1, notifyNumPerThread, &threads[1]);
+HcclThreadAcquire(comm, engine, 2, notifyNumPerThread, threads);
 
 // 其余资源申请
 // 拷贝参数并Launch Kernel
