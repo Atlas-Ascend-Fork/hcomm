@@ -67,6 +67,27 @@ TEST_F(HcclIndependentOpEngineTest, Ut_HcclThreadAcquire_When_Param_Is_Invalid_E
     EXPECT_EQ(ret, HCCL_E_PARA);
 }
 
+// AICPU/AIV引擎被拦截返回HCCL_E_PARA；CCU/CPU已不推荐仅告警不拦截；CPU_TS/AICPU_TS正常放行
+TEST_F(HcclIndependentOpEngineTest, Ut_HcclThreadAcquire_When_Engine_Is_Not_Supported_Expect_Para_Error)
+{
+    ThreadHandle threads[2] = {0};
+    // AICPU/AIV非本接口支持的引擎，入口校验直接拦截
+    HcclResult ret = HcclThreadAcquire(comm, CommEngine::COMM_ENGINE_AICPU, 2, 1, threads);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+    ret = HcclThreadAcquire(comm, CommEngine::COMM_ENGINE_AIV, 2, 1, threads);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+    // TS类引擎不拦截，不应返回HCCL_E_PARA
+    ret = HcclThreadAcquire(comm, CommEngine::COMM_ENGINE_AICPU_TS, 2, 1, threads);
+    EXPECT_NE(ret, HCCL_E_PARA);
+    // CCU/CPU已不推荐但保持兼容，仅告警不拦截；CPU_TS正常放行
+    ret = HcclThreadAcquire(comm, CommEngine::COMM_ENGINE_CCU, 2, 1, threads);
+    EXPECT_NE(ret, HCCL_E_PARA);
+    ret = HcclThreadAcquire(comm, CommEngine::COMM_ENGINE_CPU, 2, 1, threads);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    ret = HcclThreadAcquire(comm, CommEngine::COMM_ENGINE_CPU_TS, 2, 1, threads);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
 // -----HcclThreadAcquire接口host侧用例-------
 const CommEngine g_hostEngine = CommEngine::COMM_ENGINE_CPU;
 

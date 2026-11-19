@@ -52,7 +52,7 @@ HcclResult HcclGetNotifyNumInThread(HcclComm comm, ThreadHandle thread, CommEngi
 
     auto* hcclComm = static_cast<hccl::hcclComm*>(comm);
     std::string commId = hcclComm->GetIdentifier();
-    HCCL_RUN_INFO(
+    HCCL_INFO(
         "Entry-%s:comm[%s] engine[%s]", __func__, commId.c_str(),
         GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str());
     HcclResult ret = HCCL_SUCCESS;
@@ -219,6 +219,22 @@ static CommEngine ConvertEngineToTsType(CommEngine engine)
     return engine;
 }
 
+static HcclResult ValidateThreadAcquireEngine(CommEngine engine, const std::string& commId)
+{
+    if (engine == CommEngine::COMM_ENGINE_AICPU || engine == CommEngine::COMM_ENGINE_AIV) {
+        HCCL_ERROR(
+            "[%s] comm[%s] engine[%s] is not supported, supported engines: CPU_TS/AICPU_TS", __func__, commId.c_str(),
+            GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str());
+        return HCCL_E_PARA;
+    }
+    if (engine == CommEngine::COMM_ENGINE_CPU || engine == CommEngine::COMM_ENGINE_CCU) {
+        HCCL_RUN_WARNING(
+            "[%s] comm[%s] engine[%s] is deprecated for HcclThreadAcquire", __func__, commId.c_str(),
+            GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str());
+    }
+    return HCCL_SUCCESS;
+}
+
 HcclResult HcclThreadAcquire(
     HcclComm comm, CommEngine engine, uint32_t threadNum, uint32_t notifyNumPerThread, ThreadHandle* threads)
 {
@@ -238,6 +254,8 @@ HcclResult HcclThreadAcquire(
     HCCL_RUN_INFO(
         "Entry-%s:comm[%s] engine[%s] ThreadNum[%u] notifyNumPerThread[%u]", __func__, commId.c_str(),
         GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), threadNum, notifyNumPerThread);
+
+    CHK_RET(ValidateThreadAcquireEngine(engine, commId));
 
     CommEngine newEngine = ConvertEngineToTsType(engine);
     ThreadType type = THREAD_TYPE_TS;
