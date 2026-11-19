@@ -576,6 +576,12 @@ TEST_F(EnvConfigTest, Ut_CastHcclAccelerator_When_ConfigVaild_ExpectSuccess)
     EXPECT_EQ(CastHcclAccelerator("CCU_SCHED"), HcclAccelerator::CCU_SCHED);
 }
 
+TEST_F(EnvConfigTest, Ut_CastHcclAccelerator_AivUrmaNotSupportByEnv_ExpectThrow)
+{
+    // AIV_URMA仅支持通信域配置(HcclCommConfig.hcclOpExpansionMode), 不支持环境变量
+    EXPECT_THROW(CastHcclAccelerator("AIV_URMA"), InvalidParamsException);
+}
+
 TEST_F(EnvConfigTest, Ut_CastHcclAccelerator_When_ConfigInvaild_ExpectThrow)
 {
     EXPECT_THROW(CastHcclAccelerator("Invalid"), InvalidParamsException);

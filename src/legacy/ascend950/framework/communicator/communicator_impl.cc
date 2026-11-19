@@ -2886,6 +2886,12 @@ HcclResult CommunicatorImpl::SetAccelerator(HcclAccelerator hcclAccelerator, boo
         case HcclAccelerator::AIV_ONLY:
             commAccelerator = AcceleratorState::AIV_ONLY;
             break;
+        case HcclAccelerator::AIV_URMA:
+            // 通信域编排层URMA与AIV同族(host编排AIV kernel, collService/控核复用AIV链路,
+            // 与AivUrmaChannel握手声明的opAcceState=AIV一致); URMA差异化由MyRank保留的
+            // 原始值(10)经GetOpExpansionMode传给hccl侧识别, 不经accState
+            commAccelerator = AcceleratorState::AIV;
+            break;
         case HcclAccelerator::AICPU_TS:
             commAccelerator = AcceleratorState::AICPU_TS;
             break;

@@ -96,6 +96,23 @@ TEST_F(OpBaseMiscTest, Ut_HcclConfigGetInfo_When_CfgTypeIsOP_EXPANSION_MODE_Expe
     Ut_Comm_Destroy(comm);
 }
 
+// 正向映射: 内部值10(AIV_URMA_MODE)应返回HCCL_OP_EXPANSION_MODE_AIV_URMA, 防查询映射被误改
+TEST_F(OpBaseMiscTest, Ut_HcclConfigGetInfo_When_OpExpansionModeIsAivUrmaMode_Expect_ReturnIsAivUrma)
+{
+    UT_COMM_CREATE_DEFAULT(comm);
+    CollComm collComm(nullptr, 0, "ut_comm", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    MOCKER_CPP(&hcclComm::GetCollComm).stubs().will(returnValue(&collComm));
+    MyRank myRank(nullptr, 0, collComm.GetCommConfig(), ManagerCallbacks{}, nullptr, nullptr);
+    MOCKER_CPP(&CollComm::GetMyRank).stubs().will(returnValue(&myRank));
+    MOCKER_CPP(&MyRank::GetOpExpansionMode).stubs().will(returnValue(10u));
+    HcclOpExpansionMode opExpansionMode = HcclOpExpansionMode::HCCL_OP_EXPANSION_MODE_INVALID;
+    HcclResult ret = HcclConfigGetInfo(
+        comm, HcclConfigType::HCCL_CONFIG_TYPE_OP_EXPANSION_MODE, sizeof(HcclOpExpansionMode), &opExpansionMode);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(opExpansionMode, HcclOpExpansionMode::HCCL_OP_EXPANSION_MODE_AIV_URMA);
+    Ut_Comm_Destroy(comm);
+}
+
 TEST_F(OpBaseMiscTest, Ut_HcclConfigGetInfo_When_DeterministicIsZeroOneTwo_Expect_ReturnConfiguredValue)
 {
     UT_COMM_CREATE_DEFAULT(comm);

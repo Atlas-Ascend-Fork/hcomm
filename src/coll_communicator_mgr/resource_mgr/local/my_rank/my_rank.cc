@@ -527,6 +527,12 @@ HcclResult MyRank::Init(HcclMem cclBuffer, const uint32_t opExpansionMode, uint3
         opExpansionMode_ = CCU_SCHED_MODE;
     }
 
+    // AIV_URMA_MODE(方案: 通信域配置AIV_URMA §2.3): 与非CCU模式同族——不创建CCU实例、不做CCU
+    // 资源拉起, 可回退; 原始值保留在opExpansionModeRaw_供hccl侧经HcclConfigGetInfo识别URMA档
+    if (opExpansionMode_ == AIV_URMA_MODE) {
+        HCCL_RUN_INFO("[MyRank][%s] aiv_urma mode, skip ccu instance init.", __func__);
+    }
+
     // 仅自定义算子ccu流程初始化资源
     if (ccuInsHandle_ == 0 && rankNum != 1 && (opExpansionMode_ == CCU_MS_MODE || opExpansionMode_ == CCU_SCHED_MODE)) {
         const uint32_t originOpExpansionMode = opExpansionMode_; // 记录原始加速模式，避免中间执行修改后丢失

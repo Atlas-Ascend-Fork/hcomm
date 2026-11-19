@@ -458,13 +458,13 @@ private:
 };
 } // namespace
 
-// ccu only新增枚举后合法范围扩为[0,9]，越界值（10/-1）应报HCCL_E_NOT_SUPPORT
+// ccu only新增枚举后合法范围扩为[0,9]；aiv_urma新增枚举(AIV_URMA=10)后扩为[0,10]，越界值（11/-1）应报HCCL_E_NOT_SUPPORT
 TEST_F(HcomutCommManagerTest, ut_SetCommAcceleratorV2_When_InvalidAcceleratorValue_Expect_NotSupport)
 {
     Hccl::CommParams commParams;
     auto communicator = std::make_shared<Hccl::HcclCommunicator>(commParams);
 
-    EXPECT_EQ(CommManager::GetInstance(0).SetCommAcceleratorV2(communicator.get(), 10), HCCL_E_NOT_SUPPORT);
+    EXPECT_EQ(CommManager::GetInstance(0).SetCommAcceleratorV2(communicator.get(), 11), HCCL_E_NOT_SUPPORT);
     EXPECT_EQ(CommManager::GetInstance(0).SetCommAcceleratorV2(communicator.get(), -1), HCCL_E_NOT_SUPPORT);
 }
 
@@ -490,6 +490,24 @@ TEST_F(HcomutCommManagerTest, ut_SetCommAcceleratorV2_When_CcuOnlyMode_And_CcuUn
     EXPECT_EQ(g_setAcceleratorReceived, HcclAccelerator::AICPU_TS);
     EXPECT_EQ(commManager.SetCommAcceleratorV2(communicator.get(), 5), HCCL_SUCCESS);
     EXPECT_EQ(g_setAcceleratorReceived, HcclAccelerator::AICPU_TS);
+}
+
+// 正向链路: 合法值10经SetCommAcceleratorV2透传HcclAccelerator::AIV_URMA(映射落AIV族由
+// communicator_impl真实实现执行, 本用例锁通信域管理侧的合法值放行与枚举透传)
+TEST_F(HcomutCommManagerTest, ut_SetCommAcceleratorV2_When_AivUrmaValue_Expect_PassThroughAivUrma)
+{
+    auto& commManager = CommManager::GetInstance(0);
+    Hccl::CommParams commParams;
+    auto communicator = std::make_shared<Hccl::HcclCommunicator>(commParams);
+
+    MOCKER_CPP(&HcclCommunicator::GetId, const std::string& (HcclCommunicator::*)() const)
+        .stubs()
+        .will(invoke(GetIdSpy));
+    MOCKER_CPP(&HcclCommunicator::SetAccelerator, HcclResult(HcclCommunicator::*)(HcclAccelerator, bool))
+        .stubs()
+        .will(invoke(SetAcceleratorSpy));
+    EXPECT_EQ(commManager.SetCommAcceleratorV2(communicator.get(), 10), HCCL_SUCCESS);
+    EXPECT_EQ(g_setAcceleratorReceived, HcclAccelerator::AIV_URMA);
 }
 
 TEST_F(HcomutCommManagerTest, Ut_HcomLoadRankTableFileV2_When_NormalFile_Expect_Success)

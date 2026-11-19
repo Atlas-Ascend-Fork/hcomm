@@ -2920,6 +2920,8 @@ static HcclConfigTypeOpExpansionMode OpExpansionModeValueToModeEnum(const uint32
             return HcclOpExpansionMode::HCCL_OP_EXPANSION_MODE_AIV;
         case aivOnlyMode:
             return HcclOpExpansionMode::HCCL_OP_EXPANSION_AIV_ONLY;
+        case AIV_URMA_MODE:
+            return HcclOpExpansionMode::HCCL_OP_EXPANSION_MODE_AIV_URMA;
         default:
             break;
     }

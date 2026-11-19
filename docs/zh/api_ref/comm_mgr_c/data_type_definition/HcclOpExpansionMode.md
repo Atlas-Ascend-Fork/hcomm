@@ -18,6 +18,7 @@ typedef enum {
     HCCL_OP_EXPANSION_AIV_ONLY      = 6,   /* 仅在Device侧Vector Core (AIV) 上展开，不随数据量变化进行模式切换。 */
     HCCL_OP_EXPANSION_MODE_CCU_MS_ONLY   = 7, /* 仅在Device侧CCU上展开，使用CcuBuffer进行内存读写，不随数据量或资源状态变化进行模式切换。 */
     HCCL_OP_EXPANSION_MODE_CCU_SCHED_ONLY = 8, /* 仅在Device侧CCU上展开，使用调度模式，不随数据量或资源状态变化进行模式切换。 */
+    HCCL_OP_EXPANSION_MODE_AIV_URMA = 9, /* 在Device侧Vector Core (AIV) 上展开，通过URMA（统一远程内存访问）直驱通信。仅支持Ascend 950系列。 */
 } HcclOpExpansionMode;
 
 typedef HcclOpExpansionMode HcclConfigTypeOpExpansionMode;

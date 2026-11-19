@@ -20,6 +20,7 @@ typedef enum {
     HCCL_OP_EXPANSION_AIV_ONLY      = 6,   /* Expanded only on the Vector Core (AIV) on the device side, without mode switching as the data volume changes. */
     HCCL_OP_EXPANSION_MODE_CCU_MS_ONLY   = 7, /* Expanded only on the CCU on the device side, using the Memory Slice (MS) mode, without mode switching as the data volume or resource status changes. */
     HCCL_OP_EXPANSION_MODE_CCU_SCHED_ONLY = 8, /* Expanded only on the CCU on the device side, using the scheduling mode, without mode switching as the data volume or resource status changes. */
+    HCCL_OP_EXPANSION_MODE_AIV_URMA = 9, /* Expanded on the Vector Core (AIV) on the device side, driven directly via URMA (Unified Remote Memory Access). Supported only on the Ascend 950 series. */
 } HcclOpExpansionMode;
 
 typedef HcclOpExpansionMode HcclConfigTypeOpExpansionMode;

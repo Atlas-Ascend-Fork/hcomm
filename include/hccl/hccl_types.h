@@ -148,6 +148,7 @@ typedef struct HcclCommConfigDef {
     char hcclCommName[COMM_NAME_MAX_LENGTH];
     char hcclUdi[UDI_MAX_LENGTH];
     // 0:默认 1:host_ts 2:aicpu_ts 3:aiv 4:aiv_only 5:ccu_ms 6:ccu_sched 7:aicpu 8:ccu_ms_only 9:ccu_sched_only
+    // 10:aiv_urma
     uint32_t hcclOpExpansionMode;
     uint32_t hcclRdmaTrafficClass;
     uint32_t hcclRdmaServiceLevel;

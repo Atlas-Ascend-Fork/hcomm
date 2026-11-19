@@ -135,6 +135,11 @@ typedef struct HcclCommConfigDef {
     For the operators supported by this configuration and the constraints, see configuration "6".
 
     Exception: In legacy communicator scenarios, when the CCU is unavailable, the system automatically switches to "2: AI CPU mode" instead of reporting an error.
+
+  - **10**: The communication operator is expanded on the Vector Core on the device side, driven directly via URMA (Unified Remote Memory Access): orchestrated on the host side, with the kernel directly reading from and writing to the memory of the remote rank.
+    - This configuration supports only the AllGather and AlltoAllV operators, in both single-server and multi-server networking scenarios.
+    - This configuration requires CANN and the matching HCOMM version to be 9.0.2 or later; otherwise, it is treated as unsupported.
+    - This is an explicit communicator-level configuration: after it is enabled, the corresponding operators preferentially use the URMA algorithm, without mode switching as the data volume changes.
   <!-- end id4 -->
 
   <!-- npu="A3" id5 -->

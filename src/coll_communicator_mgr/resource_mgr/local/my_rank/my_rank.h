@@ -59,6 +59,7 @@ constexpr uint32_t CCU_MS_MODE = 5;
 constexpr uint32_t CCU_SCHED_MODE = 6;
 constexpr uint32_t CCU_MS_ONLY_MODE = 8;
 constexpr uint32_t CCU_SCHED_ONLY_MODE = 9;
+constexpr uint32_t AIV_URMA_MODE = 10;
 // opExpansionMode 到 CcuInstanceType 的映射，仅作数据类型转换，不做逻辑处理。
 // 供 MyRank 内部及外部适配层（如 coll_comm_ccu_c_adpt.cc）共用。
 inline CcuInstanceType OpExpansionModeToCcuInstanceType(uint32_t opExpansionMode)

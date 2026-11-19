@@ -156,6 +156,11 @@ typedef struct HcclCommConfigDef {
     该配置项支持的算子及约束限制参见配置“6”。
 
     例外：legacy通信域在CCU不可用时，自动回退为“2：AI CPU模式”，不报错退出。
+
+  - 10：通信算子在Device侧的Vector Core计算单元展开，通过URMA（统一远程内存访问）直驱通信，host侧编排、kernel直接读写对端内存。
+    - 该配置项仅支持AllGather、AlltoAllV算子，单机及多机组网均支持。
+    - 该配置要求CANN及配套HCOMM版本不低于9.0.2，不满足时按未支持处理。
+    - 该配置为通信域粒度的显式配置：启用后对应算子优先使用URMA算法，不随数据量变化切换模式。
   <!-- end id4 -->
 
   <!-- npu="A3" id5 -->
