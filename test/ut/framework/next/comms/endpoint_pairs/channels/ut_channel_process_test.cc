@@ -13,6 +13,7 @@
 #include "endpoint_pair/channel/channel_process_pub.h"
 #include "endpoint_pair/channel/channel_c_adpt_pub.h"
 #include "channel_map_registry.h"
+#include "common/process_exit_flag.h"
 #include "aiv_urma_channel.h"
 #include "aiv_roce_host_loc_channel.h"
 #include "aicpu_ts_channel_entity.h"
@@ -101,12 +102,63 @@ private:
     hcomm::AicpuTsChannelEntity entity_;
 };
 
+static void RunChannelCreationExitHookDeathTest(CommEngine engine)
+{
+    testing::FLAGS_gtest_death_test_style = "threadsafe";
+    ASSERT_EXIT(
+        {
+            // 独立进程不预读退出标志：先登记 owner 清理，再由真实创建入口注册置位回调。
+            (void)ChannelRegistry();
+            if (std::atexit([]() {
+                    std::_Exit(hcomm::ProcessExitFlag::IsExiting() ? 0 : 1);
+                })
+                != 0) {
+                std::_Exit(2);
+            }
+            MOCKER(hrtGetDevice).stubs().will(invoke(+[](int32_t* deviceId) -> HcclResult {
+                *deviceId = 0;
+                return HCCL_SUCCESS;
+            }));
+            MOCKER(hcomm::Channel::CreateChannel)
+                .stubs()
+                .will(invoke(
+                    +[](EndpointHandle, CommEngine channelEngine, const HcommChannelDesc&, HcommChannelConfig,
+                        std::shared_ptr<hcomm::Channel>& channel) -> HcclResult {
+                        channel
+                            = std::make_shared<FakeChannelForProcess>(hcomm::HcommChannelKind::INVALID, channelEngine);
+                        return HCCL_SUCCESS;
+                    }));
+
+            HcommChannelDesc desc{};
+            ChannelHandle handle = 0;
+            HcclResult ret = hcomm::ChannelProcess::CreateChannelsLoop(
+                reinterpret_cast<EndpointHandle>(1), engine, &desc, 1, nullptr, &handle);
+            if (ret != HCCL_SUCCESS || handle == 0) {
+                std::_Exit(3);
+            }
+            GlobalMockObject::verify();
+            std::exit(0);
+        },
+        testing::ExitedWithCode(0), "");
+}
+
+TEST(ChannelProcessExitDeathTest, AicpuChannelCreationRegistersExitHookBeforeOwnerCleanup)
+{
+    RunChannelCreationExitHookDeathTest(COMM_ENGINE_AICPU);
+}
+
+TEST(ChannelProcessExitDeathTest, AicpuTsChannelCreationRegistersExitHookBeforeOwnerCleanup)
+{
+    RunChannelCreationExitHookDeathTest(COMM_ENGINE_AICPU_TS);
+}
+
 // 保留真实 ChannelDestroy、RemoveSingleChannel 和 ctx 所有权，仅替换设备内存与 kernel 边界。
 class TestChannelDestroyLifecycle : public TestChannelProcess {
 public:
     void SetUp() override
     {
         TestChannelProcess::SetUp();
+        hcomm::ProcessExitFlag::ResetForTest();
         activeTest_ = this;
         MOCKER(hrtGetDevice).stubs().will(invoke(+[](int32_t* deviceId) -> HcclResult {
             *deviceId = 0;
@@ -127,6 +179,7 @@ public:
     void TearDown() override
     {
         TestChannelProcess::TearDown();
+        hcomm::ProcessExitFlag::ResetForTest();
         activeTest_ = nullptr;
     }
 
@@ -210,6 +263,101 @@ public:
 };
 
 TestChannelDestroyLifecycle* TestChannelDestroyLifecycle::activeTest_ = nullptr;
+
+TEST_F(TestChannelDestroyLifecycle, EndpointPairDestructorDestroysDeviceChannel)
+{
+    const auto binHandle = reinterpret_cast<aclrtBinHandle>(1);
+    MOCKER(HcommResMgrInit).stubs().will(returnValue(static_cast<HcommResult>(HCCL_SUCCESS)));
+    MOCKER_CPP(&hcomm::AicpuCommEngineBinProc::GetBinHandle).expects(exactly(1)).will(returnValue(binHandle));
+
+    ChannelHandle host = 0;
+    ChannelHandle user = 0;
+    AddChannel(host, user);
+    ASSERT_EQ(channels_.size(), 1U);
+    channels_[0].lock()->GetChannelEntity()->SetDeviceEntityReady();
+
+    {
+        EndpointDesc local{};
+        EndpointDesc remote{};
+        Hccl::RankIpPortMapPtr rankIpPortMap;
+        hcomm::EndpointPair endpointPair(local, remote, rankIpPortMap);
+        // 通过现有创建接口登记 owner 句柄，保留真实析构与销毁路径。
+        MOCKER(HcommChannelCreate)
+            .expects(exactly(1))
+            .with(mockcpp::any(), eq(COMM_ENGINE_AICPU_TS), mockcpp::any(), eq(1U), outBoundP(&user, sizeof(user)))
+            .will(returnValue(static_cast<HcommResult>(HCCL_SUCCESS)));
+        HcommChannelDesc desc{};
+        ChannelHandle createdHost = 0;
+        ChannelHandle createdUser = 0;
+        ASSERT_EQ(
+            endpointPair.CreateChannel(
+                reinterpret_cast<EndpointHandle>(1), COMM_ENGINE_AICPU_TS, 0, &desc, &createdHost, &createdUser),
+            HCCL_SUCCESS);
+        EXPECT_EQ(createdHost, host);
+        EXPECT_EQ(createdUser, user);
+    }
+
+    EXPECT_EQ(kernelCalls_, 1U);
+    CheckHostChannelsRemoved();
+    EXPECT_TRUE(channels_[0].expired());
+    EXPECT_EQ(freedCtxCount_, 1U);
+}
+
+TEST_F(TestChannelDestroyLifecycle, EndpointPairDestructorSkipsDeviceKernelWhenProcessExiting)
+{
+    const auto binHandle = reinterpret_cast<aclrtBinHandle>(1);
+    MOCKER(HcommResMgrInit).stubs().will(returnValue(static_cast<HcommResult>(HCCL_SUCCESS)));
+    MOCKER_CPP(&hcomm::AicpuCommEngineBinProc::GetBinHandle).expects(exactly(1)).will(returnValue(binHandle));
+
+    ChannelHandle host = 0;
+    ChannelHandle user = 0;
+    AddChannel(host, user);
+    channels_[0].lock()->GetChannelEntity()->SetDeviceEntityReady();
+    hcomm::ProcessExitFlag::SetExiting();
+
+    {
+        EndpointDesc local{};
+        EndpointDesc remote{};
+        Hccl::RankIpPortMapPtr rankIpPortMap;
+        hcomm::EndpointPair endpointPair(local, remote, rankIpPortMap);
+        // 通过现有创建接口登记 owner 句柄，保留真实析构与销毁路径。
+        MOCKER(HcommChannelCreate)
+            .expects(exactly(1))
+            .with(mockcpp::any(), eq(COMM_ENGINE_AICPU_TS), mockcpp::any(), eq(1U), outBoundP(&user, sizeof(user)))
+            .will(returnValue(static_cast<HcommResult>(HCCL_SUCCESS)));
+        HcommChannelDesc desc{};
+        ChannelHandle createdHost = 0;
+        ChannelHandle createdUser = 0;
+        ASSERT_EQ(
+            endpointPair.CreateChannel(
+                reinterpret_cast<EndpointHandle>(1), COMM_ENGINE_AICPU_TS, 0, &desc, &createdHost, &createdUser),
+            HCCL_SUCCESS);
+        EXPECT_EQ(createdHost, host);
+        EXPECT_EQ(createdUser, user);
+    }
+
+    EXPECT_EQ(kernelCalls_, 0U);
+    CheckHostChannelsRemoved();
+    EXPECT_TRUE(channels_[0].expired());
+    EXPECT_EQ(freedCtxCount_, 1U);
+}
+
+TEST_F(TestChannelDestroyLifecycle, SkipsDeviceKernelAndReleasesMixedHandlesWhenProcessExiting)
+{
+    ChannelHandle host[2]{};
+    ChannelHandle user[2]{};
+    AddChannel(host[0], user[0], COMM_ENGINE_AICPU);
+    AddChannel(host[1], user[1], COMM_ENGINE_AICPU_TS);
+    ChannelHandle handles[]{host[0], user[1]};
+    hcomm::ProcessExitFlag::SetExiting();
+
+    EXPECT_EQ(hcomm::ChannelProcess::ChannelDestroy(handles, 2, reinterpret_cast<aclrtBinHandle>(1)), HCCL_SUCCESS);
+    EXPECT_EQ(kernelCalls_, 0U);
+    CheckHostChannelsRemoved();
+    EXPECT_TRUE(channels_[0].expired());
+    EXPECT_TRUE(channels_[1].expired());
+    EXPECT_EQ(freedCtxCount_, 2U);
+}
 
 TEST_F(TestChannelDestroyLifecycle, KeepsCtxAliveUntilDeviceDestroyReturns)
 {

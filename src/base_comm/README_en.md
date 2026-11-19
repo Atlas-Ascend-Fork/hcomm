@@ -192,8 +192,11 @@ Exceptions (require review and registration in this README):
   at process exit reverse `__cxa_atexit` order runs the callback first → the
   domain-destruction chain `FreeThreads` reads true → skips kernel launch while still
   releasing threads.
-  Direct thread-API usage without a communication domain has no domain-destruction chain;
-  mixed ordering (direct thread use before the first domain) is out of scope.
+  AICPU/AICPU_TS channel creation (`CreateChannelsLoop`) also registers this callback;
+  at exit, `ChannelDestroy` skips kernel launch while still removing and releasing host-side
+  channels.
+  Direct thread or channel API usage without a communication domain has no domain-destruction chain;
+  mixed ordering (direct thread or channel use before the first domain) is out of scope.
 
 #### R2 No re-entry via narrow accessors during construction (deadlock red line)
 

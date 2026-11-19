@@ -22,7 +22,7 @@ The host module is the **Host CPU side channel implementation** of the HCOMM bas
 - Depends on Socket and SocketMgr: exchanges QP, memory, and notify descriptions during link establishment, and completes the synchronization handshake after QP modification.
 - Depends on HCCP RA: `RaCreateCompChannel`, `HrtRaCreateQpWithCq`, `RaSetQpAttrQos`, `RaSetQpAttrTimeout`, `RaSetQpAttrRetryCnt`, `RaGetQpAttr`, `RaTypicalQpModify`, `RaSetQpLbValue`, `HrtRaQpConnectAsync`.
 - Depends on verbs and URMA: the RoCE data plane uses `ibv_post_send`/`ibv_poll_cq`; the URMA data plane uses `HrtUrmaPostJettySendWr`/`HrtUrmaPollJfc`.
-- Called by: `Channel::CreateChannel` is invoked by the channel processing flow (source: `src/base_comm/resources/endpoint_pairs/channels/channel_process.cc:100`); `SetDfxCallback` is invoked by the C API adapter (source: `src/base_comm/primitives/api_c_adpt/cpu_primitives_c_adpt.cc:913`).
+- Called by: `Channel::CreateChannel` is invoked by the channel processing flow (source: `src/base_comm/resources/endpoint_pairs/channels/channel_process.cc:105`); `SetDfxCallback` is invoked by the C API adapter (source: `src/base_comm/primitives/api_c_adpt/cpu_primitives_c_adpt.cc:913`).
 
 **Core capabilities**
 

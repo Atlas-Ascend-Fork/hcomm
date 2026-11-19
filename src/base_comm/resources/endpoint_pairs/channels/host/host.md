@@ -22,7 +22,7 @@ host模块是HCOMM基础通信层（`src/base_comm`）的 **Host CPU侧通道实
 - 依赖Socket与SocketMgr：建链阶段交换QP、内存、notify描述，并完成QP改配后的同步握手。
 - 依赖HCCP RA：`RaCreateCompChannel`、`HrtRaCreateQpWithCq`、`RaSetQpAttrQos`、`RaSetQpAttrTimeout`、`RaSetQpAttrRetryCnt`、`RaGetQpAttr`、`RaTypicalQpModify`、`RaSetQpLbValue`、`HrtRaQpConnectAsync`。
 - 依赖verbs与URMA：RoCE数据面使用`ibv_post_send`/`ibv_poll_cq`；URMA数据面使用`HrtUrmaPostJettySendWr`/`HrtUrmaPollJfc`。
-- 被调用：`Channel::CreateChannel`由通道处理流程调用（源码：`src/base_comm/resources/endpoint_pairs/channels/channel_process.cc:100`）；`SetDfxCallback`由C API适配层调用（源码：`src/base_comm/primitives/api_c_adpt/cpu_primitives_c_adpt.cc:913`）。
+- 被调用：`Channel::CreateChannel`由通道处理流程调用（源码：`src/base_comm/resources/endpoint_pairs/channels/channel_process.cc:105`）；`SetDfxCallback`由C API适配层调用（源码：`src/base_comm/primitives/api_c_adpt/cpu_primitives_c_adpt.cc:913`）。
 
 **核心能力**
 

@@ -9,6 +9,7 @@
  */
 
 #include "common/cast_utils_pub.h"
+#include "common/process_exit_flag.h"
 #include "endpoint_pair/channel/channel_process_pub.h"
 #include "channel_map_registry.h"
 #include <cstdint>
@@ -94,6 +95,10 @@ HcclResult ChannelProcess::CreateChannelsLoop(
 
     int32_t deviceId = 0;
     CHK_RET(hrtGetDevice(&deviceId));
+
+    if (engine == COMM_ENGINE_AICPU || engine == COMM_ENGINE_AICPU_TS) {
+        ProcessExitFlag::RegisterExitHook();
+    }
 
     for (uint32_t i = 0; i < channelNum; ++i) {
         std::shared_ptr<Channel> tmpPtr = nullptr;
@@ -1304,8 +1309,14 @@ HcclResult ChannelProcess::ChannelDestroy(const ChannelHandle* channels, uint32_
         }
     }
 
-    if (!deviceHandles.empty() && binHandle) {
-        CHK_RET(ChannelKernelDestroy(deviceHandles.data(), deviceHandles.size(), binHandle));
+    if (!deviceHandles.empty() && binHandle != nullptr) {
+        if (ProcessExitFlag::IsExiting()) {
+            HCCL_INFO(
+                "[%s] Process exiting, skip channel destroy kernel, deviceChannelNum[%u].", __func__,
+                static_cast<uint32_t>(deviceHandles.size()));
+        } else {
+            CHK_RET(ChannelKernelDestroy(deviceHandles.data(), deviceHandles.size(), binHandle));
+        }
     }
     HCCL_INFO("[ChannelProcess::%s] SUCCESS.", __func__);
     return HCCL_SUCCESS;
