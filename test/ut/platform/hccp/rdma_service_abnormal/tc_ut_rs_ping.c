@@ -193,39 +193,40 @@ void TcRsPingInit()
 void TcRsPingTargetAdd()
 {
     struct PingTargetInfo target = {0};
+    struct PingTargetInfo result = {0};
     struct RaRsDevInfo rdev = {0};
     int ret = 0;
 
-    ret = RsPingTargetAdd(&rdev, NULL);
+    ret = RsPingTargetAdd(&rdev, NULL, &result);
     EXPECT_INT_EQ(ret, -EINVAL);
 
     target.payload.size = PING_USER_PAYLOAD_MAX_SIZE + 1;
-    ret = RsPingTargetAdd(&rdev, &target);
+    ret = RsPingTargetAdd(&rdev, &target, &result);
     EXPECT_INT_EQ(ret, -EINVAL);
 
     target.payload.size = PING_USER_PAYLOAD_MAX_SIZE;
     mocker(RsGetPingCb, 1, -1);
-    ret = RsPingTargetAdd(&rdev, &target);
+    ret = RsPingTargetAdd(&rdev, &target, &result);
     EXPECT_INT_EQ(ret, -1);
     mocker_clean();
 
     gTmpPingCb.taskStatus = RS_PING_TASK_RUNNING;
     mocker_invoke(RsGetPingCb, RsGetPingCbStub, 1);
-    ret = RsPingTargetAdd(&rdev, &target);
+    ret = RsPingTargetAdd(&rdev, &target, &result);
     EXPECT_INT_NE(ret, 0);
     mocker_clean();
 
     gTmpPingCb.taskStatus = RS_PING_TASK_RESET;
     mocker_invoke(RsGetPingCb, RsGetPingCbStub, 1);
     mocker_invoke(RsPingRoceFindTargetNode, RsPingRoceFindTargetNodeStub, 1);
-    ret = RsPingTargetAdd(&rdev, &target);
+    ret = RsPingTargetAdd(&rdev, &target, &result);
     EXPECT_INT_NE(ret, 0);
     mocker_clean();
 
     mocker_invoke(RsGetPingCb, RsGetPingCbStub, 1);
     mocker_invoke(RsPingRoceFindTargetNode, RsPingRoceFindTargetNodeStub1, 1);
     mocker(RsPingRoceAllocTargetNode, 1, -1);
-    ret = RsPingTargetAdd(&rdev, &target);
+    ret = RsPingTargetAdd(&rdev, &target, &result);
     EXPECT_INT_EQ(ret, -1);
     mocker_clean();
 }

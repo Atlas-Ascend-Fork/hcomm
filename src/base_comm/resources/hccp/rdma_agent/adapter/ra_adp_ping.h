@@ -16,7 +16,7 @@
 
 struct RsPingOps {
     int (*pingInit)(struct PingInitAttr *attr, struct PingInitInfo *info, unsigned int *devIndex);
-    int (*pingTargetAdd)(struct RaRsDevInfo *rdev, struct PingTargetInfo *target);
+    int (*pingTargetAdd)(struct RaRsDevInfo *rdev, struct PingTargetInfo *target, struct PingTargetInfo *result);
     int (*pingTaskStart)(struct RaRsDevInfo *rdev, struct PingTaskAttr *attr);
     int (*pingGetResults)(struct RaRsDevInfo *rdev, struct PingTargetCommInfo target[], unsigned int *num,
         struct PingResultInfo result[]);

@@ -92,12 +92,81 @@ inline HccnResult HccnRpingInitInter(
     return HCCN_SUCCESS;
 }
 
+// 新增:带 cfg 的内部初始化,透传 taMode/tpMode 给 PingMesh 9 参数重载
+inline HccnResult HccnRpingInitInterWithCfg(
+    uint32_t& devLogicIdInter, HccnRpingInitAttr* initAttrInter, HccnRpingInitCfg* initCfgInter, PingMesh* rpingInter,
+    u32& npuNumInter, std::string& ipAddrDesInter)
+{
+    u32 bufferSizeInter = 0;
+    // npuNum必须为2的整次幂
+    npuNumInter = (initAttrInter->npuNum > NPU_NUM_MIN) ? initAttrInter->npuNum : NPU_NUM_MIN;
+    npuNumInter = (npuNumInter > NPU_NUM_MAX) ? (NPU_NUM_MAX - 1) : (npuNumInter - 1);
+    for (u32 i = 0; i < NPU_NUM_MAX_BITWIDTH; i++) {
+        npuNumInter |= (npuNumInter >> 1);
+    }
+    npuNumInter++;
+    npuNumInter = npuNumInter < NPU_NUM_MIN ? NPU_NUM_MIN : npuNumInter;
+    // bufferSize必须为4k的倍数
+    if (initAttrInter->bufferSize > 0) {
+        bufferSizeInter = ((initAttrInter->bufferSize - 1) / BUFFER_SIZE_UNIT + 1) * BUFFER_SIZE_UNIT;
+    }
+    // 初始化pingmesh实例,利用用户输入的ip地址构造HcclIpAddress类
+    HcclIpAddress ipAddr;
+    HcclResult ret = HCCL_SUCCESS;
+    if (initAttrInter->mode == HCCN_RPING_MODE_ROCE) {
+        if (!HcclIpAddress::IsIPv4(std::string(initAttrInter->ipAddr))
+            && !HcclIpAddress::IsIPv6(std::string(initAttrInter->ipAddr))) {
+            HCCL_ERROR(
+                "[HccnRpingInitInterWithCfg] invalid ip: %s, bufferSize:%u", initAttrInter->ipAddr, bufferSizeInter);
+            return HCCN_E_PARA;
+        }
+        ipAddr = HcclIpAddress(std::string(initAttrInter->ipAddr));
+        ret = rpingInter->HccnRpingInit(
+            devLogicIdInter, LINK_TYPE_MODE_ROCE, ipAddr, initAttrInter->port, npuNumInter, bufferSizeInter,
+            initAttrInter->sl, initAttrInter->tc, initCfgInter->ub.taMode, initCfgInter->ub.tpMode);
+        if (ret != HCCL_SUCCESS) {
+            HCCL_ERROR("[HccnRpingInitInterWithCfg] init fail, bufferSize:%u", bufferSizeInter);
+            return HCCN_E_FAIL;
+        }
+        ipAddrDesInter = ipAddr.GetReadableIP();
+    }
+    const char* socNamePtr = aclrtGetSocName();
+    CHK_PRT_RET(socNamePtr == nullptr, HCCL_ERROR("[HccnRpingInitInterWithCfg]socNamePtr is null."), HCCN_E_PARA);
+    // UB 模式在非 V2 形态上不支持: 显式报错, 避免静默跳过初始化导致"假成功"
+    if (initAttrInter->mode == HCCN_RPING_MODE_UB && !IsSupportHCCLV2(socNamePtr)) {
+        HCCL_ERROR("[HccnRpingInitInterWithCfg]UB mode not supported on soc[%s].", socNamePtr);
+        return HCCN_E_FAIL;
+    }
+
+    if (initAttrInter->mode == HCCN_RPING_MODE_UB && IsSupportHCCLV2(socNamePtr)) {
+        if (!HcclIpAddress::IsEID(std::string(initAttrInter->eid))) {
+            HCCL_ERROR(
+                "[HccnRpingInitInterWithCfg] invalid eid: %s, bufferSize:%u", initAttrInter->eid, bufferSizeInter);
+            return HCCN_E_PARA;
+        }
+        Eid eid = HcclIpAddress::StrToEID(std::string(initAttrInter->eid));
+        ipAddr = HcclIpAddress(eid);
+        ret = rpingInter->HccnRpingInit(
+            devLogicIdInter, LINK_TYPE_MODE_UB, ipAddr, initAttrInter->port, npuNumInter, bufferSizeInter,
+            initAttrInter->sl, initAttrInter->tc, initCfgInter->ub.taMode, initCfgInter->ub.tpMode);
+        if (ret != HCCL_SUCCESS) {
+            HCCL_ERROR(
+                "[HccnRpingInitInterWithCfg] init fail, bufferSize:%u, taMode:%d tpMode:%d, ret:%d", bufferSizeInter,
+                initCfgInter->ub.taMode, initCfgInter->ub.tpMode, ret);
+            return HCCN_E_FAIL;
+        }
+        ipAddrDesInter = ipAddr.Describe();
+    }
+    HCCL_RUN_INFO("[HccnRpingInitInterWithCfg]bufferSize:%u, ret:%d", bufferSizeInter, ret);
+    return HCCN_SUCCESS;
+}
+
 HccnResult HccnRpingInit(uint32_t devLogicId, HccnRpingInitAttr* initAttr, HccnRpingCtx* rpingCtx)
 {
     // 校验入参
     CHK_PRT_RET(initAttr == nullptr, HCCL_ERROR("[HccnRpingInit]initAttr is null."), HCCN_E_PARA);
     CHK_PRT_RET(
-        initAttr->mode >= HCCN_RPING_MODE_RESERVED,
+        initAttr->mode == PING_MODE_IPoUB || initAttr->mode >= HCCN_RPING_MODE_RESERVED,
         HCCL_ERROR("[HccnRpingInit]LinkMode[%d] not support.", initAttr->mode), HCCN_E_PARA);
     CHK_PRT_RET(rpingCtx == nullptr, HCCL_ERROR("[HccnRpingInit]rpingCtx is null."), HCCN_E_PARA);
     // 初始化ra接口
@@ -151,6 +220,111 @@ HccnResult HccnRpingInit(uint32_t devLogicId, HccnRpingInitAttr* initAttr, HccnR
         " tc:%u ip:%s",
         devLogicId, initAttr->mode, initAttr->port, npuNum, initAttr->sl, initAttr->tc, ipAddrDes);
     // 记录pingmesh指针
+    *rpingCtx = rping;
+    return HCCN_SUCCESS;
+}
+
+HccnResult HccnRpingInitWithCfg(
+    uint32_t devLogicId, HccnRpingInitAttr* initAttr, HccnRpingInitCfg* initCfg, HccnRpingCtx* rpingCtx)
+{
+    CHK_PRT_RET(initAttr == nullptr, HCCL_ERROR("[HccnRpingInitWithCfg]initAttr is null."), HCCN_E_PARA);
+    // 新接口 mode 应为 ROCE 或 UB;UB_RC_TP 是老接口值,新接口由 initCfg.ub.taMode 表达 RC,不应传入
+    CHK_PRT_RET(
+        initAttr->mode != HCCN_RPING_MODE_ROCE && initAttr->mode != HCCN_RPING_MODE_UB,
+        HCCL_ERROR(
+            "[HccnRpingInitWithCfg]LinkMode[%d] not support, use HCCN_RPING_MODE_UB or HCCN_RPING_MODE_ROCE.",
+            initAttr->mode),
+        HCCN_E_PARA);
+    CHK_PRT_RET(initCfg == nullptr, HCCL_ERROR("[HccnRpingInitWithCfg]initCfg is null."), HCCN_E_PARA);
+    CHK_PRT_RET(rpingCtx == nullptr, HCCL_ERROR("[HccnRpingInitWithCfg]rpingCtx is null."), HCCN_E_PARA);
+    CHK_PRT_RET(
+        initCfg->validCfgLen < sizeof(HccnRpingInitCfg),
+        HCCL_ERROR(
+            "[HccnRpingInitWithCfg]invalid validCfgLen[%u], expect no less than %zu.", initCfg->validCfgLen,
+            sizeof(HccnRpingInitCfg)),
+        HCCN_E_PARA);
+    // ROCE 模式不使用 taMode/tpMode, 必须保持默认组合(UM/UTP), 显式拒绝歧义配置
+    CHK_PRT_RET(
+        initAttr->mode == HCCN_RPING_MODE_ROCE
+            && (initCfg->ub.taMode != HCCN_RPING_UB_UM || initCfg->ub.tpMode != HCCN_RPING_UB_UTP),
+        HCCL_ERROR(
+            "[HccnRpingInitWithCfg]ROCE mode does not take taMode/tpMode, taMode[%d] tpMode[%d] should be default "
+            "UM/UTP.",
+            initCfg->ub.taMode, initCfg->ub.tpMode),
+        HCCN_E_PARA);
+    CHK_PRT_RET(
+        initCfg->ub.taMode != HCCN_RPING_UB_RC && initCfg->ub.taMode != HCCN_RPING_UB_UM,
+        HCCL_ERROR("[HccnRpingInitWithCfg]invalid taMode[%d].", initCfg->ub.taMode), HCCN_E_PARA);
+    CHK_PRT_RET(
+        initCfg->ub.tpMode != HCCN_RPING_UB_RTP && initCfg->ub.tpMode != HCCN_RPING_UB_CTP
+            && initCfg->ub.tpMode != HCCN_RPING_UB_UTP,
+        HCCL_ERROR("[HccnRpingInitWithCfg]invalid tpMode[%d].", initCfg->ub.tpMode), HCCN_E_PARA);
+    // 组合校验(仅 UB 模式生效):UM 仅支持 UTP(hccp 层 RsPingCommonImportJetty 硬编码 UTP);RC 支持 RTP/CTP
+    CHK_PRT_RET(
+        initAttr->mode == HCCN_RPING_MODE_UB && initCfg->ub.taMode == HCCN_RPING_UB_UM
+            && initCfg->ub.tpMode != HCCN_RPING_UB_UTP,
+        HCCL_ERROR(
+            "[HccnRpingInitWithCfg]UM only supports UTP, taMode[%d] tpMode[%d] not support.", initCfg->ub.taMode,
+            initCfg->ub.tpMode),
+        HCCN_E_PARA);
+    // 组合校验(仅 UB 模式生效):RC 仅支持 RTP/CTP(下游 RsPingUrmaGetLocalTpInfo 将非 CTP 一律按 RTP 查询)
+    CHK_PRT_RET(
+        initAttr->mode == HCCN_RPING_MODE_UB && initCfg->ub.taMode == HCCN_RPING_UB_RC
+            && initCfg->ub.tpMode == HCCN_RPING_UB_UTP,
+        HCCL_ERROR(
+            "[HccnRpingInitWithCfg]RC only supports RTP/CTP, taMode[%d] tpMode[%d] not support.", initCfg->ub.taMode,
+            initCfg->ub.tpMode),
+        HCCN_E_PARA);
+    CHK_PRT_RET(
+        DlRaFunction::GetInstance().DlRaFunctionInit() != HCCL_SUCCESS,
+        HCCL_ERROR("[HccnRpingInitWithCfg]dlrafunction failed."), HCCN_E_FAIL);
+    std::string initAttrDes;
+    if (initAttr->mode == HCCN_RPING_MODE_ROCE) {
+        initAttrDes = std::string(initAttr->ipAddr).c_str();
+    }
+    const char* socNamePtr = aclrtGetSocName();
+    CHK_PRT_RET(socNamePtr == nullptr, HCCL_ERROR("[HccnRpingInitWithCfg]socNamePtr is null."), HCCN_E_PARA);
+    if (initAttr->mode == HCCN_RPING_MODE_UB && IsSupportHCCLV2(socNamePtr)) {
+        initAttrDes = std::string(initAttr->eid).c_str();
+    }
+    HCCL_RUN_INFO(
+        "[HccnRpingInitWithCfg]devLogicId:%u, mode:%d taMode:%d tpMode:%d port:%u npuNum:%u "
+        "bufferSize:%u sl:%u tc:%u ip:%s",
+        devLogicId, initAttr->mode, initCfg->ub.taMode, initCfg->ub.tpMode, initAttr->port, initAttr->npuNum,
+        initAttr->bufferSize, initAttr->sl, initAttr->tc, initAttrDes.c_str());
+    s32 currDevLogicId = 0;
+    HcclResult ret = hrtGetDeviceRefresh(&currDevLogicId);
+    CHK_PRT_RET(
+        ret != HCCL_SUCCESS, HCCL_ERROR("[HccnRpingInitWithCfg]cannot get device logic id, ret[%d].", ret),
+        HCCN_E_FAIL);
+
+    if (devLogicId != static_cast<u32>(currDevLogicId)) {
+        HCCL_ERROR(
+            "[HccnRpingInitWithCfg]Input device logicId[%u] don't match current logicId[%d].", devLogicId,
+            currDevLogicId);
+        return HCCN_E_FAIL;
+    }
+    PingMesh* rping = new (std::nothrow) PingMesh();
+    CHK_PRT_RET(rping == nullptr, HCCL_ERROR("[HccnRpingInitWithCfg]rping alloc failed."), HCCN_E_MEM);
+    rping->initWithCfg(initAttr, initCfg); // 记录 mode + taMode + tpMode
+
+    u32 npuNum = 0;
+    std::string ipAddrDes;
+
+    if (HccnRpingInitInterWithCfg(devLogicId, initAttr, initCfg, rping, npuNum, ipAddrDes) != 0) {
+        HCCL_ERROR(
+            "[HccnRpingInitWithCfg]Pingmesh init failed, devLogicId:%u, port:%u, npuNum:%u, sl:%u"
+            " tc:%u ip:%s",
+            devLogicId, initAttr->port, npuNum, initAttr->sl, initAttr->tc, ipAddrDes.c_str());
+        delete rping;
+        return HCCN_E_FAIL;
+    }
+
+    HCCL_RUN_INFO(
+        "[HccnRpingInitWithCfg]Pingmesh init success, devLogicId:%u, mode:%d taMode:%d tpMode:%d "
+        "port:%u npuNum:%u sl:%u tc:%u ip:%s",
+        devLogicId, initAttr->mode, initCfg->ub.taMode, initCfg->ub.tpMode, initAttr->port, npuNum, initAttr->sl,
+        initAttr->tc, ipAddrDes.c_str());
     *rpingCtx = rping;
     return HCCN_SUCCESS;
 }
@@ -276,6 +450,11 @@ HccnResult HccnRpingAddTargetWithCfg(
     CHK_PRT_RET(rpingCtx == nullptr, HCCL_ERROR("[HccnRpingAddTargetWithCfg]rpingCtx is null."), HCCN_E_PARA);
     HCCL_DEBUG("[HccnRpingAddTargetWithCfg]targetNum:[%u] connectTimeout:[%u ms]", targetNum, config->connectTimeout);
     PingMesh* rping = static_cast<PingMesh*>(rpingCtx);
+    // RC 模式 client jetty 仅支持绑定 1 个 target jetty(urma 单绑定槽位), 单次 add 仅允许 1 个 target
+    CHK_PRT_RET(
+        rping->GetTaMode() == HCCN_RPING_UB_RC && targetNum != 1,
+        HCCL_ERROR("[HccnRpingAddTargetWithCfg]RC mode only supports 1 target per add, targetNum[%u].", targetNum),
+        HCCN_E_PARA);
     // 获取device id
     s32 devLogicId = 0;
     HcclResult ret = hrtGetDeviceRefresh(&devLogicId);
@@ -313,13 +492,17 @@ HccnResult HccnRpingAddTargetWithCfg(
     }
     ret = rping->HccnRpingAddTarget(static_cast<u32>(devLogicId), targetNum, input, config);
     if (ret != 0) {
-        HCCL_ERROR("[HccnRpingAddTarget]Device[%d] add targetNum %u fail, ret[%d]", devLogicId, targetNum, ret);
+        HCCL_ERROR(
+            "[HccnRpingAddTarget]Device[%d] add targetNum %u fail, ret[%d], mode:%d taMode:%d tpMode:%d.", devLogicId,
+            targetNum, ret, rping->GetMode(), rping->GetTaMode(), rping->GetTpMode());
         delete[] input;
         return HCCN_E_FAIL;
     }
 
     delete[] input;
-    HCCL_RUN_INFO("[HccnRpingAddTargetWithCfg]Device[%d] add targetNum %u success.", devLogicId, targetNum);
+    HCCL_RUN_INFO(
+        "[HccnRpingAddTargetWithCfg]Device[%d] add targetNum %u success, mode:%d taMode:%d tpMode:%d.", devLogicId,
+        targetNum, rping->GetMode(), rping->GetTaMode(), rping->GetTpMode());
     return HCCN_SUCCESS;
 }
 
@@ -492,8 +675,9 @@ HccnResult HccnRpingBatchPingStart(HccnRpingCtx rpingCtx, uint32_t pktNum, uint3
         HCCN_E_FAIL);
 
     HCCL_RUN_INFO(
-        "[HccnRpingBatchPingStart]task start success, devLogicId:[%d], pktNum:[%u], interval:[%u s], timeout:[%u s].",
-        devLogicId, pktNum, interval, timeout);
+        "[HccnRpingBatchPingStart]task start success, devLogicId:[%d], pktNum:[%u], interval:[%u s], timeout:[%u s], "
+        "mode:%d taMode:%d tpMode:%d.",
+        devLogicId, pktNum, interval, timeout, rping->GetMode(), rping->GetTaMode(), rping->GetTpMode());
     return HCCN_SUCCESS;
 }
 
@@ -631,6 +815,11 @@ HccnResult HccnRpingGetPayload(HccnRpingCtx rpingCtx, void** payload, uint32_t* 
     // 校验指针，并将其转换为pingmesh指针
     CHK_PRT_RET(rpingCtx == nullptr, HCCL_ERROR("[HccnRpingGetPayload]rpingCtx is null."), HCCN_E_PARA);
     PingMesh* rping = static_cast<PingMesh*>(rpingCtx);
+    // 入口拦截：RC模式(RC+RTP/RC+CTP)不支持GetPayload（内层未实现payload head重填
+    CHK_PRT_RET(
+        rping->GetTaMode() == HCCN_RPING_UB_RC,
+        HCCL_ERROR("[HccnRpingGetPayload]RC mode is not supported, devId[%d].", rping->GetDeviceLogicId()),
+        HCCN_E_FAIL);
     // 获取device id
     s32 devLogicId = 0;
     HcclResult ret = hrtGetDeviceRefresh(&devLogicId);
@@ -649,6 +838,43 @@ HccnResult HccnRpingGetPayload(HccnRpingCtx rpingCtx, void** payload, uint32_t* 
         HCCN_E_FAIL);
 
     HCCL_RUN_INFO("[HccnRpingGetPayload]Device[%d] get payload success, payloadLen[%u].", devLogicId, *payloadLen);
+    return HCCN_SUCCESS;
+}
+
+HccnResult
+HccnRpingGetCtxInfo(HccnRpingCtx* rpingCtx, HccnRpingCtxInfoType infoType, HccnRpingCtxInfo* info, uint32_t infoLen)
+{
+    CHK_PRT_RET(rpingCtx == nullptr, HCCL_ERROR("[HccnRpingGetCtxInfo]rpingCtx is null."), HCCN_E_PARA);
+    CHK_PRT_RET(*rpingCtx == nullptr, HCCL_ERROR("[HccnRpingGetCtxInfo]*rpingCtx is null."), HCCN_E_PARA);
+    CHK_PRT_RET(info == nullptr, HCCL_ERROR("[HccnRpingGetCtxInfo]info is null."), HCCN_E_PARA);
+    CHK_PRT_RET(*info == nullptr, HCCL_ERROR("[HccnRpingGetCtxInfo]*info is null."), HCCN_E_PARA);
+    PingMesh* rping = static_cast<PingMesh*>(*rpingCtx);
+    s32 devLogicId = 0;
+    HcclResult ret = hrtGetDeviceRefresh(&devLogicId);
+    CHK_PRT_RET(
+        ret != HCCL_SUCCESS, HCCL_ERROR("[HccnRpingGetCtxInfo]cannot get device logic id, ret[%d].", ret), HCCN_E_FAIL);
+
+    if (devLogicId != rping->GetDeviceLogicId()) {
+        HCCL_ERROR(
+            "[HccnRpingGetCtxInfo]curr devId[%d] don't match record logicId[%d].", devLogicId,
+            rping->GetDeviceLogicId());
+        return HCCN_E_PARA;
+    }
+
+    ret = rping->HccnRpingGetCtxInfo(infoType, info, infoLen);
+    // 参数错误(infoType 不支持/infoLen 不足)透传为 HCCN_E_PARA,与 RFC 返回值表一致
+    if (ret == HCCL_E_PARA) {
+        HCCL_ERROR(
+            "[HccnRpingGetCtxInfo]Device[%d] get ctx info fail, infoType[%d] ret[%d].", devLogicId, infoType, ret);
+        return HCCN_E_PARA;
+    }
+    CHK_PRT_RET(
+        ret != HCCL_SUCCESS,
+        HCCL_ERROR(
+            "[HccnRpingGetCtxInfo]Device[%d] get ctx info fail, infoType[%d] ret[%d].", devLogicId, infoType, ret),
+        HCCN_E_FAIL);
+
+    HCCL_RUN_INFO("[HccnRpingGetCtxInfo]Device[%d] get ctx info success, infoType[%d].", devLogicId, infoType);
     return HCCN_SUCCESS;
 }
 

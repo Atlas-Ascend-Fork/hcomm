@@ -67,8 +67,8 @@ STATIC int RaPingInitGetHandle(struct PingInitAttr *initAttr, struct PingInitInf
         CHK_PRT_RETURN(ret != 0, hccp_err("[init][ra_ping]ra_ub_dev_init_check failed, ret(%d)", ret), -EINVAL);
 
         pingHandle->phyId = initAttr->ub.phyId;
-        hccp_run_info("Input parameters: phyId[%u], nicPosition[%d], eidIndex[%u] bufferSize[0x%x]", initAttr->ub.phyId,
-            initAttr->mode, initAttr->dev.ub.eidIndex, initAttr->bufferSize);
+        hccp_run_info("Input parameters: phyId[%u], nicPosition[%d], eidIndex[%u], bufferSize[0x%x]",
+            initAttr->ub.phyId, initAttr->mode, initAttr->dev.ub.eidIndex, initAttr->bufferSize);
     } else {
         hccp_err("[init][ra_ping]protocol:%d do not support", initAttr->protocol);
         return -ENOTSUPP;
@@ -158,9 +158,16 @@ HCCP_ATTRI_VISI_DEF int RaPingTargetAdd(void *pingHandle, struct PingTargetInfo 
         return ConverReturnCode(RDMA_OP, ret);
     }
 
-    // increase target cnt
+    // increase target cnt, exclude GET_LOCAL_TP_INFO queries which do not create persistent targets
+    uint32_t addCnt = 0;
+    uint32_t i;
+    for (i = 0; i < num; i++) {
+        if (target[i].targetAddAction != PING_TARGET_ADD_ACTION_GET_LOCAL_TP_INFO) {
+            addCnt++;
+        }
+    }
     RA_PTHREAD_MUTEX_LOCK(&pingHandleTmp->mutex);
-    pingHandleTmp->targetCnt += num;
+    pingHandleTmp->targetCnt += addCnt;
     RA_PTHREAD_MUTEX_UNLOCK(&pingHandleTmp->mutex);
     return 0;
 }

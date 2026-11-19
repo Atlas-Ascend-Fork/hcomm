@@ -17,7 +17,8 @@
 RS_ATTRI_VISI_DEF int RsPingHandleInit(unsigned int chipId, int hdcType, unsigned int whiteListStatus);
 RS_ATTRI_VISI_DEF int RsPingHandleDeinit(unsigned int chipId);
 RS_ATTRI_VISI_DEF int RsPingInit(struct PingInitAttr *attr, struct PingInitInfo *info, unsigned int *devIndex);
-RS_ATTRI_VISI_DEF int RsPingTargetAdd(struct RaRsDevInfo *rdev, struct PingTargetInfo *target);
+RS_ATTRI_VISI_DEF int RsPingTargetAdd(struct RaRsDevInfo *rdev, struct PingTargetInfo *target,
+    struct PingTargetInfo *result);
 RS_ATTRI_VISI_DEF int RsPingTaskStart(struct RaRsDevInfo *rdev, struct PingTaskAttr *attr);
 RS_ATTRI_VISI_DEF int RsPingGetResults(struct RaRsDevInfo *rdev, struct PingTargetCommInfo target[], unsigned int *num,
     struct PingResultInfo result[]);

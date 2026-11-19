@@ -131,8 +131,6 @@ STATIC void *RsPingHandle(void *arg)
             if (rsCb->pingCb.taskAttr.packetCnt == 1 && targetCurr->state == RS_PING_PONG_TARGET_READY) {
                 targetCurr->state = RS_PING_PONG_TARGET_FINISH;
             }
-            // make sure thread will exit
-            usleep(rsCb->pingCb.taskAttr.packetInterval * RS_PING_MSEC_TO_USEC);
 
             // ping poll scq
             ret = rsCb->pingCb.pingPongOps->pingPollScq(&rsCb->pingCb, targetCurr);
@@ -362,19 +360,19 @@ STATIC int RsGetPingCb(struct RaRsDevInfo *rdev, struct RsPingCtxCb **pingCb)
     return 0;
 }
 
-RS_ATTRI_VISI_DEF int RsPingTargetAdd(struct RaRsDevInfo *rdev, struct PingTargetInfo *target)
+RS_ATTRI_VISI_DEF int RsPingTargetAdd(struct RaRsDevInfo *rdev, struct PingTargetInfo *target,
+    struct PingTargetInfo *result)
 {
     struct RsPingTargetInfo *targetInfo = NULL;
     struct RsPingCtxCb *pingCb = NULL;
     int ret;
 
-    CHK_PRT_RETURN(rdev == NULL || target == NULL, hccp_err("param error, rdev is NULL or target is NULL"), -EINVAL);
+    CHK_PRT_RETURN(rdev == NULL || target == NULL || result == NULL,
+        hccp_err("param error, rdev or target or result is NULL"), -EINVAL);
     CHK_PRT_RETURN(target->payload.size > PING_USER_PAYLOAD_MAX_SIZE,
         hccp_err("param error, size:%u > max_size:%u", target->payload.size, PING_USER_PAYLOAD_MAX_SIZE), -EINVAL);
-
     ret = RsGetPingCb(rdev, &pingCb);
     CHK_PRT_RETURN(ret != 0, hccp_err("rs_get_ping_cb failed, ret=%d phyId:%u", ret, rdev->phyId), ret);
-
     if (pingCb->taskStatus != RS_PING_TASK_RESET) {
         hccp_err("task_status:%d disallow to add target phyId:%u", pingCb->taskStatus, rdev->phyId);
         return -EEXIST;
@@ -387,6 +385,17 @@ RS_ATTRI_VISI_DEF int RsPingTargetAdd(struct RaRsDevInfo *rdev, struct PingTarge
         goto out;
     }
 
+    if (target->version >= 1 && target->targetAddAction == PING_TARGET_ADD_ACTION_GET_LOCAL_TP_INFO) {
+        // Query-like requests are supported only by UB(URMA) ops; report explicitly when the ops is
+        // not implemented, avoiding a silent fall-through to the real target-build path below
+        CHK_PRT_RETURN(pingCb->pingPongOps->pingAllocGetLocalTpInfo == NULL,
+            hccp_err("rs_ping_urma_get_local_tp_info is not supported by current protocol ops"), -EOPNOTSUPP);
+        ret = pingCb->pingPongOps->pingAllocGetLocalTpInfo(pingCb, target, result);
+        CHK_PRT_RETURN(ret != 0, hccp_err("rs_ping_urma_get_local_tp_info failed, ret:%d", ret), ret);
+        return ret;
+    }
+
+    // targetAddAction: PING_TARGET_ADD_ACTION_DEFAULT
     ret = pingCb->pingPongOps->pingAllocTargetNode(pingCb, target, &targetInfo);
     if (ret != 0) {
         hccp_err("rs_ping_alloc_target_node failed, ret:%d phyId:%u", ret, rdev->phyId);
@@ -403,6 +412,10 @@ out:
     pingCb->pingPongDfx->addTargetSuccess(target, targetInfo);
     return ret;
 }
+
+// packetInterval upper bound (ms): downstream packetInterval*1000 participates in polling/tick
+// computation as int; overflow turns negative
+#define RS_PING_PACKET_INTERVAL_MAX 600000U
 
 RS_ATTRI_VISI_DEF int RsPingTaskStart(struct RaRsDevInfo *rdev, struct PingTaskAttr *attr)
 {
@@ -423,6 +436,9 @@ RS_ATTRI_VISI_DEF int RsPingTaskStart(struct RaRsDevInfo *rdev, struct PingTaskA
     CHK_PRT_RETURN(attr->packetCnt == 0 || attr->packetInterval == 0 || attr->timeoutInterval == 0,
         hccp_err("param error, packetCnt:%u or packetInterval:%u or timeoutInterval:%u is 0", attr->packetCnt,
             attr->packetInterval, attr->timeoutInterval),
+        -EINVAL);
+    CHK_PRT_RETURN(attr->packetInterval > RS_PING_PACKET_INTERVAL_MAX,
+        hccp_err("param error, packetInterval:%u > max:%u", attr->packetInterval, RS_PING_PACKET_INTERVAL_MAX),
         -EINVAL);
 
     pingCb->pingPongOps->resetRecvBuffer(pingCb);

@@ -66,6 +66,7 @@ struct RsUrmaOps {
     urma_target_jetty_t *(*rsUrmaImportJetty)(urma_context_t *ctx, urma_rjetty_t *rjetty, urma_token_t *tokenValue);
     urma_status_t (*rsUrmaUnimportJetty)(urma_target_jetty_t *tjetty);
     urma_status_t (*rsUrmaBindJetty)(urma_jetty_t *jetty, urma_target_jetty_t *tjetty);
+    urma_status_t (*rsUrmaBindJettyEx)(urma_jetty_t *jetty, urma_target_jetty_t *tjetty, urma_bind_jetty_ex_cfg_t *cfg);
     urma_status_t (*rsUrmaUnbindJetty)(urma_jetty_t *jetty);
     int (*rsUrmaFlushJetty)(urma_jetty_t *jetty, int crCnt, urma_cr_t *cr);
     urma_jfce_t *(*rsUrmaCreateJfce)(urma_context_t *ctx);
@@ -140,6 +141,7 @@ int RsUrmaDeleteJetty(urma_jetty_t *jetty);
 int RsUrmaDeleteJettyBatch(urma_jetty_t **jettyArr, int jettyNum, urma_jetty_t **badJetty);
 urma_target_jetty_t *RsUrmaImportJetty(urma_context_t *ctx, urma_rjetty_t *rjetty, urma_token_t *tokenValue);
 int RsUrmaUnimportJetty(urma_target_jetty_t *tjetty);
+int RsUrmaUnbindJetty(urma_jetty_t *jetty);
 int RsUrmaFlushJetty(urma_jetty_t *jetty, int crCnt, urma_cr_t *cr);
 urma_jfce_t *RsUrmaCreateJfce(urma_context_t *ctx);
 int RsUrmaDeleteJfce(urma_jfce_t *jfce);
@@ -178,5 +180,6 @@ int RsUrmaActiveJfc(urma_jfc_t *jfc);
 int RsUrmaGetJfcOpt(urma_jfc_t *jfc, uint64_t opt, void *buf, uint32_t len);
 int RsUrmaDeactiveJfc(urma_jfc_t *jfc);
 int RsUrmaFreeJfc(urma_jfc_t *jfc);
+int RsUrmaBindJettyEx(urma_jetty_t *jetty, urma_target_jetty_t *tjetty, urma_bind_jetty_ex_cfg_t *cfg);
 
 #endif // DL_URMA_FUNCTION_H

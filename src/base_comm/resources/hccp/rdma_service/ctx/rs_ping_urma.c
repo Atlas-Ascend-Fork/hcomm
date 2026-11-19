@@ -110,12 +110,30 @@ free_urma_ctx:
     return ret;
 }
 
-STATIC int RsPingCommonInitJfce(struct RsPingCtxCb *pingCb, struct RsPingLocalJettyCb *jettyCb)
+STATIC void RsPingCommonDeinitJfce(struct rs_cb *rscb, struct RsPingCtxCb *pingCb, struct RsPingLocalJettyCb *jettyCb)
+{
+    if (jettyCb->jfce == NULL) {
+        return;
+    }
+    (void)RsEpollCtl(rscb->connCb.epollfd, EPOLL_CTL_DEL, jettyCb->jfce->fd, EPOLLIN | EPOLLRDHUP);
+    (void)RsUrmaDeleteJfce(jettyCb->jfce);
+    jettyCb->jfce = NULL;
+}
+
+STATIC int RsPingCommonInitJfce(struct rs_cb *rscb, struct RsPingCtxCb *pingCb, struct RsPingLocalJettyCb *jettyCb)
 {
     int ret = 0;
     jettyCb->jfce = RsUrmaCreateJfce(pingCb->udevCb.urmaCtx);
     RS_URMA_PTR_TO_ERRNO(jettyCb->jfce, ret);
     CHK_PRT_RETURN(jettyCb->jfce == NULL, hccp_err("urma_create_jfce failed, errno:%d, ret:%d", errno, ret), ret);
+
+    ret = RsEpollCtl(rscb->connCb.epollfd, EPOLL_CTL_ADD, jettyCb->jfce->fd, EPOLLIN | EPOLLRDHUP);
+    if (ret != 0) {
+        hccp_err("RsEpollCtl failed! epollfd:%d fd:%d ret:%d", rscb->connCb.epollfd, jettyCb->jfce->fd, ret);
+        (void)RsUrmaDeleteJfce(jettyCb->jfce);
+        jettyCb->jfce = NULL;
+        return ret;
+    }
 
     hccp_run_info("eid:%016llx:%016llx init jfce success, fd:%d", pingCb->udevCb.eidInfo.eid.in6.subnetPrefix,
         pingCb->udevCb.eidInfo.eid.in6.interfaceId, jettyCb->jfce->fd);
@@ -177,20 +195,28 @@ STATIC int RsPingCommonInitJettyWithAttr(struct RsPingCtxCb *pingCb, union PingQ
     int ret;
 
     jfsCfg.depth = attr->ub.qpAttr.cap.maxSendWr;
-    jfsCfg.trans_mode = URMA_TM_UM;
+    jfsCfg.trans_mode = pingCb->udevCb.transMode;
+    jfsCfg.priority = pingCb->udevCb.priority;
     jfsCfg.max_sge = (uint8_t)attr->ub.qpAttr.cap.maxSendSge;
     jfsCfg.max_inline_data = attr->ub.qpAttr.cap.maxInlineData;
     jfsCfg.rnr_retry = URMA_TYPICAL_RNR_RETRY;
+    if (pingCb->udevCb.transMode == URMA_TM_RC) {
+        jfsCfg.flag.bs.order_type = URMA_OL;
+        jfsCfg.err_timeout = URMA_TYPICAL_ERR_TIMEOUT;
+    }
     jfsCfg.jfc = jettyCb->sendJfc.jfc;
     jfsCfg.user_ctx = 0;
 
     jfrCfg.depth = attr->ub.qpAttr.cap.maxRecvWr;
     jfrCfg.flag.bs.token_policy = URMA_TOKEN_PLAIN_TEXT;
-    jfrCfg.trans_mode = URMA_TM_UM;
+    jfrCfg.trans_mode = pingCb->udevCb.transMode;
     jfrCfg.max_sge = (uint8_t)attr->ub.qpAttr.cap.maxRecvSge;
     jfrCfg.min_rnr_timer = URMA_TYPICAL_MIN_RNR_TIMER;
     jfrCfg.jfc = jettyCb->recvJfc.jfc;
     jfrCfg.token_value.token = attr->ub.qpAttr.tokenValue;
+    if (pingCb->udevCb.transMode == URMA_TM_RC) {
+        jfrCfg.flag.bs.order_type = URMA_OL;
+    }
 
     jettyCb->jfr = RsUrmaCreateJfr(pingCb->udevCb.urmaCtx, &jfrCfg);
     RS_URMA_PTR_TO_ERRNO(jettyCb->jfr, ret);
@@ -229,16 +255,10 @@ STATIC int RsPingCommonInitLocalJetty(struct rs_cb *rscb, struct RsPingCtxCb *pi
         attr->ub.qpAttr.cap.maxSendWr, attr->ub.qpAttr.cap.maxRecvWr, attr->ub.qpAttr.cap.maxSendSge,
         attr->ub.qpAttr.cap.maxRecvSge, attr->ub.qpAttr.cap.maxInlineData);
 
-    ret = RsPingCommonInitJfce(pingCb, jettyCb);
+    ret = RsPingCommonInitJfce(rscb, pingCb, jettyCb);
     if (ret != 0) {
         hccp_err("init jfce failed, ret:%d", ret);
         goto init_jfce_fail;
-    }
-
-    ret = RsEpollCtl(rscb->connCb.epollfd, EPOLL_CTL_ADD, jettyCb->jfce->fd, EPOLLIN | EPOLLRDHUP);
-    if (ret != 0) {
-        hccp_err("RsEpollCtl failed! epollfd:%d fd:%d ret:%d", rscb->connCb.epollfd, jettyCb->jfce->fd, ret);
-        goto epoll_ctl_fail;
     }
 
     ret = RsPingCommonInitSendJfcWithAttr(rscb, pingCb, attr, jettyCb);
@@ -267,10 +287,7 @@ init_recv_jfc_fail:
     (void)RsUrmaDeleteJfc(jettyCb->sendJfc.jfc);
     jettyCb->sendJfc.jfc = NULL;
 init_send_jfc_fail:
-    (void)RsEpollCtl(rscb->connCb.epollfd, EPOLL_CTL_DEL, jettyCb->jfce->fd, EPOLLIN | EPOLLRDHUP);
-epoll_ctl_fail:
-    (void)RsUrmaDeleteJfce(jettyCb->jfce);
-    jettyCb->jfce = NULL;
+    RsPingCommonDeinitJfce(rscb, pingCb, jettyCb);
 init_jfce_fail:
     return ret;
 }
@@ -278,7 +295,12 @@ init_jfce_fail:
 STATIC void RsPingCommonDeinitLocalJetty(struct rs_cb *rscb, struct RsPingCtxCb *pingCb,
     struct RsPingLocalJettyCb *jettyCb)
 {
-    (void)pingCb;
+    urma_cr_t cr = {0};
+
+    if (pingCb->udevCb.transMode == URMA_TM_RC) {
+        (void)RsUrmaFlushJetty(jettyCb->jetty, 1, &cr);
+    }
+
     (void)RsUrmaDeleteJetty(jettyCb->jetty);
     jettyCb->jetty = NULL;
 
@@ -291,10 +313,7 @@ STATIC void RsPingCommonDeinitLocalJetty(struct rs_cb *rscb, struct RsPingCtxCb 
     (void)RsUrmaDeleteJfc(jettyCb->sendJfc.jfc);
     jettyCb->sendJfc.jfc = NULL;
 
-    (void)RsEpollCtl(rscb->connCb.epollfd, EPOLL_CTL_DEL, jettyCb->jfce->fd, EPOLLIN | EPOLLRDHUP);
-
-    (void)RsUrmaDeleteJfce(jettyCb->jfce);
-    jettyCb->jfce = NULL;
+    RsPingCommonDeinitJfce(rscb, pingCb, jettyCb);
 
     return;
 }
@@ -508,6 +527,43 @@ STATIC int RsPingCommonInitJettyPostRecvAll(struct RsPingLocalJettyCb *jettyCb)
     return ret;
 }
 
+STATIC int RsPingUrmaGetTpPriority(struct RsPingCtxCb *pingCb)
+{
+    urma_device_attr_t devAttr = {0};
+    urma_tp_type_t tp = (urma_tp_type_t)pingCb->udevCb.tpType;
+    bool match = false;
+    uint32_t i;
+    int ret;
+
+    ret = RsUrmaQueryDevice(pingCb->udevCb.urmaDev, &devAttr);
+    CHK_PRT_RETURN(ret != 0, hccp_err("rs_urma_query_device failed, ret:%d", ret), ret);
+
+    for (i = 0; i < URMA_MAX_PRIORITY_CNT; i++) {
+        switch (tp) {
+            case URMA_RTP:
+                match = (devAttr.dev_cap.priority_info[i].tp_type.bs.rtp == 1);
+                break;
+            case URMA_CTP:
+                match = (devAttr.dev_cap.priority_info[i].tp_type.bs.ctp == 1);
+                break;
+            case URMA_UTP:
+                match = (devAttr.dev_cap.priority_info[i].tp_type.bs.utp == 1);
+                break;
+            default:
+                hccp_err("invalid tpType:%u", pingCb->udevCb.tpType);
+                return -EINVAL;
+        }
+        if (match) {
+            pingCb->udevCb.priority = (uint8_t)i;
+            hccp_run_info("tpType:%u priority:%u sl:%u", pingCb->udevCb.tpType, i, devAttr.dev_cap.priority_info[i].SL);
+            return 0;
+        }
+    }
+
+    hccp_err("no priority entry for tpType:%u in device priority_info", pingCb->udevCb.tpType);
+    return -EOPNOTSUPP;
+}
+
 STATIC int RsPingPongInitLocalUbResources(struct rs_cb *rscb, struct PingInitAttr *attr, struct PingInitInfo *info,
     struct RsPingCtxCb *pingCb)
 {
@@ -581,12 +637,30 @@ STATIC int RsPingUrmaPingCbInit(unsigned int phyId, struct PingInitAttr *attr, s
     (void)memcpy_s(&pingCb->commInfo, sizeof(struct PingLocalCommInfo), &attr->commInfo,
         sizeof(struct PingLocalCommInfo));
 
+    pingCb->udevCb.transMode = (attr->version >= 1) ? attr->ub.transMode : URMA_TM_UM;
+    pingCb->udevCb.tpType = (attr->version >= 1) ? attr->ub.tpType : URMA_UTP;
+    if (pingCb->udevCb.transMode != URMA_TM_RC && pingCb->udevCb.transMode != URMA_TM_UM) {
+        hccp_err("invalid transMode:%u, version:%d", pingCb->udevCb.transMode, attr->version);
+        ret = -EINVAL;
+        goto get_urma_dev_fail;
+    }
+    if (pingCb->udevCb.tpType != URMA_RTP && pingCb->udevCb.tpType != URMA_CTP && pingCb->udevCb.tpType != URMA_UTP) {
+        hccp_err("invalid tpType:%u, version:%d", pingCb->udevCb.tpType, attr->version);
+        ret = -EINVAL;
+        goto get_urma_dev_fail;
+    }
     (void)memcpy_s(eid.raw, sizeof(eid.raw), attr->dev.ub.eid.raw, sizeof(attr->dev.ub.eid.raw));
     pingCb->udevCb.urmaDev = RsUrmaGetDeviceByEid(eid, URMA_TRANSPORT_UB);
     RS_URMA_PTR_TO_ERRNO(pingCb->udevCb.urmaDev, ret);
     if (pingCb->udevCb.urmaDev == NULL) {
         hccp_err("urma_get_device_by_eid failed, urmaDev is NULL, errno:%d eid:%016llx:%016llx", errno,
             eid.in6.subnet_prefix, eid.in6.interface_id);
+        goto get_urma_dev_fail;
+    }
+
+    ret = RsPingUrmaGetTpPriority(pingCb);
+    if (ret != 0) {
+        hccp_err("get tp priority failed, tpType:%u ret:%d", pingCb->udevCb.tpType, ret);
         goto get_urma_dev_fail;
     }
 
@@ -639,6 +713,108 @@ STATIC int RsPingUrmaFindTargetNode(struct RsPingCtxCb *pingCb, struct PingQpInf
     hccp_info_rma("ping target node for jetty_id:%u eid:%016llx:%016llx not found", targetJettyId.id,
         targetEid.in6.subnet_prefix, targetEid.in6.interface_id);
     return -ENODEV;
+}
+
+STATIC const char *RsPingTransModeToStr(uint32_t transMode)
+{
+    if (transMode == URMA_TM_RC) {
+        return "URMA_TM_RC";
+    }
+    if (transMode == URMA_TM_UM) {
+        return "URMA_TM_UM";
+    }
+    return "URMA_TM_UNKNOWN";
+}
+
+STATIC int RsPingUrmaGetLocalTpInfo(struct RsPingCtxCb *pingCb, struct PingTargetInfo *target,
+    struct PingTargetInfo *result)
+{
+    urma_get_tp_cfg_t tpCfg = {0};
+    urma_tp_info_t tpInfo = {0};
+    uint32_t tpCnt = 1;
+    int ret;
+
+    if (pingCb->udevCb.transMode != URMA_TM_RC) {
+        hccp_err("invalid transMode:%u, get local tp info only supports RC mode", pingCb->udevCb.transMode);
+        return -EINVAL;
+    }
+
+    if (pingCb->udevCb.tpType == URMA_CTP) {
+        tpCfg.flag.bs.ctp = 1;
+    } else {
+        tpCfg.flag.bs.rtp = 1;
+    }
+    tpCfg.trans_mode = URMA_TM_RC;
+    (void)memcpy_s(&tpCfg.local_eid, sizeof(urma_eid_t), &pingCb->pingJetty.jetty->jetty_id.eid, sizeof(urma_eid_t));
+    (void)memcpy_s(&tpCfg.peer_eid, sizeof(urma_eid_t), target->remoteInfo.eid.raw, sizeof(target->remoteInfo.eid.raw));
+
+    ret = RsUrmaGetTpList(pingCb->udevCb.urmaCtx, &tpCfg, &tpCnt, &tpInfo);
+    CHK_PRT_RETURN(ret != 0, hccp_err("urma_get_tp_list failed, ret:%d", ret), ret);
+    CHK_PRT_RETURN(tpCnt == 0, hccp_err("no tp found, tpType:%u", pingCb->udevCb.tpType), -ENODATA);
+
+    result->localInfo.ub.tpHandle = tpInfo.tp_handle;
+    int randPsn = 0;
+    ret = RsDrvGetRandomNum(&randPsn);
+    CHK_PRT_RETURN(ret != 0, hccp_err("get random psn failed, ret:%d", ret), -EIO);
+    result->localInfo.ub.tpPsn = (uint32_t)randPsn;
+    hccp_run_info("get local tp info success, tpType:%u tpHandle:0x%llx psn:%u", pingCb->udevCb.tpType,
+        result->localInfo.ub.tpHandle, result->localInfo.ub.tpPsn);
+    return 0;
+}
+
+STATIC int RsPingCommonImportJettyEx(struct RsPingCtxCb *pingCb, struct PingTargetInfo *target,
+    urma_target_jetty_t **importTjetty)
+{
+    int ret;
+    urma_import_jetty_ex_cfg_t importCfg = {0};
+    urma_bind_jetty_ex_cfg_t bindExCfg = {0};
+    urma_token_t tokenValue = {0};
+    urma_eid_t remoteEid = {0};
+    urma_rjetty_t rjetty = {0};
+
+    RsGetJettyInfo(&target->remoteInfo.qpInfo, &rjetty.jetty_id, &remoteEid);
+
+    tokenValue.token = target->remoteInfo.qpInfo.ub.tokenValue;
+    rjetty.trans_mode = pingCb->udevCb.transMode;
+    rjetty.type = URMA_JETTY;
+    rjetty.flag.bs.token_policy = URMA_TOKEN_PLAIN_TEXT;
+    if (pingCb->udevCb.transMode == URMA_TM_RC) {
+        rjetty.flag.bs.order_type = URMA_OL;
+        rjetty.flag.bs.share_tp = 0;
+    }
+    rjetty.tp_type = pingCb->udevCb.tpType;
+
+    importCfg.tp_handle = target->localInfo.ub.tpHandle;
+    importCfg.peer_tp_handle = target->remoteExInfo.ub.tpHandle;
+    importCfg.tp_attr.tx_psn = target->localInfo.ub.tpPsn;
+    importCfg.tp_attr.rx_psn = target->remoteExInfo.ub.tpPsn;
+    *importTjetty = RsUrmaImportJettyEx(pingCb->udevCb.urmaCtx, &rjetty, &tokenValue, &importCfg);
+    if (*importTjetty == NULL) {
+        hccp_err("urma_import_jetty_ex failed, errno:%d remote eid:%016llx:%016llx", errno, remoteEid.in6.subnet_prefix,
+            remoteEid.in6.interface_id);
+        return -EOPENSRC;
+    }
+
+    if (pingCb->udevCb.transMode != URMA_TM_RC) {
+        return 0;
+    }
+
+    bindExCfg.tp_handle = target->localInfo.ub.tpHandle;
+    bindExCfg.peer_tp_handle = target->remoteExInfo.ub.tpHandle;
+    bindExCfg.tp_attr.tx_psn = target->localInfo.ub.tpPsn;
+    bindExCfg.tp_attr.rx_psn = target->remoteExInfo.ub.tpPsn;
+    ret = RsUrmaBindJettyEx(pingCb->pingJetty.jetty, *importTjetty, &bindExCfg);
+    if (ret != 0) {
+        hccp_err("urma_bind_jetty_ex failed, ret:%d", ret);
+        (void)RsUrmaUnimportJetty(*importTjetty);
+        *importTjetty = NULL;
+        return ret;
+    }
+    hccp_run_info("rc jetty bind success, local uasid:%u remote eid:%016llx:%016llx tpHandle:0x%llx "
+                  "peerTpHandle:0x%llx psn:%u",
+        pingCb->pingJetty.jetty->jetty_id.uasid, remoteEid.in6.subnet_prefix, remoteEid.in6.interface_id,
+        bindExCfg.tp_handle, bindExCfg.peer_tp_handle, bindExCfg.tp_attr.tx_psn);
+    return 0;
 }
 
 STATIC int RsPingCommonImportJetty(urma_context_t *urmaCtx, struct PingQpInfo *target,
@@ -696,9 +872,13 @@ STATIC int RsPingUrmaAllocTargetNode(struct RsPingCtxCb *pingCb, struct PingTarg
     (void)memcpy_s(&targetInfo->qpInfo, sizeof(struct PingQpInfo), &target->remoteInfo.qpInfo,
         sizeof(struct PingQpInfo));
 
-    ret = RsPingCommonImportJetty(pingCb->udevCb.urmaCtx, &target->remoteInfo.qpInfo, &targetInfo->importTjetty);
+    if (pingCb->udevCb.transMode == URMA_TM_UM) {
+        ret = RsPingCommonImportJetty(pingCb->udevCb.urmaCtx, &target->remoteInfo.qpInfo, &targetInfo->importTjetty);
+    } else { // pingCb->udevCb.transMode == URMA_TM_RC
+        ret = RsPingCommonImportJettyEx(pingCb, target, &targetInfo->importTjetty);
+    }
     if (ret != 0) {
-        hccp_err("rs_ping_import_jetty failed, ret:%d", ret);
+        hccp_err("import jetty failed, ret:%d transMode:%s", ret, RsPingTransModeToStr(pingCb->udevCb.transMode));
         goto free_payload_buffer;
     }
 
@@ -754,10 +934,10 @@ STATIC void RsPingJettyBuildUpWr(struct RsPingCtxCb *pingCb, struct RsPingTarget
 
 STATIC int RsPingUrmaPostSend(struct RsPingCtxCb *pingCb, struct RsPingTargetInfo *target)
 {
-    urma_jetty_id_t serverJettyKey = {0};
+    struct RsPingLocalJettyCb *localJetty = NULL;
     struct RsPingPayloadHeader *header = NULL;
+    urma_jetty_id_t serverJettyKey = {0};
     urma_jetty_id_t targetJettyId = {0};
-    struct timeval timestamp = {0};
     urma_jfs_wr_t *badWr = NULL;
     urma_eid_t targetEid = {0};
     urma_jfs_wr_t wr = {0};
@@ -776,10 +956,11 @@ STATIC int RsPingUrmaPostSend(struct RsPingCtxCb *pingCb, struct RsPingTargetInf
     RS_PTHREAD_MUTEX_ULOCK(&pingCb->pingJetty.sendSegCb.mutex);
 
     // prepare ping_jetty send buffer
-    serverJettyKey = pingCb->pongJetty.jetty->jetty_id;
+    localJetty = (pingCb->udevCb.transMode == URMA_TM_RC) ? &pingCb->pingJetty : &pingCb->pongJetty;
+    serverJettyKey = localJetty->jetty->jetty_id;
     (void)memset_s((void *)(uintptr_t)list.addr, list.len, 0, list.len);
     header = (struct RsPingPayloadHeader *)(uintptr_t)list.addr;
-    RsPingFillSendHeader(header, &serverJettyKey, &pingCb->pongJetty, target);
+    RsPingFillSendHeader(header, &serverJettyKey, localJetty, target);
 
     if (target->payloadSize > 0) {
         ret = memcpy_s((void *)(uintptr_t)(list.addr + RS_PING_PAYLOAD_HEADER_RESV_CUSTOM),
@@ -794,9 +975,9 @@ STATIC int RsPingUrmaPostSend(struct RsPingCtxCb *pingCb, struct RsPingTargetInf
     RsPingJettyBuildUpWr(pingCb, target, &list, &wr);
 
     // record timestamp t1
-    (void)gettimeofday(&timestamp, NULL);
-    header->timestamp.tvSec1 = (uint64_t)timestamp.tv_sec;
-    header->timestamp.tvUsec1 = (uint64_t)timestamp.tv_usec;
+    (void)gettimeofday(&target->t1, NULL);
+    header->timestamp.tvSec1 = (uint64_t)target->t1.tv_sec;
+    header->timestamp.tvUsec1 = (uint64_t)target->t1.tv_usec;
     header->taskId = pingCb->taskId;
     header->magic = 0x55AA;
 
@@ -813,11 +994,35 @@ STATIC int RsPingUrmaPostSend(struct RsPingCtxCb *pingCb, struct RsPingTargetInf
 
 STATIC int RsPingUrmaPollScq(struct RsPingCtxCb *pingCb, struct RsPingTargetInfo *target)
 {
+    int packetIntervalUs = pingCb->taskAttr.packetInterval * RS_PING_MSEC_TO_USEC;
+    int maxRetries = packetIntervalUs;
+    struct RsPingTimestamp ts = {0};
+    struct timeval tvNow = {0};
+    int retryIntervalUs = 1;
     urma_cr_t sendCr = {0};
-    int polledCnt;
+    int retryCount = 0;
+    int polledCnt = 0;
+    uint32_t rtt = 0;
 
-    polledCnt = RsUrmaPollJfc(pingCb->pingJetty.sendJfc.jfc, 1, &sendCr);
-    RS_URMA_RET_TO_ERRNO(polledCnt);
+    // make sure thread will exit
+    if (pingCb->udevCb.transMode != URMA_TM_RC) {
+        usleep(packetIntervalUs);
+        maxRetries = 1;
+    }
+
+    while (retryCount < maxRetries) {
+        polledCnt = RsUrmaPollJfc(pingCb->pingJetty.sendJfc.jfc, 1, &sendCr);
+        RS_URMA_RET_TO_ERRNO(polledCnt);
+
+        if (polledCnt == 1) {
+            (void)gettimeofday(&tvNow, NULL);
+            break;
+        }
+        retryCount++;
+        if (pingCb->udevCb.transMode == URMA_TM_RC) {
+            usleep(retryIntervalUs);
+        }
+    }
     if (polledCnt != 1) {
         hccp_err("uuid:0x%llx urma_poll_jfc polled_cnt:%d, errno:%d", target->uuid, polledCnt, errno);
         target->state = RS_PING_PONG_TARGET_ERROR;
@@ -827,6 +1032,16 @@ STATIC int RsPingUrmaPollScq(struct RsPingCtxCb *pingCb, struct RsPingTargetInfo
         target->state = RS_PING_PONG_TARGET_ERROR;
         hccp_err("wr_id:0x%llx error cqe cr_status(%d)", sendCr.user_ctx, sendCr.status);
         return -EOPENSRC;
+    }
+
+    if (pingCb->udevCb.transMode == URMA_TM_RC) {
+        ts.tvSec1 = (uint64_t)target->t1.tv_sec;
+        ts.tvUsec1 = (uint64_t)target->t1.tv_usec;
+        ts.tvSec4 = (uint64_t)tvNow.tv_sec;
+        ts.tvUsec4 = (uint64_t)tvNow.tv_usec;
+        rtt = RsPingGetTripTime(&ts);
+        RsPingUpdateResultSummary(target, rtt, pingCb->taskId);
+        usleep(packetIntervalUs - retryCount * retryIntervalUs);
     }
     return 0;
 }
@@ -1046,10 +1261,12 @@ STATIC void RsPongUrmaHandleSend(struct RsPingCtxCb *pingCb, int polledCnt, stru
             continue;
         }
 
-        ret = RsPongJettyPostSend(pingCb, &cr[i], timestamp2);
-        if (ret != 0) {
-            hccp_err("rs_pong_jetty_post_send failed, wrId:0x%llx", cr[i].user_ctx);
-            continue;
+        if (pingCb->udevCb.transMode != URMA_TM_RC) {
+            ret = RsPongJettyPostSend(pingCb, &cr[i], timestamp2);
+            if (ret != 0) {
+                hccp_err("rs_pong_jetty_post_send failed, wrId:0x%llx", cr[i].user_ctx);
+                continue;
+            }
         }
 
         ret = RsPingCommonJfrPostRecv(&pingCb->pingJetty);
@@ -1217,6 +1434,9 @@ STATIC void RsPingUrmaFreeTargetNode(struct RsPingCtxCb *pingCb, struct RsPingTa
         targetInfo->payloadBuffer = NULL;
     }
 
+    if (pingCb->udevCb.transMode == URMA_TM_RC && pingCb->pingJetty.jetty != NULL) {
+        (void)RsUrmaUnbindJetty(pingCb->pingJetty.jetty);
+    }
     if (targetInfo->importTjetty != NULL) {
         (void)RsUrmaUnimportJetty(targetInfo->importTjetty);
     }
@@ -1320,6 +1540,7 @@ struct RsPingPongOps gRsPingUrmaOps = {
     .checkPongFd = RsPongUrmaCheckFd,
     .initPingCb = RsPingUrmaPingCbInit,
     .pingFindTargetNode = RsPingUrmaFindTargetNode,
+    .pingAllocGetLocalTpInfo = RsPingUrmaGetLocalTpInfo,
     .pingAllocTargetNode = RsPingUrmaAllocTargetNode,
     .resetRecvBuffer = RsPingUrmaResetRecvBuffer,
     .pingPostSend = RsPingUrmaPostSend,

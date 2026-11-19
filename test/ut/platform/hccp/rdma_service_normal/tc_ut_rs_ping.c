@@ -316,6 +316,7 @@ void TcRsPingInit()
 void TcRsPingTargetAdd()
 {
     struct PingTargetInfo target = {0};
+    struct PingTargetInfo result = {0};
     struct RaRsDevInfo rdev = {0};
     int ret = 0;
 
@@ -325,7 +326,7 @@ void TcRsPingTargetAdd()
     gTmpPingCb.taskStatus = RS_PING_TASK_RESET;
     RS_INIT_LIST_HEAD(&gTmpPingCb.pingList);
     mocker_invoke(RsGetPingCb, RsGetPingCbStub, 1);
-    ret = RsPingTargetAdd(&rdev, &target);
+    ret = RsPingTargetAdd(&rdev, &target, &result);
     EXPECT_INT_EQ(ret, -9);
     mocker_clean();
 
@@ -334,13 +335,13 @@ void TcRsPingTargetAdd()
     RS_INIT_LIST_HEAD(&gTmpPingCb.pingList);
     mocker_invoke(RsGetPingCb, RsGetPingCbStub, 1);
     mocker(RsPingCommonCreateAh, 1, -1);
-    ret = RsPingTargetAdd(&rdev, &target);
+    ret = RsPingTargetAdd(&rdev, &target, &result);
     EXPECT_INT_NE(ret, 0);
     mocker_clean();
 
     mocker_invoke(RsGetPingCb, RsGetPingCbStub, 1);
     mocker(calloc, 10, 0);
-    ret = RsPingTargetAdd(&rdev, &target);
+    ret = RsPingTargetAdd(&rdev, &target, &result);
     EXPECT_INT_NE(ret, 0);
     mocker_clean();
 }
@@ -453,6 +454,7 @@ void TcRsPingDeinit()
     struct ibv_comp_channel clientChannel = {0};
     struct ibv_comp_channel serverChannel = {0};
     struct PingTargetInfo target = {0};
+    struct PingTargetInfo result = {0};
     struct RaRsDevInfo rdev = {0};
     struct rs_cb rsCb = {0};
     int ret = 0;
@@ -465,7 +467,7 @@ void TcRsPingDeinit()
     target.payload.size = 1;
     mocker_invoke(RsGetPingCb, RsGetPingCbStub, 10);
     mocker(RsPingCommonCreateAh, 1, 0);
-    ret = RsPingTargetAdd(&rdev, &target);
+    ret = RsPingTargetAdd(&rdev, &target, &result);
     EXPECT_INT_EQ(ret, 0);
     mocker(RsEpollCtl, 20, 0);
     mocker(RsIbvDestroyCompChannel, 20, 0);

@@ -7,7 +7,6 @@
  * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
  * See LICENSE in the root of the software repository for the full text of the License.
  */
-
 #ifndef PING_MESH_PUB_H
 #define PING_MESH_PUB_H
 
@@ -56,6 +55,57 @@ struct HRaInfo {
     HrtNetworkMode mode;
     uint32_t phyId;
     HRaInfo(HrtNetworkMode mode, uint32_t phyId) : mode(mode), phyId(phyId) {}
+};
+
+// RC mode: TP 信息结构
+struct RcTpInfo {
+    u64 tpHandle;
+    u32 tpPsn;
+};
+
+// RC mode: jetty 信息 (用于交换 key、tokenValue 和 size)
+struct RcJettyInfo {
+    u8 key[28];
+    u32 tokenValue;
+    u32 errorCode;
+    u8 size;
+};
+
+// RC mode: 序列化的交换结构体 (用于网络传输，EID 使用原始字节数组)
+struct RcExchangeInfoSendable {
+    u8 localEidRaw[URMA_EID_LEN];
+    u8 remoteEidRaw[URMA_EID_LEN];
+    RcTpInfo localTp;
+    RcJettyInfo clientJetty;
+};
+
+// RC server-side link session: 建链阶段产生、拆链阶段仍然复用的活动
+struct RcServerLinkCtx {
+    Eid serverLocalEid;
+    Eid serverRemoteEid;
+    RcExchangeInfoSendable recvBuf;
+    PingTargetInfo targetInter;
+};
+
+// ========== RC mode: 统一消息类型枚举 ==========
+enum class RcMsgType : u8 {
+    LINK_REQ = 0,
+    LINK_RSP = 1,
+    UNLINK_REQ = 2,
+    UNLINK_RSP = 3,
+};
+
+// ========== RC mode: 统一消息头(6字节) ==========
+struct RcMsgHeader {
+    u8 msgType;
+    u8 msgSeq;
+    u8 cmdCode[4];
+};
+
+// ========== RC mode: 拆链请求数据 (共32字节, URMA_EID_LEN*2) ==========
+struct RcUnlinkBody {
+    u8 localEidRaw[URMA_EID_LEN];
+    u8 remoteEidRaw[URMA_EID_LEN];
 };
 
 struct RpingOutput {
@@ -142,6 +192,12 @@ enum WhiteListStatus { WHITE_LIST_CLOSE = 0, WHITE_LIST_OPEN = 1 };
 class PingMesh {
 private:
     PingInitInfo initInfo_{};                      // 初始化信息
+    HcclIpAddress localEid_;                       // 记录device的eid信息 (RC模式下使用)
+    HcclIpAddress remoteEid_;                      // 记录target的eid信息 (RC模式下使用)
+    u64 localTpHandle_ = 0;                        // 记录device的tp handle (RC模式下使用)
+    u32 localTpPsn_ = 0;                           // 记录device的tp psn (RC模式下使用)
+    u64 remoteTpHandle_ = 0;                       // 记录target的tp handle (RC模式下使用)
+    u32 remoteTpPsn_ = 0;                          // 记录target的tp psn (RC模式下使用)
     void* pingHandle_ = nullptr;                   // 记录hccp侧的pingmesh句柄
     std::shared_ptr<HcclSocket> socket_ = nullptr; // 记录server端的socket信息，用于建立rdma链路
     HcclIpAddress ipAddr_;                         // 记录device的ip信息
@@ -163,24 +219,40 @@ private:
     bool isUsePayload_ = false;
     UniversalConcurrentMap<std::string, u32> payloadLenMap_; // 记录自定义payload的长度
     HccnRpingMode mode = HCCN_RPING_MODE_ROCE;               // ROCEorUB,
+    HccnUbTransactionMode taMode_ = HCCN_RPING_UB_UM;        // 事务模式(默认 UM,兼容老接口)
+    HccnUbTransportMode tpMode_ = HCCN_RPING_UB_UTP;         // 传输平面模式(默认 UTP,兼容老接口)
 
     HcclResult RpingSendInitInfo(
         u32 deviceId, u32 port, HcclIpAddress ipAddr, PingInitInfo initInfo, std::shared_ptr<HcclSocket> socket);
     HcclResult
     RpingRecvTargetInfo(void* clientNetCtx, u32 port, HcclIpAddress ipAddr, PingInitInfo& recvInfo, u32 timeout);
+    HcclResult HandleRcLinkRequest(HcclSocket& realSocket, u32 deviceId, bool& abortSever);
+    HcclResult RcHandleLinkReq(HcclSocket& realSocket, struct RcServerLinkCtx& ctx, bool& abortSever);
+    HcclResult RcHandleGetLocalTp(struct RcServerLinkCtx& ctx, bool& abortSever);
+    HcclResult RcHandleImportBind(HcclSocket& realSocket, struct RcServerLinkCtx& ctx, bool& abortSever);
+    HcclResult RcHandleUnlink(HcclSocket& realSocket, struct RcServerLinkCtx& ctx, bool& abortSever);
     HcclResult StartSocketThread(u32 deviceId, HcclIpAddress ipAddr, u32 port);
     HcclResult HccnCloseSubProc(u32 deviceId);
     HcclResult HccnRaInit(u32 deviceId);
     HcclResult HccnTargetAttrInter(
         u32 targetNumInter, RpingInput* inputInter, HccnRpingAddTargetConfig* configInter, PingTargetInfo* targetInter);
+    HcclResult
+    HccnRcTargetAttrProcess(RpingInput* input, u32 connectTimeout, u32 addressType, PingTargetInfo* targetInter);
+    HcclResult RcAttrGetLocalTp(RpingInput* input, PingTargetInfo* targetInter);
+    HcclResult RcAttrRecvAndFill(
+        RpingInput* input, u32 connectTimeout, u32 addressType, PingTargetInfo* targetInter, PingInitInfo* recvInfo,
+        bool* skipImportBind);
+    HcclResult RcAttrImportBind(RpingInput* input, PingTargetInfo* targetInter, PingInitInfo* recvInfo);
     HcclResult HccnTarRemoveAttrInter(
         u32 targetNumInter, RpingInput* inputInter, PingTargetCommInfo* targetInter,
         std::shared_ptr<HcclSocket>& socketInter);
+    HcclResult RcClientUnlink(RpingInput* input, const std::shared_ptr<HcclSocket>& socketInter);
     HcclResult RpingResultInfoInit(
         PingTargetResult* resultInfo, UniversalConcurrentMap<std::string, PingQpInfo>& rdmaInfoMaps, RpingInput* input,
         u32 targetNum);
     HcclResult HccnSupportedAndGetphyid(u32 deviceId, LinkType netMode);
     HcclResult HccnRpingOpenTsd(u32 deviceId, u32 mode, u32 port, u32 nodeNum, u32 bufferSize, u32 sl, u32 tc);
+    HcclResult RcClientExchangeInfo(std::shared_ptr<HcclSocket> socket, HcclIpAddress ipAddr, PingInitInfo& recvInfo);
 
 public:
     PingMesh();
@@ -188,6 +260,9 @@ public:
     HcclResult HccnRpingInit(
         u32 deviceId, u32 mode, HcclIpAddress ipAddr, u32 port, u32 nodeNum, u32 bufferSize,
         u32 sl = RPING_SERVICE_LEVEL_DEFAULT, u32 tc = RPING_TRAFFIC_CLASS_DEFAULT);
+    HcclResult HccnRpingInit(
+        u32 deviceId, u32 mode, HcclIpAddress ipAddr, u32 port, u32 nodeNum, u32 bufferSize, u32 sl, u32 tc,
+        HccnUbTransactionMode taMode, HccnUbTransportMode tpMode);
     HcclResult HccnRpingDeinit(u32 deviceId);
     HcclResult HccnRpingAddTarget(u32 deviceId, u32 targetNum, RpingInput* input, HccnRpingAddTargetConfig* config);
     HcclResult HccnRpingRemoveTarget(u32 deviceId, u32 targetNum, RpingInput* input);
@@ -198,10 +273,19 @@ public:
     HcclResult HccnRpingRefillPayloadHead(u8* originalHead, u32 payloadNum);
     HcclResult HccnRpingRefillUbPayloadHead(u8* originalHead, u32 payloadNum);
     HcclResult HccnRpingGetPayload(u32 deviceId, void** payload, u32* payloadLen, HccnRpingMode mode);
+    HcclResult HccnRpingGetCtxInfo(HccnRpingCtxInfoType infoType, HccnRpingCtxInfo* info, u32 infoLen);
 
     inline s32 GetDeviceLogicId() { return deviceLogicId_; }
     inline HccnRpingMode GetMode() { return mode; }
+    inline HccnUbTransactionMode GetTaMode() { return taMode_; }
+    inline HccnUbTransportMode GetTpMode() { return tpMode_; }
     inline void init(HccnRpingInitAttr* attr) { this->mode = attr->mode; }
+    inline void initWithCfg(HccnRpingInitAttr* attr, HccnRpingInitCfg* cfg)
+    {
+        this->mode = attr->mode;
+        this->taMode_ = cfg->ub.taMode;
+        this->tpMode_ = cfg->ub.tpMode;
+    }
 };
 } // namespace hccl
 #endif

@@ -62,8 +62,10 @@ struct PingLocalCommInfo {
         } rdma;
         struct {
             struct QosAttr qosAttr;
-            uint32_t reserved[7U];
-        } ub;
+            uint64_t tpHandle;
+            uint32_t tpPsn;
+            uint32_t reserved[4U];
+        } __attribute__((packed)) ub; /* packed: keep the ub branch 4-byte aligned, PingLocalCommInfo ABI stays 52 */
     };
 };
 
@@ -90,7 +92,9 @@ struct PingInitAttr {
         } rdma;
         struct {
             unsigned int phyId;
-            uint32_t reserved[30U];
+            uint32_t transMode;
+            uint32_t tpType;
+            uint32_t reserved[28U];
         } ub;
     };
 };
@@ -152,12 +156,27 @@ struct PingTargetCommInfo {
     struct PingQpInfo qpInfo;
 };
 
+enum {
+    PING_TARGET_ADD_ACTION_DEFAULT = 0,
+    PING_TARGET_ADD_ACTION_GET_LOCAL_TP_INFO = 1,
+};
+
 struct PingTargetInfo {
     int version;
     struct PingLocalCommInfo localInfo;
     struct PingTargetCommInfo remoteInfo;
     struct PingPayloadInfo payload;
-    uint32_t reserved[16U];
+    uint32_t targetAddAction;
+    union {
+        union {
+            struct {
+                uint64_t tpHandle;
+                uint32_t tpPsn;
+                uint32_t reserved[9U];
+            } __attribute__((packed)) ub;
+        } remoteExInfo;
+        uint32_t reserved[15U];
+    };
 };
 
 enum PingResultState {
@@ -209,7 +228,7 @@ HCCP_ATTRI_VISI_DEF int RaPingInit(struct PingInitAttr *initAttr, struct PingIni
  * @ingroup librdma
  * @brief Rdma_agent add target to list
  * @param ping_handle [IN] ping handle info
- * @param target [IN] ping target info
+ * @param target [IN/OUT] ping target info
  * @param num [IN] num of target
  * @see ra_ping_target_del
  * @retval #zero Success

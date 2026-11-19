@@ -38,6 +38,9 @@ constexpr u32 RPING_PAYLOAD_RSVD_LEN = 44;     // A2/3payload头需要清零的�
 constexpr u32 RPING_PAYLOAD_UB_HEAD_LEN = 256; // A5payload头需要填充的内存大小
 constexpr u32 RPING_PAYLOAD_UB_TIME_LEN = 64;  // A5payload头需要填充的times
 constexpr u32 QPINFO_UB_KEY_LEN = 28;          // jetty存储
+constexpr u32 PING_CMD_CODE_LEN = 4;           // RC命令
+constexpr u32 PING_CMD_HEAD_LEN = 8;           // RC命令payload头大小
+constexpr u32 RC_UNLINK_WAIT_MAX = 1000;       // RC UNLINK socket 连接上限
 
 enum class RpingInitState {
     HCCL_INIT_SUCCESS,
@@ -47,6 +50,47 @@ enum class RpingInitState {
     HCCL_NET_NEED_CLOSE,
     RESERVED
 };
+
+enum RpingTransportMode {
+    RPING_TM_RC = 0x2,      /* Reliable connection */
+    RPING_TM_UM = 0x1 << 2, /* Unreliable message */
+};
+
+// TP type constants (对应 urma_tp_type: URMA_RTP=0, URMA_CTP=1, URMA_UTP=2)
+constexpr u32 RPING_TP_RTP = 0; // Reliable transport plane
+constexpr u32 RPING_TP_CTP = 1; // Connectionless transport plane
+constexpr u32 RPING_TP_UTP = 2; // Unreliable transport plane
+
+// UB 模式下 initInfo_.client.ub.key 前 24 字节为本端 jetty id 信息布局:
+//   offset 0~15 : eid       (16 字节)
+//   offset 16~19: uasid     (4 字节)
+//   offset 20~23: id        (4 字节, 即 jettyId)
+// 用于从 key 中解析 jettyId,与 initInfo_.client.ub.size >= 24 校验配合使用。
+struct UbJettyId {
+    u8 eid[URMA_EID_LEN]; // 16 字节
+    u32 uasid;            // 4 字节
+    u32 id;               // 4 字节 <- jettyId
+}; // 共 24 字节
+
+// 将 HccnUbTransportMode 映射为底层 tp_type 值
+inline u32 MapTpType(HccnUbTransportMode tpMode)
+{
+    switch (tpMode) {
+        case HCCN_RPING_UB_RTP:
+            return RPING_TP_RTP;
+        case HCCN_RPING_UB_CTP:
+            return RPING_TP_CTP;
+        case HCCN_RPING_UB_UTP:
+            return RPING_TP_UTP;
+        default:
+            return RPING_TP_RTP;
+    }
+}
+
+#define PING_PAYLOAD_CMD_MAGIC "HCCP"
+#define PING_PAYLOAD_CMD_GET_TP "TPGT"
+#define PING_PAYLOAD_CMD_IMPORT_BIND "IMBN"
+#define PING_PAYLOAD_CMD_UNLINK "RMVB"
 
 PingMesh::PingMesh() {}
 
@@ -629,6 +673,28 @@ inline void RemoveMapInfo(
     }
 }
 
+inline void BuildPingPayLoadCmd(PingPayloadInfo* payload, const char* cmdCode, const void* extraData, u32 extraLen)
+{
+    if (payload == nullptr || cmdCode == nullptr || extraLen > (PING_USER_PAYLOAD_MAX_SIZE - PING_CMD_HEAD_LEN)) {
+        HCCL_ERROR("[HCCN][BuildPingPayLoadCmd]invalid param.");
+        return;
+    }
+    // 用 std::string 组装命令体: magic(4B) + cmdCode(4B) + extraData, append(ptr, len) 二进制安全
+    std::string cmd(PING_PAYLOAD_CMD_MAGIC, PING_CMD_CODE_LEN);
+    cmd.append(cmdCode, PING_CMD_CODE_LEN);
+    if (extraData != nullptr && extraLen > 0) {
+        cmd.append(static_cast<const char*>(extraData), extraLen);
+    }
+    errno_t memRet = memcpy_s(payload->buffer, sizeof(payload->buffer), cmd.data(), cmd.size());
+    if (memRet != EOK) {
+        HCCL_ERROR(
+            "[HCCN][BuildPingPayLoadCmd]Memcpy ret %d, dst:%p, dstMax:%zu, src:%p, length:%zu", memRet, payload->buffer,
+            sizeof(payload->buffer), cmd.data(), cmd.size());
+        return;
+    }
+    payload->size = static_cast<u32>(cmd.size());
+}
+
 HcclResult PingMesh::RpingSendInitInfo(
     u32 deviceId, [[maybe_unused]] u32 port, HcclIpAddress ipAddr, PingInitInfo initInfo,
     [[maybe_unused]] std::shared_ptr<HcclSocket> socket)
@@ -678,9 +744,258 @@ HcclResult PingMesh::RpingSendInitInfo(
         }
 
         // 建链成功，发送rping初始化信息
-        u64 sendSize = sizeof(initInfo);
-        CHK_RET(realSocket.Send(&initInfo, sendSize));
-        HCCL_INFO("[HCCN][RpingSendInitInfo]Device[%u] rdma info send success.", deviceId);
+        bool isRcMode = (taMode_ == HCCN_RPING_UB_RC);
+        if (isRcMode) {
+            bool abortSever = false;
+            HcclResult ret = HandleRcLinkRequest(realSocket, deviceId, abortSever);
+            if (ret != HCCL_SUCCESS) {
+                HCCL_ERROR("[HCCN][RpingSendInitInfo]Device[%u] HandleRcLinkRequest failed, ret[%d].", deviceId, ret);
+            }
+            // abortSever 判定优先于错误返回: 一旦置位(协议毒化/链路已终结)即终止 server 线程,
+            // 避免错误返回时 continue 吞掉 abort 语义
+            if (abortSever) {
+                HCCL_INFO("[HCCN][RpingSendInitInfo]Device[%u] abort server, ret[%d].", deviceId, ret);
+                break;
+            }
+            if (ret != HCCL_SUCCESS) {
+                continue;
+            }
+        } else {
+            u64 sendSize = sizeof(initInfo);
+            CHK_RET(realSocket.Send(&initInfo, sendSize));
+            HCCL_INFO("[HCCN][RpingSendInitInfo]Device[%u] rdma info send success.", deviceId);
+        }
+    }
+
+    return HCCL_SUCCESS;
+}
+
+HcclResult PingMesh::RcHandleLinkReq(HcclSocket& realSocket, struct RcServerLinkCtx& ctx, bool& abortSever)
+{
+    RcMsgHeader header;
+    (void)memset_s(&header, sizeof(header), 0, sizeof(header));
+    CHK_RET(realSocket.Recv(&header, sizeof(header)));
+
+    if (header.msgType != (u8)RcMsgType::LINK_REQ) {
+        HCCL_ERROR("[HCCN][RcHandleLinkReq]Invalid msgType[%u].", header.msgType);
+        abortSever = true;
+        return HCCL_E_PARA;
+    }
+
+    (void)memset_s(&ctx.recvBuf, sizeof(ctx.recvBuf), 0, sizeof(ctx.recvBuf));
+    CHK_RET(realSocket.Recv(&ctx.recvBuf, sizeof(ctx.recvBuf)));
+
+    return HCCL_SUCCESS;
+}
+
+HcclResult PingMesh::RcHandleGetLocalTp(struct RcServerLinkCtx& ctx, bool& abortSever)
+{
+    // 查询失败视为可恢复错误, 不置 abortSever(保持与其他 handler 统一的签名)
+    (void)abortSever;
+    HcclResult ret = HCCL_SUCCESS;
+
+    (void)memset_s(&ctx.targetInter, sizeof(ctx.targetInter), 0, sizeof(ctx.targetInter));
+    ctx.targetInter.version = 1;
+    ctx.targetInter.targetAddAction = PING_TARGET_ADD_ACTION_GET_LOCAL_TP_INFO;
+    (void)memcpy_s(&ctx.serverLocalEid.raw, sizeof(ctx.serverLocalEid.raw), &ctx.recvBuf.remoteEidRaw, URMA_EID_LEN);
+    (void)memcpy_s(&ctx.serverRemoteEid.raw, sizeof(ctx.serverRemoteEid.raw), &ctx.recvBuf.localEidRaw, URMA_EID_LEN);
+    localEid_ = HcclIpAddress(ctx.serverLocalEid);
+    remoteEid_ = HcclIpAddress(ctx.serverRemoteEid);
+    (void)memcpy_s(
+        &ctx.targetInter.remoteInfo.eid.raw, sizeof(ctx.targetInter.remoteInfo.eid.raw), &ctx.serverRemoteEid.raw,
+        URMA_EID_LEN);
+    BuildPingPayLoadCmd(&ctx.targetInter.payload, PING_PAYLOAD_CMD_GET_TP, nullptr, 0);
+    ret = hrtRaPingTargetAdd(pingHandle_, &ctx.targetInter, 1);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR("[HCCN][RcHandleGetLocalTp]hrtRaPingTargetAdd failed, ret[%d].", ret);
+        // 可恢复的查询失败: 不置 abortSever, 线程继续存活服务下一次连接;
+        // 本轮 socket 随循环销毁, 客户端 Recv 立即失败而非阻塞超时
+        return ret;
+    }
+
+    localTpHandle_ = ctx.targetInter.localInfo.ub.tpHandle;
+    localTpPsn_ = ctx.targetInter.localInfo.ub.tpPsn;
+
+    if (tpMode_ == HCCN_RPING_UB_CTP) {
+        HCCL_INFO(
+            "[HCCN][RcHandleGetLocalTp]Server CTP GET_TP success, localTpHandle:0x%llx localTpPsn:%u.", localTpHandle_,
+            localTpPsn_);
+    }
+
+    return HCCL_SUCCESS;
+}
+
+HcclResult PingMesh::RcHandleImportBind(HcclSocket& realSocket, struct RcServerLinkCtx& ctx, bool& abortSever)
+{
+    HcclResult ret = HCCL_SUCCESS;
+
+    ctx.targetInter.targetAddAction = PING_TARGET_ADD_ACTION_DEFAULT;
+    remoteTpHandle_ = ctx.recvBuf.localTp.tpHandle;
+    remoteTpPsn_ = ctx.recvBuf.localTp.tpPsn;
+    ctx.targetInter.remoteExInfo.ub.tpHandle = ctx.recvBuf.localTp.tpHandle;
+    ctx.targetInter.remoteExInfo.ub.tpPsn = ctx.recvBuf.localTp.tpPsn;
+    ctx.targetInter.remoteInfo.qpInfo.ub.size = ctx.recvBuf.clientJetty.size;
+
+    (void)memcpy_s(
+        ctx.targetInter.remoteInfo.qpInfo.ub.key, sizeof(ctx.targetInter.remoteInfo.qpInfo.ub.key),
+        ctx.recvBuf.clientJetty.key, QPINFO_UB_KEY_LEN);
+    ctx.targetInter.remoteInfo.qpInfo.ub.tokenValue = ctx.recvBuf.clientJetty.tokenValue;
+    (void)memcpy_s(
+        &ctx.targetInter.remoteInfo.eid.raw, sizeof(ctx.targetInter.remoteInfo.eid.raw), &ctx.serverRemoteEid.raw,
+        URMA_EID_LEN);
+    BuildPingPayLoadCmd(&ctx.targetInter.payload, PING_PAYLOAD_CMD_IMPORT_BIND, nullptr, 0);
+    ret = hrtRaPingTargetAdd(pingHandle_, &ctx.targetInter, 1);
+    if (ret != HCCL_SUCCESS) {
+        RcExchangeInfoSendable errBuf;
+        (void)memset_s(&errBuf, sizeof(errBuf), 0, sizeof(errBuf));
+        (void)memcpy_s(&errBuf.localEidRaw, sizeof(errBuf.localEidRaw), localEid_.GetEid().raw, URMA_EID_LEN);
+        (void)memcpy_s(&errBuf.remoteEidRaw, sizeof(errBuf.remoteEidRaw), remoteEid_.GetEid().raw, URMA_EID_LEN);
+        errBuf.clientJetty.errorCode = 1;
+        errBuf.clientJetty.tokenValue = 0xDEADBEEF;
+
+        u32 errBufLen = sizeof(errBuf);
+        (void)realSocket.Send(&errBuf, errBufLen);
+        abortSever = true;
+        return ret;
+    }
+
+    if (tpMode_ == HCCN_RPING_UB_CTP) {
+        HCCL_INFO("[HCCN][RcHandleImportBind]Server CTP IMPORT_BIND success, remoteTpHandle:0x%llx.", remoteTpHandle_);
+    }
+
+    return HCCL_SUCCESS;
+}
+
+HcclResult PingMesh::RcHandleUnlink(HcclSocket& realSocket, struct RcServerLinkCtx& ctx, bool& abortSever)
+{
+    HcclResult ret = HCCL_SUCCESS;
+    RcExchangeInfoSendable sendBuf;
+    (void)memset_s(&sendBuf, sizeof(sendBuf), 0, sizeof(sendBuf));
+    (void)memcpy_s(&sendBuf.localEidRaw, sizeof(sendBuf.localEidRaw), localEid_.GetEid().raw, URMA_EID_LEN);
+    (void)memcpy_s(&sendBuf.remoteEidRaw, sizeof(sendBuf.remoteEidRaw), remoteEid_.GetEid().raw, URMA_EID_LEN);
+    sendBuf.localTp.tpHandle = localTpHandle_;
+    sendBuf.localTp.tpPsn = localTpPsn_;
+
+    (void)memcpy_s(
+        sendBuf.clientJetty.key, sizeof(sendBuf.clientJetty.key), initInfo_.client.ub.key, QPINFO_UB_KEY_LEN);
+    sendBuf.clientJetty.tokenValue = initInfo_.client.ub.tokenValue;
+    sendBuf.clientJetty.errorCode = 0;
+    sendBuf.clientJetty.size = initInfo_.client.ub.size;
+    u32 sendBufLen = sizeof(sendBuf);
+    CHK_RET(realSocket.Send(&sendBuf, sendBufLen));
+
+    RcMsgHeader header2;
+    (void)memset_s(&header2, sizeof(header2), 0, sizeof(header2));
+    CHK_RET(realSocket.Recv(&header2, sizeof(header2)));
+    if (header2.msgType != (u8)RcMsgType::UNLINK_REQ) {
+        HCCL_ERROR("[HCCN][RcHandleUnlink]Invalid msgType[%u].", header2.msgType);
+        abortSever = true;
+        return HCCL_E_PARA;
+    }
+
+    RcUnlinkBody unlinkBody;
+    (void)memset_s(&unlinkBody, sizeof(unlinkBody), 0, sizeof(unlinkBody));
+    CHK_RET(realSocket.Recv(&unlinkBody, sizeof(unlinkBody)));
+
+    PingTargetCommInfo targetCommInfo;
+    (void)memset_s(&targetCommInfo, sizeof(targetCommInfo), 0, sizeof(targetCommInfo));
+    (void)memcpy_s(targetCommInfo.eid.raw, sizeof(targetCommInfo.eid.raw), ctx.serverRemoteEid.raw, URMA_EID_LEN);
+    targetCommInfo.qpInfo.ub.size = ctx.recvBuf.clientJetty.size;
+    (void)memcpy_s(
+        targetCommInfo.qpInfo.ub.key, sizeof(targetCommInfo.qpInfo.ub.key), ctx.recvBuf.clientJetty.key,
+        QPINFO_UB_KEY_LEN);
+    targetCommInfo.qpInfo.ub.tokenValue = ctx.recvBuf.clientJetty.tokenValue;
+    ret = hrtRaPingTargetDel(pingHandle_, &targetCommInfo, 1);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR("[HCCN][RcHandleUnlink]hrtRaUnlink failed, ret[%d].", ret);
+    }
+    uint8_t rspResult = (ret == HCCL_SUCCESS) ? 0 : 1;
+    CHK_RET(realSocket.Send(&rspResult, sizeof(rspResult)));
+
+    return HCCL_SUCCESS;
+}
+
+HcclResult PingMesh::HandleRcLinkRequest(HcclSocket& realSocket, u32 deviceId, bool& abortSever)
+{
+    struct RcServerLinkCtx ctx;
+    HcclResult ret = RcHandleLinkReq(realSocket, ctx, abortSever);
+    if (ret != HCCL_SUCCESS || abortSever) {
+        HCCL_ERROR("[HCCN][HandleRcLinkRequest]Device[%u] HandleRcLinkRequest failed, ret[%d].", deviceId, ret);
+        return ret;
+    }
+
+    ret = RcHandleGetLocalTp(ctx, abortSever);
+    if (ret != HCCL_SUCCESS || abortSever) {
+        HCCL_ERROR("[HCCN][HandleRcLinkRequest]Device[%u] HandleRcLinkRequest failed, ret[%d].", deviceId, ret);
+        return ret;
+    }
+
+    ret = RcHandleImportBind(realSocket, ctx, abortSever);
+    if (ret != HCCL_SUCCESS || abortSever) {
+        HCCL_ERROR("[HCCN][HandleRcLinkRequest]Device[%u] HandleRcLinkRequest failed, ret[%d].", deviceId, ret);
+        return ret;
+    }
+
+    return RcHandleUnlink(realSocket, ctx, abortSever);
+}
+
+HcclResult
+PingMesh::RcClientExchangeInfo(std::shared_ptr<HcclSocket> socket, HcclIpAddress ipAddr, PingInitInfo& recvInfo)
+{
+    RcMsgHeader sendHeader{};
+    sendHeader.msgType = (u8)RcMsgType::LINK_REQ;
+    sendHeader.msgSeq = 0;
+    (void)memcpy_s(&sendHeader.cmdCode, sizeof(sendHeader.cmdCode), PING_PAYLOAD_CMD_GET_TP, PING_CMD_CODE_LEN);
+    CHK_RET(socket->Send(&sendHeader, sizeof(sendHeader)));
+
+    RcExchangeInfoSendable sendBuf{};
+    (void)memcpy_s(sendBuf.localEidRaw, sizeof(sendBuf.localEidRaw), localEid_.GetEid().raw, URMA_EID_LEN);
+    (void)memcpy_s(sendBuf.remoteEidRaw, sizeof(sendBuf.remoteEidRaw), remoteEid_.GetEid().raw, URMA_EID_LEN);
+    sendBuf.localTp.tpHandle = localTpHandle_;
+    sendBuf.localTp.tpPsn = localTpPsn_;
+    (void)memcpy_s(
+        sendBuf.clientJetty.key, sizeof(sendBuf.clientJetty.key), initInfo_.client.ub.key, QPINFO_UB_KEY_LEN);
+    sendBuf.clientJetty.tokenValue = initInfo_.client.ub.tokenValue;
+    sendBuf.clientJetty.size = initInfo_.client.ub.size;
+    u32 sendBufLen = sizeof(sendBuf);
+    CHK_RET(socket->Send(&sendBuf, sendBufLen));
+
+    RcExchangeInfoSendable recvBuf;
+    (void)memset_s(&recvBuf, sizeof(recvBuf), 0, sizeof(recvBuf));
+    u32 recvSize = sizeof(recvBuf);
+    CHK_RET(socket->Recv(&recvBuf, recvSize));
+
+    if (recvBuf.clientJetty.errorCode != 0) {
+        HCCL_ERROR(
+            "[HCCN][RcClientExchangeInfo]Device[%u] Server returned error code: %u", devicePhyId_,
+            recvBuf.clientJetty.errorCode);
+        return HCCL_E_PARA;
+    }
+
+    // 校验 server 回传的 jetty key 有效长度, 防御异常数据污染 initInfo_/设备层
+    CHK_PRT_RET(
+        recvBuf.clientJetty.size < sizeof(UbJettyId),
+        HCCL_ERROR(
+            "[HCCN][RcClientExchangeInfo]Device[%u] invalid jetty key size[%u], expect no less than %zu.", devicePhyId_,
+            (u32)recvBuf.clientJetty.size, sizeof(UbJettyId)),
+        HCCL_E_PARA);
+
+    remoteTpHandle_ = recvBuf.localTp.tpHandle;
+    remoteTpPsn_ = recvBuf.localTp.tpPsn;
+
+    // Fill the received info into recvInfo
+    recvInfo.client.ub.size = recvBuf.clientJetty.size;
+    (void)memcpy_s(recvInfo.client.ub.key, sizeof(recvInfo.client.ub.key), recvBuf.clientJetty.key, QPINFO_UB_KEY_LEN);
+    recvInfo.client.ub.tokenValue = recvBuf.clientJetty.tokenValue;
+
+    HCCL_INFO(
+        "[HCCN][RcClientExchangeInfo]Device[%u] Exchange info with server [%s] success.", devicePhyId_,
+        ipAddr.GetReadableIP());
+
+    if (tpMode_ == HCCN_RPING_UB_CTP) {
+        HCCL_INFO(
+            "[HCCN][RcClientExchangeInfo]Device[%u] CTP exchange confirmed, remoteTpHandle:0x%llx.", devicePhyId_,
+            remoteTpHandle_);
     }
 
     return HCCL_SUCCESS;
@@ -737,9 +1052,14 @@ PingMesh::RpingRecvTargetInfo(void* clientNetCtx, u32 port, HcclIpAddress ipAddr
     }
 
     // 接收发送的信息
-    u32 recvBufLen = sizeof(recvInfo);
-    CHK_RET(socket->Recv(&recvInfo, recvBufLen));
-    HCCL_INFO("[HCCN][RpingRecvTargetInfo]Server[%s] info received success.", ipAddr.GetReadableIP());
+    bool isRcMode = (taMode_ == HCCN_RPING_UB_RC);
+    if (isRcMode) {
+        CHK_RET(RcClientExchangeInfo(socket, ipAddr, recvInfo));
+    } else {
+        u32 recvBufLen = sizeof(recvInfo);
+        CHK_RET(socket->Recv(&recvInfo, recvBufLen));
+        HCCL_INFO("[HCCN][RpingRecvTargetInfo]Server[%s] info received success.", ipAddr.GetReadableIP());
+    }
 
     // 记录socket
     lock.lock();
@@ -787,12 +1107,15 @@ HcclResult PingMesh::HccnRaInit(u32 deviceId)
     return HCCL_SUCCESS;
 }
 
-HcclResult PingMesh::HccnCloseSubProc(u32 deviceId)
+// 清理动作无成员依赖, 抽为文件级函数供 PingMesh::HccnCloseSubProc 与 RpingInitRollback 共用
+inline HcclResult HccnCloseSubProcInner(u32 deviceId)
 {
     hrtCloseNetService();
     HCCL_INFO("[HCCN][HccnCloseSubProc]Device[%u] close hccp process success.", deviceId);
     return HCCL_SUCCESS;
 }
+
+HcclResult PingMesh::HccnCloseSubProc(u32 deviceId) { return HccnCloseSubProcInner(deviceId); }
 
 HcclResult PingMesh::StartSocketThread(u32 deviceId, HcclIpAddress ipAddr, u32 port)
 {
@@ -813,7 +1136,7 @@ HcclResult PingMesh::StartSocketThread(u32 deviceId, HcclIpAddress ipAddr, u32 p
 HcclResult PingMesh::HccnSupportedAndGetphyid(u32 deviceId, LinkType netMode)
 {
     if (netMode != LinkType::LINK_ROCE && netMode != LinkType::LINK_UB) {
-        HCCL_ERROR("[HCCN][HccnSupportedAndGetphyid]only support ROCE or UB mode.");
+        HCCL_ERROR("[HCCN][HccnSupportedAndGetphyid]only support roce and ub mode, but input mode is [%d].", netMode);
         return HCCL_E_NOT_SUPPORT;
     }
     // 获取并验证设备物理id
@@ -860,6 +1183,53 @@ HcclResult PingMesh::HccnRpingOpenTsd(u32 deviceId, u32 mode, u32 port, u32 node
 HcclResult PingMesh::HccnRpingInit(
     u32 deviceId, u32 mode, HcclIpAddress ipAddr, u32 port, u32 nodeNum, u32 bufferSize, u32 sl, u32 tc)
 {
+    // 老接口仅支持 ROCE 与 UB(UM+UTP);UB_RC_TP 已废弃,不再走此重载
+    HccnUbTransactionMode taMode = HCCN_RPING_UB_UM;
+    HccnUbTransportMode tpMode = HCCN_RPING_UB_UTP;
+    return HccnRpingInit(deviceId, mode, ipAddr, port, nodeNum, bufferSize, sl, tc, taMode, tpMode);
+}
+
+// 按 status 分级回滚 rping 初始化资源, 清理顺序与 HccnRpingInit 各失败分支一一对应, 仅做清理与日志
+inline void
+RpingInitRollback(RpingInitState status, HcclResult ret, u32 deviceId, void* pingHandle, HcclNetDevCtx& netCtx)
+{
+    switch (status) {
+        case RpingInitState::HCCL_NET_NEED_CLOSE:
+            if (netCtx != nullptr) {
+                HcclNetCloseDev(netCtx);
+                netCtx = nullptr;
+            }
+            [[fallthrough]];
+        case RpingInitState::HCCL_RAPING_NEED_DEINIT:
+            if (pingHandle != nullptr) {
+                (void)hrtRaPingDeinit(pingHandle);
+            }
+            [[fallthrough]];
+        case RpingInitState::HCCL_RA_NEED_DEINIT:
+            (void)NetworkManager::GetInstance(static_cast<s32>(deviceId)).PingMeshRaPingDeinit();
+            [[fallthrough]];
+        case RpingInitState::HCCL_TSD_NEED_CLOSE:
+            (void)HccnCloseSubProcInner(deviceId);
+            [[fallthrough]];
+        default:
+            HCCL_ERROR("[HCCN][HccnRpingInit]HccnRpingInit ret[%d], status[%d].", ret, status);
+            return;
+    }
+}
+
+HcclResult PingMesh::HccnRpingInit(
+    u32 deviceId, u32 mode, HcclIpAddress ipAddr, u32 port, u32 nodeNum, u32 bufferSize, u32 sl, u32 tc,
+    HccnUbTransactionMode taMode, HccnUbTransportMode tpMode)
+{
+    // 记录事务模式与传输平面模式(供 isRcMode 判断与 tp_type 设置使用)
+    // ROCE 模式忽略 taMode/tpMode, 按默认 UM/UTP 处理, 与旧 8 参重载保持一致
+    if (static_cast<LinkType>(mode) != LinkType::LINK_UB) {
+        taMode = HCCN_RPING_UB_UM;
+        tpMode = HCCN_RPING_UB_UTP;
+    }
+    taMode_ = taMode;
+    tpMode_ = tpMode;
+
     CHK_RET(HccnRpingOpenTsd(deviceId, mode, port, nodeNum, bufferSize, sl, tc));
 
     LinkType netMode = static_cast<LinkType>(mode);
@@ -895,6 +1265,25 @@ HcclResult PingMesh::HccnRpingInit(
                 HCCL_ERROR("[HccnRpingInit]RpingUbAttrInit failed, deviceId[%u], error code =%d.", deviceId, ret);
                 break;
             }
+            // version >= 1 时 hccp 侧才会读取 transMode/tpType 字段
+            initAttr.version = 1;
+            if (taMode_ == HCCN_RPING_UB_RC) {
+                initAttr.ub.transMode = RPING_TM_RC;
+            } else {
+                initAttr.ub.transMode = RPING_TM_UM;
+            }
+            // 设置传输平面类型:由 tpMode_ 决定(RC+CTP 走 HCCN_RPING_UB_CTP)
+            initAttr.ub.tpType = MapTpType(tpMode_);
+            if (tpMode_ == HCCN_RPING_UB_CTP) {
+                HCCL_INFO(
+                    "[HCCN][HccnRpingInit]Device[%u] RC+CTP configured, transMode:0x%x tpType:%u.", deviceId,
+                    initAttr.ub.transMode, initAttr.ub.tpType);
+            }
+            if (tpMode_ == HCCN_RPING_UB_RTP) {
+                HCCL_INFO(
+                    "[HCCN][HccnRpingInit]Device[%u] RC+RTP configured, transMode:0x%x tpType:%u.", deviceId,
+                    initAttr.ub.transMode, initAttr.ub.tpType);
+            }
         }
         ret = hrtRaPingInit(&initAttr, &initInfo_, &pingHandle);
         if (ret != HCCL_SUCCESS || pingHandle == nullptr) {
@@ -923,29 +1312,12 @@ HcclResult PingMesh::HccnRpingInit(
         }
     } while (0);
 
-    switch (status) {
-        case RpingInitState::HCCL_INIT_SUCCESS:
-            break;
-        case RpingInitState::HCCL_NET_NEED_CLOSE:
-            if (netCtx_ != nullptr) {
-                HcclNetCloseDev(netCtx_);
-                netCtx_ = nullptr;
-            }
-            [[fallthrough]];
-        case RpingInitState::HCCL_RAPING_NEED_DEINIT:
-            if (pingHandle != nullptr) {
-                (void)hrtRaPingDeinit(pingHandle);
-            }
-            [[fallthrough]];
-        case RpingInitState::HCCL_RA_NEED_DEINIT:
-            (void)NetworkManager::GetInstance(static_cast<s32>(deviceId)).PingMeshRaPingDeinit();
-            [[fallthrough]];
-        case RpingInitState::HCCL_TSD_NEED_CLOSE:
-            (void)HccnCloseSubProc(deviceId);
-            [[fallthrough]];
-        default:
-            HCCL_ERROR("[HCCN][HccnRpingInit]HccnRpingInit ret[%d], status[%d].", ret, status);
-            return ret;
+    // 非 INIT_SUCCESS 一律回滚并返回失败(正常路径返回原错误码; 防御性边界 ret==SUCCESS 时兜底 HCCL_E_PTR)
+    if (status != RpingInitState::HCCL_INIT_SUCCESS) {
+        // 先计算兜底返回码, 回滚日志与实际返回值保持一致
+        HcclResult finalRet = (ret != HCCL_SUCCESS) ? ret : HCCL_E_PTR;
+        RpingInitRollback(status, finalRet, deviceId, pingHandle, netCtx_);
+        return finalRet;
     }
     // 绑定信息
     pingHandle_ = pingHandle;
@@ -1020,6 +1392,141 @@ HcclResult PingMesh::HccnRpingDeinit(u32 deviceId)
     return HCCL_SUCCESS;
 }
 
+HcclResult PingMesh::RcAttrGetLocalTp(RpingInput* input, PingTargetInfo* targetInter)
+{
+    (void)memset_s(targetInter, sizeof(PingTargetInfo), 0, sizeof(PingTargetInfo));
+
+    targetInter->version = 1;
+    targetInter->targetAddAction = PING_TARGET_ADD_ACTION_GET_LOCAL_TP_INFO;
+    (void)memcpy_s(
+        targetInter->remoteInfo.eid.raw, sizeof(targetInter->remoteInfo.eid.raw), input->dip.GetEid().raw,
+        URMA_EID_LEN);
+    BuildPingPayLoadCmd(&targetInter[0].payload, PING_PAYLOAD_CMD_GET_TP, nullptr, 0);
+    HcclResult ret = hrtRaPingTargetAdd(pingHandle_, targetInter, 1);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR("[HCCN][RcAttrGetLocalTp]Target[%s] get local tp failed, ret[%d].", input->dip.GetReadableIP(), ret);
+        return ret;
+    }
+
+    localTpHandle_ = targetInter->localInfo.ub.tpHandle;
+    localTpPsn_ = targetInter->localInfo.ub.tpPsn;
+    localEid_ = input->sip;
+    remoteEid_ = input->dip;
+    if (tpMode_ == HCCN_RPING_UB_CTP) {
+        HCCL_INFO(
+            "[HCCN][RcAttrGetLocalTp]Target[%s] CTP GET_TP success, localTpHandle:0x%llx localTpPsn:%u.",
+            input->dip.GetReadableIP(), localTpHandle_, localTpPsn_);
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult PingMesh::RcAttrRecvAndFill(
+    RpingInput* input, u32 connectTimeout, u32 addressType, PingTargetInfo* targetInter, PingInitInfo* recvInfo,
+    bool* skipImportBind)
+{
+    HcclResult ret = RpingRecvTargetInfo(netCtx_, input->port, input->dip, *recvInfo, connectTimeout);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR(
+            "[HCCN][HccnRpingAddTarget]Target[%s] added failed because of error[%d].", input->dip.GetReadableIP(), ret);
+        return ret;
+    }
+
+    PingQpInfo* rdmaInfo = &(recvInfo->client);
+    if (rdmaInfoMaps_.Find(std::string(input->dip.GetReadableIP())).second) {
+        HCCL_RUN_INFO("[HCCN][HccnRpingAddTarget]Target[%s] has already added.", input->dip.GetReadableIP());
+        *skipImportBind = true;
+        return HCCL_SUCCESS;
+    }
+    // socName 检查前置于缓存写入: 避免"已插入缓存、提前返回"的中间残留状态
+    const char* socNamePtr = aclrtGetSocName();
+    CHK_PTR_NULL(socNamePtr);
+    rdmaInfoMaps_.Emplace(
+        std::pair<std::string, PingQpInfo>(std::string(input->dip.GetReadableIP()), recvInfo->client));
+    if (payloadLenMap_.Find(std::string(input->dip.GetReadableIP())).second) {
+        HCCL_RUN_INFO("[HCCN][HccnRpingAddTarget]Target[%s] has already added.", input->dip.GetReadableIP());
+        *skipImportBind = true;
+        return HCCL_SUCCESS;
+    }
+    payloadLenMap_.Emplace(std::pair<std::string, u32>(std::string(input->dip.GetReadableIP()), input->len));
+    if (addressType == HCCN_RPING_ADDR_TYPE_IP) {
+        ret = RpingTargetAttrInit(targetInter[0], *input, rdmaInfo, true);
+    }
+    if (addressType == HCCN_RPING_ADDR_TYPE_EID && IsSupportHCCLV2(socNamePtr)) {
+        ret = RpingTargetAttrInitWithUb(targetInter[0], *input, rdmaInfo, true);
+    }
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR("[HCCN][HccnRpingAddTarget]Target[%s] payload added failed.", input->dip.GetReadableIP());
+        // 回滚本次插入的缓存条目: 走到此分支时两 map 条目必然为本轮新插(既有条目已在上方 Find 提前返回),
+        // 失败残留会使重试命中缓存误判 skipImportBind 而假成功
+        (void)rdmaInfoMaps_.Erase(std::string(input->dip.GetReadableIP()));
+        (void)payloadLenMap_.Erase(std::string(input->dip.GetReadableIP()));
+        return ret;
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult PingMesh::RcAttrImportBind(RpingInput* input, PingTargetInfo* targetInter, PingInitInfo* recvInfo)
+{
+    memset_s(targetInter, sizeof(PingTargetInfo), 0, sizeof(PingTargetInfo));
+    targetInter->version = 1;
+    targetInter->targetAddAction = PING_TARGET_ADD_ACTION_DEFAULT;
+
+    targetInter->localInfo.ub.tpHandle = localTpHandle_;
+    targetInter->localInfo.ub.tpPsn = localTpPsn_;
+    targetInter->remoteExInfo.ub.tpHandle = remoteTpHandle_;
+    targetInter->remoteExInfo.ub.tpPsn = remoteTpPsn_;
+    (void)memcpy_s(
+        targetInter->remoteInfo.eid.raw, sizeof(targetInter->remoteInfo.eid.raw), input->dip.GetEid().raw,
+        URMA_EID_LEN);
+    targetInter->remoteInfo.qpInfo.version = recvInfo->client.version;
+    targetInter->remoteInfo.qpInfo.ub.size = recvInfo->client.ub.size;
+    (void)memcpy_s(
+        targetInter->remoteInfo.qpInfo.ub.key, sizeof(targetInter->remoteInfo.qpInfo.ub.key), recvInfo->client.ub.key,
+        QPINFO_UB_KEY_LEN);
+    targetInter->remoteInfo.qpInfo.ub.tokenValue = recvInfo->client.ub.tokenValue;
+    BuildPingPayLoadCmd(&targetInter->payload, PING_PAYLOAD_CMD_IMPORT_BIND, nullptr, 0);
+
+    HcclResult ret = hrtRaPingTargetAdd(pingHandle_, targetInter, 1); // hccp侧只能一次处理一个，因为数组大小固定为1
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR(
+            "[HCCN][HccnRpingAddTarget]Target[%s] added failed because of error[%d]", input->dip.GetReadableIP(), ret);
+        return ret;
+    }
+    HCCL_INFO("[HCCN][HccnRpingAddTarget]Target[%s] added success.", input->dip.GetReadableIP());
+    if (tpMode_ == HCCN_RPING_UB_CTP) {
+        HCCL_INFO(
+            "[HCCN][RcAttrImportBind]Target[%s] CTP IMPORT_BIND success, localTpHandle:0x%llx remoteTpHandle:0x%llx.",
+            input->dip.GetReadableIP(), localTpHandle_, remoteTpHandle_);
+    }
+    rpingTargetNum_++;
+    return HCCL_SUCCESS;
+}
+
+HcclResult
+PingMesh::HccnRcTargetAttrProcess(RpingInput* input, u32 connectTimeout, u32 addressType, PingTargetInfo* targetInter)
+{
+    HcclResult ret = RcAttrGetLocalTp(input, targetInter);
+    if (ret != HCCL_SUCCESS) {
+        return ret;
+    }
+
+    PingInitInfo recvInfo{};
+    bool skipImportBind = false;
+    ret = RcAttrRecvAndFill(input, connectTimeout, addressType, targetInter, &recvInfo, &skipImportBind);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR(
+            "[HCCN][HccnRpingAddTarget]Target[%s] added failed because of error[%d].", input->dip.GetReadableIP(), ret);
+        return ret;
+    }
+
+    if (skipImportBind) {
+        HCCL_RUN_INFO("[HCCN][HccnRpingAddTarget]Target[%s] has already added.", input->dip.GetReadableIP());
+        return HCCL_SUCCESS;
+    }
+
+    return RcAttrImportBind(input, targetInter, &recvInfo);
+}
+
 HcclResult PingMesh::HccnTargetAttrInter(
     u32 targetNumInter, RpingInput* inputInter, HccnRpingAddTargetConfig* configInter, PingTargetInfo* targetInter)
 {
@@ -1030,8 +1537,20 @@ HcclResult PingMesh::HccnTargetAttrInter(
         HCCL_ERROR("[HccnTargetAttrInter]GetAddrType Fail ret %d", ret);
         return HCCL_E_PARA;
     }
+
+    bool isRcMode = (taMode_ == HCCN_RPING_UB_RC);
     for (u32 i = 0; i < targetNumInter; i++) {
         PingInitInfo recvInfo;
+        if (isRcMode) {
+            ret = HccnRcTargetAttrProcess(&inputInter[i], configInter->connectTimeout, addressType, targetInter);
+            if (ret != HCCL_SUCCESS) {
+                HCCL_ERROR(
+                    "[HCCN][HccnRpingAddTarget]Target[%s] add target failed because of error[%d].",
+                    inputInter[i].dip.GetReadableIP(), ret);
+                break;
+            }
+            continue;
+        }
         ret = RpingRecvTargetInfo(
             netCtx_, inputInter[i].port, inputInter[i].dip, recvInfo, configInter->connectTimeout);
         if (ret != HCCL_SUCCESS) {
@@ -1102,6 +1621,86 @@ PingMesh::HccnRpingAddTarget(u32 deviceId, u32 targetNum, RpingInput* input, Hcc
     return ret;
 }
 
+HcclResult PingMesh::RcClientUnlink(RpingInput* input, const std::shared_ptr<HcclSocket>& socketInter)
+{
+    HcclResult retInter = HCCL_SUCCESS;
+    if (socketInter == nullptr) {
+        HCCL_ERROR("[HCCN][RcClientUnlink]Socket is null.");
+        return HCCL_E_PARA;
+    }
+    auto socketStatus = socketInter->GetStatus();
+    HCCL_INFO(
+        "[HCCN][RcClientUnlink]Socket[%s] status[%d].", input->dip.GetReadableIP(), static_cast<int>(socketStatus));
+    u32 count = 0;
+    while (count < RC_UNLINK_WAIT_MAX) {
+        count++;
+        auto status = socketInter->GetStatus();
+        if (status == HcclSocketStatus::SOCKET_CONNECTING) {
+            SaluSleep(ONE_MILLISECOND_OF_USLEEP);
+            continue;
+        } else if (status != HcclSocketStatus::SOCKET_OK) {
+            HCCL_INFO(
+                "[HCCN][RcClientUnlink]Socket[%s] is not connected, status[%d], wait for unlink.",
+                input->dip.GetReadableIP(), static_cast<int>(status));
+            return HCCL_E_TCP_CONNECT;
+        } else {
+            HCCL_INFO("[HCCN][RcClientUnlink]Socket[%s] is connected, wait for unlink.", input->dip.GetReadableIP());
+            break;
+        }
+    }
+    localEid_ = input->sip;
+    remoteEid_ = input->dip;
+    socketStatus = socketInter->GetStatus();
+    if (socketStatus != HcclSocketStatus::SOCKET_OK) {
+        HCCL_WARNING(
+            "[HCCN][RcClientUnlink]Socket[%s] is not connected, status[%d].", input->dip.GetReadableIP(),
+            static_cast<int>(socketStatus));
+        retInter = HCCL_SUCCESS;
+    } else {
+        RcMsgHeader unlinkHeader;
+        (void)memset_s(&unlinkHeader, sizeof(unlinkHeader), 0, sizeof(unlinkHeader));
+        unlinkHeader.msgType = (u8)RcMsgType::UNLINK_REQ;
+        unlinkHeader.msgSeq = 0;
+        (void)memcpy_s(unlinkHeader.cmdCode, sizeof(unlinkHeader.cmdCode), PING_PAYLOAD_CMD_UNLINK, PING_CMD_CODE_LEN);
+        retInter = socketInter->Send(&unlinkHeader, sizeof(unlinkHeader));
+        if (retInter != HCCL_SUCCESS) {
+            HCCL_WARNING(
+                "[HCCN][RcClientUnlink]Socket[%s] send unlinkHeader failed, ret[%d].", input->dip.GetReadableIP(),
+                retInter);
+            retInter = HCCL_SUCCESS;
+        } else {
+            RcUnlinkBody unlinkBody;
+            (void)memset_s(&unlinkBody, sizeof(unlinkBody), 0, sizeof(unlinkBody));
+            (void)memcpy_s(
+                unlinkBody.localEidRaw, sizeof(unlinkBody.localEidRaw), localEid_.GetEid().raw, URMA_EID_LEN);
+            (void)memcpy_s(
+                unlinkBody.remoteEidRaw, sizeof(unlinkBody.remoteEidRaw), remoteEid_.GetEid().raw, URMA_EID_LEN);
+            retInter = socketInter->Send(&unlinkBody, sizeof(unlinkBody));
+            if (retInter != HCCL_SUCCESS) {
+                HCCL_WARNING(
+                    "[HCCN][RcClientUnlink]Socket[%s] send unlinkBody failed, ret[%d].", input->dip.GetReadableIP(),
+                    retInter);
+                retInter = HCCL_SUCCESS;
+            } else {
+                uint8_t rspResult = 0;
+                retInter = socketInter->Recv(&rspResult, sizeof(rspResult));
+                if (retInter != HCCL_SUCCESS) {
+                    HCCL_WARNING(
+                        "[HCCN][RcClientUnlink]Socket[%s] recv rspResult failed, ret[%d].", input->dip.GetReadableIP(),
+                        retInter);
+                    retInter = HCCL_SUCCESS;
+                } else {
+                    HCCL_INFO(
+                        "[HCCN][RcClientUnlink]Socket[%s] unlink success, rspResult[%d].", input->dip.GetReadableIP(),
+                        rspResult);
+                    retInter = HCCL_SUCCESS;
+                }
+            }
+        }
+    }
+    return retInter;
+}
+
 HcclResult PingMesh::HccnTarRemoveAttrInter(
     u32 targetNumInter, RpingInput* inputInter, PingTargetCommInfo* targetInter,
     std::shared_ptr<HcclSocket>& socketInter)
@@ -1113,6 +1712,8 @@ HcclResult PingMesh::HccnTarRemoveAttrInter(
         HCCL_ERROR("[HccnTarRemoveAttrInter]GetAddrType Fail retInter %d", retInter);
         return HCCL_E_PARA;
     }
+
+    bool isRcMode = (taMode_ == HCCN_RPING_UB_RC);
     for (u32 i = 0; i < targetNumInter; i++) {
         // 删除链路
         std::unique_lock<std::mutex> lock(socketMapsMtx_);
@@ -1122,6 +1723,16 @@ HcclResult PingMesh::HccnTarRemoveAttrInter(
             break;
         }
         socketInter = socketMaps_[std::string(inputInter[i].dip.GetReadableIP())];
+
+        if (isRcMode) {
+            lock.unlock();
+            retInter = RcClientUnlink(&inputInter[i], socketInter);
+            if (retInter != HCCL_SUCCESS) {
+                return retInter;
+            }
+            lock.lock();
+        }
+
         retInter = socketInter->DeInit();
         if (retInter != HCCL_SUCCESS) {
             HCCL_ERROR(
@@ -1527,6 +2138,62 @@ HcclResult PingMesh::HccnRpingGetPayload(u32 deviceId, void** payload, u32* payl
         payload_ = nullptr;
         return ret;
     }
+    return HCCL_SUCCESS;
+}
+
+HcclResult PingMesh::HccnRpingGetCtxInfo(HccnRpingCtxInfoType infoType, HccnRpingCtxInfo* info, u32 infoLen)
+{
+    CHK_PTR_NULL(info);
+    // 仅支持 JETTY 类型,其他类型当前未适配
+    CHK_PRT_RET(
+        infoType != HCCN_RPING_CTX_INFO_JETTY,
+        HCCL_ERROR(
+            "[HccnRpingGetCtxInfo]infoType[%d] not support, only HCCN_RPING_CTX_INFO_JETTY supported.", infoType),
+        HCCL_E_PARA);
+    // info 缓冲区长度需足以容纳 HccnRpingCtxJettyInfo
+    CHK_PRT_RET(
+        infoLen < sizeof(HccnRpingCtxJettyInfo),
+        HCCL_ERROR(
+            "[HccnRpingGetCtxInfo]infoLen[%u] less than sizeof(HccnRpingCtxJettyInfo)[%zu].", infoLen,
+            sizeof(HccnRpingCtxJettyInfo)),
+        HCCL_E_PARA);
+    // 主检查: 仅已初始化的 UB 上下文支持查询(RoCE 模式或未 Init 直接失败, 与接口文档一致)
+    CHK_PRT_RET(
+        mode != HCCN_RPING_MODE_UB || rpingState_ == RpingState::UNINIT,
+        HCCL_ERROR(
+            "[HccnRpingGetCtxInfo]mode[%d] not UB or rpingState[%d] not inited, only inited UB ctx supported.",
+            static_cast<int>(mode), static_cast<int>(rpingState_)),
+        HCCL_E_INTERNAL);
+    // 次级防御: init 正常路径必然填充 key, size 异常说明内部状态被破坏
+    CHK_PRT_RET(
+        initInfo_.client.ub.size < sizeof(UbJettyId),
+        HCCL_ERROR(
+            "[HccnRpingGetCtxInfo]ub.size[%u] less than sizeof(UbJettyId)[%zu], not UB mode or not inited.",
+            initInfo_.client.ub.size, sizeof(UbJettyId)),
+        HCCL_E_INTERNAL);
+
+    // 从 initInfo_.client.ub.key 前 24 字节解析 UbJettyId
+    UbJettyId jettyKey = {};
+    errno_t memRet = memcpy_s(&jettyKey, sizeof(UbJettyId), initInfo_.client.ub.key, sizeof(UbJettyId));
+    CHK_PRT_RET(
+        memRet != EOK, HCCL_ERROR("[HccnRpingGetCtxInfo]memcpy_s jetty key failed, ret[%d].", memRet), HCCL_E_INTERNAL);
+
+    // *info 为调用方预分配的缓冲区指针,清零后填入 jettyId
+    HccnRpingCtxJettyInfo* jettyInfo = static_cast<HccnRpingCtxJettyInfo*>(*info);
+    CHK_PTR_NULL(jettyInfo);
+    memRet = memset_s(jettyInfo, sizeof(HccnRpingCtxJettyInfo), 0, sizeof(HccnRpingCtxJettyInfo));
+    CHK_PRT_RET(
+        memRet != EOK, HCCL_ERROR("[HccnRpingGetCtxInfo]memset_s jettyInfo failed, ret[%d].", memRet), HCCL_E_INTERNAL);
+    jettyInfo->jettyId = jettyKey.id;
+
+    // 将 eid (u8[16]) 拷贝为两个 u64 用于日志打印,与 hccp 层 eid:%016llx:%016llx 风格一致
+    u64 eidPart[2] = {0};
+    (void)memcpy_s(eidPart, sizeof(eidPart), jettyKey.eid, sizeof(eidPart));
+    HCCL_RUN_INFO(
+        "[HccnRpingGetCtxInfo]get ctx info success, local_jettyId[%u] uasid[%u] eid[%016llx:%016llx] "
+        "ub.size[%u] devLogicId[%d] phyId[%u] infoType[%d].",
+        jettyInfo->jettyId, jettyKey.uasid, eidPart[0], eidPart[1], initInfo_.client.ub.size, deviceLogicId_,
+        devicePhyId_, static_cast<u32>(infoType));
     return HCCL_SUCCESS;
 }
 

@@ -39,7 +39,8 @@ union OpPingAddData {
     } txData;
 
     struct {
-        uint32_t reserved[RA_RSVD_NUM_64];
+        struct PingTargetInfo target;
+        uint32_t reserved[RA_RSVD_NUM_4];
     } rxData;
 };
 

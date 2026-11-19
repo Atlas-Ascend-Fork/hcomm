@@ -128,6 +128,7 @@ struct RsPingTargetInfo {
 
     pthread_mutex_t tripMutex;
     struct PingResultSummary resultSummary;
+    struct timeval t1;
 
     struct RsListHead list;
     uint64_t uuid;
@@ -184,6 +185,10 @@ struct RsPingUdevCb {
     struct HccpDevEidInfo eidInfo;
     urma_device_t *urmaDev;
     urma_context_t *urmaCtx;
+
+    uint32_t transMode;
+    uint32_t tpType;
+    uint8_t priority;
 };
 
 struct RsPingCtxCb {
@@ -233,6 +238,8 @@ struct RsPingPongOps {
     int (*initPingCb)(unsigned int phyId, struct PingInitAttr *attr, struct PingInitInfo *info, unsigned int *devIndex,
         struct RsPingCtxCb *pingCb);
     int (*pingFindTargetNode)(struct RsPingCtxCb *pingCb, struct PingQpInfo *target, struct RsPingTargetInfo **node);
+    int (*pingAllocGetLocalTpInfo)(struct RsPingCtxCb *pingCb, struct PingTargetInfo *target,
+        struct PingTargetInfo *result);
     int (*pingAllocTargetNode)(struct RsPingCtxCb *pingCb, struct PingTargetInfo *target,
         struct RsPingTargetInfo **node);
     void (*resetRecvBuffer)(struct RsPingCtxCb *pingCb);

@@ -79,10 +79,12 @@ global:
     HccnRpingBatchPingStart; # symbol for business
     HccnRpingBatchPingStop; # symbol for business
     HccnRpingDeinit; # symbol for business
+    HccnRpingGetCtxInfo; # symbol for business
     HccnRpingGetPayload; # symbol for business
     HccnRpingGetResult; # symbol for business
     HccnRpingGetTarget; # symbol for business
     HccnRpingInit; # symbol for business
+    HccnRpingInitWithCfg; # symbol for business
     HccnRpingRemoveTarget; # symbol for business
     InitTask;
     LaunchTask;

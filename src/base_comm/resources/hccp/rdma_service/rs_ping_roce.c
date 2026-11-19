@@ -767,6 +767,9 @@ STATIC int RsPingRocePollScq(struct RsPingCtxCb *pingCb, struct RsPingTargetInfo
     struct ibv_wc wc = {0};
     int polledCnt;
 
+    // make sure thread will exit
+    usleep(pingCb->taskAttr.packetInterval * RS_PING_MSEC_TO_USEC);
+
     polledCnt = RsIbvPollCq(pingCb->pingQp.sendCq.ibCq, 1, &wc);
     if (polledCnt != 1) {
         hccp_err("uuid:0x%llx rs_ibv_poll_cq polled_cnt:%d", target->uuid, polledCnt);

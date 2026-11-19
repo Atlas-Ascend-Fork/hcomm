@@ -60,7 +60,11 @@ protected:
     {
         s32 portNum = 7;
         MOCKER(hrtGetHccsPortNum).stubs().with(mockcpp::any(), outBound(portNum)).will(returnValue(HCCL_SUCCESS));
-        MOCKER_CPP(&PingMesh::HccnRpingInit).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+        MOCKER_CPP(static_cast<HcclResult (PingMesh::*)(u32, u32, HcclIpAddress, u32, u32, u32, u32, u32)>(
+                       &PingMesh::HccnRpingInit))
+            .stubs()
+            .with(mockcpp::any())
+            .will(returnValue(HCCL_SUCCESS));
 
         MOCKER_CPP(&PingMesh::HccnRpingDeinit).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
 

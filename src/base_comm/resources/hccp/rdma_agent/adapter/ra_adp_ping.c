@@ -47,13 +47,13 @@ int RaRsPingInit(char *inBuf, char *outBuf, int *outLen, int *opResult, int rcvB
 
 int RaRsPingTargetAdd(char *inBuf, char *outBuf, int *outLen, int *opResult, int rcvBufLen)
 {
-    (void)outBuf;
     (void)outLen;
+    union OpPingAddData *pingDataOut = (union OpPingAddData *)(outBuf + sizeof(struct MsgHead));
     union OpPingAddData *pingData = (union OpPingAddData *)(inBuf + sizeof(struct MsgHead));
 
     HCCP_CHECK_PARAM_LEN_RET_HOST(sizeof(union OpPingAddData), sizeof(struct MsgHead), rcvBufLen, opResult);
 
-    *opResult = gPingOps.pingTargetAdd(&pingData->txData.rdev, &pingData->txData.target);
+    *opResult = gPingOps.pingTargetAdd(&pingData->txData.rdev, &pingData->txData.target, &pingDataOut->rxData.target);
     if (*opResult != 0) {
         hccp_err("ping_target_add failed ret[%d].", *opResult);
     }

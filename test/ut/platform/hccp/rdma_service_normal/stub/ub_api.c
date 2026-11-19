@@ -143,6 +143,7 @@ urma_device_t* urma_get_device_by_eid(urma_eid_t eid, urma_transport_type_t type
 urma_status_t urma_query_device(urma_device_t* dev, urma_device_attr_t* dev_attr)
 {
     dev_attr->port_attr[0].state = URMA_PORT_ACTIVE;
+    dev_attr->dev_cap.priority_info[0].tp_type.bs.utp = 1;
     return 0;
 }
 
@@ -475,6 +476,11 @@ urma_status_t urma_unadvise_jetty(urma_jetty_t* jetty, urma_target_jetty_t* tjet
  * Note: A local jetty can be binded with only one remote jetty. Only supported by jetty under URMA_TM_RC.
  */
 urma_status_t urma_bind_jetty(urma_jetty_t* jetty, urma_target_jetty_t* tjetty) { return 0; }
+
+urma_status_t urma_bind_jetty_ex(urma_jetty_t* jetty, urma_target_jetty_t* tjetty, urma_bind_jetty_ex_cfg_t* cfg)
+{
+    return 0;
+}
 
 /**
  *  Unbind jetty: deconstruct the transport channel between local jetty and remote jetty.

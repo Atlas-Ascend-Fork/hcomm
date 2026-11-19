@@ -278,14 +278,15 @@ typedef struct urma_device_cap {
     uint32_t max_fetch_and_xor_size;
     urma_atomic_feature_t atomic_feat; /* [Public] support atomic feature of device */
     uint16_t trans_mode;               /* [Public] bit OR of supported transport modes */
-    uint16_t congestion_ctrl_alg;      /* [Public] one or more mode from urma_congestion_ctrl_alg_t */
-    uint32_t ceq_cnt;                  /* [Public] ceq_cnt */
-    uint32_t max_tp_in_tpg;            /* [Public] max tp in tpg */
-    uint32_t max_eid_cnt;              /* [Public] max eid count */
-    uint64_t page_size_cap;            /* [Public] page size capability, must include PAGE_SIZE(4k) */
-    uint32_t max_oor_cnt;              /* [Public] max OOR window size by packet, only for user tp */
-    uint32_t mn;                       /* [Public] only for user tp */
-    uint32_t max_netaddr_cnt;          /* [Public] only for user tp */
+    uint16_t reserved;
+    uint16_t congestion_ctrl_alg; /* [Public] one or more mode from urma_congestion_ctrl_alg_t */
+    uint32_t ceq_cnt;             /* [Public] ceq_cnt */
+    uint32_t max_tp_in_tpg;       /* [Public] max tp in tpg */
+    uint32_t max_eid_cnt;         /* [Public] max eid count */
+    uint64_t page_size_cap;       /* [Public] page size capability, must include PAGE_SIZE(4k) */
+    uint32_t max_oor_cnt;         /* [Public] max OOR window size by packet, only for user tp */
+    uint32_t mn;                  /* [Public] only for user tp */
+    uint32_t max_netaddr_cnt;     /* [Public] only for user tp */
     urma_order_type_cap_t rm_order_cap;
     urma_order_type_cap_t rc_order_cap;
     urma_tp_type_cap_t rm_tp_cap;

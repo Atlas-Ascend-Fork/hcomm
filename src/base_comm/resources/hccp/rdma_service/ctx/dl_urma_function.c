@@ -52,6 +52,7 @@ struct RsUrmaOps gUrmaOps = {
     .rsUrmaImportJetty = urma_import_jetty,
     .rsUrmaUnimportJetty = urma_unimport_jetty,
     .rsUrmaBindJetty = urma_bind_jetty,
+    .rsUrmaBindJettyEx = urma_bind_jetty_ex,
     .rsUrmaUnbindJetty = urma_unbind_jetty,
     .rsUrmaFlushJetty = urma_flush_jetty,
     .rsUrmaCreateJfce = urma_create_jfce,
@@ -348,6 +349,11 @@ STATIC int RsUrmaDataApiInit(void)
                                                               urma_import_jetty_ex_cfg_t *))
         HccpDlsym(gUrmaApiHandle, "urma_import_jetty_ex");
     DL_API_RET_IS_NULL_CHECK(gUrmaOps.rsUrmaImportJettyEx, "urma_import_jetty_ex");
+
+    gUrmaOps.rsUrmaBindJettyEx = (urma_status_t(*)(urma_jetty_t *, urma_target_jetty_t *,
+        urma_bind_jetty_ex_cfg_t *))HccpDlsym(gUrmaApiHandle, "urma_bind_jetty_ex");
+    // RC-only symbol soft-load: a missing symbol does not block URMA init; RsUrmaBindJettyEx
+    // reports an error via null check when used
 #endif
     return 0;
 }
@@ -750,6 +756,17 @@ int RsUrmaUnimportJetty(urma_target_jetty_t *tjetty)
     return PERF_TRACE(RDMA_OP, DlRetConvert(gUrmaOps.rsUrmaUnimportJetty(tjetty)));
 }
 
+int RsUrmaUnbindJetty(urma_jetty_t *jetty)
+{
+    if (gUrmaOps.rsUrmaUnbindJetty == NULL) {
+#ifndef CA_CONFIG_LLT
+        hccp_err("rs_urma_unbind_jetty is null");
+        return -EINVAL;
+#endif
+    }
+    return PERF_TRACE(RDMA_OP, DlRetConvert(gUrmaOps.rsUrmaUnbindJetty(jetty)));
+}
+
 int RsUrmaFlushJetty(urma_jetty_t *jetty, int crCnt, urma_cr_t *cr)
 {
     if (gUrmaOps.rsUrmaFlushJetty == NULL) {
@@ -1148,4 +1165,15 @@ int RsUrmaFreeJfc(urma_jfc_t *jfc)
 #endif
     }
     return PERF_TRACE(RDMA_OP, DlRetConvert(gUrmaOps.rsUrmaFreeJfc(jfc)));
+}
+
+int RsUrmaBindJettyEx(urma_jetty_t *jetty, urma_target_jetty_t *tjetty, urma_bind_jetty_ex_cfg_t *cfg)
+{
+    if (gUrmaOps.rsUrmaBindJettyEx == NULL) {
+#ifndef CA_CONFIG_LLT
+        hccp_err("rs_urma_bind_jetty_ex is null");
+        return -EINVAL;
+#endif
+    }
+    return PERF_TRACE(RDMA_OP, DlRetConvert(gUrmaOps.rsUrmaBindJettyEx(jetty, tjetty, cfg)));
 }

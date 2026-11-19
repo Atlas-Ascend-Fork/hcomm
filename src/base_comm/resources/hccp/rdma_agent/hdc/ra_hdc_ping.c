@@ -35,7 +35,6 @@ int RaHdcPingInit(struct RaPingHandle *pingHandle, struct PingInitAttr *initAttr
     CHK_PRT_RETURN(ret, hccp_err("[init][ra_hdc_ping]memcpy_s dev info failed, ret(%d) phyId(%u)", ret, phyId),
         -ESAFEFUNC);
     pingHandle->devIndex = pingData.rxData.devIndex;
-
     return 0;
 }
 
@@ -59,6 +58,21 @@ int RaHdcPingTargetAdd(struct RaPingHandle *pingHandle, struct PingTargetInfo ta
                     i, phyId),
                 -EINVAL);
         }
+        CHK_PRT_RETURN(target[i].version >= 1 && target[i].targetAddAction != PING_TARGET_ADD_ACTION_DEFAULT &&
+                           target[i].targetAddAction != PING_TARGET_ADD_ACTION_GET_LOCAL_TP_INFO,
+            hccp_err("[add][ra_hdc_ping]invalid targetAddAction(%u), i(%u), phyId(%u)", target[i].targetAddAction, i,
+                phyId),
+            -EINVAL);
+        if (target[i].targetAddAction == PING_TARGET_ADD_ACTION_GET_LOCAL_TP_INFO) {
+            CHK_PRT_RETURN(pingHandle->protocol != PROTOCOL_UDMA,
+                hccp_err("[add][ra_hdc_ping]get_local_tp_info only supported on UDMA, protocol(%u) i(%u) phyId(%u)",
+                    (unsigned int)pingHandle->protocol, i, phyId),
+                -EOPNOTSUPP);
+            CHK_PRT_RETURN(target[i].version < 1,
+                hccp_err("[add][ra_hdc_ping]get_local_tp_info requires version>=1, version(%d) i(%u) phyId(%u)",
+                    target[i].version, i, phyId),
+                -EINVAL);
+        }
 
         (void)memset_s(&pingData, sizeof(pingData), 0, sizeof(pingData));
         RaHdcPingInitRdev(&pingData.txData.rdev, phyId, pingHandle->devIndex);
@@ -69,6 +83,18 @@ int RaHdcPingTargetAdd(struct RaPingHandle *pingHandle, struct PingTargetInfo ta
         ret = RaHdcProcessMsg(RA_RS_PING_ADD, phyId, (char *)&pingData, sizeof(union OpPingAddData));
         CHK_PRT_RETURN(ret,
             hccp_err("[add][ra_hdc_ping]ra hdc message process failed ret(%d) i(%u) phyId(%u)", ret, i, phyId), ret);
+        if (target[i].version >= 1 && target[i].targetAddAction == PING_TARGET_ADD_ACTION_GET_LOCAL_TP_INFO) {
+            ret = memcpy_s(&(target[i].localInfo), sizeof(struct PingLocalCommInfo),
+                &(pingData.rxData.target.localInfo), sizeof(struct PingLocalCommInfo));
+            CHK_PRT_RETURN(ret,
+                hccp_err("[add][ra_hdc_ping]memcpy_s localInfo failed, ret(%d) i(%u) phyId(%u)", ret, i, phyId),
+                -ESAFEFUNC);
+            CHK_PRT_RETURN(target[i].localInfo.ub.tpHandle == 0,
+                hccp_err("[add][ra_hdc_ping]local tp not filled by device, tpHandle(0x%llx) i(%u) phyId(%u)",
+                    (unsigned long long)target[i].localInfo.ub.tpHandle, i, phyId),
+                -ENODEV);
+            hccp_info_rma("[add][ra_hdc_ping]get local tp info success, i(%u) phyId(%u)", i, phyId);
+        }
     }
 
     return 0;

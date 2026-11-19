@@ -32,7 +32,7 @@ typedef enum {
 
 typedef enum {
     HCCN_RPING_MODE_ROCE = 0, /* RoCE */
-    HCCN_RPING_MODE_UB = 1,   /* UB */
+    HCCN_RPING_MODE_UB = 1,   /* UB, default mode is UM + UTP */
     PING_MODE_IPoUB = 2,      /* UBoE */
     HCCN_RPING_MODE_RESERVED  /* reserved */
 } HccnRpingMode;
@@ -133,6 +133,59 @@ typedef struct HccnRpingPayloadHeadDef {
     uint8_t reserved[40];  // PPT40
 } HccnRpingPayloadHead;
 
+// UB transaction mode: 事务模式
+typedef enum {
+    HCCN_RPING_UB_RM = 0x1,      /* reserved, not supported by HccnRpingInitWithCfg */
+    HCCN_RPING_UB_RC = 0x1 << 1, /* Reliable connection */
+    HCCN_RPING_UB_UM = 0x1 << 2  /* Unreliable message */
+} HccnUbTransactionMode;
+
+// UB transport mode: 传输平面模式
+typedef enum {
+    HCCN_RPING_UB_RTP = 0, /* Reliable transport plane */
+    HCCN_RPING_UB_CTP,     /* Connectionless transport plane */
+    HCCN_RPING_UB_UTP      /* Unreliable transport plane */
+} HccnUbTransportMode;
+
+// 初始化配置结构体:分离事务模式与传输平面模式
+typedef struct HccnRpingInitCfgDef {
+    uint32_t validCfgLen; /* length of valid cfg, must be set to sizeof(HccnRpingInitCfg) by caller */
+    union {
+        struct {
+            HccnUbTransactionMode taMode; /* UB transaction mode */
+            HccnUbTransportMode tpMode;   /* UB transport mode */
+            uint32_t reserved[64];        /* reserved */
+        } ub;
+    };
+} HccnRpingInitCfg;
+
+// DFX 诊断接口:获取 rping 上下文信息(如本端 jettyId)
+typedef enum {
+    HCCN_RPING_CTX_INFO_JETTY = 0, /* jetty ctx info */
+    HCCN_RPING_CTX_INFO_RESERVED
+} HccnRpingCtxInfoType;
+
+typedef void* HccnRpingCtxInfo;
+
+typedef struct HccnRpingCtxJettyInfoDef {
+    uint32_t jettyId;      /* local jettyId */
+    uint32_t reserved[63]; /* reserved for extension */
+} HccnRpingCtxJettyInfo;
+
+/**
+ * @brief Get rping context info (e.g. local jettyId) after HccnRpingInit / HccnRpingInitWithCfg.
+ *        Only UB mode (HCCN_RPING_MODE_UB) is supported;
+ *        RoCE mode or an uninitialized context will return HCCN_E_FAIL.
+ * @param rpingCtx : context of rping resource (HccnRpingCtx is void*, so rpingCtx is void**).
+ * @param infoType : info type, only HCCN_RPING_CTX_INFO_JETTY supported now.
+ * @param info : output buffer pointer's address (HccnRpingCtxInfo is void*, so info is void**),
+ *               caller should pre-allocate HccnRpingCtxJettyInfo sized memory.
+ * @param infoLen : info buffer length, must be >= sizeof(HccnRpingCtxJettyInfo).
+ * @return HccnResult
+ */
+extern HccnResult
+HccnRpingGetCtxInfo(HccnRpingCtx* rpingCtx, HccnRpingCtxInfoType infoType, HccnRpingCtxInfo* info, uint32_t infoLen);
+
 /**
  * @brief Init rping resource on a device.
  * @param devLogicId : Device logic ID.
@@ -142,6 +195,19 @@ typedef struct HccnRpingPayloadHeadDef {
  */
 extern HccnResult HccnRpingInit(uint32_t devLogicId, HccnRpingInitAttr* initAttr, HccnRpingCtx* rpingCtx);
 
+/**
+ * @brief Init rping resource on a device with cfg (support RC+CTP).
+ *        老接口 HccnRpingInit 保持不变, 新接口通过initCfg分离传入事务模式与传输平面模式。
+ * @param devLogicId : Device logic ID.
+ * @param initAttr: init attribute, mode 应设为 HCCN_RPING_MODE_UB。
+ * @param initCfg: init config, ub.taMode/tpMode 决定具体组合(如 RC+CTP)。
+ *                 validCfgLen 必须设置为 sizeof(HccnRpingInitCfg)，用于前向兼容校验，
+ *                 小于该值时 HccnRpingInitWithCfg 返回 HCCN_E_PARA。
+ * @param rpingCtx: context of rping resource.
+ * @return HccnResult
+ */
+extern HccnResult HccnRpingInitWithCfg(
+    uint32_t devLogicId, HccnRpingInitAttr* initAttr, HccnRpingInitCfg* initCfg, HccnRpingCtx* rpingCtx);
 /**
  * @brief Release rping resource on a device.
  * @param rpingCtx: context of rping resource.
@@ -155,6 +221,8 @@ extern HccnResult HccnRpingDeinit(HccnRpingCtx rpingCtx);
  * @param targetNum: Number of NPUs need probe.
  * @param target: Infoes of NPU need probe, this is an array.
  * @return HccnResult
+ * @note RC mode (ctx created by HccnRpingInitWithCfg with ub.taMode=HCCN_RPING_UB_RC) only supports
+ *       1 target per add call.
  */
 extern HccnResult HccnRpingAddTarget(HccnRpingCtx rpingCtx, uint32_t targetNum, HccnRpingTargetInfo* target);
 
@@ -177,6 +245,8 @@ extern HccnResult HccnRpingAddTargetV2(
  * @param target: Infoes of NPU need probe, this is an array.
  * @param config: HccnRpingAddTargetConfig.
  * @return HccnResult
+ * @note RC mode (ctx created by HccnRpingInitWithCfg with ub.taMode=HCCN_RPING_UB_RC) only supports
+ *       1 target per add call.
  */
 extern HccnResult HccnRpingAddTargetWithCfg(
     HccnRpingCtx rpingCtx, uint32_t targetNum, HccnRpingTargetInfo* target, HccnRpingAddTargetConfig* config);

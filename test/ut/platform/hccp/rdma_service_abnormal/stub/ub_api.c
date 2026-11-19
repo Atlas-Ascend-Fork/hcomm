@@ -465,6 +465,11 @@ urma_status_t urma_unadvise_jetty(urma_jetty_t* jetty, urma_target_jetty_t* tjet
  */
 urma_status_t urma_bind_jetty(urma_jetty_t* jetty, urma_target_jetty_t* tjetty) { return 0; }
 
+urma_status_t urma_bind_jetty_ex(urma_jetty_t* jetty, urma_target_jetty_t* tjetty, urma_bind_jetty_ex_cfg_t* cfg)
+{
+    return 0;
+}
+
 /**
  *  Unbind jetty: deconstruct the transport channel between local jetty and remote jetty.
  * @param[in] [Required] jetty: local jetty to deconstruct the transport channel;

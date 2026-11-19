@@ -780,6 +780,7 @@ urma_status_t urma_query_device(urma_device_t* dev, urma_device_attr_t* dev_attr
     dev_attr->dev_cap.max_jfr_sge = 8;
     dev_attr->dev_cap.max_msg_size = URMA_MAX_MSG;
     dev_attr->dev_cap.trans_mode = URMA_TM_RM | URMA_TM_RC | URMA_TM_UM;
+    dev_attr->dev_cap.priority_info[0].tp_type.bs.utp = 1;
     dev_attr->port_attr[0].state = URMA_PORT_ACTIVE;
     dev_attr->port_attr[0].max_mtu = URMA_MTU_4096;
     dev_attr->port_attr[0].active_mtu = URMA_MTU_4096;
