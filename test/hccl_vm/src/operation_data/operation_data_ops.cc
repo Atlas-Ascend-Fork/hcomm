@@ -375,6 +375,23 @@ int UpdateOpMemCclBuffer(uint64_t cclAddr, uint64_t cclSize)
     return 0;
 }
 
+// 更新本 rank 当前 OpMem 槽位的卡死检测计数区间（按 OpMem 槽位键）。
+// @param counterAddr 计数槽起始地址（仿真设备虚拟地址）；@param counterSize 计数槽大小；
+// @param counterDevAddr 计数槽起始地址（业务侧 device 进程映射址，CCU 指令立即数用它）。
+// @return 0 成功；非 0 失败。
+int UpdateOpMemCounterBuffer(uint64_t counterAddr, uint64_t counterSize, uint64_t counterDevAddr)
+{
+    auto updated = HcclSim::Storage::Update<OpMemInfoTab>(
+        HcclSim::Storage::Eq(&OpMemInfoTab::id, CurrOpMemIdRef().load(std::memory_order_relaxed)),
+        HcclSim::Storage::Set(&OpMemInfoTab::counterAddr, counterAddr),
+        HcclSim::Storage::Set(&OpMemInfoTab::counterSize, counterSize),
+        HcclSim::Storage::Set(&OpMemInfoTab::counterDevAddr, counterDevAddr));
+    if (!updated.ok()) {
+        return FailWith("update opMemInfo counter buffer", updated.diagnostic);
+    }
+    return 0;
+}
+
 int QueryCurrentOpMemInfoByRank(uint32_t rankId, OpMemInfoTab& out)
 {
     // 数据库原子操作三步分解，等价迁移前 JOIN 语义：

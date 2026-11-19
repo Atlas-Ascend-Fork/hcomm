@@ -39,8 +39,9 @@ namespace TaskGraphGeneratorV3 {
                 case ::OUTPUT:
                     return MemType::OUTPUT;
                 case ::CCL:
-                case ::SCRATCH:
                     return MemType::CCL;
+                case ::SCRATCH:
+                    return MemType::SCRATCH;
                 case ::MS:
                     return MemType::MS_CCU;
                 case ::INPUT_AIV:

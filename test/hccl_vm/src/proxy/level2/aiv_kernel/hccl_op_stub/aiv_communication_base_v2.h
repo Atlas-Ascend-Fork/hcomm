@@ -196,6 +196,23 @@ public:
     // SuperKernel 满核启动时，blockIdx 超出算子自身核数(numBlocks_)的核为空闲核
     __aicore__ inline bool IsIdleCore() const { return blockIdx_ >= static_cast<uint32_t>(numBlocks_); }
 
+    // 卡死检测计数：仿真环境不建模计数内存，等价于上游 stuckEnabled_ == false 的分支，
+    // 仅保留同名接口以对齐 hccl 上游 AivCommBase
+    __aicore__ inline void
+    InitStuckCounter(__gm__ int32_t* head, __gm__ int32_t* tail, __gm__ int32_t* addOne, bool enable)
+    {
+        (void)head;
+        (void)tail;
+        (void)addOne;
+        (void)enable;
+    }
+
+    __aicore__ inline void HeadCounter() {}
+
+    __aicore__ inline void TailCounter() {}
+
+    __aicore__ inline void SyncBeforeTail() {}
+
     __aicore__ inline void ClearGM();
 
     __aicore__ inline void SendRecvBarrierForFirstOP(uint32_t myRank, uint32_t remoteRank);

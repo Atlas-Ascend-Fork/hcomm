@@ -67,6 +67,13 @@ struct OpMemInfoTab {
     uint64_t outputSize;
     uint64_t cclAddr;
     uint64_t cclSize;
+    // 卡死检测计数槽(head/tail/addOne)地址与大小: 业务(hcomm)按通信域分配的 DFX 内存,
+    // 算子会对它做 4 字节 int32 SUM 归约并产生 task, 未登记时 checker 无法解析该地址。
+    // counterAddr 为仿真设备虚拟地址(与 input/output/ccl 同口径), counterDevAddr 为业务侧
+    // 持有的 device 进程映射址(CCU 指令立即数用的是它); 两者均为 0 表示未开启卡死检测。
+    uint64_t counterAddr{0};
+    uint64_t counterSize{0};
+    uint64_t counterDevAddr{0};
 };
 
 struct SyncRecordTab {

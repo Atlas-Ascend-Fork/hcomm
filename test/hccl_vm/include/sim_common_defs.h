@@ -526,7 +526,9 @@ inline void SplitWriteWithNotify(const HcclTaskMetaData& task, HcclTaskMetaData&
     outNotify.taskData.notify.protocol = wn.protocol;
 }
 
-enum BufferType { INPUT = 0, OUTPUT, CCL, RESERVED };
+// SCRATCH: 通信域持有的 DFX/临时内存（如卡死检测计数槽 head/tail/addOne），
+// 取值须与 checker 内部 BufferType（src/plugin/checker/header/internal/sim_common.h）保持一致。
+enum BufferType { INPUT = 0, OUTPUT, CCL, SCRATCH, RESERVED };
 
 class DataSlice {
 public:

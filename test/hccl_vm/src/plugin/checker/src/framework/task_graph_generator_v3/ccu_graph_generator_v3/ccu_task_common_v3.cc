@@ -174,8 +174,9 @@ namespace TaskGraphGeneratorV3 {
                 case ::OUTPUT:
                     return MemType::OUTPUT;
                 case ::CCL:
-                case ::SCRATCH:
                     return MemType::CCL;
+                case ::SCRATCH:
+                    return MemType::SCRATCH;
                 case ::MS:
                     return MemType::MS_CCU;
                 case ::INPUT_AIV:
@@ -294,7 +295,33 @@ namespace TaskGraphGeneratorV3 {
         if (commName.empty()) {
             commName = storage_.GetCurrentCommName();
         }
-        return storage_.GetSlice(commName, position.commHash, position.opIter, addr, len, dataSlice, deviceId);
+        HcclResult ret = storage_.GetSlice(
+            commName, position.commHash, position.opIter, addr, len, dataSlice, deviceId, INVALID_DEVICE_ID, false);
+        if (ret == HcclResult::HCCL_SUCCESS) {
+            return ret;
+        }
+
+        // 兜底：业务把 device 进程映射址作为立即数烧进 CCU 指令（如卡死检测计数槽），
+        // 绕开了 SQE args 的 dev→vir 翻译链，而布局按设备虚拟地址登记。归属唯一时换算后重解析；
+        // 换算不出（跨 device 映射址重复）时保持原失败语义，由调用方按 DFX 计数指令处理。
+        uint64_t virAddr = 0;
+        if (storage_.TranslateDevMappedAddr(addr, virAddr)) {
+            HcclResult translatedRet = storage_.GetSlice(
+                commName, position.commHash, position.opIter, virAddr, len, dataSlice, deviceId, INVALID_DEVICE_ID,
+                false);
+            if (translatedRet == HcclResult::HCCL_SUCCESS) {
+                HCCL_VM_INFO(
+                    "CCU instruction address translated from dev-mapped to vir, devAddr=0x{:x}, virAddr=0x{:x}, "
+                    "len=0x{:x}, {}",
+                    addr, virAddr, len, IdentityCtx());
+                return translatedRet;
+            }
+        }
+
+        HCCL_VM_ERROR(
+            "{} Failed to resolve data slice from memory layout, addr=0x{:X}, len=0x{:X}, {}",
+            MakeErrorCodeText(ErrorCode::GRAPH_ADDRESS_INVALID), addr, len, IdentityCtx());
+        return ret;
     }
 
     std::string CcuGraphStateV3::IdentityCtx() const

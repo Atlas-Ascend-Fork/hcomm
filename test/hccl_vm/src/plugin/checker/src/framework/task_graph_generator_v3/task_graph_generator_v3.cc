@@ -94,6 +94,36 @@ namespace TaskGraphGeneratorV3 {
             });
         }
 
+        // DFX 计数任务判定：搬运/归约任务且全部内存切片都落在计数内存（SCRATCH）。
+        // 卡死检测的 head 计数是 AICPU 工作流的首个下发任务，它不是 notify-wait、没有
+        // 跨流入边，若不补 start 边则整条工作流不可达（后续 record/wait 全部阻塞）。
+        bool IsDfxCounterNode(const TaskNode* node)
+        {
+            if (node == nullptr) {
+                return false;
+            }
+            switch (node->GetType()) {
+                case TaskType::TRANS_MEM: {
+                    const auto* trans = dynamic_cast<const TaskTransMem*>(node);
+                    return trans != nullptr && trans->GetSrc().memType == MemType::SCRATCH
+                           && trans->GetDst().memType == MemType::SCRATCH;
+                }
+                case TaskType::REDUCE: {
+                    const auto* reduce = dynamic_cast<const TaskReduce*>(node);
+                    if (reduce == nullptr || reduce->GetDst().memType != MemType::SCRATCH
+                        || reduce->GetSrc().memType != MemType::SCRATCH) {
+                        return false;
+                    }
+                    const auto& srcs = reduce->GetSrcs();
+                    return !srcs.empty() && std::all_of(srcs.begin(), srcs.end(), [](const MemSlice& slice) {
+                        return slice.memType == MemType::SCRATCH;
+                    });
+                }
+                default:
+                    return false;
+            }
+        }
+
         std::set<StreamId> GetMainStreamIds(
             const std::vector<std::unique_ptr<TaskNode>>& nodes, DeviceId deviceId,
             const RankNodeQueues& rankTaskQueues)
@@ -887,6 +917,17 @@ namespace TaskGraphGeneratorV3 {
             } else if (
                 mainStreamIds.find(static_cast<StreamId>(streamIndex)) == mainStreamIds.end() && !stream.empty()
                 && GetNode(stream.front())->GetType() == TaskType::CCU_GRAPH) {
+                HcclResult ret = AddEdge(mainStartNodeId_, stream.front());
+                if (ret != HCCL_SUCCESS) {
+                    return ret;
+                }
+                ++startEdgeCount;
+            } else if (
+                mainStreamIds.find(static_cast<StreamId>(streamIndex)) == mainStreamIds.end() && !stream.empty()
+                && IsDfxCounterNode(GetNode(stream.front()))) {
+                // 非主流以 DFX 计数任务开头（卡死检测 head 计数先于该流首个 notify-wait 下发）：
+                // 补一条主起点边保证整条流可达。放行条件仅限计数任务，普通数据任务仍须经
+                // notify-wait 进入，保留“未等待即搬数”的死锁检出能力。
                 HcclResult ret = AddEdge(mainStartNodeId_, stream.front());
                 if (ret != HCCL_SUCCESS) {
                     return ret;

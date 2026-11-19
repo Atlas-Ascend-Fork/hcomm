@@ -19,6 +19,9 @@ namespace HcclSim {
 
 std::map<uint32_t, std::vector<uint64_t>> ResolveAllCcuBaseAddrs() { return {}; }
 
+// UT 环境无 DB 会话，真实实现读 VirtualMemBlock 也只会返回空表（调用方退化为不换算）。
+std::vector<DevMappedVirRange> ResolveAllDevMappedRanges() { return {}; }
+
 const sim::devspec::CcuAddressSpace* GetCcuAddrSpaceByDeviceId(uint32_t deviceId)
 {
     (void)deviceId;

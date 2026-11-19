@@ -58,6 +58,9 @@ namespace TaskGraphGeneratorV3 {
         AIV_UB,
         AIV_COMM,
         MS_CCU,
+        // DFX 计数内存（卡死检测 head/tail/addOne 计数槽）：由业务按通信域分配，
+        // 不属于算子的 input/output/CCL 数据面，仅承载 4 字节计数归约。
+        SCRATCH,
         // 冲突检查内部的物理内存桶标记：INPUT/OUTPUT/CCL 三种逻辑视图按绝对地址统一归桶。
         // 仅用于冲突检查的 MemoryKey，不会写入 MemSlice.memType。
         PHYSICAL_GLOBAL,
@@ -79,6 +82,8 @@ namespace TaskGraphGeneratorV3 {
                 return "AIV_COMM";
             case MemType::MS_CCU:
                 return "MS_CCU";
+            case MemType::SCRATCH:
+                return "SCRATCH";
             case MemType::PHYSICAL_GLOBAL:
                 return "PHYSICAL_GLOBAL";
             default:
@@ -156,11 +161,14 @@ namespace TaskGraphGeneratorV3 {
         inline uint64_t MemoryEnd() const { return MemoryBegin() + len; }
     };
 
-    // 全局物理内存（INPUT/OUTPUT/CCL）：同一设备上三种逻辑视图可能互为别名（inplace），
-    // 冲突/别名判定必须按绝对地址归桶；MS_CCU/AIV_UB/AIV_COMM 属于独立地址空间，维持逻辑身份。
+    // 全局物理内存（INPUT/OUTPUT/CCL/SCRATCH）：同一设备上多种逻辑视图可能互为别名（inplace），
+    // 冲突/别名判定必须按绝对地址归桶；SCRATCH（DFX 计数槽）同为设备物理内存，按绝对地址归桶后
+    // 与 CCL 缓冲区天然不重叠，避免计数偏移与 CCL 偏移互相别名。
+    // MS_CCU/AIV_UB/AIV_COMM 属于独立地址空间，维持逻辑身份。
     inline bool IsGlobalPhysicalMemoryType(MemType memType)
     {
-        return memType == MemType::INPUT || memType == MemType::OUTPUT || memType == MemType::CCL;
+        return memType == MemType::INPUT || memType == MemType::OUTPUT || memType == MemType::CCL
+               || memType == MemType::SCRATCH;
     }
 
     // 两个切片的物理区间是否完全相同（inplace src==dst 的判定依据）。

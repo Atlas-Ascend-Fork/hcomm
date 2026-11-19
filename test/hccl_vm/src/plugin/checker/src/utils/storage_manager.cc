@@ -264,6 +264,7 @@ void StorageManager::Reset(bool clearMemLayout)
     if (clearMemLayout) {
         m_op_mem_layout.clear();
         m_comm_ccl_layout.clear();
+        m_dfx_counter_ranges.clear();
         m_comm_device_rank_mappings.clear();
         m_comm_rank_device_mappings.clear();
         m_comm_id_to_name.clear();
@@ -286,6 +287,12 @@ void StorageManager::Reset(bool clearMemLayout)
     // 全局缓存已清空，允许下一轮重新转换一次。
     m_channelInfoLoaded = false;
     m_halfRttInfoLoaded = false;
+    {
+        // 映射址快照随轮次失效（内存块每轮重新分配）；锁序固定为 m_mutex → m_dev_mapped_mutex。
+        std::lock_guard<std::mutex> devMappedLock(m_dev_mapped_mutex);
+        m_dev_mapped_ranges.clear();
+        m_dev_mapped_loaded = false;
+    }
     // layout map 已（可能）清空，缓存指针一并置空，避免悬垂。
     m_currentOpLayout = nullptr;
     m_currentCclLayout = nullptr;
@@ -619,7 +626,7 @@ void StorageManager::EnsureHalfRttInfo(const std::vector<sim::operation::HalfRTT
     HCCL_VM_INFO("Loaded half RTT information, halfRTTCount={}", halfRTT.size());
 }
 
-/** 写入单个 rank 的 input/output/CCL 内存布局（单 rank 级数据，需逐 rank 调用）。 */
+/** 写入单个 rank 的 input/output/CCL/计数槽 内存布局（单 rank 级数据，需逐 rank 调用）。 */
 void StorageManager::LoadRankMemLayout(
     DeviceId deviceId, uint32_t rankId, const std::string& commName, uint64_t commHash, uint32_t opIter,
     const sim::operation::OpMemInfoTab& memInfo)
@@ -663,6 +670,32 @@ void StorageManager::LoadRankMemLayout(
         HCCL_VM_INFO(
             "[Init MemLayout] deviceId={}, rankId={}, bufType={}, startAddr={}, size={}", deviceId, rankId,
             static_cast<int>(BufferType::CCL), memInfo.cclAddr, memInfo.cclSize);
+    }
+
+    // 卡死检测计数槽（head/tail/addOne）：业务按通信域分配的 DFX 内存，算子会对其做
+    // 4 字节 int32 SUM 归约并产生 task。按 SCRATCH 登记为通信域级布局（多算子共享），
+    // 未开启卡死检测时地址为 0，跳过。
+    if (memInfo.counterAddr != 0 && memInfo.counterSize > 0) {
+        MemBlock memBlock;
+        memBlock.bufferType = BufferType::SCRATCH;
+        memBlock.startAddr = memInfo.counterAddr;
+        memBlock.size = memInfo.counterSize;
+        memBlock.globalOffset = 0; // 计数槽由通信域持有，并在该通信域的多个算子之间共享。
+        memBlock.devMappedAddr = memInfo.counterDevAddr;
+        cclLayout[deviceId][BufferType::SCRATCH][memInfo.counterAddr] = memBlock;
+        // 同一通信域的多个算子共享计数槽，按 (device, virAddr) 去重后登记映射址索引。
+        const bool known
+            = std::any_of(m_dfx_counter_ranges.begin(), m_dfx_counter_ranges.end(), [&](const DfxCounterRange& range) {
+                  return range.deviceId == deviceId && range.virAddr == memInfo.counterAddr;
+              });
+        if (!known) {
+            m_dfx_counter_ranges.push_back(
+                DfxCounterRange{deviceId, memInfo.counterAddr, memInfo.counterDevAddr, memInfo.counterSize});
+        }
+        HCCL_VM_INFO(
+            "[Init MemLayout] deviceId={}, rankId={}, bufType={}, startAddr={}, devMappedAddr={}, size={}", deviceId,
+            rankId, static_cast<int>(BufferType::SCRATCH), memInfo.counterAddr, memInfo.counterDevAddr,
+            memInfo.counterSize);
     }
 }
 
@@ -969,6 +1002,63 @@ bool StorageManager::IsMemRangeRegistered(
     return false;
 }
 
+/** 判定地址区间是否落在已登记的 DFX 计数槽内（映射址或设备虚拟地址任一口径命中）。 */
+bool StorageManager::IsDfxCounterRange(uint64_t addr, uint64_t len, DeviceId* deviceId) const
+{
+    if (addr == 0 || len == 0 || len > std::numeric_limits<uint64_t>::max() - addr) {
+        return false;
+    }
+    const uint64_t end = addr + len;
+    for (const auto& range : m_dfx_counter_ranges) {
+        const bool hitDevMapped
+            = range.devMappedAddr != 0 && addr >= range.devMappedAddr && end <= range.devMappedAddr + range.size;
+        const bool hitVir = range.virAddr != 0 && addr >= range.virAddr && end <= range.virAddr + range.size;
+        if (hitDevMapped || hitVir) {
+            if (deviceId != nullptr) {
+                *deviceId = range.deviceId;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+/** 懒加载映射址快照：整表读一次 VirtualMemBlock（读库实现隔离在 ccu_base_resolver TU）。 */
+void StorageManager::EnsureDevMappedSnapshot() const
+{
+    std::lock_guard<std::mutex> lock(m_dev_mapped_mutex);
+    if (m_dev_mapped_loaded) {
+        return;
+    }
+    m_dev_mapped_loaded = true;
+    m_dev_mapped_ranges = ResolveAllDevMappedRanges();
+}
+
+bool StorageManager::TranslateDevMappedAddr(uint64_t addr, uint64_t& virAddr) const
+{
+    if (addr == 0) {
+        return false;
+    }
+    EnsureDevMappedSnapshot();
+
+    std::lock_guard<std::mutex> lock(m_dev_mapped_mutex);
+    bool found = false;
+    for (const auto& range : m_dev_mapped_ranges) {
+        if (addr < range.devMappedAddr || addr >= range.devMappedAddr + range.size) {
+            continue;
+        }
+        const uint64_t candidate = range.virAddr + (addr - range.devMappedAddr);
+        if (found && candidate != virAddr) {
+            // 跨 device 映射址数值重复且换算结果不同：归属不唯一，放弃换算，
+            // 由调用方按上下文（本端/对端设备）判定或直接按 DFX 计数处理。
+            return false;
+        }
+        virAddr = candidate;
+        found = true;
+    }
+    return found;
+}
+
 /** 在给定布局中解析地址：expectedDeviceId 有效时只查该设备，否则全设备扫描。 */
 HcclResult StorageManager::ResolveSliceInLayout(
     const DeviceMemLayout& layout, uint64_t addr, DataSlice& dataSlice, DeviceId* deviceId,
@@ -1001,7 +1091,7 @@ HcclResult StorageManager::ResolveSliceInLayout(
 /** 解析绝对地址所属内存块；翻译热路径传入 expectedDeviceId 时走 O(1) 单设备路径。 */
 HcclResult StorageManager::GetSlice(
     const std::string& commName, uint64_t commHash, uint32_t opIter, uint64_t addr, uint64_t len, DataSlice& dataSlice,
-    DeviceId* deviceId, DeviceId expectedDeviceId)
+    DeviceId* deviceId, DeviceId expectedDeviceId, bool logOnError)
 {
     dataSlice.SetSize(len);
 
@@ -1024,9 +1114,11 @@ HcclResult StorageManager::GetSlice(
         && ResolveSliceInLayout(*cclLayout, addr, dataSlice, deviceId, expectedDeviceId) == HcclResult::HCCL_SUCCESS) {
         return HcclResult::HCCL_SUCCESS;
     }
-    HCCL_VM_ERROR(
-        "{} Failed to resolve data slice from memory layout, addr=0x{:X}, len=0x{:X}",
-        MakeErrorCodeText(ErrorCode::GRAPH_ADDRESS_INVALID), addr, len);
+    if (logOnError) {
+        HCCL_VM_ERROR(
+            "{} Failed to resolve data slice from memory layout, addr=0x{:X}, len=0x{:X}",
+            MakeErrorCodeText(ErrorCode::GRAPH_ADDRESS_INVALID), addr, len);
+    }
     return HcclResult::HCCL_E_MEMORY;
 }
 

@@ -478,6 +478,19 @@ namespace TaskGraphGeneratorV3 {
 
         DataSlice dstSlice;
         DeviceId rId;
+        // DFX 计数指令（卡死检测 head/tail）：业务把计数槽的 device 进程映射址作为立即数烧进指令，
+        // 该口径跨 device 数值重复、无法唯一归属设备，且计数不承载集合通信数据语义。命中已登记的
+        // 计数区间时跳过建节点，但必须保留 CKE 记账，否则后续 Wait CKE 永远等不到 → 误判死锁。
+        if (curCcuTask->GetStorageManager().IsDfxCounterRange(locAddr, len)
+            || curCcuTask->GetStorageManager().IsDfxCounterRange(rmtAddr, len)) {
+            HCCL_VM_INFO(
+                "Skip DFX counter instruction, instruction=TransLocMemToRmtMem, locAddr=0x{:x}, rmtAddr=0x{:x}, "
+                "len=0x{:x}, instrId={}, {}",
+                locAddr, rmtAddr, len, instrId, curCcuTask->Describe());
+            CHK_RET(ProcessSetMask(deviceId, dieId, curCcuTask, queId, setCKEId, setCKEMask));
+            CHK_RET(ClearWaitMask(deviceId, dieId, waitCKEId, waitCKEMask));
+            return HCCL_SUCCESS;
+        }
         // todo: 后续插件通过读取vm的输出文件，重建memlayout的地址类型信息
         // 南向接口：input/output buffer同北向一样劫持算子入口函数；CCL buffer需要劫持北向接口HcclGetHcclBuffer
         CHK_RET(curCcuTask->GetSlice(locAddr, len, srcSlice));

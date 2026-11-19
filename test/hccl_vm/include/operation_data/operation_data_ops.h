@@ -53,11 +53,17 @@
          Field(devType), Field(rankSize), Field(srcRank), Field(dstRank), Field(opDetail), Field(opExtInfo),                                       \
          Field(algorithmName, Text), Field(ubMultiChannelNum), Field(endSeq), PrimaryKey(id), Index(pid, syncIter),                                \
          Index(commId, deviceId, id), Index(syncIter), Index(deviceId, id), Index(pid, deviceId, streamId, endSeq)))                               \
+        /* Version(2)：新增列 counterAddr/counterSize（卡死检测计数槽 head/tail/addOne 的地址与大小，                    \
+           算子桩按通信域向业务查询后回填）；计数归约 task 的地址落在该区间，checker 据此解析为 SCRATCH 切片。            \
+           仅加列不改索引；数据库每次 hccl-vm start 随 data 目录重建，无存量迁移 */                                     \
+        /* Version(3)：新增列 counterDevAddr（计数槽的 device 进程映射址）。CCU 指令把该映射址作为立即数                 \
+           烧进指令流，绕开 SQE args 的 dev→vir 翻译链，checker 需据此识别/换算计数指令地址。仅加列不改索引 */          \
         Table(                                                                                                                                     \
             sim::operation::OpMemInfoTab,                                                                                                          \
-            (Version(1), Scope::Static, Field(id, AutoIncrement), Field(opDetailId), Field(inputAddr),                                             \
-             Field(inputSize), Field(outputAddr), Field(outputSize), Field(cclAddr), Field(cclSize), PrimaryKey(id),                               \
-             Index(opDetailId), ForeignKey(opDetailId, sim::operation::OpDetailTab::id, OnDelete::Cascade)))                                       \
+            (Version(3), Scope::Static, Field(id, AutoIncrement), Field(opDetailId), Field(inputAddr),                                             \
+             Field(inputSize), Field(outputAddr), Field(outputSize), Field(cclAddr), Field(cclSize), Field(counterAddr),                           \
+             Field(counterSize), Field(counterDevAddr), PrimaryKey(id), Index(opDetailId),                                                         \
+             ForeignKey(opDetailId, sim::operation::OpDetailTab::id, OnDelete::Cascade)))                                                          \
             Table(                                                                                                                                 \
                 sim::operation::SyncRecordTab,                                                                                                     \
                 (Version(1), Scope::Static, Field(id, AutoIncrement), Field(pid), Field(rankId), Field(rankSize),                                  \
@@ -219,6 +225,10 @@ int QueryCurrentOpMemInfo(uint64_t commId, uint32_t deviceId, OpMemInfoTab& out)
 // 由 opDetailId 定位对应算子内存信息（图模式录制/重放复制内存上下文用）。
 int QueryOpMemInfoByOpDetailId(uint32_t opDetailId, OpMemInfoTab& out);
 int UpdateOpMemCclBuffer(uint64_t cclAddr, uint64_t cclSize);
+// 卡死检测计数槽（head/tail/addOne）地址与大小回填：counterAddr 为仿真设备虚拟地址，
+// counterDevAddr 为业务侧持有的 device 进程映射址（CCU 指令立即数用的是它）。
+// 业务未开启卡死检测时不调用，计数列保持 0；checker 侧按 0 跳过该段布局。
+int UpdateOpMemCounterBuffer(uint64_t counterAddr, uint64_t counterSize, uint64_t counterDevAddr);
 int UpdateOpExpansionMode(uint8_t mode);
 // 把指定算子的主流 streamId 回写（graph 模式流绑定）。
 int UpdateOpDetailMainStream(uint32_t opDetailId, uint64_t streamId);

@@ -265,6 +265,8 @@ HcclVmResult CreateMemoryInfo(HcclVmSynData& hvmSynData, const sim::operation::O
     addBuf(static_cast<uint8_t>(BufferType::INPUT), memInfo.inputAddr, memInfo.inputSize);
     addBuf(static_cast<uint8_t>(BufferType::OUTPUT), memInfo.outputAddr, memInfo.outputSize);
     addBuf(static_cast<uint8_t>(BufferType::CCL), memInfo.cclAddr, memInfo.cclSize);
+    // 卡死检测计数槽：与 checker 侧口径一致，按 SCRATCH 登记（未开启时地址为 0，addBuf 内跳过）。
+    addBuf(static_cast<uint8_t>(BufferType::SCRATCH), memInfo.counterAddr, memInfo.counterSize);
 
     hvmSynData.memory_info.count = hvmSynData.memory_info.data.size();
     HCCL_VM_INFO("memory_info count={}, dataSize={}", hvmSynData.memory_info.count, hvmSynData.memory_info.data.size());

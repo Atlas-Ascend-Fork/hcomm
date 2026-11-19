@@ -201,6 +201,13 @@ namespace TaskGraphGeneratorV3 {
             }
         }
 
+        // DFX 计数内存（卡死检测 head/tail/addOne 计数槽）：由业务在建链阶段预置初值，
+        // 录制窗口内没有生产者任务，不承载集合通信的数据语义，整对跳过语义校验。
+        bool IsDfxCounterPair(const SliceOpPairV3& pair)
+        {
+            return pair.src.memType == MemType::SCRATCH && pair.dst.memType == MemType::SCRATCH;
+        }
+
         bool IsValidMemorySlice(const MemSlice& slice)
         {
             return slice.deviceId != INVALID_DEVICE_ID && slice.memType != MemType::INVALID;
@@ -1077,6 +1084,18 @@ namespace TaskGraphGeneratorV3 {
             }
             std::vector<SliceOpPairV3> pairs;
             GetSliceOpPairs(node, pairs);
+            // DFX 计数任务（卡死检测 head/tail 计数槽）不参与数据语义模拟：计数初值由业务在
+            // 建链阶段预置，录制窗口内没有生产者任务，纳入模拟会被误判为“源数据缺失”。
+            pairs.erase(
+                std::remove_if(
+                    pairs.begin(), pairs.end(),
+                    [](const SliceOpPairV3& pair) {
+                        return IsDfxCounterPair(pair);
+                    }),
+                pairs.end());
+            if (pairs.empty()) {
+                return HCCL_SUCCESS;
+            }
             if (state.orderEnabled
                 && (node->GetType() == TaskType::BATCH_REDUCE || node->GetType() == TaskType::BATCH_TRANS_MEM)) {
                 // 不同 batch 组之间没有编码先后关系。若多个组覆盖同一目标区间，按 vector 顺序

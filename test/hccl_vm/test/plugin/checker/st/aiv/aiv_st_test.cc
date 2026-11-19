@@ -37,9 +37,11 @@
 #define INPUT AivStLayoutInput
 #define OUTPUT AivStLayoutOutput
 #define CCL AivStLayoutCcl
+#define SCRATCH AivStLayoutScratch
 #define RESERVED AivStLayoutReserved
 #include "sim_common_defs.h"
 #undef RESERVED
+#undef SCRATCH
 #undef CCL
 #undef OUTPUT
 #undef INPUT

@@ -121,4 +121,27 @@ const sim::devspec::CcuAddressSpace* GetCcuAddrSpaceByDeviceId(uint32_t deviceId
     return raw;
 }
 
+std::vector<DevMappedVirRange> ResolveAllDevMappedRanges()
+{
+    std::vector<DevMappedVirRange> ranges;
+    const auto rows = sim::runtime::Db::GetByPred<sim::runtime::VirtualMemBlock>(
+        HcclSim::Storage::All<sim::runtime::VirtualMemBlock>());
+    if (!rows.ok() || !rows.value.has_value()) {
+        HCCL_VM_WARN("ResolveAllDevMappedRanges: cannot read VirtualMemBlock, dev-mapped translation disabled");
+        return ranges;
+    }
+
+    ranges.reserve(rows.value->size());
+    for (const auto& row : *rows.value) {
+        if (row.src_type != static_cast<uint8_t>(sim::runtime::VIR_MEM_TYPE_DEV) || row.is_dev_access == 0
+            || row.dev_mapped_ptr == 0 || row.start_ptr == 0 || row.size == 0) {
+            continue;
+        }
+        // is_freed 行保留：释放路径只打标不删行，迟到解析仍需命中（见 VirtualMemBlock.is_freed 注释）。
+        ranges.push_back(DevMappedVirRange{row.dev_mapped_ptr, row.start_ptr, row.size, row.device_id});
+    }
+    HCCL_VM_INFO("ResolveAllDevMappedRanges: loaded {} dev-mapped ranges", ranges.size());
+    return ranges;
+}
+
 } // namespace HcclSim

@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "binary_data_type_pub.h"
+#include "ccu_base_resolver.h" // DevMappedVirRange（映射址换算区间，读库实现隔离在独立 TU）
 #include "data_slice.h"
 #include "dtype_common.h"
 #include "sim_common.h"
@@ -31,6 +32,9 @@ struct MemBlock {
     uint64_t size;         // 块大小
     BufferType bufferType; // 类型
     uint64_t globalOffset; // 该类型总偏移
+    // 业务侧持有的 device 进程映射址（仅 DFX 计数槽登记，0=未登记）。
+    // CCU 指令把映射址作为立即数烧进指令流，需要它才能识别/换算计数指令地址。
+    uint64_t devMappedAddr{0};
 };
 
 // Raw V-operator parameters reported by one rank in the current op group.
@@ -155,6 +159,24 @@ public:
         const std::string& commName, uint64_t commHash, uint32_t opIter, DeviceId deviceId, uint64_t addr,
         uint64_t len) const;
     /**
+     * 判断地址区间是否落在已登记的 DFX 计数槽（卡死检测 head/tail/addOne）内。
+     * 业务把计数槽的 device 进程映射址作为立即数烧进 CCU 指令，绕开了 SQE args 的
+     * dev→vir 翻译链，CCU 展开据此识别“计数指令”并按 DFX 语义跳过建节点。
+     * @param addr/len 待判定区间（映射址或设备虚拟地址均可命中）。
+     * @param deviceId 可选输出：命中所属设备。
+     * @return 命中返回 true。
+     */
+    bool IsDfxCounterRange(uint64_t addr, uint64_t len, DeviceId* deviceId = nullptr) const;
+    /**
+     * 把 device 进程映射址换算回仿真设备虚拟地址（布局/切片统一口径）。
+     * 仅在归属唯一时换算：映射址跨 device 数值可能重复（各 device 进程独立映射同一份
+     * 共享内存布局），多候选时返回 false，由调用方按上下文（本端/对端）自行判定。
+     * @param addr 待换算的映射址。
+     * @param virAddr 输出：换算后的设备虚拟地址。
+     * @return 唯一命中返回 true。
+     */
+    bool TranslateDevMappedAddr(uint64_t addr, uint64_t& virAddr) const;
+    /**
      * 解析绝对地址所属的内存块并填充 DataSlice。
      * @param commName/commHash/opIter 定位内存布局。
      * @param addr/len 待解析的地址与长度。
@@ -162,11 +184,14 @@ public:
      * @param deviceId 可选输出：命中所在设备 id。
      * @param expectedDeviceId 若有效则只在该设备上查找（O(1) 路径，用于翻译热路径）；
      *                         为 INVALID_DEVICE_ID 时退回全设备扫描（保留 CCU 展开等旧行为）。
+     * @param logOnError 未命中时是否打错误日志；调用方还要继续尝试其它口径（如 CCU 的
+     *                   dev-mapped 兜底换算）时传 false，避免误报噪声。
      * @return 命中返回 HCCL_SUCCESS，未命中返回 HCCL_E_MEMORY。
      */
     HcclResult GetSlice(
         const std::string& commName, uint64_t commHash, uint32_t opIter, uint64_t addr, uint64_t len,
-        DataSlice& dataSlice, DeviceId* deviceId = nullptr, DeviceId expectedDeviceId = INVALID_DEVICE_ID);
+        DataSlice& dataSlice, DeviceId* deviceId = nullptr, DeviceId expectedDeviceId = INVALID_DEVICE_ID,
+        bool logOnError = true);
     /**
      * 取“当前算子”的内存切片（翻译热路径专用）。
      * 使用 FinalizeOpGroup 时解析好的 layout 指针，避免每次构造 pair key 的 string 拷贝；
@@ -239,6 +264,9 @@ private:
         const DeviceMemLayout& layout, uint64_t addr, DataSlice& dataSlice, DeviceId* deviceId,
         DeviceId expectedDeviceId) const;
 
+    /** 懒加载 VirtualMemBlock 映射址快照（进程内一次），供 TranslateDevMappedAddr 使用。 */
+    void EnsureDevMappedSnapshot() const;
+
     /**
      * 解析“当前算子”的 op/CCL layout 指针（每算子一次），供翻译热路径免去 pair key 构造与查找。
      * 需在内存布局加载完成后（FinalizeOpGroup）调用；Reset 会将其置空。
@@ -283,6 +311,20 @@ private:
     std::map<CommIdentity, std::map<uint32_t, DeviceMemLayout>> m_op_mem_layout;
     // CCL buffer 属于通信域，在多个 opIter 之间持续使用。
     std::map<CommIdentity, DeviceMemLayout> m_comm_ccl_layout;
+    // DFX 计数槽索引（卡死检测 head/tail/addOne）：按设备保存 {虚拟地址, 映射址, 大小}，
+    // 供 CCU 展开识别计数指令（映射址口径）与地址换算（虚拟地址口径）。
+    struct DfxCounterRange {
+        DeviceId deviceId{INVALID_DEVICE_ID};
+        uint64_t virAddr{0};
+        uint64_t devMappedAddr{0};
+        uint64_t size{0};
+    };
+    std::vector<DfxCounterRange> m_dfx_counter_ranges;
+    // device 进程映射址 → 设备虚拟地址的整表快照（VirtualMemBlock，懒加载一次）。
+    // 仅在 CCU 指令地址解析失败时兜底换算，命中多设备（跨 device 数值重复）时放弃换算。
+    mutable std::mutex m_dev_mapped_mutex;
+    mutable std::vector<DevMappedVirRange> m_dev_mapped_ranges;
+    mutable bool m_dev_mapped_loaded{false};
     std::string m_current_comm_name;
     uint64_t m_current_comm_hash{std::numeric_limits<uint64_t>::max()};
     uint32_t m_current_op_iter{0};

@@ -11,6 +11,7 @@
 // 日志染色: 模块 tag (须在 include sim_log.h 之前)
 #define HCCL_VM_MODULE "OP_STUB"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -227,6 +228,67 @@ static uint32_t GetDeviceType()
     return static_cast<uint32_t>(devType);
 }
 
+// 登记卡死检测计数槽（业务侧 slot 布局：head@0 / tail@4 / addOne@8 / reserved@12，共 16B）。
+// 算子会对该内存做 4 字节 int32 SUM 归约并产生 task，未登记时 checker 无法解析地址。
+// 尽力而为：接口未导出、特性关闭（地址为 0）或地址转换失败均静默跳过，不算算子记录失败。
+static void RecordOpCounterBuffer(HcclComm comm)
+{
+    using GetCounterAddrFunc = HcclResult (*)(HcclComm, uint64_t*, uint64_t*, uint64_t*);
+    // 卡死检测是可选 DFX 特性：符号由 hcomm 导出，老版本 CANN 可能没有。查不到时保持静默
+    // （DEBUG），避免 [error] 日志被测试框架判为失败；特性不可用时 checker 行为与未开启一致。
+    const auto getCounterAddr = reinterpret_cast<GetCounterAddrFunc>(
+        sim::DlsymRealWithFallback("HcclStuckDetectGetCounterAddr", "libhcomm.so", false));
+    if (getCounterAddr == nullptr) {
+        HCCL_VM_DEBUG("HcclStuckDetectGetCounterAddr unavailable, skip counter buffer recording.");
+        return;
+    }
+
+    uint64_t headDevAddr = 0;
+    uint64_t tailDevAddr = 0;
+    uint64_t addOneDevAddr = 0;
+    const HcclResult ret = getCounterAddr(comm, &headDevAddr, &tailDevAddr, &addOneDevAddr);
+    if (ret != HcclResult::HCCL_SUCCESS) {
+        HCCL_VM_DEBUG(
+            "HcclStuckDetectGetCounterAddr failed, ret={}, skip counter buffer recording.", static_cast<int>(ret));
+        return;
+    }
+    if (headDevAddr == 0 || addOneDevAddr == 0) {
+        // 卡死检测未开启：业务约定未开启时全部返回 0 地址。
+        HCCL_VM_DEBUG("stuck detect counter disabled, skip counter buffer recording.");
+        return;
+    }
+
+    const uint64_t headAddr = sim::TryGetVirPtrByDevPtr(headDevAddr);
+    const uint64_t tailAddr = sim::TryGetVirPtrByDevPtr(tailDevAddr);
+    const uint64_t addOneAddr = sim::TryGetVirPtrByDevPtr(addOneDevAddr);
+    if (headAddr == 0 || addOneAddr == 0 || (tailDevAddr != 0 && tailAddr == 0)) {
+        HCCL_VM_WARN(
+            "failed to translate counter devAddr to virAddr, head=0x{:x}, tail=0x{:x}, addOne=0x{:x}.", headDevAddr,
+            tailDevAddr, addOneDevAddr);
+        return;
+    }
+
+    constexpr uint64_t counterElemSize = sizeof(int32_t);
+    constexpr uint64_t counterSlotSize = 16;
+    const uint64_t lowAddr = std::min(headAddr, addOneAddr);
+    const uint64_t highAddr = std::max(headAddr, addOneAddr);
+    uint64_t baseAddr = (tailAddr != 0) ? std::min(lowAddr, tailAddr) : lowAddr;
+    uint64_t endAddr = (tailAddr != 0) ? std::max(highAddr, tailAddr) : highAddr;
+    endAddr += counterElemSize;
+    const uint64_t size = std::max(counterSlotSize, endAddr - baseAddr);
+
+    // 同一 slot 在业务侧（device 进程映射址）的起始地址：CCU 指令把它作为立即数烧进指令流，
+    // 绕开 SQE args 的 dev→vir 翻译链，checker 需要这一份才能识别/换算计数指令地址。
+    const uint64_t devLowAddr = std::min(headDevAddr, addOneDevAddr);
+    const uint64_t devBaseAddr = (tailDevAddr != 0) ? std::min(devLowAddr, tailDevAddr) : devLowAddr;
+
+    if (sim::operation::UpdateOpMemCounterBuffer(baseAddr, size, devBaseAddr) != 0) {
+        HCCL_VM_WARN("failed to update current opMem counter buffer, addr=0x{:x}, size={}.", baseAddr, size);
+        return;
+    }
+    HCCL_VM_INFO("opMem counter buffer recorded, addr=0x{:x}, devAddr=0x{:x}, size={}.", baseAddr, devBaseAddr, size);
+}
+
 int RecordOpDbInfo(
     HcclCMDType cmdType, uint32_t rankId, uint64_t streamId, const void* inputBuf, uint64_t inputSize,
     const void* outputBuf, uint64_t outputSize, const std::vector<uint8_t>& details, uint32_t root, uint32_t rankSize,
@@ -293,6 +355,8 @@ int RecordOpDbInfo(
         return -1;
     }
     if (comm != nullptr) {
+        RecordOpCounterBuffer(comm);
+
         using GetHcclBufferFunc = HcclResult (*)(HcclComm, void**, uint64_t*);
         const auto getHcclBuffer
             = reinterpret_cast<GetHcclBufferFunc>(sim::DlsymRealWithFallback("HcclGetHcclBuffer", "libhccl.so"));

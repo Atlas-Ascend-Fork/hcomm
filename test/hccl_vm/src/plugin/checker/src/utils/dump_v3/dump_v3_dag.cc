@@ -166,6 +166,8 @@ namespace {
                 return "AIV_COMM";
             case MemType::MS_CCU:
                 return "MS_CCU";
+            case MemType::SCRATCH:
+                return "SCRATCH";
             default:
                 return "INVALID";
         }

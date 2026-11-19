@@ -43,6 +43,29 @@ namespace HcclSim {
 std::map<uint32_t, std::vector<uint64_t>> ResolveAllCcuBaseAddrs();
 
 /**
+ * @brief device 进程映射址 → 设备虚拟地址 的换算区间。
+ *
+ * 业务（hcomm/hccl）持有的是 device 进程映射址（aclrtMalloc 桩在 device 子进程存活时返回它），
+ * 而 checker 的内存布局按设备虚拟地址登记。绝大多数路径由 proxy 在录制边界完成换算，
+ * 但 CCU 指令把地址作为立即数烧进指令流，绕开了 SQE args 的换算链，需要这张表兜底。
+ */
+struct DevMappedVirRange {
+    uint64_t devMappedAddr{0}; // device 进程映射址（VirtualMemBlock.dev_mapped_ptr）
+    uint64_t virAddr{0};       // 设备虚拟地址（VirtualMemBlock.start_ptr）
+    uint64_t size{0};
+    uint64_t deviceId{0}; // 归属设备（映射址跨 device 数值可能重复，必须按设备区分）
+};
+
+/**
+ * @brief 一次全表扫 VirtualMemBlock，取出全部可用于映射址换算的区间。
+ *
+ * 只保留 device 侧可直接访问的设备内存行（src_type=DEV && is_dev_access=1 && 两址非空）；
+ * 已释放行一并保留——checker 在算子结束后运行，通信域销毁会把计数池标记为已释放，
+ * 按在用过滤会丢掉刚跑完这一轮的归属信息。读库失败返回空表（调用方退化为不换算）。
+ */
+std::vector<DevMappedVirRange> ResolveAllDevMappedRanges();
+
+/**
  * @brief deviceId 对应 device 规格的 CCU 地址空间计算器（进程级缓存，只读安全）。
  *
  * 区域偏移/步长/容量/MS 几何全部来自 config/device/*.yaml（经 DeviceSpecRegistry），
