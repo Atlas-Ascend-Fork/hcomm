@@ -502,7 +502,7 @@ TEST_F(TaskExceptionHandlerTest, test_get_rank_id_by_channel_id)
     auto dieChannelId = make_pair(taskInfo->taskParam_.taskPara.Ccu.dieId, 1);
     communicator.collService = new CollServiceDeviceMode(&communicator);
     communicator.collServices[AcceleratorState::CCU_SCHED] = std::make_shared<CollServiceDeviceMode>(&communicator);
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
     (static_cast<CollServiceDeviceMode*>(communicator.GetCcuCollService()))
         ->GetCcuInsPreprocessor()
         ->GetCcuComm()
@@ -709,7 +709,10 @@ TEST_F(TaskExceptionHandlerTest, test_process_ccu)
     // 打桩清除TaskKill状态, 清除表项, 清除CKE操作
     MOCKER(CcuCleanDieCkes).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CcuComponent::Init).stubs();
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(outBound(static_cast<DevId>(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtRaTlvRequestForCustomChannel).stubs();
 
     // 调用 TaskExceptionHandler::Process() 打印异常DFX信息
@@ -788,7 +791,10 @@ TEST_F(TaskExceptionHandlerTest, test_process_mc2)
     // 打桩清除TaskKill状态, 清除表项, 清除CKE操作
     MOCKER(CcuCleanDieCkes).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CcuComponent::Init).stubs();
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(outBound(static_cast<DevId>(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtRaTlvRequestForCustomChannel).stubs();
 
     TaskExceptionHandler::Process(&exceptionInfo);

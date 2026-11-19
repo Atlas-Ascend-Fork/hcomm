@@ -41,8 +41,18 @@ CcuCtpConnection::CcuCtpConnection(
 
 HcclResult CcuConnection::Init()
 {
-    devLogicId = HrtGetDevice();
-    uint32_t devPhyId = HrtGetDevicePhyIdByUserDevId(devLogicId);
+    s32 devId = 0;
+    if (HrtGetDevice(devId) != HCCL_SUCCESS) {
+        HCCL_WARNING("[CcuConnection::%s] HrtGetDevice failed, use default devLogicId 0.", __func__);
+        devId = 0;
+    }
+    devLogicId = devId;
+    DevId devPhyIdOut = 0;
+    if (HrtGetDevicePhyIdByUserDevId(devLogicId, devPhyIdOut) != HCCL_SUCCESS) {
+        HCCL_WARNING("[CcuConnection::%s] HrtGetDevicePhyIdByUserDevId failed, use default devPhyId 0.", __func__);
+        devPhyIdOut = 0;
+    }
+    uint32_t devPhyId = static_cast<uint32_t>(devPhyIdOut);
 
     auto& rdmaHandleMgr = RdmaHandleManager::GetInstance();
     rdmaHandle = rdmaHandleMgr.GetByIp(devPhyId, locAddr_);

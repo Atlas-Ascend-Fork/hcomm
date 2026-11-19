@@ -9,6 +9,7 @@
  */
 
 #include "ins_rules.h"
+#include "internal_exception.h"
 #include "null_ptr_exception.h"
 #include "not_support_exception.h"
 #include "queue_wait_group_cnt_notify_manager.h"
@@ -193,7 +194,9 @@ SaveDfxTaskInfo(const CommunicatorImpl& comm, const TaskParam& taskParam, const 
 {
     u32 taskId;
     u32 streamId;
-    HrtGetTaskIdAndStreamID(taskId, streamId);
+    CHK_RET_THROW(
+        InternalException, "[SaveDfxTaskInfo] HrtGetTaskIdAndStreamID failed",
+        HrtGetTaskIdAndStreamID(taskId, streamId));
 
     std::unique_ptr<TaskInfo> taskInfo = std::make_unique<TaskInfo>(
         streamId, taskId, remoteRankId, taskParam, comm.GetMirrorTaskManager().GetCurrDfxOpInfo(), isMaster);
@@ -492,9 +495,11 @@ void Interpret(
     void* dst = reinterpret_cast<void*>(dstBuffer->GetAddr() + insLocalCopy.GetDstSlice().GetOffset());
     void* src = reinterpret_cast<void*>(srcBuffer->GetAddr() + insLocalCopy.GetSrcSlice().GetOffset());
 
-    HrtMemAsyncCopy(
-        dst, insLocalCopy.GetDstSlice().GetSize(), src, insLocalCopy.GetSrcSlice().GetSize(),
-        ACL_MEMCPY_DEVICE_TO_DEVICE, stream.GetPtr());
+    CHK_RET_THROW(
+        InternalException, "[Interpret] HrtMemAsyncCopy failed",
+        HrtMemAsyncCopy(
+            dst, insLocalCopy.GetDstSlice().GetSize(), src, insLocalCopy.GetSrcSlice().GetSize(),
+            ACL_MEMCPY_DEVICE_TO_DEVICE, stream.GetPtr()));
 
     taskParam.taskType = TaskParamType::TASK_SDMA;
     taskParam.endTime = DlProfFunction::GetInstance().dlMsprofSysCycleTime();
@@ -558,9 +563,11 @@ void Interpret(
     aclrtReduceKind rtReduceOp
         = static_cast<aclrtReduceKind>(static_cast<int>(RtReduceOpGet(insLocalReduce.GetReduceOp())));
     aclDataType rtDataType = static_cast<aclDataType>(static_cast<int>(RtDataTypeGet(insLocalReduce.GetDataType())));
-    HrtReduceAsync(
-        dst, insLocalReduce.GetDstSlice().GetSize(), src, insLocalReduce.GetSrcSlice().GetSize(), rtReduceOp,
-        rtDataType, stream.GetPtr());
+    CHK_RET_THROW(
+        InternalException, "[Interpret] HrtReduceAsync failed",
+        HrtReduceAsync(
+            dst, insLocalReduce.GetDstSlice().GetSize(), src, insLocalReduce.GetSrcSlice().GetSize(), rtReduceOp,
+            rtDataType, stream.GetPtr()));
 
     taskParam.taskType = TaskParamType::TASK_REDUCE_INLINE;
     taskParam.endTime = DlProfFunction::GetInstance().dlMsprofSysCycleTime();
@@ -605,7 +612,8 @@ LaunchCcuTasks(vector<CcuTaskParam> params, const Stream* stream, TaskParam& tas
             }
             HCCL_INFO("arg[%lu] = %lu", i, taskInfo.args[i]);
         }
-        HrtCcuLaunch(taskInfo, stream->GetPtr());
+        CHK_RET_THROW(
+            InternalException, "[LaunchCcuTasks] HrtCcuLaunch failed", HrtCcuLaunch(taskInfo, stream->GetPtr()));
     }
     taskParam.endTime = DlProfFunction::GetInstance().dlMsprofSysCycleTime();
 }
@@ -646,8 +654,12 @@ static void GetCcuProfilingInfo(
     const CcuInstruction& ccuInstruction, const vector<vector<CcuTaskParam>>& ccuParams,
     std::vector<std::vector<CcuProfilingInfo>>& ccuProfilingInfo)
 {
+    s32 devLogicId = 0;
+    if (HrtGetDevice(devLogicId) != HCCL_SUCCESS) {
+        THROW<InternalException>("[GetCcuProfilingInfo] HrtGetDevice failed");
+    }
     HcclResult res = CcuCtxMgr::GetProfilingInfo(
-        HrtGetDevice(), *(ccuInstruction.GetTaskArg()), ccuInstruction.GetExecId(), ccuProfilingInfo);
+        devLogicId, *(ccuInstruction.GetTaskArg()), ccuInstruction.GetExecId(), ccuProfilingInfo);
     if (res != HcclResult::HCCL_SUCCESS) {
         string msg = StringFormat("Get ccu profiling info failed, res[%d]", res);
         THROW<NotSupportException>(msg);
@@ -860,9 +872,11 @@ void Interpret(
             auto rmtMemBuffer = ubMemLink2TransportIter.second->GetAddr();
             buffersIn[rmtRank] = rmtMemBuffer;
         }
-        HrtMemcpy(
-            buffersInAddr, MAX_RANK_SIZE_ * sizeof(uint64_t), buffersIn, MAX_RANK_SIZE_ * sizeof(uint64_t),
-            RT_MEMCPY_HOST_TO_DEVICE);
+        CHK_RET_THROW(
+            InternalException, "[Interpret] HrtMemcpy failed",
+            HrtMemcpy(
+                buffersInAddr, MAX_RANK_SIZE_ * sizeof(uint64_t), buffersIn, MAX_RANK_SIZE_ * sizeof(uint64_t),
+                RT_MEMCPY_HOST_TO_DEVICE));
         u64 buffersOut[MAX_RANK_SIZE_] = {};
         auto ubMemLink2TransportMap_ = aivOpArgs.isOpBase ?
                                            comm.GetUbMemoryTransportMgr()->GetAllRankId2AivTagBufAddrList() :
@@ -875,9 +889,11 @@ void Interpret(
         buffersInAddr = aivOpArgs.isOpBase ?
                             reinterpret_cast<void*>(comm.GetAivTagBuffer()->GetAddr() + AIV_TAG_ADDR_OFFSET) :
                             reinterpret_cast<void*>(comm.GetAivOffloadTagBuffer()->GetAddr() + AIV_TAG_ADDR_OFFSET);
-        HrtMemcpy(
-            buffersInAddr, MAX_RANK_SIZE_ * sizeof(uint64_t), buffersOut, MAX_RANK_SIZE_ * sizeof(uint64_t),
-            RT_MEMCPY_HOST_TO_DEVICE);
+        CHK_RET_THROW(
+            InternalException, "[Interpret] HrtMemcpy failed",
+            HrtMemcpy(
+                buffersInAddr, MAX_RANK_SIZE_ * sizeof(uint64_t), buffersOut, MAX_RANK_SIZE_ * sizeof(uint64_t),
+                RT_MEMCPY_HOST_TO_DEVICE));
 
         buffersInAddr = aivOpArgs.isOpBase ?
                             reinterpret_cast<void*>(comm.GetAivTagBuffer()->GetAddr() + AIV_FLAG_ADDR_OFFSET) :
@@ -888,9 +904,11 @@ void Interpret(
                   reinterpret_cast<void*>(comm.GetAivOffloadTagBuffer()->GetAddr() + AIV_FLAG_CLEAR_OFFSET);
         bool isAivClearEnable = comm.GetAivClearEnable();
         if (isAivClearEnable) {
-            HrtMemAsyncCopy(
-                buffersInAddr, AIV_FLAG_AREA_SIZE, buffersInAddrSrc, AIV_FLAG_AREA_SIZE, ACL_MEMCPY_DEVICE_TO_DEVICE,
-                stream.GetPtr());
+            CHK_RET_THROW(
+                InternalException, "[Interpret] HrtMemAsyncCopy failed",
+                HrtMemAsyncCopy(
+                    buffersInAddr, AIV_FLAG_AREA_SIZE, buffersInAddrSrc, AIV_FLAG_AREA_SIZE,
+                    ACL_MEMCPY_DEVICE_TO_DEVICE, stream.GetPtr()));
         }
     }
 

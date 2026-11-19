@@ -106,7 +106,7 @@ TEST_F(HcomutCommManagerTest, ut_V2_gradient_Manage_Split_API)
     CommManager::GetInstance(0).GetCommInfoV2().commParams = commParams;
     CommManager::GetInstance(0).GetCommInfoV2().isUsed = true;
     CommManager::GetInstance(0).GetCommInfoV2().pComm = hcclComm;
-    MOCKER(HrtGetDevice).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     HcclGroupParamsV2 params;
     params.pComm = hcclComm;
@@ -138,7 +138,7 @@ TEST_F(HcomutCommManagerTest, ut_hcomv2_backlog_group)
     CommManager::GetInstance(0).GetCommInfoV2().isUsed = true;
     CommManager::GetInstance(0).GetCommInfoV2().pComm = hcclComm;
     CommManager::GetInstance(0).GetCommInfoV2().devId = 0;
-    MOCKER(HrtGetDevice).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     HcclGroupParamsV2 params;
     params.pComm = hcclComm;
@@ -240,7 +240,10 @@ TEST_F(HcomutCommManagerTest, ut_v2_comm_manager_max_device_id_test)
 
 TEST_F(HcomutCommManagerTest, ut_v2_comm_manager_CallSingletons_Exception_test1)
 {
-    MOCKER(HrtGetDevice).stubs().will(returnValue(static_cast<s32>(::MAX_MODULE_DEVICE_NUM + 1)));
+    MOCKER(HrtGetDevice)
+        .stubs()
+        .with(outBound(static_cast<s32>(::MAX_MODULE_DEVICE_NUM + 1)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     EXPECT_EQ(HcclResult::HCCL_E_RUNTIME, CallSingletons());
 }
 
@@ -252,12 +255,9 @@ TEST_F(HcomutCommManagerTest, ut_v2_comm_manager_CallSingletons_Exception_test2)
 
 TEST_F(HcomutCommManagerTest, ut_v2_comm_manager_CallSingletons_Exception_test3)
 {
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     char targetChipVer[CHIP_VERSION_MAX_LEN] = "Ascend910B1";
-    MOCKER(HrtGetSocVer)
-        .stubs()
-        .with(outBoundP(&targetChipVer[0], sizeof(targetChipVer)))
-        .will(returnValue(RT_ERROR_NONE));
+    MOCKER(HrtGetSocVer).stubs().with(outBound(std::string("Ascend910B1"))).will(returnValue(HcclResult::HCCL_SUCCESS));
     EXPECT_NO_THROW(CallSingletons());
 }
 
@@ -377,7 +377,7 @@ TEST_F(HcomutCommManagerTest, ut_HcomInitByStringV2_expectHCCL_E_INTERNAL)
         .stubs()
         .with(mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CommManager::SetCommAcceleratorV2).stubs().will(returnValue(HCCL_SUCCESS));
     HcclResult ret;
 

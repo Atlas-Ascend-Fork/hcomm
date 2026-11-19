@@ -15,6 +15,7 @@
 #include <string>
 
 #include "exception_util.h"
+#include "internal_exception.h"
 #include "hccl_common_v2.h"
 #include "invalid_params_exception.h"
 #include "env_config/env_config_v2.h"
@@ -362,7 +363,11 @@ void TpManager::Init()
         return;
     }
 
-    devPhyId = HrtGetDevicePhyIdByUserDevId(devLogicId);
+    DevId devPhyIdOut = 0;
+    CHK_RET_THROW(
+        InternalException, "[TpManager::Init] HrtGetDevicePhyIdByUserDevId failed",
+        HrtGetDevicePhyIdByUserDevId(devLogicId, devPhyIdOut));
+    devPhyId = static_cast<u32>(devPhyIdOut);
     initFlag = true;
 }
 

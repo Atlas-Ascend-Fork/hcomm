@@ -12,6 +12,7 @@
 
 #include "orion_adapter_rts.h"
 #include "exception_util.h"
+#include "internal_exception.h"
 #include "ccu_api_exception.h"
 
 #include "ccu_microcode.h"
@@ -220,7 +221,9 @@ namespace CcuRep {
         rtMemUbTokenInfo info;
         info.va = va;
         info.size = size;
-        HrtUbDevQueryInfo(QUERY_PROCESS_TOKEN, &info);
+        CHK_RET_THROW(
+            InternalException, "[GetTokenInfo] HrtUbDevQueryInfo failed",
+            HrtUbDevQueryInfo(QUERY_PROCESS_TOKEN, &info));
         return CcuRep::GetToken(info.tokenId, info.tokenValue, 1);
     }
 

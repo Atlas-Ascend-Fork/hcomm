@@ -38,7 +38,7 @@ protected:
 TEST_F(RankLevelInfoParserTest, St_Deserialize_When_Normal_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string rankLevelString = R"(
           {
@@ -105,7 +105,7 @@ TEST_F(RankLevelInfoParserTest, St_Deserialize_When_Normal_Expect_Success)
 TEST_F(RankLevelInfoParserTest, St_Deserialize_When_OptionalFieldsMissing_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string rankLevelString = R"(
           {
@@ -173,7 +173,7 @@ TEST_F(RankLevelInfoParserTest, St_Deserialize_When_OptionalFieldsMissing_Expect
 TEST_F(RankLevelInfoParserTest, St_Deserialize_When_InvalidNetLayer_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string rankLevelString = R"(
           {
@@ -203,7 +203,7 @@ TEST_F(RankLevelInfoParserTest, St_Deserialize_When_InvalidNetLayer_Expect_Excep
 TEST_F(RankLevelInfoParserTest, St_Deserialize_When_InvalidId_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string rankLevelString = R"(
           {
@@ -233,7 +233,7 @@ TEST_F(RankLevelInfoParserTest, St_Deserialize_When_InvalidId_Expect_Exception)
 TEST_F(RankLevelInfoParserTest, St_Deserialize_When_InvalidNetType_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string rankLevelString = R"(
           {
@@ -263,7 +263,7 @@ TEST_F(RankLevelInfoParserTest, St_Deserialize_When_InvalidNetType_Expect_Except
 TEST_F(RankLevelInfoParserTest, St_Deserialize_When_InvalidPortstoAddr_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string rankLevelString = R"(
           {
@@ -293,7 +293,7 @@ TEST_F(RankLevelInfoParserTest, St_Deserialize_When_InvalidPortstoAddr_Expect_Su
 TEST_F(RankLevelInfoParserTest, St_Deserialize_When_InvalidList_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string rankLevelString = R"(
   {

@@ -38,7 +38,7 @@ protected:
 TEST_F(NewRankInfoParserTest, St_Deserialize_When_Normal_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string rankListString = R"(
       {
@@ -145,7 +145,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_Normal_Expect_Success)
 TEST_F(NewRankInfoParserTest, St_Deserialize_When_OptionalFieldsMissing_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string rankListString = R"(
       {
@@ -240,7 +240,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_OptionalFieldsMissing_Expect_S
 TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidLoaclId_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string rankListString = R"(
       {
@@ -286,7 +286,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidLoaclId_Expect_Exceptio
 TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidReLoaclId_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string rankListString = R"(
       {
@@ -332,7 +332,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidReLoaclId_Expect_Except
 TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidDeviceId_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string rankListString = R"(
       {
@@ -377,7 +377,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidDeviceId_Expect_Excepti
 TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidDevicePort_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string rankListString = R"(
       {
@@ -423,7 +423,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidDevicePort_Expect_Excep
 TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidList_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string rankListString = R"(
       {
@@ -447,7 +447,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidList_Expect_Exception)
 TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidLevelListLength_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string rankListString = R"(
       {
@@ -651,7 +651,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidLevelListLength_Expect_
 TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidHostPort_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string rankListString = R"(
       {
@@ -697,7 +697,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidHostPort_Expect_Excepti
 TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidHostPortMin_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string rankListString = R"(
       {

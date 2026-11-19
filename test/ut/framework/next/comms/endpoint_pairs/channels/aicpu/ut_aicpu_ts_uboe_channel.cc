@@ -63,6 +63,14 @@ private:
 };
 
 namespace {
+HcclResult StubHrtMemcpyReal(void* dst, uint64_t dstMax, const void* src, uint64_t count, Hccl::tagRtMemcpyKind)
+{
+    if (dst != nullptr && src != nullptr && dstMax >= count) {
+        (void)std::memcpy(dst, src, static_cast<size_t>(count));
+    }
+    return HCCL_SUCCESS;
+}
+
 EndpointDesc MakeUboeEndpointDesc()
 {
     EndpointDesc desc{};
@@ -293,6 +301,8 @@ TEST_F(AicpuTsUboeChannelTest, Ut_Init_MockedHelpers_Returns_SUCCESS)
     MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(returnValue(HCCL_SUCCESS));
     g_uboeStubEndpoint = static_cast<void*>(ep);
     MOCKER(HcommEndpointGet).stubs().will(invoke(StubUboeHcommEndpointGet));
+    using HrtMemcpyType = HcclResult (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
+    MOCKER((Hccl::HrtMemcpy)).stubs().will(invoke(static_cast<HrtMemcpyType>(StubHrtMemcpyReal)));
 
     ASSERT_EQ(ch.Init(), HCCL_SUCCESS);
 

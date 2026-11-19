@@ -184,11 +184,12 @@ void BuildReadyTransport(AivUrmaChannel& ch, DevUbCtpConnection& conn)
     ch.transport_->transportStatus_ = TransportStatus::READY;
 }
 
-static void StubHrtMemcpyReal(void* dst, uint64_t dstMax, const void* src, uint64_t count, Hccl::tagRtMemcpyKind)
+static HcclResult StubHrtMemcpyReal(void* dst, uint64_t dstMax, const void* src, uint64_t count, Hccl::tagRtMemcpyKind)
 {
     if (dst != nullptr && src != nullptr && dstMax >= count) {
         (void)std::memcpy(dst, src, static_cast<size_t>(count));
     }
+    return HCCL_SUCCESS;
 }
 } // namespace
 
@@ -1349,7 +1350,7 @@ TEST_F(AivUrmaChannelTest, Ut_FillChannelEntityToDevice_When_PreAllocated_Return
 
     MOCKER(aclrtMallocWithCfg).stubs().will(invoke(StubAclrtMalloc));
     MOCKER(aclrtFree).stubs().will(invoke(StubAclrtFree));
-    using HrtMemcpyType = void (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
+    using HrtMemcpyType = HcclResult (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
     MOCKER((Hccl::HrtMemcpy)).stubs().will(invoke(static_cast<HrtMemcpyType>(StubHrtMemcpyReal)));
 
     void* devChannelPtr = nullptr;

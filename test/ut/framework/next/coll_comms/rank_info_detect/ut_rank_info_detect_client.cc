@@ -93,7 +93,7 @@ protected:
         MOCKER(HrtRaSocketDeInit).stubs().with(mockcpp::any());
         MOCKER_CPP(&HccpPeerManager::Init).stubs().with(mockcpp::any());
         MOCKER_CPP(&HccpPeerManager::DeInit).stubs().with(mockcpp::any());
-        MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+        MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
         MOCKER_CPP(&HostSocketHandleManager::Destroy).stubs().with(mockcpp::any(), mockcpp::any());
         IpAddress serverIp = IpAddress("10.0.0.10");
         u32 hostPort = 60001;
@@ -973,7 +973,7 @@ TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_EmptyRankLevelInfos_Exp
     rankInfo.localId = 0;
     // rankLevelInfos is empty by default
 
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     MockTopoPathAndBuild(BuildEmptyTopo);
 
@@ -999,7 +999,7 @@ TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_NoTopoGraph_Expect_NoTh
     levelInfo.rankAddrs.push_back(addrInfo);
     rankInfo.rankLevelInfos.push_back(levelInfo);
 
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     MockTopoPathAndBuild(BuildEmptyTopo);
 
@@ -1028,7 +1028,7 @@ TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_MultipleRankLevelInfos_
         rankInfo.rankLevelInfos.push_back(levelInfo);
     }
 
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     MockTopoPathAndBuild(BuildEmptyTopo);
 
@@ -1051,7 +1051,7 @@ TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_RdmaLinkEmptyRankAddrs_
     // rankAddrs left EMPTY — triggers rankLevelInfo.rankAddrs.empty() check
     rankInfo.rankLevelInfos.push_back(levelInfo);
 
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     MockTopoPathAndBuild(BuildHostRdmaTopo);
 
@@ -1090,7 +1090,7 @@ TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_BasePort_Expect_HostPor
     levelInfo.rankAddrs.push_back(addrInfo);
     rankInfo.rankLevelInfos.push_back(levelInfo);
 
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     MockTopoPathAndBuild(BuildHostRdmaTopo);
 
@@ -1173,7 +1173,7 @@ TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_NoHostLink_Expect_HostP
     levelInfo.rankAddrs.push_back(addrInfo);
     rankInfo.rankLevelInfos.push_back(levelInfo);
 
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     MockTopoPathAndBuild(BuildHostRdmaTopo);
 

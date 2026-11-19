@@ -49,7 +49,7 @@ protected:
 TEST_F(RankTableInfoParserTest, Ut_GetBinStream_When_Normal_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string rankTableString = R"(
     {

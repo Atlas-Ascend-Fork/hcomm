@@ -75,9 +75,17 @@ int TopoAddrInfoGet(int phyId, char* rankInfo, size_t* bufSize)
 }
 
 namespace Hccl {
-void HrtSetDevice(s32 deviceLogicId) { (void)deviceLogicId; }
+HcclResult HrtSetDevice(s32 deviceLogicId)
+{
+    (void)deviceLogicId;
+    return HCCL_SUCCESS;
+}
 
-u32 HrtGetDeviceCount() { return 8U; }
+HcclResult HrtGetDeviceCount(u32& count)
+{
+    count = 8U;
+    return HCCL_SUCCESS;
+}
 
 std::vector<std::pair<std::string, IpAddress>> HrtGetHostIf(u32 devPhyId)
 {
@@ -130,9 +138,17 @@ HcclResult HrtRaWaitEventHandle(
     return HCCL_SUCCESS;
 }
 
-void* HrtMallocHost(u64 size) { return std::malloc(static_cast<std::size_t>(size)); }
+HcclResult HrtMallocHost(u64 size, void*& hostPtr)
+{
+    hostPtr = std::malloc(static_cast<std::size_t>(size));
+    return HCCL_SUCCESS;
+}
 
-void HrtFreeHost(void* hostPtr) { std::free(hostPtr); }
+HcclResult HrtFreeHost(void* hostPtr)
+{
+    std::free(hostPtr);
+    return HCCL_SUCCESS;
+}
 
 void HccpPeerManager::DeInit(s32 deviceLogicId) { (void)deviceLogicId; }
 

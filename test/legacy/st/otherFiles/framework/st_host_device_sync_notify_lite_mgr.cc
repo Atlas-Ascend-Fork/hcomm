@@ -29,7 +29,7 @@ protected:
 
     virtual void SetUp()
     {
-        MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+        MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
         std::cout << "A Test case in HostDeviceSyncNotifyLiteMgrTest SetUP" << std::endl;
     }
 
@@ -42,7 +42,10 @@ protected:
 
 TEST_F(HostDeviceSyncNotifyLiteMgrTest, test_parse_packed_data)
 {
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A3));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((DevType)DevType::DEV_TYPE_910A3))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     HostDeviceSyncNotifyManager mgr;
     HostDeviceSyncNotifyLiteMgr liteMgr;
 

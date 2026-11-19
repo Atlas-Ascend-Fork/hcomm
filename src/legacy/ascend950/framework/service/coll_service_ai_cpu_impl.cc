@@ -111,7 +111,7 @@ DevBuffer* CollServiceAiCpuImpl::OpBasedCollProcess(CollOperator& op, const std:
 
     auto buffer = PackOpData(op.opTag, req);
     shared_ptr<DevBuffer> devMem = make_shared<DevBuffer>(buffer.size()); // 申请device内存
-    TRY_CATCH_THROW(
+    CHK_RET_THROW(
         InternalException, StringFormat("HrtMemcpy to device memory failed, size[%zu]", buffer.size()),
         HrtMemcpy(
             reinterpret_cast<void*>(devMem->GetAddr()), devMem->GetSize(), buffer.data(), buffer.size(),
@@ -232,9 +232,9 @@ HcclResult CollServiceAiCpuImpl::AicpuMc2CommResourcePrepare(
     comm->GetStreamManager().ResetSlaveIndex(0);
 
     shared_ptr<DevBuffer> newDevMem = make_shared<DevBuffer>(sizeof(HcclKernelParamLite));
-    HrtMemcpy(
+    CHK_RET(HrtMemcpy(
         reinterpret_cast<void*>(newDevMem->GetAddr()), sizeof(HcclKernelParamLite), static_cast<void*>(&param.kernel),
-        sizeof(HcclKernelParamLite), RT_MEMCPY_HOST_TO_DEVICE);
+        sizeof(HcclKernelParamLite), RT_MEMCPY_HOST_TO_DEVICE));
     aicpuMc2CommResourceMap_.insert(make_pair(opAlgTag, newDevMem));
     *addr = reinterpret_cast<void*>(newDevMem->GetAddr());
     HCCL_INFO(
@@ -411,7 +411,7 @@ void CollServiceAiCpuImpl::AicpuKernelLaunch(HcclKernelLaunchParam& param, Strea
         = static_cast<u16>((timeoutCheck == 0) ? timeoutCheck : (timeoutCheck + 30)); // aicpu kernel超时时间: X+30s
     cfg.numAttrs = 1;
     cfg.attrs = &attr;
-    TRY_CATCH_THROW(
+    CHK_RET_THROW(
         InternalException, std::string("HrtMemcpy kernelParamBuf failed"),
         HrtMemcpy(
             reinterpret_cast<void*>(kernelParamBuf_.get()->GetAddr()), sizeof(HcclKernelParamLite), &param,
@@ -454,9 +454,11 @@ void CollServiceAiCpuImpl::AicpuKernelLaunch(HcclKernelLaunchParam& param, Strea
 
     std::string mode = (opMode == OpMode::OPBASE) ? "OPBASE" : "OFFLOAD";
     constexpr u32 numBlocks = 1;
-    HrtAicpuLaunchKernelWithHostArgs(
-        funcHandle, numBlocks, mStream.GetPtr(), &cfg, reinterpret_cast<void*>(kernelParamBuf_.get()->GetAddr()),
-        sizeof(HcclKernelParamLite) + dynamicDataSize);
+    CHK_RET_THROW(
+        InternalException, "[AicpuKernelLaunch] HrtAicpuLaunchKernelWithHostArgs failed",
+        HrtAicpuLaunchKernelWithHostArgs(
+            funcHandle, numBlocks, mStream.GetPtr(), &cfg, reinterpret_cast<void*>(kernelParamBuf_.get()->GetAddr()),
+            sizeof(HcclKernelParamLite) + dynamicDataSize));
     HCCL_INFO(
         "[AicpuKernelLauncher][AicpuKernelLaunch] param.kernel.algName: %s, %s mode, %s "
         "HrtAicpuLaunchKernelWithHostArgs end!",
@@ -754,7 +756,9 @@ void CollServiceAiCpuImpl::SaveDfxTaskInfo(
 {
     u32 taskId;
     u32 streamId;
-    HrtGetTaskIdAndStreamID(taskId, streamId);
+    CHK_RET_THROW(
+        InternalException, "[SaveDfxTaskInfo] HrtGetTaskIdAndStreamID failed",
+        HrtGetTaskIdAndStreamID(taskId, streamId));
 
     std::unique_ptr<TaskInfo> taskInfo = std::make_unique<TaskInfo>(
         streamId, taskId, remoteRankId, taskParam, comm->GetMirrorTaskManager().GetCurrDfxOpInfo(), isMaster);
@@ -798,9 +802,11 @@ void CollServiceAiCpuImpl::Resume()
     HCCL_INFO(
         "[NsRecovery][Resume] devMem->GetAddr(): 0x%llx, devMem->GetSize(): %llu", devMem->GetAddr(),
         devMem->GetSize());
-    HrtMemcpy(
-        reinterpret_cast<void*>(devMem->GetAddr()), devMem->GetSize(), buffer.data(), buffer.size(),
-        RT_MEMCPY_HOST_TO_DEVICE); // H2D拷贝，将资源拷贝到device内存
+    CHK_RET_THROW(
+        InternalException, "[Resume] HrtMemcpy failed",
+        HrtMemcpy(
+            reinterpret_cast<void*>(devMem->GetAddr()), devMem->GetSize(), buffer.data(), buffer.size(),
+            RT_MEMCPY_HOST_TO_DEVICE)); // H2D拷贝，将资源拷贝到device内存
 
     // 组新增的kernelLaunch命令、将打包数据下发到AICPU侧
     auto op = comm->GetCurrentCollOperator();
@@ -809,7 +815,9 @@ void CollServiceAiCpuImpl::Resume()
     } else if (op->opMode == OpMode::OFFLOAD) {
         comm->GetAicpuStreamManager().AllocFreeStream();
         AicpuUpdateCommLaunch(*comm->GetAicpuStreamManager().GetFreeStream(), devMem.get());
-        HcclStreamSynchronize(comm->GetAicpuStreamManager().GetFreeStream()->GetPtr());
+        CHK_RET_THROW(
+            InternalException, "[Resume] HcclStreamSynchronize failed",
+            HcclStreamSynchronize(comm->GetAicpuStreamManager().GetFreeStream()->GetPtr()));
         HCCL_INFO("[NsRecovery][CollServiceAiCpuImpl] HcclUpdateCommKernelEntrance Stream Synchronize finished.");
     } else {
         THROW<InternalException>(StringFormat("[NsRecovery][Resume] opMode=%s failed", op->opMode.Describe().c_str()));

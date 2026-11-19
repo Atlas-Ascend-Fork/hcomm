@@ -36,16 +36,22 @@ protected:
     }
 };
 
-#define SETUP_STREAM_MANAGER_MOCKS(streamPtr)                                                    \
-    \ do                                                                                         \
-    {                                                                                            \
-        \ MOCKER(HrtStreamCreateWithFlags).stubs().will(returnValue(streamPtr));                 \
-        \ MOCKER(HrtGetStreamId).stubs().will(returnValue(0));                                   \
-        \ MOCKER(HrtGetDevice).stubs().will(returnValue(0));                                     \
-        \ MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(static_cast<DevId>(1))); \
-        \ MOCKER(HrtStreamDestroy).stubs();                                                      \
-        \                                                                                        \
-    }                                                                                            \
+#define SETUP_STREAM_MANAGER_MOCKS(streamPtr)                                                                \
+    \ do                                                                                                     \
+    {                                                                                                        \
+        \ MOCKER(HrtStreamCreateWithFlags)                                                                   \
+            .stubs()                                                                                         \
+            .with(outBound(streamPtr))                                                                       \
+            .will(returnValue(HcclResult::HCCL_SUCCESS));                                                    \
+        \ MOCKER(HrtGetStreamId).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS)); \
+        \ MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));   \
+        \ MOCKER(HrtGetDevicePhyIdByUserDevId)                                                               \
+            .stubs()                                                                                         \
+            .with(outBound(static_cast<DevId>(1)))                                                           \
+            .will(returnValue(HcclResult::HCCL_SUCCESS));                                                    \
+        \ MOCKER(HrtStreamDestroy).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS)); \
+        \                                                                                                    \
+    }                                                                                                        \
     while (0)
 
 #define SETUP_STREAM_MGR_TEST()         \
@@ -120,7 +126,7 @@ TEST(StreamManagerTest, clear_slaves)
 {
     SETUP_STREAM_MGR_TEST();
 
-    MOCKER(HrtStreamDestroy).stubs();
+    MOCKER(HrtStreamDestroy).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     streamManager.opbase->GetOrCreateSlave();
     ASSERT_NO_THROW(streamManager.opbase->Clear());
@@ -189,7 +195,7 @@ TEST(StreamManagerTest, St_ClearOpStream_When_Normal_Expect_Success)
 {
     // Given
     SETUP_STREAM_MGR_TEST();
-    MOCKER(HrtStreamActive).stubs();
+    MOCKER(HrtStreamActive).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string opTag = "test";
     std::vector<void*> slaveStreams = {(void*)1111, (void*)2222};

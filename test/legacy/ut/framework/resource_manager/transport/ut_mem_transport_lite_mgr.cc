@@ -49,7 +49,10 @@ protected:
     virtual void SetUp()
     {
         std::cout << "A Test case in MemTransportLiteMgrTest SetUP" << std::endl;
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A2));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_910A2)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
     }
 
     virtual void TearDown()

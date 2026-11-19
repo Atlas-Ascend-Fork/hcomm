@@ -46,11 +46,17 @@ CcuCtpConnection::CcuCtpConnection(
 
 HcclResult CcuConnection::Init()
 {
-    TRY_CATCH_RETURN(devLogicId = HrtGetDevice(); uint32_t devPhyId = HrtGetDevicePhyIdByUserDevId(devLogicId);
+    CHK_RET(HrtGetDevice(devLogicId));
+    DevId devPhyIdOut = 0;
+    CHK_RET(HrtGetDevicePhyIdByUserDevId(devLogicId, devPhyIdOut));
+    uint32_t devPhyId = static_cast<uint32_t>(devPhyIdOut);
 
-                     auto& rdmaHandleMgr = RdmaHandleManager::GetInstance();
-                     rdmaHandle = rdmaHandleMgr.GetByIp(devPhyId, locAddr_);
-                     dieId = rdmaHandleMgr.GetDieAndFuncId(rdmaHandle).first;);
+    auto& rdmaHandleMgr = RdmaHandleManager::GetInstance();
+    rdmaHandle = rdmaHandleMgr.GetByIp(devPhyId, locAddr_);
+    CHK_PRT_RET(
+        rdmaHandle == nullptr, HCCL_ERROR("[%s] GetByIp failed, devPhyId[%u]", __func__, devPhyId),
+        HcclResult::HCCL_E_INTERNAL);
+    TRY_CATCH_RETURN(dieId = rdmaHandleMgr.GetDieAndFuncId(rdmaHandle).first;);
 
     CHK_RET(GetLocalCcuRmaBufferInfo());
 

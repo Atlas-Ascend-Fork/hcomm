@@ -9,6 +9,7 @@
  */
 
 #include <algorithm>
+#include "internal_exception.h"
 #include <unordered_set>
 #include "mc2_compont.h"
 #include "ccu_assist.h"
@@ -80,9 +81,11 @@ void Mc2Compont::AllocCommResource(void* mc2Tiling, void** commContext)
     if (combinOpParamBuffer == nullptr) {
         combinOpParamBuffer = std::make_shared<DevBuffer>(paramSize);
     }
-    HrtMemcpy(
-        reinterpret_cast<void*>(combinOpParamBuffer->GetAddr()), paramSize, static_cast<void*>(&combinOpParam),
-        paramSize, RT_MEMCPY_HOST_TO_DEVICE);
+    CHK_RET_THROW(
+        InternalException, "[AllocCommResource] HrtMemcpy failed",
+        HrtMemcpy(
+            reinterpret_cast<void*>(combinOpParamBuffer->GetAddr()), paramSize, static_cast<void*>(&combinOpParam),
+            paramSize, RT_MEMCPY_HOST_TO_DEVICE));
     *commContext = reinterpret_cast<void*>(combinOpParamBuffer->GetAddr());
     // 生成ccuServer指令，将注册得到的execId保存在curExecId，GetCcuTaskInfo时通过curExecId获取TaskParam
     GenerateCcuServer(algoTemplateRequire);
@@ -218,9 +221,15 @@ void Mc2Compont::AllocV2()
     workspaceBuffer = std::make_shared<DevBuffer>(MC2_WORKSPACE_SIZE);
     comParamBuffer = std::make_shared<DevBuffer>(comParamBufSize);
     comSyncBuffer = std::make_shared<DevBuffer>(comSyncBufSize);
-    HrtMemset(reinterpret_cast<void*>(workspaceBuffer->GetAddr()), MC2_WORKSPACE_SIZE, MC2_WORKSPACE_SIZE);
-    HrtMemset(reinterpret_cast<void*>(comParamBuffer->GetAddr()), comParamBufSize, comParamBufSize);
-    HrtMemset(reinterpret_cast<void*>(comSyncBuffer->GetAddr()), comSyncBufSize, comSyncBufSize);
+    CHK_RET_THROW(
+        InternalException, "[AllocV2] HrtMemset workspaceBuffer failed",
+        HrtMemset(reinterpret_cast<void*>(workspaceBuffer->GetAddr()), MC2_WORKSPACE_SIZE, MC2_WORKSPACE_SIZE));
+    CHK_RET_THROW(
+        InternalException, "[AllocV2] HrtMemset comParamBuffer failed",
+        HrtMemset(reinterpret_cast<void*>(comParamBuffer->GetAddr()), comParamBufSize, comParamBufSize));
+    CHK_RET_THROW(
+        InternalException, "[AllocV2] HrtMemset comSyncBuffer failed",
+        HrtMemset(reinterpret_cast<void*>(comSyncBuffer->GetAddr()), comSyncBufSize, comSyncBufSize));
     combinOpParam.workSpace = static_cast<uint64_t>(workspaceBuffer->GetAddr());
     combinOpParam.workSpaceSize = MC2_WORKSPACE_SIZE;
     combinOpParam.rankId = comm->GetMyRank();
@@ -596,18 +605,26 @@ void Mc2Compont::DisplayRPCMsg() const
 {
     void* xnAddr = nullptr;
     try {
-        xnAddr = HrtMallocHost(comParamBuffer->GetSize() + comSyncBuffer->GetSize());
+        if (HrtMallocHost(comParamBuffer->GetSize() + comSyncBuffer->GetSize(), xnAddr) != HCCL_SUCCESS) {
+            throw RuntimeApiException("HrtMallocHost failed");
+        }
         void* ckeAddr = reinterpret_cast<uint8_t*>(xnAddr) + comParamBuffer->GetSize();
-        HrtMemcpy(
-            xnAddr, comParamBuffer->GetSize(), reinterpret_cast<uint8_t*>(comParamBuffer->GetAddr()),
-            comParamBuffer->GetSize(), RT_MEMCPY_DEVICE_TO_HOST);
-        HrtMemcpy(
-            ckeAddr, comSyncBuffer->GetSize(), reinterpret_cast<uint8_t*>(comSyncBuffer->GetAddr()),
-            comSyncBuffer->GetSize(), RT_MEMCPY_DEVICE_TO_HOST);
+        if (HrtMemcpy(
+                xnAddr, comParamBuffer->GetSize(), reinterpret_cast<uint8_t*>(comParamBuffer->GetAddr()),
+                comParamBuffer->GetSize(), RT_MEMCPY_DEVICE_TO_HOST)
+            != HCCL_SUCCESS) {
+            throw RuntimeApiException("HrtMemcpy failed");
+        }
+        if (HrtMemcpy(
+                ckeAddr, comSyncBuffer->GetSize(), reinterpret_cast<uint8_t*>(comSyncBuffer->GetAddr()),
+                comSyncBuffer->GetSize(), RT_MEMCPY_DEVICE_TO_HOST)
+            != HCCL_SUCCESS) {
+            throw RuntimeApiException("HrtMemcpy failed");
+        }
     } catch (const RuntimeApiException& e) {
         HCCL_ERROR("[Mc2Compont:%s] host memory operation fail: %s", __func__, e.what());
         if (xnAddr != nullptr) {
-            HrtFreeHost(xnAddr);
+            CHK_RET_THROW(InternalException, "[DisplayRPCMsg] HrtFreeHost failed", HrtFreeHost(xnAddr));
         }
         return;
     }
@@ -634,7 +651,7 @@ void Mc2Compont::DisplayRPCMsg() const
         tmpXnInfo += "]";
         HCCL_ERROR("[Mc2Compont:%s] RPC MsgId[%u], %s", __func__, msgId, tmpXnInfo.c_str());
     }
-    HrtFreeHost(xnAddr);
+    CHK_RET_THROW(InternalException, "[DisplayRPCMsg] HrtFreeHost failed", HrtFreeHost(xnAddr));
 }
 
 bool Mc2Compont::FindCcuServer(

@@ -38,7 +38,7 @@ const std::unordered_map<std::string, DevType> SOC_VER_CONVERT{
     {"Ascend910_950z", DevType::DEV_TYPE_950},     {"nosoc", DevType::DEV_TYPE_NOSOC}};
 
 // 添加编译宏，防止返回82类型芯片造成已有UT失效
-DevType HrtGetDeviceType()
+HcclResult HrtGetDeviceType(DevType& devType)
 {
     char targetChipVer[CHIP_VERSION_MAX_LEN] = {0};
     HrtGetSocVer(targetChipVer, CHIP_VERSION_MAX_LEN);
@@ -50,9 +50,10 @@ DevType HrtGetDeviceType()
             "illegal chipver, chip_ver[%s].",
             HCCL_ERROR_CODE(HcclResult::HCCL_E_RUNTIME), targetChipVer);
 
-        throw RuntimeApiException("call HrtGetSocVer failed.");
+        return HCCL_E_RUNTIME;
     }
-    return iter->second;
+    devType = iter->second;
+    return HCCL_SUCCESS;
 }
 
 void HrtGetSocVer(char_t* chipVer, const u32 size)
@@ -67,24 +68,32 @@ void HrtGetSocVer(char_t* chipVer, const u32 size)
     }
 }
 
-void HrtUbDevQueryInfo(rtUbDevQueryCmd cmd, void* devInfo) {}
+HcclResult HrtUbDevQueryInfo(rtUbDevQueryCmd cmd, void* devInfo) { return HCCL_SUCCESS; }
 
-u32 HrtGetDevicePhyIdByUserDevId(s32 deviceLogicId) { return deviceLogicId; }
-
-void* HrtMalloc(u64 size, aclrtMemType_t memType)
+HcclResult HrtGetDevicePhyIdByUserDevId(s32 deviceLogicId, DevId& devicePhyIdOut)
 {
-    void* devPtr = (void*)0x01;
-    return devPtr;
+    devicePhyIdOut = static_cast<DevId>(deviceLogicId);
+    return HCCL_SUCCESS;
 }
 
-void HrtFree(void* devPtr) { return; }
+HcclResult HrtMalloc(u64 size, aclrtMemType_t memType, void*& devPtr)
+{
+    devPtr = (void*)0x01;
+    return HCCL_SUCCESS;
+}
 
-void HrtMemcpy(void* dst, uint64_t destMax, const void* src, uint64_t count, rtMemcpyKind_t kind) { ; }
+HcclResult HrtFree(void* devPtr) { return HCCL_SUCCESS; }
 
-s32 HrtGetDevice()
+HcclResult HrtMemcpy(void* dst, uint64_t destMax, const void* src, uint64_t count, rtMemcpyKind_t kind)
+{
+    return HCCL_SUCCESS;
+}
+
+HcclResult HrtGetDevice(s32& userDevId)
 {
     u32 rankid = checker::RankInfoRecorder::Global()->GetRankId();
-    return checker::RankInfoRecorder::Global()->rankId2phyId[rankid];
+    userDevId = checker::RankInfoRecorder::Global()->rankId2phyId[rankid];
+    return HCCL_SUCCESS;
 }
 
 HcclResult HrtGetMainboardId(uint32_t deviceLogicId, HcclMainboardId& hcclMainboardId)

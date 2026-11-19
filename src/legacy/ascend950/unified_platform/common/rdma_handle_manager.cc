@@ -14,6 +14,8 @@
 #include "socket_handle_manager.h"
 #include "orion_adapter_rts.h"
 #include "orion_adapter_hccp.h"
+#include "exception_util.h"
+#include "internal_exception.h"
 #include "log.h"
 #include "tokenInfo_manager.h"
 
@@ -382,7 +384,9 @@ HcclResult
 GetEidByAnyEidInfo(s32 deviceLogicId, const HrtDevEidInfo& eidInfo, const IpAddress& ipV4Address, IpAddress& eidAddress)
 {
     // 根据eidInfo初始化rdmaHandle
-    HrtRaUbCtxInitParam in(HrtNetworkMode::HDC, HrtGetDevicePhyIdByUserDevId(deviceLogicId), eidInfo.ipAddress);
+    DevId phyIdOut = 0;
+    CHK_RET(HrtGetDevicePhyIdByUserDevId(deviceLogicId, phyIdOut));
+    HrtRaUbCtxInitParam in(HrtNetworkMode::HDC, static_cast<u32>(phyIdOut), eidInfo.ipAddress);
     RdmaHandle rdmaHandle = HrtRaUbCtxInit(in);
 
     // 调用ra_get_eid_by_ip转换ipAddress为eid
@@ -416,8 +420,13 @@ void RdmaHandleManager::UboeIpv4ToEid(const IpAddress& ipV4Address, IpAddress& e
         return;
     }
 
-    s32 deviceLogicId = HrtGetDevice();
-    HRaInfo info(HrtNetworkMode::HDC, HrtGetDevicePhyIdByUserDevId(deviceLogicId));
+    s32 deviceLogicId = 0;
+    CHK_RET_THROW(InternalException, "[UboeIpv4ToEid] HrtGetDevice failed", HrtGetDevice(deviceLogicId));
+    DevId phyIdOut = 0;
+    CHK_RET_THROW(
+        InternalException, "[UboeIpv4ToEid] HrtGetDevicePhyIdByUserDevId failed",
+        HrtGetDevicePhyIdByUserDevId(deviceLogicId, phyIdOut));
+    HRaInfo info(HrtNetworkMode::HDC, static_cast<u32>(phyIdOut));
     vector<HrtDevEidInfo> eidInfoList = HrtRaGetDevEidInfoList(info);
     if (eidInfoList.empty()) {
         HCCL_WARNING("[RdmaHandleManager::%s] Get EidInfoList empty, deviceLogicId=%d", __func__, deviceLogicId);

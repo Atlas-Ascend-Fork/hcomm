@@ -13,6 +13,8 @@
 #include "log.h"
 #include "communicator_impl.h"
 #include "coll_service_device_mode.h"
+#include "exception_util.h"
+#include "internal_exception.h"
 #include "mc2_global_mirror_tasks.h"
 #include "ccu_dev_mgr.h"
 #include "acl/acl_rt.h"
@@ -60,7 +62,9 @@ TaskExceptionHandler::~TaskExceptionHandler() { UnRegister(); }
 
 void TaskExceptionHandler::Register() const
 {
-    HrtRegTaskExceptionCallbackByModule(Process);
+    CHK_RET_THROW(
+        InternalException, "[Register] HrtRegTaskExceptionCallbackByModule failed",
+        HrtRegTaskExceptionCallbackByModule(Process));
     HCCL_INFO("[TaskExceptionHandler]exception process func registered.");
 }
 
@@ -110,8 +114,12 @@ static std::pair<u32, u32> GetOpCounter(const TaskInfo& taskInfo)
         u64 size = 4;
         void* headAddr = reinterpret_cast<void*>(taskInfo.dfxOpInfo_->headOpCounterAddr_);
         void* tailAddr = reinterpret_cast<void*>(taskInfo.dfxOpInfo_->tailOpCounterAddr_);
-        HrtMemcpy(&floatCounter.first, size, headAddr, size, RT_MEMCPY_DEVICE_TO_HOST);
-        HrtMemcpy(&floatCounter.second, size, tailAddr, size, RT_MEMCPY_DEVICE_TO_HOST);
+        CHK_RET_THROW(
+            InternalException, "[GetOpCounter] HrtMemcpy failed",
+            HrtMemcpy(&floatCounter.first, size, headAddr, size, RT_MEMCPY_DEVICE_TO_HOST));
+        CHK_RET_THROW(
+            InternalException, "[GetOpCounter] HrtMemcpy failed",
+            HrtMemcpy(&floatCounter.second, size, tailAddr, size, RT_MEMCPY_DEVICE_TO_HOST));
     }
 
     std::pair<u32, u32> counter;
@@ -255,14 +263,19 @@ void TaskExceptionHandler::ProcessAivException(rtExceptionInfo_t* exceptionInfo,
     // 打印算子flag 区域, flag区域比较大，需要通过LOG_TMPBUF_SIZE控制打印的长度
     void* flag_buff_temp = nullptr;
     try {
-        flag_buff_temp = HrtMallocHost(taskInfo.taskParam_.taskPara.Aiv.flagMemSize);
-        HrtMemcpy(
-            flag_buff_temp, taskInfo.taskParam_.taskPara.Aiv.flagMemSize, taskInfo.taskParam_.taskPara.Aiv.flagMem,
-            taskInfo.taskParam_.taskPara.Aiv.flagMemSize, RT_MEMCPY_DEVICE_TO_HOST);
+        if (HrtMallocHost(taskInfo.taskParam_.taskPara.Aiv.flagMemSize, flag_buff_temp) != HCCL_SUCCESS) {
+            throw RuntimeApiException("HrtMallocHost failed");
+        }
+        if (HrtMemcpy(
+                flag_buff_temp, taskInfo.taskParam_.taskPara.Aiv.flagMemSize, taskInfo.taskParam_.taskPara.Aiv.flagMem,
+                taskInfo.taskParam_.taskPara.Aiv.flagMemSize, RT_MEMCPY_DEVICE_TO_HOST)
+            != HCCL_SUCCESS) {
+            throw RuntimeApiException("HrtMemcpy failed");
+        }
     } catch (const RuntimeApiException& e) {
         HCCL_ERROR("[TaskExceptionHandler] [%s] host memory operation fail: %s", __func__, e.what());
         if (flag_buff_temp != nullptr) {
-            HrtFreeHost(flag_buff_temp);
+            CHK_RET_THROW(InternalException, "[ProcessAivException] HrtFreeHost failed", HrtFreeHost(flag_buff_temp));
         }
         return;
     }
@@ -282,7 +295,7 @@ void TaskExceptionHandler::ProcessAivException(rtExceptionInfo_t* exceptionInfo,
     HCCL_ERROR(flagStr.str().c_str());
 
     if (flag_buff_temp != nullptr) {
-        HrtFreeHost(flag_buff_temp);
+        CHK_RET_THROW(InternalException, "[ProcessAivException] HrtFreeHost failed", HrtFreeHost(flag_buff_temp));
     }
     PrintAivPreviousTaskException(exceptionInfo);
 }
@@ -875,9 +888,15 @@ void TaskExceptionHandler::PrintAicpuErrorMessage(rtExceptionInfo_t* exceptionIn
                     static_cast<u32>(errorMessage.ubCqeStatus), errorMessage.locEid.Describe().c_str(),
                     errorMessage.rmtEid.Describe().c_str());
                 auto addr = IpAddress(errorMessage.locEid);
-                u32 devPhyId = HrtGetDevicePhyIdByUserDevId(exceptionInfo->deviceid);
-                auto rdmaHandle = RdmaHandleManager::GetInstance().GetByIp(devPhyId, addr);
-                PrintUbRegisters(static_cast<s32>(exceptionInfo->deviceid), rdmaHandle);
+                DevId devPhyIdOut = 0;
+                if (HrtGetDevicePhyIdByUserDevId(exceptionInfo->deviceid, devPhyIdOut) != HCCL_SUCCESS) {
+                    HCCL_ERROR(
+                        "[%s] HrtGetDevicePhyIdByUserDevId failed, deviceId[%u]", __func__, exceptionInfo->deviceid);
+                } else {
+                    u32 devPhyId = static_cast<u32>(devPhyIdOut);
+                    auto rdmaHandle = RdmaHandleManager::GetInstance().GetByIp(devPhyId, addr);
+                    PrintUbRegisters(static_cast<s32>(exceptionInfo->deviceid), rdmaHandle);
+                }
             }
 
             ReportErrorMsg(exceptionTaskInfo, groupRankContent, errorMessage, exceptionInfo, stageErrInfo);

@@ -76,8 +76,8 @@ void MockCcuResources(const int32_t devLogicId, const CcuVersion ccuVersion)
 {
     MOCKER(HrtGetDevicePhyIdByUserDevId)
         .stubs()
-        .with(mockcpp::any())
-        .will(returnValue(static_cast<s32>(MAX_MODULE_DEVICE_NUM)));
+        .with(mockcpp::any(), outBound(static_cast<DevId>(MAX_MODULE_DEVICE_NUM)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     auto& ccuResSpecs = CcuResSpecifications::GetInstance(devLogicId);
     ccuResSpecs.ccuVersion = ccuVersion;

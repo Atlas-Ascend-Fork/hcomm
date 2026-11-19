@@ -22,6 +22,14 @@
 
 using namespace Hccl;
 
+static u32 g_hrtGetNotifyId = 0;
+static HcclResult HrtGetNotifyIDStub(RtNotify_t notifyHandle, u32& notifyID)
+{
+    g_hrtGetNotifyId++;
+    notifyID = g_hrtGetNotifyId;
+    return HCCL_SUCCESS;
+}
+
 class CntNto1NotifyLiteMgrTest : public testing::Test {
 protected:
     static void SetUpTestCase() { std::cout << "CntNto1NotifyLiteMgrTest SetUP" << std::endl; }
@@ -42,10 +50,17 @@ TEST_F(CntNto1NotifyLiteMgrTest, test_parse_packed_data)
     QueueWaitGroupCntNotifyManager cntNto1NotifyMgr;
     CntNto1NotifyLiteMgr mgr;
 
-    MOCKER(HrtGetDevice).stubs().will(returnValue(1));
-    MOCKER(HrtNotifyCreate).stubs().will(returnValue((void*)(0)));
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(1));
-    MOCKER(HrtGetNotifyID).stubs().will(returnValue(1)).then(returnValue(2)).then(returnValue(3));
+    MOCKER(HrtGetDevice).stubs().with(outBound(1)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtCntNotifyCreate)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(1)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    g_hrtGetNotifyId = 0;
+    MOCKER(HrtGetCntNotifyId).stubs().with(mockcpp::any(), mockcpp::any()).will(invoke(HrtGetNotifyIDStub));
 
     QId fakePostQid = 1;
     u32 fakeTopicId = 2;

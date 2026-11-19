@@ -151,7 +151,7 @@ CommunicatorImpl::Init(const CommParams& commParams, const std::string& ranktabl
 
 HcclResult CommunicatorImpl::InitCommResource(const CommParams& commParams)
 {
-    HrtSetDevice(devLogicId);
+    CHK_RET(HrtSetDevice(devLogicId));
     if (IsNeedDpu()) {
         InitHccpPeer();
     }
@@ -217,10 +217,10 @@ CommunicatorImpl::Init(const CommParams& commParams, std::unique_ptr<RankGraph>&
     if (!initFlag) {
         initFlag = true;
         try {
-            HrtSetDevice(inputDevLogicId);
+            CHK_RET(HrtSetDevice(inputDevLogicId));
             InitCommonData(commParams);
             CHK_RET(InitRankGraph(inputRankGraph));
-            HrtSetDevice(devLogicId);
+            CHK_RET(HrtSetDevice(devLogicId));
             if (IsNeedDpu()) {
                 InitHccpPeer();
             }
@@ -270,8 +270,8 @@ HcclResult CommunicatorImpl::Init(
     if (!initFlag) {
         initFlag = true;
         TRY_CATCH_RETURN(
-            HrtSetDevice(inputDevLogicId); InitCommonData(commParams, subConfig); InitHccpHdc(); InitCcuSuperFastLoad();
-            InitNotifyManager(); InitStreamManager(); InitSocketManager(); InitRmaConnManager();
+            CHK_RET(HrtSetDevice(inputDevLogicId)); InitCommonData(commParams, subConfig); InitHccpHdc();
+            InitCcuSuperFastLoad(); InitNotifyManager(); InitStreamManager(); InitSocketManager(); InitRmaConnManager();
             InitDataBufferManager(); InitNotifyFixedValue(); InitMemTransportManager();
             InitHostDeviceSyncNotifyManager(); InitTraceManager(); InitHDCommunicate(); notifyTimeoutCfg.Init();
             CHK_RET(InitRankGraph(inputRankGraph)); if (IsNeedDpu()) { InitHccpPeer(); } AppendLocalDieIdForLinks();
@@ -397,7 +397,9 @@ void CommunicatorImpl::SingleRankProc(const CollOpParams& opParams, void* stream
         "[CommunicatorImpl][%s] sendBuf[%p], recvBuf[%p], len[%llu].", __func__, opParams.sendBuf, opParams.recvBuf,
         len);
     if (len > 0) {
-        HrtMemAsyncCopy(opParams.recvBuf, len, opParams.sendBuf, len, ACL_MEMCPY_DEVICE_TO_DEVICE, stream);
+        CHK_RET_THROW(
+            InternalException, "[SingleRankProc] HrtMemAsyncCopy failed",
+            HrtMemAsyncCopy(opParams.recvBuf, len, opParams.sendBuf, len, ACL_MEMCPY_DEVICE_TO_DEVICE, stream));
     }
 }
 
@@ -465,7 +467,9 @@ static void FastCcuLaunchSaveDfxTaskInfo(
 {
     u32 taskId;
     u32 streamId;
-    HrtGetTaskIdAndStreamID(taskId, streamId);
+    CHK_RET_THROW(
+        InternalException, "[FastCcuLaunchSaveDfxTaskInfo] HrtGetTaskIdAndStreamID failed",
+        HrtGetTaskIdAndStreamID(taskId, streamId));
 
     std::unique_ptr<TaskInfo> taskInfo = std::make_unique<TaskInfo>(
         streamId, taskId, remoteRankId, taskParam, comm.GetMirrorTaskManager().GetCurrDfxOpInfo(), isMaster);
@@ -527,7 +531,14 @@ void CommunicatorImpl::ExecuteFastCcuLaunch(
     u32 streamNum = params.count.size();
     if (streamNum > 1) {
         timeout = notifyTimeoutCfg.GetNotifyTimeout();
-        mStreamId = params.isSlave ? opbaseStream->GetSlave(slaveIndex++)->GetId() : HrtGetStreamId(mStream);
+        if (!params.isSlave) {
+            s32 streamId = 0;
+            CHK_RET_THROW(
+                InternalException, "[ExecuteFastCcuLaunch] HrtGetStreamId failed", HrtGetStreamId(mStream, streamId));
+            mStreamId = static_cast<u32>(streamId);
+        } else {
+            mStreamId = opbaseStream->GetSlave(slaveIndex++)->GetId();
+        }
         cntNotify1ToN = GetCcuStreamSyncNotifyManager().GetRts1ToNCntNotify(mStreamId);
         // launch LocalPostTo on stream
         value = 0;
@@ -582,7 +593,9 @@ void CommunicatorImpl::ExecuteFastCcuLaunch(
             const u32 scratchSize = ccuParams[0].args[myScratchPlace];
             auto src = reinterpret_cast<void*>(ccuParams[0].args[3]);
             auto dst = reinterpret_cast<void*>(ccuParams[0].args[1]);
-            HrtReduceAsync(dst, scratchSize, src, scratchSize, rtReduceOp, rtDataType, stream);
+            CHK_RET_THROW(
+                InternalException, "[ExecuteFastCcuLaunch] HrtReduceAsync failed",
+                HrtReduceAsync(dst, scratchSize, src, scratchSize, rtReduceOp, rtDataType, stream));
             taskParam.taskType = TaskParamType::TASK_REDUCE_INLINE;
             taskParam.endTime = DlProfFunction::GetInstance().dlMsprofSysCycleTime();
             taskParam.taskPara.Reduce.src = src;
@@ -601,7 +614,9 @@ void CommunicatorImpl::ExecuteFastCcuLaunch(
             const u32 scratchSize = ccuParams[0].args[myScratchPlace];
             auto src = reinterpret_cast<void*>(ccuParams[0].args[3]);
             auto dst = reinterpret_cast<void*>(ccuParams[0].args[1]);
-            HrtReduceAsync(dst, scratchSize, src, scratchSize, rtReduceOp, rtDataType, stream);
+            CHK_RET_THROW(
+                InternalException, "[ExecuteFastCcuLaunch] HrtReduceAsync failed",
+                HrtReduceAsync(dst, scratchSize, src, scratchSize, rtReduceOp, rtDataType, stream));
         }
     }
 
@@ -674,8 +689,10 @@ HcclResult CommunicatorImpl::LoadOpbasedCollOp(const CollOpParams& opParams, voi
             return HcclResult::HCCL_SUCCESS;
         }
         if (!cclBufferName_.empty()) {
+            s32 streamId = 0;
+            CHK_RET(HrtGetStreamId(stream, streamId));
             CHK_RET(ShareCclBufferManager::GetInstance(devLogicId)
-                        .CheckCclBufferConflict(GetId(), cclBufferName_, HrtGetStreamId(stream)));
+                        .CheckCclBufferConflict(GetId(), cclBufferName_, streamId));
         }
         // 判断是否为aclgraph
         bool isCapture = false; // isCapture为true表示aclgraph
@@ -936,8 +953,10 @@ HcclResult CommunicatorImpl::LoadOffloadCollOp(std::string& opTag, const CollOpP
             return HcclResult::HCCL_SUCCESS;
         }
         if (!cclBufferName_.empty()) {
+            s32 streamId = 0;
+            CHK_RET(HrtGetStreamId(stream, streamId));
             CHK_RET(ShareCclBufferManager::GetInstance(devLogicId)
-                        .CheckCclBufferConflict(GetId(), cclBufferName_, HrtGetStreamId(stream)));
+                        .CheckCclBufferConflict(GetId(), cclBufferName_, streamId));
         }
         uint64_t beginTime = DlProfFunction::GetInstance().dlMsprofSysCycleTime();
 
@@ -1261,8 +1280,14 @@ void CommunicatorImpl::InitCommonData(const CommParams& commParams)
     commDepth = commParams.commDepth;
     devType = commParams.devType;
     isWorldGroup = commParams.isWorldGroup;
-    devLogicId = HrtGetDevice();
-    devPhyId = HrtGetDevicePhyIdByUserDevId(devLogicId);
+    s32 devLogicIdTmp = 0;
+    CHK_RET_THROW(InternalException, "[InitCommonData] HrtGetDevice failed", HrtGetDevice(devLogicIdTmp));
+    devLogicId = static_cast<DevId>(devLogicIdTmp);
+    DevId devPhyIdOut = 0;
+    CHK_RET_THROW(
+        InternalException, "[InitCommonData] HrtGetDevicePhyIdByUserDevId failed",
+        HrtGetDevicePhyIdByUserDevId(static_cast<s32>(devLogicId), devPhyIdOut));
+    devPhyId = devPhyIdOut;
 }
 
 void CommunicatorImpl::CheckRankGraph() const
@@ -1350,8 +1375,13 @@ void CommunicatorImpl::CheckRankGraphAddrs() const
 
 u32 GetLocalDieId(PortData&& port, LinkProtocol linkProtocol)
 {
-    auto userDevId = HrtGetDevice();
-    uint32_t devPhyId = HrtGetDevicePhyIdByUserDevId(userDevId);
+    s32 userDevId = 0;
+    CHK_RET_THROW(InternalException, "[GetLocalDieId] HrtGetDevice failed", HrtGetDevice(userDevId));
+    DevId devPhyIdOut = 0;
+    CHK_RET_THROW(
+        InternalException, "[GetLocalDieId] HrtGetDevicePhyIdByUserDevId failed",
+        HrtGetDevicePhyIdByUserDevId(userDevId, devPhyIdOut));
+    uint32_t devPhyId = static_cast<uint32_t>(devPhyIdOut);
 
     auto& rdmaHandleMgr = RdmaHandleManager::GetInstance();
     auto rdmaHandle = rdmaHandleMgr.Get(devPhyId, port, linkProtocol);
@@ -1405,8 +1435,13 @@ std::string CommunicatorImpl::GetTopoFilePath()
         }
     } else {
         const size_t bufSize = 1024;
-        auto userDevId = HrtGetDevice();
-        auto devPhyId = HrtGetDevicePhyIdByUserDevId(userDevId);
+        s32 userDevId = 0;
+        CHK_RET_THROW(InternalException, "[GetTopoFilePath] HrtGetDevice failed", HrtGetDevice(userDevId));
+        DevId devPhyIdOut = 0;
+        CHK_RET_THROW(
+            InternalException, "[GetTopoFilePath] HrtGetDevicePhyIdByUserDevId failed",
+            HrtGetDevicePhyIdByUserDevId(userDevId, devPhyIdOut));
+        auto devPhyId = static_cast<uint32_t>(devPhyIdOut);
         std::vector<char> buffer(bufSize, '\0');
         int result = TopoAddrInfoGetTopoFilePath(devPhyId, buffer.data(), buffer.size());
         CHK_PRT_THROW(
@@ -1521,9 +1556,11 @@ void CommunicatorImpl::InitDataBufferManager()
 
     if (rankSize > 1) {
         aivOffloadTagBuffer = std::move(DevBuffer::CreateHugePageBuf(HCCL_AIV_OFFLOAD_TAG_BUFFER_SIZE));
-        HrtMemset(
-            reinterpret_cast<void*>(aivOffloadTagBuffer->GetAddr()), aivOffloadTagBuffer->GetSize(),
-            aivOffloadTagBuffer->GetSize());
+        CHK_RET_THROW(
+            InternalException, "[InitDataBufferManager] HrtMemset aivOffloadTagBuffer failed",
+            HrtMemset(
+                reinterpret_cast<void*>(aivOffloadTagBuffer->GetAddr()), aivOffloadTagBuffer->GetSize(),
+                aivOffloadTagBuffer->GetSize()));
         // 匿名cclbuffer 不共享内存
         if (cclBufferName_.empty()) {
             cclBuffer = std::move(DevBuffer::CreateHugePageBuf(scratchBufSize));
@@ -1553,7 +1590,10 @@ void CommunicatorImpl::InitDataBufferManager()
             "[CommunicatorImpl][InitDataBufferManager] aivTagBufSize[%llu]M",
             aivTagBufSize / HCCL_CCL_COMM_FIXED_CALC_BUFFER_SIZE);
         aivTagBuffer = std::move(DevBuffer::CreateHugePageBuf(aivTagBufSize));
-        HrtMemset(reinterpret_cast<void*>(aivTagBuffer->GetAddr()), aivTagBuffer->GetSize(), aivTagBuffer->GetSize());
+        CHK_RET_THROW(
+            InternalException, "[InitDataBufferManager] HrtMemset aivTagBuffer failed",
+            HrtMemset(
+                reinterpret_cast<void*>(aivTagBuffer->GetAddr()), aivTagBuffer->GetSize(), aivTagBuffer->GetSize()));
     }
     dataBufferManager = std::make_unique<DataBufManager>();
 
@@ -1694,7 +1734,9 @@ void CommunicatorImpl::InitNotifyFixedValue()
     // 删除后，导致后续 AllGather 在 1GB 数据量下劣化 10us
     // 当前 补上 malloc(2MB)，临时解决性能劣化
     constexpr u64 notifyValueSize = 2 * 1024 * 1024;
-    notifyFixedValue = HrtMalloc(notifyValueSize, static_cast<int>(ACL_MEM_TYPE_HIGH_BAND_WIDTH));
+    CHK_RET_THROW(
+        InternalException, "[InitNotifyFixedValue] HrtMalloc notifyFixedValue failed",
+        HrtMalloc(notifyValueSize, static_cast<int>(ACL_MEM_TYPE_HIGH_BAND_WIDTH), notifyFixedValue));
 }
 
 void CommunicatorImpl::InitMemTransportManager() { memTransportManager = std::make_unique<MemTransportManager>(*this); }
@@ -2235,7 +2277,12 @@ HcclResult CommunicatorImpl::RecoverComm(SnapShotComm& snapShotComm, u32 stepPar
             }
             RecoverOpMode(snapShotComm.opMode);
             InitCommonData(snapShotComm.commParams, snapShotComm.config);
-            HrtSetDevice(devLogicId);
+            HcclResult setDevRet = HrtSetDevice(devLogicId);
+            if (setDevRet != HCCL_SUCCESS) {
+                SetCommStatus(CommStatus::COMM_IDLE);
+                HCCL_ERROR("[%s] HrtSetDevice failed, ret[%d]", __func__, setDevRet);
+                return setDevRet;
+            }
             InitHccpHdc(); // 选择ccu加速模式依赖hdc通道打开ccu驱动
             RecoverExeCfgData(
                 snapShotComm.opExecuteConfig, snapShotComm.commExecuteConfig,
@@ -2328,7 +2375,12 @@ HcclResult CommunicatorImpl::RecoverComm(
             }
             RecoverOpMode(snapShotSubComm.opMode);
             InitCommonDataNotInitDevType(snapShotSubComm.commParams, snapShotSubComm.config);
-            HrtSetDevice(devLogicId);
+            HcclResult setDevRet = HrtSetDevice(devLogicId);
+            if (setDevRet != HCCL_SUCCESS) {
+                SetCommStatus(CommStatus::COMM_IDLE);
+                HCCL_ERROR("[%s] HrtSetDevice failed, ret[%d]", __func__, setDevRet);
+                return setDevRet;
+            }
             InitHccpHdc(); // 选择ccu加速模式依赖hdc通道打开ccu驱动
             RecoverExeCfgData(
                 snapShotSubComm.opExecuteConfig, snapShotSubComm.commExecuteConfig,
@@ -2592,7 +2644,10 @@ void CommunicatorImpl::DestroyImpl()
 
     // 释放 device 内存
     if (notifyFixedValue != nullptr) {
-        HrtFree(notifyFixedValue);
+        HcclResult ret = HrtFree(notifyFixedValue);
+        if (ret != HCCL_SUCCESS) {
+            HCCL_ERROR("[~CommunicatorImpl] HrtFree notifyFixedValue failed, ret[%d]", ret);
+        }
         notifyFixedValue = nullptr;
     }
 
@@ -3236,12 +3291,12 @@ HcclResult CommunicatorImpl::CreateBarrierMemory(void*& sendBuf, void*& recvBuf,
             return HCCL_E_MEMORY;
         }
         // H2D拷贝
-        HrtMemcpy(
+        CHK_RET(HrtMemcpy(
             reinterpret_cast<void*>(barrierInMemory->GetAddr()), barrierInMemory->GetSize(),
-            reinterpret_cast<void*>(barrierHostMem->GetAddr()), barrierHostMem->GetSize(), RT_MEMCPY_HOST_TO_DEVICE);
-        HrtMemcpy(
+            reinterpret_cast<void*>(barrierHostMem->GetAddr()), barrierHostMem->GetSize(), RT_MEMCPY_HOST_TO_DEVICE));
+        CHK_RET(HrtMemcpy(
             reinterpret_cast<void*>(barrierOutMemory->GetAddr()), barrierOutMemory->GetSize(),
-            reinterpret_cast<void*>(barrierHostMem->GetAddr()), barrierHostMem->GetSize(), RT_MEMCPY_HOST_TO_DEVICE);
+            reinterpret_cast<void*>(barrierHostMem->GetAddr()), barrierHostMem->GetSize(), RT_MEMCPY_HOST_TO_DEVICE));
         isFirstBarrier = false;
     }
     // 将内存指针赋值给传入参数

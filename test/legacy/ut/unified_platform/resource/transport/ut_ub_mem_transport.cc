@@ -25,6 +25,7 @@
 #include "dev_buffer.h"
 #include "rma_buffer.h"
 #include "internal_exception.h"
+#include "not_support_exception.h"
 #include "ub_transport_lite_impl.h"
 #include "endpoint_pair/channel/ub_unique_id_pub.h" // UB_UNIQUE_ID_EXT_*：V2 扩展区契约（零依赖薄头）
 #undef protected
@@ -181,12 +182,15 @@ protected:
     virtual void SetUp()
     {
         std::cout << "A Test case in UbMemTransportTest SetUP" << std::endl;
-        MOCKER(HrtMemAsyncCopy).stubs().with(mockcpp::any());
-        MOCKER(HrtReduceAsync).stubs().with(mockcpp::any());
+        MOCKER(HrtMemAsyncCopy).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtReduceAsync).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
         std::pair<TokenIdHandle, uint32_t> fakeTokenInfo = std::make_pair(0x12345678, 1);
         MOCKER_CPP(&RdmaHandleManager::GetTokenIdInfo).stubs().will(returnValue(fakeTokenInfo));
-        MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A2));
+        MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_910A2)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
         fakeLocalOutParam.handle = fakeNotifyHandleAddr;
         memcpy_s(fakeLocalOutParam.key, HRT_UB_MEM_KEY_MAX_LEN, fakeKey, HRT_UB_MEM_KEY_MAX_LEN);
         fakeLocalOutParam.tokenId = fakeTokenId;
@@ -199,15 +203,27 @@ protected:
             .stubs()
             .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
             .will(returnValue(fakeRemoteOutParam));
-        MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(fakePid));
-        MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-        MOCKER(HrtNotifyCreate).stubs().will(returnValue((void*)(fakeNotifyHandleAddr)));
-        MOCKER(HrtGetNotifyID).stubs().will(returnValue(fakeNotifyId));
-        MOCKER(HrtNotifyGetAddr).stubs().with(mockcpp::any()).will(returnValue(fakeAddress));
-        MOCKER(HrtNotifyGetOffset).stubs().will(returnValue(fakeOffset));
+        MOCKER(HrtDeviceGetBareTgid).stubs().with(outBound(fakePid)).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyCreate)
+            .stubs()
+            .with(mockcpp::any(), outBound((void*)(fakeNotifyHandleAddr)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetNotifyID)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeNotifyId))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyGetAddr)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeAddress))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyGetOffset)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeOffset))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
 
-        MOCKER(HrtNotifyRecord).stubs().with(mockcpp::any());
-        MOCKER(HrtNotifyWaitWithTimeOut).stubs().with(mockcpp::any());
+        MOCKER(HrtNotifyRecord).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyWaitWithTimeOut).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
     }
 
     virtual void TearDown()
@@ -392,7 +408,10 @@ TEST_F(UbMemTransportTest, UbMemTransport_send_recv_exchange_data)
     UbMemTransport transport(locRes, attr, link, fakeSocket, rdmaHandle, locCntRes, isRecvFirst);
     EXPECT_THROW(transport.GetUniqueId(), InternalException);
     MOCKER(memcpy_s).stubs().with().will(invoke(memcpy_stub));
-    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(100));
+    MOCKER(HrtDeviceGetBareTgid)
+        .stubs()
+        .with(outBound(static_cast<s32>(100)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     std::string fakeKeyDesc = "fakeKeyDesc";
     MOCKER(HrtRaGetKeyDescribe).stubs().will(returnValue(fakeKeyDesc));
 
@@ -590,7 +609,10 @@ TEST_F(UbMemTransportTest, UbMemTransport_send_recv_finish)
 
     GlobalMockObject::verify();
     MOCKER(memcpy_s).stubs().with().will(invoke(memcpy_stub));
-    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(100));
+    MOCKER(HrtDeviceGetBareTgid)
+        .stubs()
+        .with(outBound(static_cast<s32>(100)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     StubSocket stubSocket;
     transport.socket = &stubSocket;
@@ -650,12 +672,12 @@ TEST_F(UbMemTransportTest, UbMemTransport_read_write_read_reduce_write_reduce)
 
     UbMemTransport transport(locRes, attr, link, fakeSocket, rdmaHandle, locCntRes, callback);
 
-    EXPECT_THROW(transport.Read(locSlice, rmtSlice, stream), NotSupportException);
-    EXPECT_THROW(transport.Write(locSlice, rmtSlice, stream), NotSupportException);
+    EXPECT_THROW(transport.Read(locSlice, rmtSlice, stream), Hccl::NotSupportException);
+    EXPECT_THROW(transport.Write(locSlice, rmtSlice, stream), Hccl::NotSupportException);
 
     ReduceIn reduceIn(DataType::INT8, ReduceOp::MAX);
-    EXPECT_THROW(transport.ReadReduce(locSlice, rmtSlice, reduceIn, stream), NotSupportException);
-    EXPECT_THROW(transport.WriteReduce(locSlice, rmtSlice, reduceIn, stream), NotSupportException);
+    EXPECT_THROW(transport.ReadReduce(locSlice, rmtSlice, reduceIn, stream), Hccl::NotSupportException);
+    EXPECT_THROW(transport.WriteReduce(locSlice, rmtSlice, reduceIn, stream), Hccl::NotSupportException);
 }
 
 TEST_F(UbMemTransportTest, UbMemTransport_wait)

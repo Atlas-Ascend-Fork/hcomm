@@ -44,7 +44,8 @@ HcclResult CpuThread::Init()
     if (GetCommEngine() != COMM_ENGINE_AICPU || GetThreadType() != THREAD_TYPE_CPU) {
         return HCCL_SUCCESS;
     }
-    const s32 devId = Hccl::HrtGetDevice();
+    s32 devId = -1;
+    CHK_RET(Hccl::HrtGetDevice(devId));
     if (devId < 0) {
         HCCL_ERROR("[CpuThread][%s] get current device failed, ret[%d]", __func__, devId);
         return HCCL_E_RUNTIME;

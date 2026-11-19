@@ -155,19 +155,28 @@ CollOpParams GetCollOpParamsStub()
 
 TEST_F(InterpreterTest, St_Submit_When_input_Expect_NO_THROW)
 {
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType(DevType::DEV_TYPE_950)));
-    MOCKER(HrtGetDevice).defaults().will(returnValue(0));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(DevType(DevType::DEV_TYPE_950)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevice).defaults().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(CcuDeviceManager::ReleaseCke).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CcuTransportGroup::CheckTransports).stubs().with(mockcpp::any()).will(returnValue(true));
     MOCKER_CPP(&CcuTransportGroup::CheckTransportCntCke).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CcuTransportGroup::Destroy).stubs();
     MOCKER_CPP(&CcuTransport::ReleaseTransRes).stubs();
     MOCKER_CPP(&CcuConnection::ReleaseConnRes).stubs().will(returnValue((HcclResult)HcclResult::HCCL_SUCCESS));
-    MOCKER(HrtMemcpy).stubs();
+    MOCKER(HrtMemcpy)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(&GetStreamCaptureInfo).stubs().will(returnValue(HCCL_SUCCESS));
     void* ptr = nullptr;
-    MOCKER(HrtStreamCreateWithFlags).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(ptr));
-    MOCKER(HrtGetStreamId).stubs().will(returnValue(0));
+    MOCKER(HrtStreamCreateWithFlags)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound(ptr))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     auto insQueue = make_shared<InsQueue>();
     insQueue->Append(std::move(std::make_unique<CcuInstructionAllGatherMesh1D>()));

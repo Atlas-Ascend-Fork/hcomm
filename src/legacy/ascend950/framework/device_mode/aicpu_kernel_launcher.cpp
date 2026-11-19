@@ -64,16 +64,20 @@ void AicpuKernelLauncher::AicpuKernelLaunch(const Stream& stream, const string& 
     cfg.numAttrs = 1;
     constexpr u32 numBlocks = 1;
     if (op->opMode == OpMode::OPBASE) {
-        HrtAicpuLaunchKernelWithHostArgs(
-            funcHandle, numBlocks, comm->GetAicpuStreamManager().GetFreeStream()->GetPtr(), &cfg, &param.kernel,
-            sizeof(HcclKernelParamLite));
+        CHK_RET_THROW(
+            InternalException, "[AicpuKernelLaunch] HrtAicpuLaunchKernelWithHostArgs OPBASE failed",
+            HrtAicpuLaunchKernelWithHostArgs(
+                funcHandle, numBlocks, comm->GetAicpuStreamManager().GetFreeStream()->GetPtr(), &cfg, &param.kernel,
+                sizeof(HcclKernelParamLite)));
         HCCL_INFO(
             "[AicpuKernelLauncher][AicpuKernelLaunch] param.kernel.algName: %s OPBASE mode "
             "HrtAicpuLaunchKernelWithHostArgs end!",
             param.kernel.algName);
     } else if (op->opMode == OpMode::OFFLOAD) {
-        HrtAicpuLaunchKernelWithHostArgs(
-            funcHandle, numBlocks, stream.GetPtr(), &cfg, &param.kernel, sizeof(HcclKernelParamLite));
+        CHK_RET_THROW(
+            InternalException, "[AicpuKernelLaunch] HrtAicpuLaunchKernelWithHostArgs OFFLOAD failed",
+            HrtAicpuLaunchKernelWithHostArgs(
+                funcHandle, numBlocks, stream.GetPtr(), &cfg, &param.kernel, sizeof(HcclKernelParamLite)));
         HCCL_INFO(
             "[AicpuKernelLauncher][AicpuKernelLaunch] param.kernel.algName: %s OFFLOAD mode "
             "HrtAicpuLaunchKernelWithHostArgs end!",

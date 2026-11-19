@@ -9,6 +9,8 @@
  */
 
 #include "hccp_peer_manager.h"
+#include "exception_util.h"
+#include "internal_exception.h"
 #include "orion_adapter_rts.h"
 #include "orion_adapter_hccp.h"
 
@@ -32,7 +34,11 @@ void HccpPeerManager::Init(s32 deviceLogicId)
         return;
     }
     HRaInitConfig cfg;
-    cfg.phyId = HrtGetDevicePhyIdByUserDevId(deviceLogicId);
+    DevId phyIdOut = 0;
+    CHK_RET_THROW(
+        InternalException, "[HccpPeerManager::Init] HrtGetDevicePhyIdByUserDevId failed",
+        HrtGetDevicePhyIdByUserDevId(deviceLogicId, phyIdOut));
+    cfg.phyId = static_cast<u32>(phyIdOut);
     cfg.mode = HrtNetworkMode::PEER;
     HrtRaInit(cfg);
 
@@ -63,7 +69,11 @@ void HccpPeerManager::DeInit(s32 deviceLogicId)
     // 若引用计数为0, 则释放资源
     if (count == 0) {
         HRaInitConfig cfg;
-        cfg.phyId = HrtGetDevicePhyIdByUserDevId(deviceLogicId);
+        DevId phyIdOut = 0;
+        CHK_RET_THROW(
+            InternalException, "[HccpPeerManager::DeInit] HrtGetDevicePhyIdByUserDevId failed",
+            HrtGetDevicePhyIdByUserDevId(deviceLogicId, phyIdOut));
+        cfg.phyId = static_cast<u32>(phyIdOut);
         cfg.mode = HrtNetworkMode::PEER;
         HrtRaDeInit(cfg);
         instances_.erase(deviceLogicId);
@@ -84,7 +94,11 @@ void HccpPeerManager::DeInitAll()
                             "devLogicId[%d] ref[%u]",
                             __func__, instance.first, count));
         HRaInitConfig cfg;
-        cfg.phyId = HrtGetDevicePhyIdByUserDevId(instance.first);
+        DevId phyIdOut = 0;
+        CHK_RET_THROW(
+            InternalException, "[HccpPeerManager::DeInitAll] HrtGetDevicePhyIdByUserDevId failed",
+            HrtGetDevicePhyIdByUserDevId(instance.first, phyIdOut));
+        cfg.phyId = static_cast<u32>(phyIdOut);
         cfg.mode = HrtNetworkMode::PEER;
         HrtRaDeInit(cfg);
         HCCL_INFO("[HccpPeerManager::%s] devLogicId [%d] ra deinit success.", __func__, instance.first);

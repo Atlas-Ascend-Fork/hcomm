@@ -16,6 +16,7 @@
 #include "communicator_impl.h"
 #include "null_ptr_exception.h"
 #include "exception_util.h"
+#include "internal_exception.h"
 #include "adapter_error_manager_pub.h"
 #include "stl_util.h"
 #include "preempt_port_manager_v2.h"
@@ -240,7 +241,9 @@ void SocketManager::ServerInitAll(hccl::NewRankInfo& rankInfo)
         "[SocketManager] PhyTopoBuilder Build failed");
 
     std::lock_guard<std::mutex> lock(socketLock);
-    auto devLogicId = HrtGetDevice();
+    s32 devLogicIdTmp = 0;
+    CHK_RET_THROW(InternalException, "[SocketManager::ServerInitAll] HrtGetDevice failed", HrtGetDevice(devLogicIdTmp));
+    auto devLogicId = static_cast<uint32_t>(devLogicIdTmp);
     auto& serverSocketMap = SocketManager::GetServerSocketMap();
     u32 rankId = rankInfo.rankId;
     u32 localId = rankInfo.localId;

@@ -40,10 +40,19 @@ TEST_F(QueueWaitGroupCntNotifyManagerTest, apply_for_test)
 {
     QueueWaitGroupCntNotifyManager queueWaitGroupCntNotifyManager;
     // Given
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType(DevType::DEV_TYPE_910A2)));
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-    MOCKER(HrtCntNotifyCreate).stubs().will(returnValue((void*)(fakeNotifyHandleAddr)));
-    MOCKER(HrtGetCntNotifyId).stubs().will(returnValue(fakeNotifyId));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType(DevType(DevType::DEV_TYPE_910A2))))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtCntNotifyCreate)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)(fakeNotifyHandleAddr)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetCntNotifyId)
+        .stubs()
+        .with(mockcpp::any(), outBound(fakeNotifyId))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     QId qid = 1;
     u32 index = 1;
@@ -55,10 +64,19 @@ TEST_F(QueueWaitGroupCntNotifyManagerTest, get_test)
 {
     QueueWaitGroupCntNotifyManager queueWaitGroupCntNotifyManager;
     // Given
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType(DevType::DEV_TYPE_910A2)));
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-    MOCKER(HrtCntNotifyCreate).stubs().will(returnValue((void*)(fakeNotifyHandleAddr)));
-    MOCKER(HrtGetCntNotifyId).stubs().will(returnValue(fakeNotifyId));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType(DevType(DevType::DEV_TYPE_910A2))))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtCntNotifyCreate)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)(fakeNotifyHandleAddr)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetCntNotifyId)
+        .stubs()
+        .with(mockcpp::any(), outBound(fakeNotifyId))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     QId qid = 1;
     u32 index = 1;
@@ -77,10 +95,19 @@ TEST_F(QueueWaitGroupCntNotifyManagerTest, release_return_ok)
 {
     QueueWaitGroupCntNotifyManager queueWaitGroupCntNotifyManager;
     // Given
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType::DEV_TYPE_910A2));
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-    MOCKER(HrtCntNotifyCreate).stubs().will(returnValue((void*)(fakeNotifyHandleAddr)));
-    MOCKER(HrtGetCntNotifyId).stubs().will(returnValue(fakeNotifyId));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType(DevType::DEV_TYPE_910A2)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtCntNotifyCreate)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)(fakeNotifyHandleAddr)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetCntNotifyId)
+        .stubs()
+        .with(mockcpp::any(), outBound(fakeNotifyId))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     QId qid = 1;
     u32 index = 1;
@@ -99,15 +126,27 @@ TEST_F(QueueWaitGroupCntNotifyManagerTest, getalldtos_ok)
 {
     QueueWaitGroupCntNotifyManager queueWaitGroupCntNotifyManager;
     // Given
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType::DEV_TYPE_910A2));
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-    MOCKER(HrtCntNotifyCreate).stubs().will(returnValue((void*)(fakeNotifyHandleAddr)));
-    MOCKER(HrtGetCntNotifyId).stubs().will(returnValue(fakeNotifyId));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType(DevType::DEV_TYPE_910A2)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtCntNotifyCreate)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)(fakeNotifyHandleAddr)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetCntNotifyId)
+        .stubs()
+        .with(mockcpp::any(), outBound(fakeNotifyId))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 }
 
 TEST_F(QueueWaitGroupCntNotifyManagerTest, getpackeddata_ok)
 {
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType(DevType::DEV_TYPE_910A2)));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType(DevType(DevType::DEV_TYPE_910A2))))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     std::pair<u32, u32> cntPairId(0, 0);
     QueueWaitGroupCntNotifyManager mgr;
     auto ptr = std::make_unique<RtsCntNotify>();

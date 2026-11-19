@@ -39,7 +39,10 @@ protected:
 
 TEST_F(AutoSelectorTest, TestAutoSelectorOneTimesFour)
 {
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_950));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((DevType)DevType::DEV_TYPE_950))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     VirtualTopoStub virtTopo(0);
     string rankTable = "test";
@@ -136,7 +139,10 @@ TEST_F(AutoSelectorTest, TestAutoSelectorOneTimesFour)
 
 TEST_F(AutoSelectorTest, TestAutoSelectorOneTimesFourCcuSchedule)
 {
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_950));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((DevType)DevType::DEV_TYPE_950))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     VirtualTopoStub virtTopo(0);
     string rankTable = "test";
@@ -204,7 +210,10 @@ TEST_F(AutoSelectorTest, TestAutoSelectorOneTimesFourCcuSchedule)
 
 TEST_F(AutoSelectorTest, TestAutoSelectorTwoTimesTwo)
 {
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_950));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((DevType)DevType::DEV_TYPE_950))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     VirtualTopoStub virtTopo(0);
     string rankTable = "test";
@@ -295,7 +304,10 @@ TEST_F(AutoSelectorTest, TestAutoSelectorTwoTimesTwo)
 
 TEST_F(AutoSelectorTest, TestAutoSelectorTwoTimesTwoAicpu)
 {
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_950));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((DevType)DevType::DEV_TYPE_950))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     VirtualTopoStub virtTopo(0);
     string rankTable = "test";
@@ -420,7 +432,10 @@ TEST_F(AutoSelectorTest, TestAutoSelectorTwoTimesTwoAicpu)
 
 TEST_F(AutoSelectorTest, TestAutoSelectorTwoServerTimesTwoDefault)
 {
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_950));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((DevType)DevType::DEV_TYPE_950))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     VirtualTopoStub virtTopo(0);
     string rankTable = "test";
     virtTopo.TopoInit91095TwoServerTimesTwo(rankTable);

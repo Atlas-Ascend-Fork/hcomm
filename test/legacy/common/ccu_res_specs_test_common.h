@@ -85,11 +85,15 @@ inline void MockDoOnce(bool withUbToken = false)
         .with(
             mockcpp::any(), mockcpp::any(), outBoundP(reinterpret_cast<void*>(&inBuff), sizeof(inBuff)),
             outBoundP(reinterpret_cast<void*>(&inBuff), sizeof(inBuff)));
-    MOCKER(HrtGetDeviceCount).stubs().with().will(returnValue(8));
-    MOCKER(HrtGetSocVer).stubs().with().will(returnValue(0));
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetDeviceCount).stubs().with(outBound(8u)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    std::string fakeSocVer = "Ascend910A3";
+    MOCKER(HrtGetSocVer).stubs().with(outBound(fakeSocVer)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     DevType deviceType = DevType::DevType::DEV_TYPE_910A3;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(deviceType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(deviceType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::unique_ptr<RdmaHandle> handle = std::make_unique<RdmaHandle>();
     RdmaHandle handlePtr = handle.get();
@@ -121,7 +125,10 @@ inline void MockCcuDriverInterfaceReturnDieEnableStub(void* tlvHandle, u32 msgTy
 inline void MockCcuOneDieResource(
     CcuResSpecifications& ccuResSpecs, const int32_t devLogicId, const uint8_t dieId, const CcuVersion ccuVersion)
 {
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().with(mockcpp::any()).will(returnValue(MAX_MODULE_DEVICE_NUM));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(MAX_MODULE_DEVICE_NUM)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     ccuResSpecs.Init();
     ccuResSpecs.ccuVersion = ccuVersion;

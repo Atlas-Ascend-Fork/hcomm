@@ -138,7 +138,7 @@ TEST_F(CollServiceAiCpuImplTest, Ut_SetHcclKernelLaunchParam_When_Op_BATCHSENDRE
 {
     MOCKER(memset_s).stubs().with(mockcpp::any()).will(returnValue(0));
     void* addr = (void*)malloc(32 * 1024);
-    MOCKER(HrtMallocHost).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(addr));
+    MOCKER(HrtMallocHost).stubs().with(mockcpp::any(), outBound(addr)).will(returnValue(HcclResult::HCCL_SUCCESS));
     comm.InitHDCommunicate();
     HcclKernelLaunchParam param;
     comm.currentCollOperator->opType = OpType::BATCHSENDRECV;
@@ -188,7 +188,7 @@ TEST_F(CollServiceAiCpuImplTest, Ut_AllocOpMem_When_Op_ALLTOALLV_Expect_MemSize_
 {
     MOCKER(memset_s).stubs().with(mockcpp::any()).will(returnValue(0));
     void* addr = (void*)malloc(32 * 1024);
-    MOCKER(HrtMallocHost).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(addr));
+    MOCKER(HrtMallocHost).stubs().with(mockcpp::any(), outBound(addr)).will(returnValue(HcclResult::HCCL_SUCCESS));
     comm.InitHDCommunicate();
     HcclKernelLaunchParam param;
     comm.rankSize = 4;
@@ -297,7 +297,7 @@ TEST_F(CollServiceAiCpuImplTest, Ut_AllocOpMem_When_Op_ALLTOALLVC_Expect_Success
 {
     MOCKER(memset_s).stubs().with(mockcpp::any()).will(returnValue(0));
     void* addr = (void*)malloc(32 * 1024);
-    MOCKER(HrtMallocHost).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(addr));
+    MOCKER(HrtMallocHost).stubs().with(mockcpp::any(), outBound(addr)).will(returnValue(HcclResult::HCCL_SUCCESS));
     comm.InitHDCommunicate();
     comm.rankSize = 4;
     comm.currentCollOperator->opMode = OpMode::OFFLOAD;
@@ -432,8 +432,11 @@ TEST_F(CollServiceAiCpuImplTest, Ut_RecoverTransport_When_Normal_Expect_Success)
         .will(returnValue(rmaBuffer));
 
     void* addr = reinterpret_cast<void*>(0x12345678);
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(addr));
-    MOCKER(HrtFree).stubs();
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound(addr))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtFree).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
     comm.currentCollOperator->opMode = OpMode::OPBASE;
     comm.currentCollOperator->opType = OpType::DEBUGCASE;
@@ -531,7 +534,7 @@ TEST_F(CollServiceAiCpuImplTest, Ut_Resume_When_Normal_Expect_Success)
 {
     CommunicatorImpl comm;
     void* addr = (void*)malloc(32 * 1024);
-    MOCKER(HrtMallocHost).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(addr));
+    MOCKER(HrtMallocHost).stubs().with(mockcpp::any(), outBound(addr)).will(returnValue(HcclResult::HCCL_SUCCESS));
     comm.InitNotifyManager();
     comm.InitSocketManager();
     comm.InitRmaConnManager();
@@ -546,7 +549,10 @@ TEST_F(CollServiceAiCpuImplTest, Ut_Resume_When_Normal_Expect_Success)
     comm.GetCurrentCollOperator()->opMode = OpMode::OPBASE;
     void* ptr;
     auto stream = std::make_unique<Stream>(ptr);
-    MOCKER(HrtStreamGetMode).stubs().will(returnValue((unsigned long long)0));
+    MOCKER(HrtStreamGetMode)
+        .stubs()
+        .with(mockcpp::any(), outBound((unsigned long long)0))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     comm.streamManager->opbase->RegisterMaster(std::move(stream));
     void* ptr2;
     auto freeStream = make_unique<Stream>(ptr2);
@@ -1012,7 +1018,10 @@ TEST_F(CollServiceAiCpuImplTest, Ut_AllocCollOpResource_When_Normal_Loop_Expect_
     MOCKER_CPP(&Trace::Save).stubs();
     MOCKER_CPP(&CollServiceAiCpuImpl::SetHcclKernelLaunchParam).stubs().with(mockcpp::any(), mockcpp::any());
     void* addr = reinterpret_cast<void*>(0x12345678);
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(addr));
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound(addr))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     OpExecuteConfig opConfig; // aicpu 展开
     opConfig.accState = AcceleratorState::AICPU_TS;

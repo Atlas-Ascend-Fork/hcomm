@@ -81,7 +81,10 @@ protected:
             .stubs()
             .with(mockcpp::any(), mockcpp::any())
             .will(returnValue(jfcHandle));
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue(Hccl::DevType::DEV_TYPE_910A));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound(Hccl::DevType::DEV_TYPE_910A))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
         MOCKER_CPP(&RdmaHandleManager::GetDieAndFuncId)
             .stubs()
             .with(mockcpp::any())

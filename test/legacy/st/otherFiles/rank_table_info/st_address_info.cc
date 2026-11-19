@@ -38,7 +38,7 @@ protected:
 TEST_F(AddressInfoParserTest, St_Deserialize_When_Normal_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string addressInfoString = R"(
             {
@@ -67,7 +67,7 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_Normal_Expect_Success)
 TEST_F(AddressInfoParserTest, St_Deserialize_When_EID_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string addressInfoString = R"(
             {
@@ -104,7 +104,7 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_EID_Expect_Success)
 TEST_F(AddressInfoParserTest, St_Deserialize_When_IPV6_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string addressInfoString = R"(
             {
@@ -132,7 +132,7 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_IPV6_Expect_Success)
 TEST_F(AddressInfoParserTest, St_Deserialize_When_InvalidAddrType_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string addressInfoString = R"(
             {
@@ -150,7 +150,7 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_InvalidAddrType_Expect_Excepti
 TEST_F(AddressInfoParserTest, St_Deserialize_When_InvalidAddr_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string addressInfoString = R"(
             {
@@ -168,7 +168,7 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_InvalidAddr_Expect_Exception)
 TEST_F(AddressInfoParserTest, St_Deserialize_When_InvalidPort_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string addressInfoString = R"(
             {
@@ -186,7 +186,7 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_InvalidPort_Expect_Exception)
 TEST_F(AddressInfoParserTest, St_Deserialize_When_InvalidPorts_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string addressInfoString = R"(
             {

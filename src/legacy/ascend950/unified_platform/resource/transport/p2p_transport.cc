@@ -16,6 +16,8 @@
 #include "user_remote_mem_getter.h"
 #include "p2p_enable_manager.h"
 #include "runtime_api_exception.h"
+#include "exception_util.h"
+#include "internal_exception.h"
 
 namespace Hccl {
 
@@ -220,11 +222,17 @@ P2PTransport::~P2PTransport()
 
 bool P2PTransport::TriggerEnableP2P()
 {
-    localDeviceLogicId_ = HrtGetDevice();
+    s32 devId = 0;
+    CHK_RET_THROW(InternalException, "[P2PTransport::TriggerEnableP2P] HrtGetDevice failed", HrtGetDevice(devId));
+    localDeviceLogicId_ = devId;
     p2pEnableStartTime_ = TIME_NOW();
 
     // enable p2p 不支持本设备与自身执行：与自己建立 transport 的自环链路无需使能，跳过 enable/wait 全流程
-    uint32_t localDevicePhysicId = HrtGetDevicePhyIdByUserDevId(localDeviceLogicId_);
+    DevId devPhyIdOut = 0;
+    CHK_RET_THROW(
+        InternalException, "[P2PTransport::TriggerEnableP2P] HrtGetDevicePhyIdByUserDevId failed",
+        HrtGetDevicePhyIdByUserDevId(localDeviceLogicId_, devPhyIdOut));
+    uint32_t localDevicePhysicId = static_cast<uint32_t>(devPhyIdOut);
     if (linkData.GetRemoteDeviceId() == localDevicePhysicId) {
         HCCL_INFO(
             "self loop link, skip enable p2p. local physic id:%u, remote physic id:%u.", localDevicePhysicId,
@@ -269,7 +277,9 @@ bool P2PTransport::IsP2PEnabled()
 
 void P2PTransport::SendPid()
 {
-    myPid = HrtDeviceGetBareTgid();
+    s32 tgid = 0;
+    CHK_RET_THROW(InternalException, "[P2PTransport::SendPid] HrtDeviceGetBareTgid failed", HrtDeviceGetBareTgid(tgid));
+    myPid = static_cast<u32>(tgid);
     HCCL_INFO("P2PTransport: send pid %u", myPid);
 
     BinaryStream binaryStream;

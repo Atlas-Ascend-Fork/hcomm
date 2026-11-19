@@ -36,7 +36,10 @@ protected:
 
     virtual void SetUp()
     {
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A2));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound((DevType)DevType::DEV_TYPE_910A2))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
         MOCKER(GetUbToken).stubs().will(returnValue(1));
         MOCKER_CPP(&RtsqBase::QuerySqBaseAddr)
             .stubs()

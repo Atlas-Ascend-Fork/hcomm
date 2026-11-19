@@ -41,10 +41,27 @@ TEST_F(QueueNotifyLiteMgrTest, test_parse_packed_data)
     QueueNotifyManager queueNotifyManager(comm);
     QueueNotifyLiteMgr mgr;
 
-    MOCKER(HrtGetDevice).stubs().will(returnValue(1));
-    MOCKER(HrtNotifyCreate).stubs().will(returnValue((void*)(0)));
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(1));
-    MOCKER(HrtGetNotifyID).stubs().will(returnValue(1)).then(returnValue(2)).then(returnValue(3));
+    MOCKER(HrtGetDevice).stubs().with(outBound(1)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyCreate)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(1)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetNotifyID)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<u32>(1)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetNotifyID)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<u32>(2)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetNotifyID)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<u32>(3)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     QId fakePostQid = 1;
     QId fakeWaitQid = 2;

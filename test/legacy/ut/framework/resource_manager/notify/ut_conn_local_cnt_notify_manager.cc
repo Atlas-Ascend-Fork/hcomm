@@ -35,7 +35,10 @@ protected:
 
 TEST_F(ConnLocalCntNotifyManagerTest, applyfor_and_get_success)
 {
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType(DevType::DEV_TYPE_910A2)));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType(DevType(DevType::DEV_TYPE_910A2))))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     CommunicatorImpl comm;
     comm.devPhyId = 0;

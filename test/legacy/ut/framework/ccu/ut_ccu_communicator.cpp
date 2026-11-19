@@ -52,7 +52,7 @@ protected:
 TEST_F(CcuCommunicatorTest, should_return_success_when_calling_register)
 {
     // when
-    MOCKER(HrtGetDevice).stubs().will(returnValue(1));
+    MOCKER(HrtGetDevice).stubs().with(outBound(1)).will(returnValue(HcclResult::HCCL_SUCCESS));
     CommunicatorImpl* comm;
     std::unique_ptr<CcuCommunicator> communicator = std::make_unique<CcuCommunicator>(comm);
     EXPECT_NE(nullptr, communicator);

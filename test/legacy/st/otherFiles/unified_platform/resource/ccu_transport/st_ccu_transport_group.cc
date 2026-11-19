@@ -154,11 +154,17 @@ TEST_F(CcuTransportGroupTest, Test_CcuTransportGroup_001)
     GenRankTableFile1Ser8Dev();
 
     void* devPtr = nullptr;
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(devPtr));
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(commParams.devType));
-    MOCKER(HrtMemcpy).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound(devPtr))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(commParams.devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtMemcpy)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CommunicatorImpl::InitCollService).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
-    MOCKER(HrtSetDevice).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER(HrtSetDevice).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
     impl.rankGraph = make_unique<RankGraph>(0);
     impl.rankGraph->peers_[0] = make_shared<NetInstance::Peer>(0, 0, 0, 0);
     MOCKER_CPP(&CommunicatorImpl::InitRankGraph, HcclResult(CommunicatorImpl::*)(const std::string&))
@@ -239,11 +245,17 @@ TEST_F(CcuTransportGroupTest, Test_CcuTransportGroup_002)
     GenRankTableFile1Ser8Dev();
 
     void* devPtr = nullptr;
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(devPtr));
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(commParams.devType));
-    MOCKER(HrtMemcpy).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound(devPtr))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(commParams.devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtMemcpy)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CommunicatorImpl::InitCollService).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
-    MOCKER(HrtSetDevice).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER(HrtSetDevice).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
     impl.rankGraph = make_unique<RankGraph>(0);
     impl.rankGraph->peers_[0] = make_shared<NetInstance::Peer>(0, 0, 0, 0);
     MOCKER_CPP(&CommunicatorImpl::InitRankGraph, HcclResult(CommunicatorImpl::*)(const std::string&))
@@ -325,11 +337,17 @@ TEST_F(CcuTransportGroupTest, Test_CcuTransportGroup_003)
     GenRankTableFile1Ser8Dev();
 
     void* devPtr = nullptr;
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(devPtr));
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(commParams.devType));
-    MOCKER(HrtMemcpy).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound(devPtr))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(commParams.devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtMemcpy)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CommunicatorImpl::InitCollService).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
-    MOCKER(HrtSetDevice).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER(HrtSetDevice).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
     impl.rankGraph = make_unique<RankGraph>(0);
     impl.rankGraph->peers_[0] = make_shared<NetInstance::Peer>(0, 0, 0, 0);
     MOCKER_CPP(&CommunicatorImpl::InitRankGraph, HcclResult(CommunicatorImpl::*)(const std::string&))
@@ -423,11 +441,17 @@ TEST_F(CcuTransportGroupTest, Test_CcuTransportGroup_004)
     GenRankTableFile1Ser8Dev();
 
     void* devPtr = nullptr;
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(devPtr));
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(commParams.devType));
-    MOCKER(HrtMemcpy).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound(devPtr))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(commParams.devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtMemcpy)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CommunicatorImpl::InitCollService).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
-    MOCKER(HrtSetDevice).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER(HrtSetDevice).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
     impl.rankGraph = make_unique<RankGraph>(0);
     impl.rankGraph->peers_[0] = make_shared<NetInstance::Peer>(0, 0, 0, 0);
     MOCKER_CPP(&CommunicatorImpl::InitRankGraph, HcclResult(CommunicatorImpl::*)(const std::string&))
@@ -504,11 +528,17 @@ TEST_F(CcuTransportGroupTest, Test_CcuTransportGroup_005)
     GenRankTableFile1Ser8Dev();
 
     void* devPtr = nullptr;
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(devPtr));
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(commParams.devType));
-    MOCKER(HrtMemcpy).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound(devPtr))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(commParams.devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtMemcpy)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CommunicatorImpl::InitCollService).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
-    MOCKER(HrtSetDevice).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER(HrtSetDevice).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
     impl.rankGraph = make_unique<RankGraph>(0);
     impl.rankGraph->peers_[0] = make_shared<NetInstance::Peer>(0, 0, 0, 0);
     MOCKER_CPP(&CommunicatorImpl::InitRankGraph, HcclResult(CommunicatorImpl::*)(const std::string&))
@@ -583,11 +613,17 @@ TEST_F(CcuTransportGroupTest, Test_CcuTransportGroup_006)
     GenRankTableFile1Ser8Dev();
 
     void* devPtr = nullptr;
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(devPtr));
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(commParams.devType));
-    MOCKER(HrtMemcpy).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound(devPtr))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(commParams.devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtMemcpy)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CommunicatorImpl::InitCollService).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
-    MOCKER(HrtSetDevice).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER(HrtSetDevice).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
     impl.rankGraph = make_unique<RankGraph>(0);
     impl.rankGraph->peers_[0] = make_shared<NetInstance::Peer>(0, 0, 0, 0);
     MOCKER_CPP(&CommunicatorImpl::InitRankGraph, HcclResult(CommunicatorImpl::*)(const std::string&))
@@ -663,11 +699,17 @@ TEST_F(CcuTransportGroupTest, Test_CcuTransportGroup_007)
     GenRankTableFile1Ser8Dev();
 
     void* devPtr = nullptr;
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(devPtr));
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(commParams.devType));
-    MOCKER(HrtMemcpy).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound(devPtr))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(commParams.devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtMemcpy)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CommunicatorImpl::InitCollService).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
-    MOCKER(HrtSetDevice).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER(HrtSetDevice).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
     impl.rankGraph = make_unique<RankGraph>(0);
     impl.rankGraph->peers_[0] = make_shared<NetInstance::Peer>(0, 0, 0, 0);
     MOCKER_CPP(&CommunicatorImpl::InitRankGraph, HcclResult(CommunicatorImpl::*)(const std::string&))

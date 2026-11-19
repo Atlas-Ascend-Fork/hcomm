@@ -23,6 +23,8 @@
 #include "types.h"
 #include "op_type.h"
 #include "orion_adapter_rts.h"
+#include "exception_util.h"
+#include "internal_exception.h"
 #include "ccu/ccu_task_param.h"
 #include "task_param.h"
 #include "ccu_ins.h"
@@ -97,7 +99,7 @@ private:
 inline void SuperFastLoad(rtCcuTaskInfo_t* params, aclrtStream const streamPtr, int counts)
 {
     for (int i = 0; i < counts; ++i) {
-        HrtCcuLaunch(params[i], streamPtr);
+        CHK_RET_THROW(InternalException, "[SuperFastLoad] HrtCcuLaunch failed", HrtCcuLaunch(params[i], streamPtr));
     }
 }
 } // namespace Hccl

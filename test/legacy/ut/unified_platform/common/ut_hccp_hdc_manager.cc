@@ -37,9 +37,12 @@ TEST_F(HccpHdcManagerTest, hccp_hdc_manager_getInstance)
     DevId fakedevPhyId1 = 4;
     MOCKER(HrtGetDevicePhyIdByUserDevId)
         .stubs()
-        .with(mockcpp::any())
-        .will(returnValue(fakedevPhyId))
-        .then(returnValue(fakedevPhyId1));
+        .with(mockcpp::any(), outBound(fakedevPhyId))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(fakedevPhyId1))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     // when
     s32 deviceLogicId = 0;
     HccpHdcManager::GetInstance().Init(deviceLogicId);
@@ -58,7 +61,10 @@ TEST_F(HccpHdcManagerTest, hccp_hdc_manager_init)
     s32 deviceLogicId1 = 1;
     s32 deviceLogicId2 = 2;
     DevId fakedevPhyId = 3;
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().with(mockcpp::any()).will(returnValue(fakedevPhyId));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(fakedevPhyId))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     // when
     HccpHdcManager::GetInstance().Init(deviceLogicId);
     auto res1 = HccpHdcManager::GetInstance().GetSet();

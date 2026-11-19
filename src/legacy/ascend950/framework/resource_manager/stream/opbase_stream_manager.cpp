@@ -11,6 +11,7 @@
 #include "opbase_stream_manager.h"
 #include "log.h"
 #include "exception_util.h"
+#include "internal_exception.h"
 #include "communicator_impl.h"
 #include "invalid_params_exception.h"
 
@@ -21,7 +22,10 @@ OpbaseStreamManager::~OpbaseStreamManager() { DECTOR_TRY_CATCH("OpbaseStreamMana
 void OpbaseStreamManager::ReplaceMaster(std::unique_ptr<Stream> stream)
 {
     master = std::move(stream);
-    master->SetStmMode(HrtStreamGetMode(master->GetPtr()));
+    u64 stmMode = 0;
+    CHK_RET_THROW(
+        InternalException, "[ReplaceMaster] HrtStreamGetMode failed", HrtStreamGetMode(master->GetPtr(), stmMode));
+    master->SetStmMode(stmMode);
 }
 
 void OpbaseStreamManager::RegisterMaster(std::unique_ptr<Stream> stream)

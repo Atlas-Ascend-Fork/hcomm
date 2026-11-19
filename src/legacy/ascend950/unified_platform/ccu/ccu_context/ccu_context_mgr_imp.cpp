@@ -37,7 +37,10 @@ CtxMgrImp::~CtxMgrImp()
     if (initializedFlag_) {
         HCCL_INFO("[CtxMgrImp]~CtxMgrImp: deviceLogicId[%d], free addr[%p]", deviceLogicId_, instructionLoadDevMem_);
         if (instructionLoadDevMem_ != nullptr) {
-            DECTOR_TRY_CATCH("CtxMgrImp", HrtFree(instructionLoadDevMem_));
+            HcclResult ret = HrtFree(instructionLoadDevMem_);
+            if (ret != HCCL_SUCCESS) {
+                HCCL_ERROR("[CtxMgrImp] HrtFree failed, addr[%p], ret[%d].", instructionLoadDevMem_, ret);
+            }
             instructionLoadDevMem_ = nullptr;
         }
         ctxGroupMap_.clear();
@@ -724,12 +727,19 @@ void CtxMgrImp::LoadInstruction(CcuRep::CcuInstrInfo& instrInfo, uint32_t dieId)
         }
         HCCL_INFO("[CtxMgrImp]LoadInstruction: deviceLogicId[%d], instrNum[%u]", deviceLogicId_, instrNum);
         // rt接口申请device内存
-        instructionLoadDevMem_ = HrtMalloc(instrNum * sizeof(CcuInstr), static_cast<int>(ACL_MEM_TYPE_HIGH_BAND_WIDTH));
+        if (HrtMalloc(
+                instrNum * sizeof(CcuInstr), static_cast<int>(ACL_MEM_TYPE_HIGH_BAND_WIDTH), instructionLoadDevMem_)
+            != HCCL_SUCCESS) {
+            THROW<CcuApiException>("CtxMgrImp::LoadInstruction HrtMalloc failed");
+        }
     }
 
     // rt接口memcpySync
-    HrtMemcpy(
-        instructionLoadDevMem_, instrInfoSize, instrInfo.instrVec.data(), instrInfoSize, RT_MEMCPY_HOST_TO_DEVICE);
+    if (HrtMemcpy(
+            instructionLoadDevMem_, instrInfoSize, instrInfo.instrVec.data(), instrInfoSize, RT_MEMCPY_HOST_TO_DEVICE)
+        != HCCL_SUCCESS) {
+        THROW<CcuApiException>("CtxMgrImp::LoadInstruction HrtMemcpy failed");
+    }
 
     auto tlvHandle = HccpTlvHdcManager::GetInstance().GetTlvHandle(deviceLogicId_);
     CHECK_NULLPTR(

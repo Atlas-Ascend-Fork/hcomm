@@ -17,6 +17,7 @@
 #include "aicpu_res_package_helper.h"
 #include "hccl_mem.h"
 #include "exception_util.h"
+#include "internal_exception.h"
 #include "env_config_v2.h"
 
 namespace Hccl {
@@ -267,15 +268,15 @@ HcclResult HcclOneSidedService::BatchPutGetDevBufs(
     devBatchPutGetLocalBufs = make_shared<DevBuffer>(sizeof(HcclAicpuLocBufLite) * descNum);
     devBatchPutGetRemoteBufs = make_shared<DevBuffer>(sizeof(HcclAicpuLocBufLite) * descNum);
 
-    HrtMemcpy(
+    CHK_RET(HrtMemcpy(
         reinterpret_cast<void*>(devBatchPutGetLocalBufs->GetAddr()), devBatchPutGetLocalBufs->GetSize(),
         static_cast<void*>(hostBatchPutGetLocalBufferSliceBufs.data()), sizeof(HcclAicpuLocBufLite) * descNum,
-        RT_MEMCPY_HOST_TO_DEVICE);
+        RT_MEMCPY_HOST_TO_DEVICE));
 
-    HrtMemcpy(
+    CHK_RET(HrtMemcpy(
         reinterpret_cast<void*>(devBatchPutGetRemoteBufs->GetAddr()), devBatchPutGetRemoteBufs->GetSize(),
         static_cast<void*>(hostBatchPutGetRemoteBufferSliceBufs.data()), sizeof(HcclAicpuLocBufLite) * descNum,
-        RT_MEMCPY_HOST_TO_DEVICE);
+        RT_MEMCPY_HOST_TO_DEVICE));
 
     return HCCL_SUCCESS;
 }
@@ -419,9 +420,11 @@ void HcclOneSidedService::OneSidedAicpuKernelLaunch(HcclKernelLaunchParam& param
     HCCL_INFO(
         "[HcclOneSidedService::AicpuKernelLaunch] param.soName: %s, param.kernelName: %s", param.soName,
         param.kernelName);
-    HrtAicpuLaunchKernelWithHostArgs(
-        funcHandle, numBlocks, comm_->GetAicpuStreamManager().GetFreeStream()->GetPtr(), &cfg, &param.kernel,
-        sizeof(HcclKernelParamLite));
+    CHK_RET_THROW(
+        InternalException, "[OneSidedAicpuKernelLaunch] HrtAicpuLaunchKernelWithHostArgs failed",
+        HrtAicpuLaunchKernelWithHostArgs(
+            funcHandle, numBlocks, comm_->GetAicpuStreamManager().GetFreeStream()->GetPtr(), &cfg, &param.kernel,
+            sizeof(HcclKernelParamLite)));
     HCCL_INFO(
         "[HcclOneSidedService][AicpuKernelLaunch] param.kernel.algName: %s HrtAicpuLaunchKernelWithHostArgs end!",
         param.kernel.algName);
@@ -442,9 +445,11 @@ DevBuffer* HcclOneSidedService::PackResToKernelLanuch(CollAlgOpReq& opReq)
     shared_ptr<DevBuffer> devMem = make_shared<DevBuffer>(buffer.size()); // 申请device内存
 
     HCCL_INFO("[HcclOneSidedService][PackResToKernelLanuch], HrtMemSyncCopy start");
-    HrtMemcpy(
-        reinterpret_cast<void*>(devMem->GetAddr()), devMem->GetSize(), buffer.data(), buffer.size(),
-        RT_MEMCPY_HOST_TO_DEVICE); // H2D拷贝，将资源拷贝到device内存
+    CHK_RET_THROW(
+        InternalException, "[PackResToKernelLanuch] HrtMemcpy failed",
+        HrtMemcpy(
+            reinterpret_cast<void*>(devMem->GetAddr()), devMem->GetSize(), buffer.data(), buffer.size(),
+            RT_MEMCPY_HOST_TO_DEVICE)); // H2D拷贝，将资源拷贝到device内存
     HCCL_INFO(
         "HcclOneSidedService::BatchGet PackOpData: PackedData %s", Bytes2hex(buffer.data(), buffer.size()).c_str());
     OneSidedLoadMap.insert(make_pair(opReq.algName, devMem));
@@ -556,15 +561,21 @@ void HcclOneSidedService::AddOpCounterMems()
     u64 srcSize = FOUR_BYTES;
     float srcValue = 1;
     void* srcAddr = reinterpret_cast<void*>(counterBuf->GetAddr());
-    HrtMemcpy(srcAddr, srcSize, &srcValue, srcSize, RT_MEMCPY_HOST_TO_DEVICE);
+    CHK_RET_THROW(
+        InternalException, "[AddOpCounterMems] HrtMemcpy failed",
+        HrtMemcpy(srcAddr, srcSize, &srcValue, srcSize, RT_MEMCPY_HOST_TO_DEVICE));
 
     // 初始化后面两个四字节置0
     u64 countMemSize = srcSize;
     float startValue = 0; // value为0表示从0开始计数
     void* headCountAddr = reinterpret_cast<void*>(counterBuf->GetAddr() + srcSize);
     void* tailCountAddr = reinterpret_cast<void*>(counterBuf->GetAddr() + srcSize * 2);
-    HrtMemcpy(headCountAddr, countMemSize, &startValue, countMemSize, RT_MEMCPY_HOST_TO_DEVICE);
-    HrtMemcpy(tailCountAddr, countMemSize, &startValue, countMemSize, RT_MEMCPY_HOST_TO_DEVICE);
+    CHK_RET_THROW(
+        InternalException, "[AddOpCounterMems] HrtMemcpy failed",
+        HrtMemcpy(headCountAddr, countMemSize, &startValue, countMemSize, RT_MEMCPY_HOST_TO_DEVICE));
+    CHK_RET_THROW(
+        InternalException, "[AddOpCounterMems] HrtMemcpy failed",
+        HrtMemcpy(tailCountAddr, countMemSize, &startValue, countMemSize, RT_MEMCPY_HOST_TO_DEVICE));
 
     HCCL_INFO(
         "[HcclOneSidedService::%s] end, counterBuf[%llu] srcAddr[%p] headCountAddr[%p] tailCountAddr[%p].", __func__,

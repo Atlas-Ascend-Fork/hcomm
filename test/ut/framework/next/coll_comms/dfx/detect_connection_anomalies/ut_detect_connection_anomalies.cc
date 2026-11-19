@@ -372,7 +372,10 @@ TEST_F(DetectConnectAnomalies950Test, Ut_CommProtocolToConnectProtoType_When_All
 TEST_F(DetectConnectAnomalies950Test, Ut_Init_When_Non950_Expect_RefInc)
 {
     // Init 无设备门禁（门禁在 AddIpQueue）：非 950 也照常 Ref
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(static_cast<Hccl::DevType>(Hccl::DevType::DEV_TYPE_910A3)));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(mockcpp::outBound(static_cast<Hccl::DevType>(Hccl::DevType::DEV_TYPE_910A3)))
+        .will(returnValue(HCCL_SUCCESS));
     int refBefore = dca_->initRef_.Count();
     dca_->Init();
     EXPECT_EQ(dca_->initRef_.Count(), refBefore + 1);
@@ -400,7 +403,10 @@ TEST_F(DetectConnectAnomalies950Test, Ut_InitDeinit_When_Lifecycle_Expect_RefCou
 TEST_F(DetectConnectAnomalies950Test, Ut_AddIpQueue_When_GuardInput_Expect_NoEnqueue)
 {
     PrepareAddIpQueue();
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(static_cast<Hccl::DevType>(Hccl::DevType::DEV_TYPE_950)));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(mockcpp::outBound(static_cast<Hccl::DevType>(Hccl::DevType::DEV_TYPE_950)))
+        .will(returnValue(HCCL_SUCCESS));
     MOCKER(HrtRaSocketInit).stubs().will(returnValue(reinterpret_cast<SocketHandle>(0x1)));
     // 配置 dfsTime=0：不入队
     {
@@ -426,7 +432,10 @@ TEST_F(DetectConnectAnomalies950Test, Ut_AddIpQueue_When_Non950_Expect_Skip)
 {
     // 非 950：门禁跳过，不入队（独立用例避免 mockcpp 同对象多次 stubs 覆盖）
     PrepareAddIpQueue();
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(static_cast<Hccl::DevType>(Hccl::DevType::DEV_TYPE_910A3)));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(mockcpp::outBound(static_cast<Hccl::DevType>(Hccl::DevType::DEV_TYPE_910A3)))
+        .will(returnValue(HCCL_SUCCESS));
     std::vector<hcomm::LocalIpInfo> localIps{MakeLocalIp("1.1.1.9", ENDPOINT_LOC_TYPE_DEVICE, 16666)};
     DcaPeerInfo peer = MakePeer(1, "1.1.1.1", ENDPOINT_LOC_TYPE_DEVICE);
     dca_->AddIpQueue(-1, 0, "local_net_inst", std::vector<DcaPeerInfo>{peer}, localIps);
@@ -439,7 +448,10 @@ TEST_F(DetectConnectAnomalies950Test, Ut_AddIpQueue_When_DeviceFlow_Expect_Cache
 {
     // device peer：缓存本端参数 + 懒建 handle + 入队
     PrepareAddIpQueue();
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(static_cast<Hccl::DevType>(Hccl::DevType::DEV_TYPE_950)));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(mockcpp::outBound(static_cast<Hccl::DevType>(Hccl::DevType::DEV_TYPE_950)))
+        .will(returnValue(HCCL_SUCCESS));
     MOCKER(HrtRaSocketInit).stubs().will(returnValue(reinterpret_cast<SocketHandle>(0x1)));
     std::vector<hcomm::LocalIpInfo> localIps{MakeLocalIp("1.1.1.9", ENDPOINT_LOC_TYPE_DEVICE, 16888)};
     DcaPeerInfo peer = MakePeer(1, "1.1.1.1", ENDPOINT_LOC_TYPE_DEVICE, 0, "1.1.1.9");
@@ -455,7 +467,10 @@ TEST_F(DetectConnectAnomalies950Test, Ut_AddIpQueue_When_HostFlow_Expect_HandleP
 {
     // host peer：handle locType=HOST + host 端口 + 入队
     PrepareAddIpQueue();
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(static_cast<Hccl::DevType>(Hccl::DevType::DEV_TYPE_950)));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(mockcpp::outBound(static_cast<Hccl::DevType>(Hccl::DevType::DEV_TYPE_950)))
+        .will(returnValue(HCCL_SUCCESS));
     MOCKER(HrtRaSocketInit).stubs().will(returnValue(reinterpret_cast<SocketHandle>(0x1)));
     std::vector<hcomm::LocalIpInfo> localIps{MakeLocalIp("2.2.2.9", ENDPOINT_LOC_TYPE_HOST, 60001)};
     DcaPeerInfo peer = MakePeer(1, "2.2.2.1", ENDPOINT_LOC_TYPE_HOST, 0, "2.2.2.9");
@@ -469,7 +484,10 @@ TEST_F(DetectConnectAnomalies950Test, Ut_AddIpQueue_When_MixedPeers_Expect_BothQ
 {
     // 一批内 device+host 混合：两条都入队
     PrepareAddIpQueue();
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(static_cast<Hccl::DevType>(Hccl::DevType::DEV_TYPE_950)));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(mockcpp::outBound(static_cast<Hccl::DevType>(Hccl::DevType::DEV_TYPE_950)))
+        .will(returnValue(HCCL_SUCCESS));
     MOCKER(HrtRaSocketInit).stubs().will(returnValue(reinterpret_cast<SocketHandle>(0x1)));
     std::vector<hcomm::LocalIpInfo> localIps{
         MakeLocalIp("1.1.1.9", ENDPOINT_LOC_TYPE_DEVICE, 16666), MakeLocalIp("2.2.2.9", ENDPOINT_LOC_TYPE_HOST, 60001)};
@@ -485,7 +503,10 @@ TEST_F(DetectConnectAnomalies950Test, Ut_AddIpQueue_When_MixedPeers_Expect_BothQ
 TEST_F(DetectConnectAnomalies950Test, Ut_AddIpQueue_When_RepeatedRank_Expect_Dedup)
 {
     PrepareAddIpQueue();
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(static_cast<Hccl::DevType>(Hccl::DevType::DEV_TYPE_950)));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(mockcpp::outBound(static_cast<Hccl::DevType>(Hccl::DevType::DEV_TYPE_950)))
+        .will(returnValue(HCCL_SUCCESS));
     MOCKER(HrtRaSocketInit).stubs().will(returnValue(reinterpret_cast<SocketHandle>(0x1)));
     std::vector<hcomm::LocalIpInfo> localIps{MakeLocalIp("1.1.1.9", ENDPOINT_LOC_TYPE_DEVICE, 16666)};
     DcaPeerInfo peers[2]{
@@ -499,7 +520,10 @@ TEST_F(DetectConnectAnomalies950Test, Ut_AddIpQueue_When_SameIpDifferentRank_Exp
 {
     // 去重维度为对端 IP：同 IP 的重复对端（即便 rankId 不同）只入队一次
     PrepareAddIpQueue();
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(static_cast<Hccl::DevType>(Hccl::DevType::DEV_TYPE_950)));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(mockcpp::outBound(static_cast<Hccl::DevType>(Hccl::DevType::DEV_TYPE_950)))
+        .will(returnValue(HCCL_SUCCESS));
     MOCKER(HrtRaSocketInit).stubs().will(returnValue(reinterpret_cast<SocketHandle>(0x1)));
     std::vector<hcomm::LocalIpInfo> localIps{MakeLocalIp("1.1.1.9", ENDPOINT_LOC_TYPE_DEVICE, 16666)};
     DcaPeerInfo peers[2]{
@@ -1325,7 +1349,10 @@ TEST_F(DetectConnectAnomalies950Test, Ut_AddIpQueue_When_PeerDeduped_Expect_NewL
     // 本端/对端两侧独立入队：本轮对端 rank 已被 knownPeerIps_ 去重（peerIpQueue_ 无新条目），
     // 新增本端 IP 仍要入 localIpQueue_（server 侧不被 client 侧去重影响）
     PrepareAddIpQueue();
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(static_cast<Hccl::DevType>(Hccl::DevType::DEV_TYPE_950)));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(mockcpp::outBound(static_cast<Hccl::DevType>(Hccl::DevType::DEV_TYPE_950)))
+        .will(returnValue(HCCL_SUCCESS));
     MOCKER(HrtRaSocketInit).stubs().will(returnValue(reinterpret_cast<SocketHandle>(0x1)));
     // 预置：A 已入队并消费（server 线程无 handle 秒退）
     std::vector<hcomm::LocalIpInfo> firstIps{MakeLocalIp("1.1.1.9", ENDPOINT_LOC_TYPE_DEVICE, 16666)};

@@ -93,8 +93,14 @@ TEST_F(Mc2CompontTest, should_return_success_when_calling_Alloc)
     // when
     MOCKER(CcuRep::GetTokenInfo).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(1000));
     HcclCombinOpParam opParam;
-    MOCKER(HrtMallocHost).stubs().with(mockcpp::any()).will(returnValue(static_cast<void*>(&opParam)));
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue((void*)0x10000));
+    MOCKER(HrtMallocHost)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<void*>(&opParam)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound((void*)0x10000))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // then
     std::unique_ptr<CommunicatorImpl> comm = std::make_unique<CommunicatorImpl>();
@@ -112,8 +118,14 @@ TEST_F(Mc2CompontTest, should_return_success_when_calling_AllocV2)
     // when
     MOCKER(CcuRep::GetTokenInfo).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(1000));
     HcclCombinOpParam opParam;
-    MOCKER(HrtMallocHost).stubs().with(mockcpp::any()).will(returnValue(static_cast<void*>(&opParam)));
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue((void*)0x10000));
+    MOCKER(HrtMallocHost)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<void*>(&opParam)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound((void*)0x10000))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // then
     std::unique_ptr<CommunicatorImpl> comm = std::make_unique<CommunicatorImpl>();

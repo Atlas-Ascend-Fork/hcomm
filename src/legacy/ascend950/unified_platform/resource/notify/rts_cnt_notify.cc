@@ -10,24 +10,42 @@
 
 #include "rts_cnt_notify.h"
 #include "exception_util.h"
+#include "internal_exception.h"
 #include "task.h"
 #include "dev_capability.h"
 
 namespace Hccl {
 
-RtsCntNotify::RtsCntNotify()
-    : deviceId(HrtGetDevice()),
-      devPhyId(HrtGetDevicePhyIdByUserDevId(HrtGetDevice())),
-      handle(HrtCntNotifyCreate(deviceId)),
-      id(HrtGetCntNotifyId(handle))
+RtsCntNotify::RtsCntNotify() : deviceId(0), devPhyId(0), handle(nullptr), id(0)
 {
+    s32 devId = 0;
+    if (HrtGetDevice(devId) != HCCL_SUCCESS) {
+        THROW<InternalException>("[RtsCntNotify] HrtGetDevice failed");
+    }
+    deviceId = static_cast<u32>(devId);
+    DevId devPhyIdOut = 0;
+    if (HrtGetDevicePhyIdByUserDevId(devId, devPhyIdOut) != HCCL_SUCCESS) {
+        THROW<InternalException>("[RtsCntNotify] HrtGetDevicePhyIdByUserDevId failed");
+    }
+    devPhyId = static_cast<u32>(devPhyIdOut);
+    aclrtCntNotify cntHandle = nullptr;
+    if (HrtCntNotifyCreate(deviceId, cntHandle) != HCCL_SUCCESS) {
+        THROW<InternalException>("[RtsCntNotify] HrtCntNotifyCreate failed");
+    }
+    handle = cntHandle;
+    if (HrtGetCntNotifyId(handle, id) != HCCL_SUCCESS) {
+        THROW<InternalException>("[RtsCntNotify] HrtGetCntNotifyId failed");
+    }
     HrtDevResInfo devResInfo;
     devResInfo.dieId = 0;
     devResInfo.procType = HrtDevResProcType::PROCESS_HCCP;
     devResInfo.resType = HrtDevResType::RES_TYPE_STARS_CNT_NOTIFY_BIT_WR;
     devResInfo.resId = id;
     devResInfo.flag = 0;
-    auto resAddrInfo = HrtGetDevResAddress(devResInfo);
+    HrtDevResAddrInfo resAddrInfo;
+    if (HrtGetDevResAddress(devResInfo, resAddrInfo) != HCCL_SUCCESS) {
+        THROW<InternalException>("[RtsCntNotify] HrtGetDevResAddress failed");
+    }
     addr = resAddrInfo.address;
     size = DevCapability::GetInstance().GetNotifySize();
 }
@@ -40,8 +58,14 @@ RtsCntNotify::~RtsCntNotify()
     devResInfo.resType = HrtDevResType::RES_TYPE_STARS_CNT_NOTIFY_BIT_WR;
     devResInfo.resId = id;
     devResInfo.flag = 0;
-    DECTOR_TRY_CATCH("RtsCntNotify", HrtReleaseDevResAddress(devResInfo));
-    DECTOR_TRY_CATCH("RtsCntNotify", HrtCntNotifyDestroy(handle));
+    HcclResult ret = HrtReleaseDevResAddress(devResInfo);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR("[RtsCntNotify] HrtReleaseDevResAddress failed, ret=%d", ret);
+    }
+    ret = HrtCntNotifyDestroy(handle);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR("[RtsCntNotify] HrtCntNotifyDestroy failed, ret=%d", ret);
+    }
 }
 
 std::unique_ptr<BaseTask> RtsCntNotify::PostBits(u32 bitValue)
@@ -53,12 +77,16 @@ std::unique_ptr<BaseTask> RtsCntNotify::WaitValue(u32 value) { return std::make_
 
 void RtsCntNotify::PostBits(u32 bitValue, const Stream& stream) const
 {
-    HrtCntNotifyRecord(handle, stream.GetPtr(), HrtCntNotifyRecordMode::WRITE_BIT, bitValue);
+    CHK_RET_THROW(
+        InternalException, "[RtsCntNotify::PostBits] HrtCntNotifyRecord failed",
+        HrtCntNotifyRecord(handle, stream.GetPtr(), HrtCntNotifyRecordMode::WRITE_BIT, bitValue));
 }
 
 void RtsCntNotify::WaitValue(u32 value, u32 timeout, const aclrtStream& rtStream) const
 {
-    HrtCntNotifyWaitWithTimeOut(handle, rtStream, HrtCntNotifyWaitMode::EQUAL, value, timeout);
+    CHK_RET_THROW(
+        InternalException, "[RtsCntNotify::WaitValue] HrtCntNotifyWaitWithTimeOut failed",
+        HrtCntNotifyWaitWithTimeOut(handle, rtStream, HrtCntNotifyWaitMode::EQUAL, value, timeout));
 }
 
 void RtsCntNotify::WaitValue(u32 value, u32 timeout, const Stream& stream) const

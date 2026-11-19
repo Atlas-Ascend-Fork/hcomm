@@ -17,6 +17,7 @@
 #include "local_rdma_rma_buffer_v2.h"
 #include "local_ipc_rma_buffer_v2.h"
 #include "remote_rma_buffer.h"
+#include "rdma_handle_manager.h"
 
 using namespace Hccl;
 
@@ -28,11 +29,15 @@ protected:
 
     virtual void SetUp()
     {
-        MOCKER(HrtIpcSetMemoryName).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
+        MOCKER(HrtIpcSetMemoryName)
+            .stubs()
+            .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
         MOCKER(HrtDevMemAlignWithPage)
             .stubs()
-            .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
-        MOCKER(HrtIpcDestroyMemoryName).stubs().with(mockcpp::any());
+            .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtIpcDestroyMemoryName).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
 
         std::cout << "A Test case in LocalRmaBuffer SetUP." << std::endl;
     }
@@ -55,6 +60,11 @@ TEST_F(LocalRmaBufferTest, localubrmabuffer_serialize)
 {
     u32 token = 1;
     MOCKER(GetUbToken).stubs().will(returnValue(token));
+    std::pair<TokenIdHandle, uint32_t> fakeTokenInfo = std::make_pair(TokenIdHandle(0x12345678), 1);
+    MOCKER_CPP(&RdmaHandleManager::GetTokenIdInfo).stubs().will(returnValue(fakeTokenInfo));
+    HrtRaUbLocalMemRegOutParam fakeLocalOutParam{};
+    fakeLocalOutParam.keySize = HRT_UB_MEM_KEY_MAX_LEN;
+    MOCKER(HrtRaUbLocalMemReg).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeLocalOutParam));
     RdmaHandle rdmaHandle = (void*)0x1000000;
     LocalUbRmaBuffer localUbRmaBuffer(devBuf, rdmaHandle);
     string msg = localUbRmaBuffer.Describe();
@@ -73,6 +83,11 @@ TEST_F(LocalRmaBufferTest, getExchangeDto_rdma_test)
 {
     u32 token = 1;
     MOCKER(GetUbToken).stubs().will(returnValue(token));
+    std::pair<TokenIdHandle, uint32_t> fakeTokenInfo = std::make_pair(TokenIdHandle(0x12345678), 1);
+    MOCKER_CPP(&RdmaHandleManager::GetTokenIdInfo).stubs().will(returnValue(fakeTokenInfo));
+    HrtRaUbLocalMemRegOutParam fakeLocalOutParam{};
+    fakeLocalOutParam.keySize = HRT_UB_MEM_KEY_MAX_LEN;
+    MOCKER(HrtRaUbLocalMemReg).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeLocalOutParam));
     RdmaHandle rdmaHandle = (void*)0x1000000;
     LocalUbRmaBuffer localUbRmaBuffer(devBuf, rdmaHandle);
 
@@ -99,14 +114,20 @@ TEST_F(LocalRmaBufferTest, getExchangeDto_ipc_test)
     localIpcRmaBuffer.GetExchangeDto();
 
     u32 pid = 1;
-    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(static_cast<s32>(pid)));
+    MOCKER(HrtDeviceGetBareTgid)
+        .stubs()
+        .with(outBound(static_cast<s32>(pid)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     localIpcRmaBuffer.Grant(pid);
 };
 
 TEST_F(LocalRmaBufferTest, generate_safe_random_number)
 {
-    MOCKER(HrtGetDevice).stubs().will(returnValue(1));
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(static_cast<DevId>(1)));
+    MOCKER(HrtGetDevice).stubs().with(outBound(1)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(1)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtRaGetSecRandom).stubs().with(mockcpp::any(), mockcpp::any());
     u32 token = GetUbToken();
 }

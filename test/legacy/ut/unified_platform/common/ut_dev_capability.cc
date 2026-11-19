@@ -52,7 +52,10 @@ protected:
         char c = '1';
         MOCKER(realpath).stubs().with(mockcpp::any()).will(returnValue(&c));
 
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue(Hccl::DevType::DEV_TYPE_910A));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound(Hccl::DevType::DEV_TYPE_910A))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
     }
 
     void ResetEnvCfgMap()
@@ -101,7 +104,7 @@ const u64 SDMA_SEND_MAX_SIZE = 0x100000000; // 节点内单个SDMA任务发送�
 TEST_F(DevCapabilityTest, test_dev_cap_v82)
 {
     Hccl::DevType devType = Hccl::DevType::DEV_TYPE_950;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     ResetEnvCfgMap();
     MockFunc();
@@ -121,7 +124,7 @@ TEST_F(DevCapabilityTest, test_dev_cap_v82)
 TEST_F(DevCapabilityTest, Ut_Load910A3Cap_When_910A3_Expect_ReturnIsTrue)
 {
     Hccl::DevType devType = Hccl::DevType::DEV_TYPE_910A3;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     ResetEnvCfgMap();
     MockFunc();
@@ -135,7 +138,7 @@ TEST_F(DevCapabilityTest, Ut_Load910A3Cap_When_910A3_Expect_ReturnIsTrue)
 TEST_F(DevCapabilityTest, Ut_Load910ACap_When_910A3_Expect_ReturnIsFalse)
 {
     Hccl::DevType devType = Hccl::DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     ResetEnvCfgMap();
     MockFunc();

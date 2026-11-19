@@ -11,6 +11,7 @@
 #include "offload_stream_manager.h"
 #include "log.h"
 #include "exception_util.h"
+#include "internal_exception.h"
 #include "invalid_params_exception.h"
 #include "stream_utils.h"
 
@@ -53,7 +54,9 @@ void OffloadStreamManager::ActivateSlaveStreams(const std::string& opTag, const 
     for (const auto& slave : slaveStreams) {
         u32 slaveId = slave->GetId();
         if (activeSlaveStreams.insert(slaveId).second) {
-            HrtStreamActive(slave->GetPtr(), masterStream->GetPtr());
+            CHK_RET_THROW(
+                InternalException, "[ActivateSlaveStreams] HrtStreamActive failed",
+                HrtStreamActive(slave->GetPtr(), masterStream->GetPtr()));
         }
     }
     HCCL_INFO("[OffloadStreamManager::%s] end, slaveNum[%d].", __func__, slaveNum);

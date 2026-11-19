@@ -9,6 +9,7 @@
  */
 
 #include "detect_connection_anomalies.h"
+#include "internal_exception.h"
 
 #include "base_comm_node_accessors.h"
 #include "env_config_v2.h"
@@ -147,8 +148,10 @@ void DetectConnectionAnomalies::AddIpQueue(
         return;
     }
     // 检查设备类型是否支持
-    if (Hccl::HrtGetDeviceType() != Hccl::DevType::DEV_TYPE_950) {
-        HCCL_WARNING("[AddIpQueue] not support deviceType[%d]", Hccl::HrtGetDeviceType());
+    Hccl::DevType devType = Hccl::DevType::INVALID;
+    CHK_RET_THROW(Hccl::InternalException, "[AddIpQueue] HrtGetDeviceType failed", Hccl::HrtGetDeviceType(devType));
+    if (devType != Hccl::DevType::DEV_TYPE_950) {
+        HCCL_WARNING("[AddIpQueue] not support deviceType[%d]", static_cast<int>(devType));
         RPT_INPUT_ERR(
             true, "EI0006", std::vector<std::string>({"reason"}),
             std::vector<std::string>({GET_SOCKET_TIMEOUT_REASON_CLOSE_DETECT}));
@@ -301,7 +304,7 @@ HcclResult DetectConnectionAnomalies::ServerDetectThread(const LocalIpInfo& loca
     // 每个 server 线程只操作自己 localIp 的 socket
     SetThreadName("DcaDetectServer");
     if (deviceLogicId_ >= 0) {
-        Hccl::HrtSetDevice(deviceLogicId_);
+        CHK_RET(Hccl::HrtSetDevice(deviceLogicId_));
     }
     const std::string tag = GetTag(localInfo.ip);
     const auto [localPort, nicType] = BuildLocalPortInfo(localInfo);
@@ -342,7 +345,7 @@ HcclResult DetectConnectionAnomalies::ServerDetectThread(const LocalIpInfo& loca
         GetServerSocketMgr().ServerSocketStopListen(localPort, nicType, listenPort);
     }
     if (deviceLogicId_ >= 0) {
-        Hccl::HrtResetDevice(deviceLogicId_);
+        CHK_RET(Hccl::HrtResetDevice(deviceLogicId_));
     }
     return ret;
 }
@@ -454,7 +457,7 @@ HcclResult DetectConnectionAnomalies::ClientDetectThread(const DcaPeerInfo& peer
 {
     SetThreadName("DcaDetectClient");
     if (deviceLogicId_ >= 0) {
-        Hccl::HrtSetDevice(deviceLogicId_);
+        CHK_RET(Hccl::HrtSetDevice(deviceLogicId_));
     }
     // 探测线程启动日志：标识探测目标（对端机器 netInstId + IP + rank）
     HCCL_INFO(
@@ -498,7 +501,7 @@ HcclResult DetectConnectionAnomalies::ClientDetectThread(const DcaPeerInfo& peer
 
     GetSocketMgr(static_cast<s32>(localDevPhyId_)).DestroySocket(clientSocket);
     if (deviceLogicId_ >= 0) {
-        Hccl::HrtResetDevice(deviceLogicId_);
+        CHK_RET(Hccl::HrtResetDevice(deviceLogicId_));
     }
     return ret;
 }

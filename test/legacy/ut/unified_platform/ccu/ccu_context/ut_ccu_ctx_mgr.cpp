@@ -162,7 +162,7 @@ HcclResult CtxMgrGetInstructionNumStub(const int32_t deviceLogicId, const uint8_
 
 TEST_F(CcuContextManagerTest, AGTest)
 {
-    MOCKER(HrtGetDevice).defaults().will(returnValue(0));
+    MOCKER(HrtGetDevice).defaults().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(CcuDeviceManager::ReleaseCke).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CcuTransportGroup::CheckTransports).stubs().with(mockcpp::any()).will(returnValue(true));
     MOCKER_CPP(&CcuTransportGroup::CheckTransportCntCke).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
@@ -200,8 +200,11 @@ TEST_F(CcuContextManagerTest, AGTest)
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(HcclResult::HCCL_SUCCESS));
 
-    MOCKER(HrtMemcpy).stubs();
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_950));
+    MOCKER(HrtMemcpy).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_950)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::UB);
     LinkData linkData(portType, 0, 1, 0, 1);
@@ -318,7 +321,7 @@ CtxMgrGetResourceSharedResStub(const int32_t deviceLogicId, const CcuResHandle h
 
 TEST_F(CcuContextManagerTest, TestSharedRes)
 {
-    MOCKER(HrtGetDevice).defaults().will(returnValue(0));
+    MOCKER(HrtGetDevice).defaults().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(CcuDeviceManager::ReleaseCke).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CcuTransportGroup::CheckTransports).stubs().with(mockcpp::any()).will(returnValue(true));
     MOCKER_CPP(&CcuTransportGroup::CheckTransportCntCke).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
@@ -347,8 +350,11 @@ TEST_F(CcuContextManagerTest, TestSharedRes)
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(HcclResult::HCCL_SUCCESS));
 
-    MOCKER(HrtMemcpy).stubs();
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_950));
+    MOCKER(HrtMemcpy).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_950)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::UB);
     LinkData linkData(portType, 0, 1, 0, 1);

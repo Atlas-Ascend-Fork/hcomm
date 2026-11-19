@@ -53,12 +53,18 @@ static void SetupAicpuKernelLauncherTestEnv(CommunicatorImpl& comm, bool needMem
     std::pair<u32, u32> pair(0, 1);
     MOCKER(HrtUbDevQueryToken).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(pair));
     void* temp = nullptr;
-    MOCKER(HrtStreamCreateWithFlags).stubs().will(returnValue(temp));
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(static_cast<DevId>(1)));
+    MOCKER(HrtStreamCreateWithFlags).stubs().with(outBound(temp)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(outBound(static_cast<DevId>(1)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     if (needMemcpyMock) {
-        MOCKER(HrtMemcpy).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
+        MOCKER(HrtMemcpy)
+            .stubs()
+            .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
     }
 
     comm.InitNotifyManager();

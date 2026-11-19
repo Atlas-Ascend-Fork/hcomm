@@ -293,7 +293,7 @@ TEST_F(CcuInsPreprocessorTest, should_normal_process_when_calling_inspreprocess)
 {
     // when
     GlobalMockObject::verify();
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
     CcuCtxSignature ctxSignature;
     ctxSignature.Append("a");
     MOCKER(GenerateCcuCtxSignature)
@@ -377,7 +377,7 @@ TEST_F(CcuInsPreprocessorTest, should_transport_resalloc_fail_when_calling_inspr
 {
     // when
     GlobalMockObject::verify();
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
     CcuCtxSignature ctxSignature;
     ctxSignature.Append("a");
     MOCKER(GenerateCcuCtxSignature)
@@ -426,7 +426,7 @@ TEST_F(CcuInsPreprocessorTest, should_resalloc_fail_when_calling_inspreprocess)
 {
     // when
     GlobalMockObject::verify();
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
     CcuCtxSignature ctxSignature;
     ctxSignature.Append("a");
     MOCKER(GenerateCcuCtxSignature)
@@ -475,9 +475,9 @@ TEST_F(CcuInsPreprocessorTest, should_no_throw_when_calling_transportsconnect)
 {
     // when
     GlobalMockObject::verify();
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&RdmaHandleManager::GetJfcHandle)
         .stubs()
         .with(mockcpp::any(), mockcpp::any())
@@ -609,7 +609,7 @@ TEST_F(CcuInsPreprocessorTest, should_no_throw_when_calling_registerctx)
 {
     // when
     GlobalMockObject::verify();
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
     CcuResPackMgr* ccuResPackMgr = new CcuResPackMgr();
     CcuResPack ccuResPack;
     MOCKER_CPP(&CcuCommunicator::GetCcuResPackMgr).stubs().with().will(returnValue(ccuResPackMgr));
@@ -660,7 +660,7 @@ TEST_F(CcuInsPreprocessorTest, should_no_throw_when_calling_fallback)
 {
     // when
     GlobalMockObject::verify();
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(CcuCtxMgr::ReleaseRes)
         .stubs()
         .with(mockcpp::any(), mockcpp::any())
@@ -686,7 +686,7 @@ TEST_F(CcuInsPreprocessorTest, should_error_log_when_calling_fallback)
 {
     // when
     GlobalMockObject::verify();
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(CcuCtxMgr::ReleaseRes)
         .stubs()
         .with(mockcpp::any(), mockcpp::any())
@@ -713,9 +713,9 @@ TEST_F(CcuInsPreprocessorTest, should_when_calling_createccuctx)
     // when
     GlobalMockObject::verify();
 
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&RdmaHandleManager::GetJfcHandle)
         .stubs()
         .with(mockcpp::any(), mockcpp::any())
@@ -768,9 +768,9 @@ TEST_F(CcuInsPreprocessorTest, should_throw_socket_timeout_transportsconnect)
 {
     // when
     GlobalMockObject::verify();
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&RdmaHandleManager::GetJfcHandle)
         .stubs()
         .with(mockcpp::any(), mockcpp::any())

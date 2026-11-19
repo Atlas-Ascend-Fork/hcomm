@@ -35,7 +35,10 @@ protected:
     virtual void SetUp()
     {
         dataSliceSize = 128;
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A2));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_910A2)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
         std::cout << "A Test case in PrimRulesTest SetUP" << std::endl;
     }
 
@@ -389,7 +392,10 @@ TEST_F(PrimRulesTest, translate_send_link_p2p_dma_put_test)
 
 TEST_F(PrimRulesTest, translate_send_link_dev_net_ub_dma_default)
 {
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_950));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_950)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     DevCapability::GetInstance().isSupportWriteWithNotify = true;
     DevCapability::GetInstance().isSupportStarsPollNetCq = true;
     // Given
@@ -411,7 +417,10 @@ TEST_F(PrimRulesTest, translate_send_link_dev_net_ub_dma_default)
 
 TEST_F(PrimRulesTest, translate_send_link_dev_net_ub_dma_put)
 {
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_950));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_950)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     DevCapability::GetInstance().isSupportWriteWithNotify = true;
     DevCapability::GetInstance().isSupportStarsPollNetCq = true;
     // Given
@@ -618,7 +627,10 @@ TEST_F(PrimRulesTest, translate_send_reduce_link_dev_net_ub_fp32_sum_support_inl
     DevCapability& devCap = DevCapability::GetInstance();
     devCap.LoadV82Cap();
     // 910A2 does not support FP32+ReduceOp::SUM inline reduce
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(Hccl::DevType::DEV_TYPE_910A2));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType(Hccl::DevType::DEV_TYPE_910A2)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     PrimSendReduce primSendReduce(
         remoteRank, link, localSlice, remoteSrcSlice, remoteDstSlice, DataType::FP32, ReduceOp::SUM);
     DataSlice localSlice1(BufferType::INPUT, 0, dataSliceSize);
@@ -803,7 +815,10 @@ TEST_F(PrimRulesTest, translate_group_send_recv_p2p_dma_default_or_get)
 
 TEST_F(PrimRulesTest, translate_group_send_recv_dev_net_ub)
 {
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_950));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_950)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     DevCapability::GetInstance().isSupportWriteWithNotify = true;
     DevCapability::GetInstance().isSupportStarsPollNetCq = true;
     // Given

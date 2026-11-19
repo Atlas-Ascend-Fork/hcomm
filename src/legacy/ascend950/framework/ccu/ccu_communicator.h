@@ -12,6 +12,8 @@
 #define CCU_COMMUNICATOR_H
 
 #include "types.h"
+#include "exception_util.h"
+#include "internal_exception.h"
 #include "ccu_respack_mgr.h"
 #include "ccu_jetty_mgr.h"
 #include "ccu_transport_manager.h"
@@ -25,7 +27,7 @@ class CcuCommunicator {
 public:
     explicit CcuCommunicator(CommunicatorImpl* comm)
         : comm(comm),
-          devLogicId(HrtGetDevice()),
+          devLogicId(GetDevLogicId()),
           ccuResPackMgr(),
           ccuJettyMgr(devLogicId),
           ccuTransportMgr(*comm, devLogicId),
@@ -42,6 +44,12 @@ public:
     void AcceleratorFallback() const;
 
 private:
+    static int32_t GetDevLogicId()
+    {
+        int32_t id = 0;
+        CHK_RET_THROW(InternalException, "[CcuCommunicator] HrtGetDevice failed", HrtGetDevice(id));
+        return id;
+    }
     CommunicatorImpl* comm;
     int32_t devLogicId;
     CcuResPackMgr ccuResPackMgr;

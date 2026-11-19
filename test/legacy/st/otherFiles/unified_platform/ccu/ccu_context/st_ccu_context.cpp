@@ -462,7 +462,7 @@ TEST_F(CcuContextTest, Test)
 
 TEST_F(CcuContextTest, CtxTest)
 {
-    MOCKER(HrtGetDevice).defaults().will(returnValue(0));
+    MOCKER(HrtGetDevice).defaults().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(CcuDeviceManager::ReleaseCke).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CcuTransportGroup::CheckTransports).stubs().with(mockcpp::any()).will(returnValue(true));
     MOCKER_CPP(&CcuTransportGroup::CheckTransportCntCke).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
@@ -634,7 +634,7 @@ void CreateTaskShareRes(CcuContextTestSharesRes& ctx, std::pair<uint64_t, uint64
 
 TEST_F(CcuContextTest, TestSharedRes)
 {
-    MOCKER(HrtGetDevice).defaults().will(returnValue(0));
+    MOCKER(HrtGetDevice).defaults().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(CcuDeviceManager::ReleaseCke).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CcuTransportGroup::CheckTransports).stubs().with(mockcpp::any()).will(returnValue(true));
     MOCKER_CPP(&CcuTransportGroup::CheckTransportCntCke).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));

@@ -42,10 +42,19 @@ TEST_F(QueueBcastPostCntNotifyManagerTest, apply_for_test)
 {
     QueueBcastPostCntNotifyManager queueBcastPostCntNotifyManager;
     // Given
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType(DevType::DEV_TYPE_910A2)));
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-    MOCKER(HrtCntNotifyCreate).stubs().will(returnValue((void*)(fakeNotifyHandleAddr)));
-    MOCKER(HrtGetCntNotifyId).stubs().will(returnValue(fakeNotifyId));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType(DevType(DevType::DEV_TYPE_910A2))))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtCntNotifyCreate)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)(fakeNotifyHandleAddr)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetCntNotifyId)
+        .stubs()
+        .with(mockcpp::any(), outBound(fakeNotifyId))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     QId qid = 1;
     u32 topicId = 1;
@@ -57,10 +66,19 @@ TEST_F(QueueBcastPostCntNotifyManagerTest, get_test)
 {
     QueueBcastPostCntNotifyManager queueBcastPostCntNotifyManager;
     // Given
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType(DevType::DEV_TYPE_910A2)));
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-    MOCKER(HrtCntNotifyCreate).stubs().will(returnValue((void*)(fakeNotifyHandleAddr)));
-    MOCKER(HrtGetCntNotifyId).stubs().will(returnValue(fakeNotifyId));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType(DevType(DevType::DEV_TYPE_910A2))))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtCntNotifyCreate)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)(fakeNotifyHandleAddr)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetCntNotifyId)
+        .stubs()
+        .with(mockcpp::any(), outBound(fakeNotifyId))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     QId qid = 1;
     u32 topicId = 1;
@@ -80,10 +98,16 @@ TEST_F(QueueBcastPostCntNotifyManagerTest, release_return_ok)
     QueueBcastPostCntNotifyManager queueBcastPostCntNotifyManager;
     // Given
     DevType devType = DevType::DEV_TYPE_910A2;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-    MOCKER(HrtCntNotifyCreate).stubs().will(returnValue((void*)(fakeNotifyHandleAddr)));
-    MOCKER(HrtGetCntNotifyId).stubs().will(returnValue(fakeNotifyId));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(Hccl::DevType(devType))).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtCntNotifyCreate)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)(fakeNotifyHandleAddr)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetCntNotifyId)
+        .stubs()
+        .with(mockcpp::any(), outBound(fakeNotifyId))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     QId qid = 1;
     u32 topicId = 1;
@@ -100,7 +124,10 @@ TEST_F(QueueBcastPostCntNotifyManagerTest, release_return_ok)
 
 TEST_F(QueueBcastPostCntNotifyManagerTest, getpackeddata_ok)
 {
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType(DevType::DEV_TYPE_910A2)));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType(DevType(DevType::DEV_TYPE_910A2))))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     std::pair<u32, u32> cntPairId(0, 0);
     QueueBcastPostCntNotifyManager mgr;
     auto ptr = std::make_unique<Rts1ToNCntNotify>();

@@ -40,7 +40,11 @@ RemoteIpcRmaBuffer::RemoteIpcRmaBuffer(const Serializable& rmtDto, uint8_t pathM
     HCCL_INFO(
         "[RemoteIpcRmaBuffer][RemoteIpcRmaBuffer]ipcAddr[%llu] ipcOffset[%llu] ipcName[%s] memInfo[%s]  pathMode[%u]",
         ipcAddr, ipcOffset, ipcName, memInfo.c_str(), pathMode_);
-    myPid = HrtDeviceGetBareTgid();
+    s32 tgid = 0;
+    if (HrtDeviceGetBareTgid(tgid) != HCCL_SUCCESS) {
+        THROW<InternalException>("HrtDeviceGetBareTgid failed");
+    }
+    myPid = static_cast<u32>(tgid);
     if (myPid == remotePid) {
         HCCL_INFO("RemoteIpcRmaBuffer: myPid is equal to remotePid, do not need to open memory");
         HrtMemPrefetchToDevice(reinterpret_cast<void*>(ipcAddr + ipcOffset), size);
@@ -116,8 +120,8 @@ bool RemoteIpcRmaBuffer::OpenIpcMemory()
         isOpened = false;
         return false;
     }
-    ipcPtr = HrtIpcOpenMemory(ipcName);
-    if (ipcPtr == nullptr) {
+    ipcPtr = nullptr;
+    if (HrtIpcOpenMemory(ipcName, ipcPtr) != HCCL_SUCCESS) {
         HCCL_ERROR("[OpenIpcMemory] HrtIpcOpenMemory failed for ipcName[%s]", ipcName);
         isOpened = false;
         return false;
@@ -129,8 +133,8 @@ bool RemoteIpcRmaBuffer::OpenIpcMemory()
 
 bool RemoteIpcRmaBuffer::OpenIpcMemoryLegacy()
 {
-    ipcPtr = HrtIpcOpenMemory(ipcName);
-    if (ipcPtr == nullptr) {
+    ipcPtr = nullptr;
+    if (HrtIpcOpenMemory(ipcName, ipcPtr) != HCCL_SUCCESS) {
         HCCL_ERROR("[OpenIpcMemoryLegacy] HrtIpcOpenMemory failed for ipcName[%s]", ipcName);
         isOpened = false;
         return false;
@@ -143,7 +147,10 @@ bool RemoteIpcRmaBuffer::OpenIpcMemoryLegacy()
 void RemoteIpcRmaBuffer::Close() const
 {
     if (isOpened) {
-        HrtIpcCloseMemory(ipcName);
+        HcclResult ret = HrtIpcCloseMemory(ipcName);
+        if (ret != HCCL_SUCCESS) {
+            HCCL_ERROR("[RemoteIpcRmaBuffer::Close] HrtIpcCloseMemory failed, ret[%d]", ret);
+        }
     }
 }
 

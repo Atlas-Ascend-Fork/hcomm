@@ -24,25 +24,36 @@
 
 using namespace Hccl;
 
+static uintptr_t g_mockMallocAddrs[2] = {0, 0};
+static uint32_t g_mockMallocIdx = 0;
+static HcclResult HrtMallocStub(u64 size, aclrtMemType_t memType, void*& devPtr)
+{
+    devPtr = reinterpret_cast<void*>(g_mockMallocAddrs[g_mockMallocIdx % 2U]);
+    g_mockMallocIdx++;
+    return HCCL_SUCCESS;
+}
+
 class ShareCclBufferManagerTest : public testing::Test {
 protected:
     static void SetUpTestCase() { std::cout << "ShareCclBufferManager tests set up." << std::endl; }
 
     static void TearDownTestCase() { std::cout << "ShareCclBufferManager tests tear down." << std::endl; }
 
-    void SetUp() override { MOCKER(HrtFree).stubs().with(mockcpp::any()); }
+    void SetUp() override { MOCKER(HrtFree).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS)); }
 
     void TearDown() override { GlobalMockObject::verify(); }
 
-    void MockDevice(s32 deviceId) { MOCKER(HrtGetDevice).stubs().will(returnValue(deviceId)); }
+    void MockDevice(s32 deviceId)
+    {
+        MOCKER(HrtGetDevice).stubs().with(outBound(deviceId)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    }
 
     void MockMalloc(uintptr_t addr1, uintptr_t addr2)
     {
-        MOCKER(HrtMalloc)
-            .stubs()
-            .with(mockcpp::any(), mockcpp::any())
-            .will(returnValue(reinterpret_cast<void*>(addr1)))
-            .then(returnValue(reinterpret_cast<void*>(addr2)));
+        g_mockMallocAddrs[0] = addr1;
+        g_mockMallocAddrs[1] = addr2;
+        g_mockMallocIdx = 0;
+        MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any()).will(invoke(HrtMallocStub));
     }
 
     ShareCclBufferManager& Mgr() { return ShareCclBufferManager::GetInstance(); }
@@ -189,8 +200,14 @@ TEST_F(ShareCclBufferManagerTest, ReleaseCclBufferStreamBinding)
 TEST_F(ShareCclBufferManagerTest, InitDataBufferManagerSharesSameNameBuffer)
 {
     MockDevice(0);
-    MOCKER(HrtMalloc).stubs().will(returnValue(reinterpret_cast<void*>(0x7000)));
-    MOCKER(HrtMemset).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any());
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound(reinterpret_cast<void*>(0x7000)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtMemset)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     CommunicatorImpl commA;
     CommunicatorImpl commB;
@@ -215,8 +232,14 @@ TEST_F(ShareCclBufferManagerTest, InitDataBufferManagerSharesSameNameBuffer)
 TEST_F(ShareCclBufferManagerTest, InitDataBufferManagerRejectsSizeMismatch)
 {
     MockDevice(0);
-    MOCKER(HrtMalloc).stubs().will(returnValue(reinterpret_cast<void*>(0x8000)));
-    MOCKER(HrtMemset).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any());
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound(reinterpret_cast<void*>(0x8000)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtMemset)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     CommunicatorImpl commA;
     commA.rankSize = 2;

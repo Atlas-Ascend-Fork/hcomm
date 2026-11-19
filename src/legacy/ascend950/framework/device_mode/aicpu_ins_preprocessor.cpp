@@ -9,6 +9,7 @@
  */
 
 #include "aicpu_ins_preprocessor.h"
+#include "internal_exception.h"
 #include "null_ptr_exception.h"
 #include "orion_adapter_rts.h"
 #include "stl_util.h"
@@ -277,9 +278,11 @@ void AicpuInsPreprocessor::PackResAndCopyToDev(const std::string& algName, const
     std::string opTag = comm->GetCurrentCollOperator()->opTag;
     auto buffer = PackOpData(opTag, algName, resReq);
     shared_ptr<DevBuffer> devMem = make_shared<DevBuffer>(buffer.size()); // 申请device内存
-    HrtMemcpy(
-        reinterpret_cast<void*>(devMem->GetAddr()), devMem->GetSize(), buffer.data(), buffer.size(),
-        RT_MEMCPY_HOST_TO_DEVICE); // H2D拷贝，将资源拷贝到device内存
+    CHK_RET_THROW(
+        InternalException, "[PackResAndCopyToDev] HrtMemcpy failed",
+        HrtMemcpy(
+            reinterpret_cast<void*>(devMem->GetAddr()), devMem->GetSize(), buffer.data(), buffer.size(),
+            RT_MEMCPY_HOST_TO_DEVICE)); // H2D拷贝，将资源拷贝到device内存
     HCCL_INFO("[AicpuInsPreprocessor::%s] PackedData %s", __func__, Bytes2hex(buffer.data(), buffer.size()).c_str());
 
     aicpuResMap.insert(std::make_pair(algName, devMem));
@@ -316,22 +319,30 @@ void AicpuInsPreprocessor::AllocAlltoallVOpMem()
         isCountMemInited = true;
     }
 
-    HrtMemcpy(
-        reinterpret_cast<void*>(sendCountsMem[resIndex].get()->GetAddr()), sendCountsMem[resIndex].get()->GetSize(),
-        op->all2AllVDataDes.sendCounts, size,
-        RT_MEMCPY_HOST_TO_DEVICE); // H2D拷贝，将资源拷贝到SEND内存
-    HrtMemcpy(
-        reinterpret_cast<void*>(recvCountsMem[resIndex].get()->GetAddr()), recvCountsMem[resIndex].get()->GetSize(),
-        op->all2AllVDataDes.recvCounts, size,
-        RT_MEMCPY_HOST_TO_DEVICE); // H2D拷贝，将资源拷贝到RECV内存
-    HrtMemcpy(
-        reinterpret_cast<void*>(sdisplsMem[resIndex].get()->GetAddr()), sdisplsMem[resIndex].get()->GetSize(),
-        op->all2AllVDataDes.sdispls, size,
-        RT_MEMCPY_HOST_TO_DEVICE); // H2D拷贝，将资源拷贝到SDISPLS内存
-    HrtMemcpy(
-        reinterpret_cast<void*>(rdisplsMem[resIndex].get()->GetAddr()), rdisplsMem[resIndex].get()->GetSize(),
-        op->all2AllVDataDes.rdispls, size,
-        RT_MEMCPY_HOST_TO_DEVICE); // H2D拷贝，将资源拷贝到RDISPLS内存
+    CHK_RET_THROW(
+        InternalException, "[AllocAlltoallVOpMem] HrtMemcpy sendCounts failed",
+        HrtMemcpy(
+            reinterpret_cast<void*>(sendCountsMem[resIndex].get()->GetAddr()), sendCountsMem[resIndex].get()->GetSize(),
+            op->all2AllVDataDes.sendCounts, size,
+            RT_MEMCPY_HOST_TO_DEVICE)); // H2D拷贝，将资源拷贝到SEND内存
+    CHK_RET_THROW(
+        InternalException, "[AllocAlltoallVOpMem] HrtMemcpy recvCounts failed",
+        HrtMemcpy(
+            reinterpret_cast<void*>(recvCountsMem[resIndex].get()->GetAddr()), recvCountsMem[resIndex].get()->GetSize(),
+            op->all2AllVDataDes.recvCounts, size,
+            RT_MEMCPY_HOST_TO_DEVICE)); // H2D拷贝，将资源拷贝到RECV内存
+    CHK_RET_THROW(
+        InternalException, "[AllocAlltoallVOpMem] HrtMemcpy sdispls failed",
+        HrtMemcpy(
+            reinterpret_cast<void*>(sdisplsMem[resIndex].get()->GetAddr()), sdisplsMem[resIndex].get()->GetSize(),
+            op->all2AllVDataDes.sdispls, size,
+            RT_MEMCPY_HOST_TO_DEVICE)); // H2D拷贝，将资源拷贝到SDISPLS内存
+    CHK_RET_THROW(
+        InternalException, "[AllocAlltoallVOpMem] HrtMemcpy rdispls failed",
+        HrtMemcpy(
+            reinterpret_cast<void*>(rdisplsMem[resIndex].get()->GetAddr()), rdisplsMem[resIndex].get()->GetSize(),
+            op->all2AllVDataDes.rdispls, size,
+            RT_MEMCPY_HOST_TO_DEVICE)); // H2D拷贝，将资源拷贝到RDISPLS内存
 
     resIndex++;
     if (resIndex >= MAX_ALLTOALLV_MEM_NUM) { // MAX_ALLTOALLV_MEM_NUM: 初始化countMem

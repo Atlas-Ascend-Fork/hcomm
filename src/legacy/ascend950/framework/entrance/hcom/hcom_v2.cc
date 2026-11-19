@@ -564,8 +564,10 @@ HcclResult HcomAlltoAllVCV2(
     CHK_RET(HcomCheckAlltoAllVCExternalMemV2(sendBuf, sendCountMatrix, recvBuf, rankSize, myRank));
 
     std::string strGroup = (group == nullptr) ? HCCL_WORLD_GROUP : group;
-    s32 streamId = HrtGetStreamId(stream);
-    s32 deviceLogicId = HrtGetDevice();
+    s32 streamId = 0;
+    CHK_RET(HrtGetStreamId(stream, streamId));
+    s32 deviceLogicId = 0;
+    CHK_RET(HrtGetDevice(deviceLogicId));
     u64 sendCountMatrixHash;
     HcomGetHashFromSendCountMatrixV2(sendCountMatrixHash, sendCountMatrix, rankSize, tag);
     /* 接口交互信息日志 */

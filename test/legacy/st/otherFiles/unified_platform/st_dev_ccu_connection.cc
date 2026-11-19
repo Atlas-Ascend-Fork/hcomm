@@ -34,8 +34,14 @@ protected:
 
     virtual void SetUp()
     {
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType::DEV_TYPE_950));
-        MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().with(mockcpp::any()).will(returnValue(static_cast<DevId>(0)));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound(DevType::DEV_TYPE_950))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetDevicePhyIdByUserDevId)
+            .stubs()
+            .with(mockcpp::any(), outBound(static_cast<DevId>(0)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
         MOCKER(HrtRaUbCreateJetty)
             .stubs()
             .with(mockcpp::any(), mockcpp::any())
@@ -198,7 +204,7 @@ TEST_F(DevCcuConnectionTest, dev_ccu_connection_suspend_change_status_suspend)
     //  When:
     MOCKER(HrtRaUbUnimportJetty).stubs().with(mockcpp::any(), mockcpp::any()).will(ignoreReturnValue());
     MOCKER(HrtRaUbDestroyJetty).stubs().with(mockcpp::any()).will(ignoreReturnValue());
-    MOCKER(HrtFree).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER(HrtFree).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
     devCcuConnection->status = RmaConnStatus::READY;
     devCcuConnection->ccuConnStatus = DevCcuConnection::CcuConnStatus::JETTY_IMPORTED;
 

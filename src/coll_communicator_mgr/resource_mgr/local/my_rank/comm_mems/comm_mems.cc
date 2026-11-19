@@ -41,7 +41,7 @@ HcclResult CommMems::HcclBufferMemset(void*& addr, uint64_t& len, bool clearFlag
     }
 
     if (addr != nullptr && len > 0) {
-        EXCEPTION_CATCH(Hccl::HrtMemset(addr, len, len), return HCCL_E_INTERNAL);
+        CHK_RET(Hccl::HrtMemset(addr, len, len));
         return HCCL_SUCCESS;
     }
 

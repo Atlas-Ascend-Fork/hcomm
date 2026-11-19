@@ -62,7 +62,10 @@ TEST_F(DevRdmaConnectionTest, rma_net_connection_get_status_return_ok)
     LinkData linkData(portType, 0, 1, 0, 1);
     std::string tag = "test";
 
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A2));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_910A2)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     QpHandle fakeQpHandle = (void*)0x1000000;
     MOCKER(HrtRaQpCreate).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any()).will(returnValue(fakeQpHandle));
     MOCKER(HrtRaQpConnectAsync).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
@@ -89,7 +92,10 @@ TEST_F(DevRdmaConnectionTest, rma_net_connection_construct_error)
     LinkData linkData(portType, 0, 1, 0, 1);
     std::string tag = "test";
 
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_NOSOC));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_NOSOC)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     QpHandle fakeQpHandle = (void*)0x1000000;
 
     try {
@@ -111,7 +117,10 @@ TEST_F(DevRdmaConnectionTest, rma_net_connection_get_status_return_time_out)
     BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::RDMA);
     LinkData linkData(portType, 0, 1, 0, 1);
 
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A2));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_910A2)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtRaQpCreate).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any()).will(returnValue(fakeQpHandle));
 
     // When
@@ -136,7 +145,10 @@ TEST_F(DevRdmaConnectionTest, rma_net_connection_get_status_return_time_connecti
     BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::RDMA);
     LinkData linkData(portType, 0, 1, 0, 1);
 
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A2));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_910A2)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtRaQpCreate).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any()).will(returnValue(fakeQpHandle));
     MOCKER(HrtRaQpConnectAsync).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
     // When
@@ -164,7 +176,10 @@ TEST_F(DevRdmaConnectionTest, rma_net_connection_get_handle)
     BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::RDMA);
     LinkData linkData(portType, 0, 1, 0, 1);
 
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A2));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_910A2)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtRaQpCreate).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any()).will(returnValue(fakeQpHandle));
 
     // When
@@ -188,7 +203,10 @@ TEST_F(DevRdmaConnectionTest, rma_net_connection_prepare_write_tasks)
 
     char targetChipVer[CHIP_VERSION_MAX_LEN] = "Ascend910B1";
 
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A2));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_910A2)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtRaQpCreate).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any()).will(returnValue(fakeQpHandle));
 
     DevRdmaConnection devRdmaConnection(fakeSocket, rdmaHandle, OpMode::OPBASE);
@@ -239,7 +257,10 @@ TEST_F(DevRdmaConnectionTest, rma_net_connection_prepare_read_tasks)
     BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::RDMA);
     LinkData linkData(portType, 0, 1, 0, 1);
 
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A2));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_910A2)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtRaQpCreate).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any()).will(returnValue(fakeQpHandle));
 
     // When
@@ -263,7 +284,10 @@ TEST_F(DevRdmaConnectionTest, rma_net_connection_prepare_read_reduce_tasks)
     BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::RDMA);
     LinkData linkData(portType, 0, 1, 0, 1);
 
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A2));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_910A2)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtRaQpCreate).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any()).will(returnValue(fakeQpHandle));
 
     // When
@@ -287,7 +311,10 @@ TEST_F(DevRdmaConnectionTest, rma_net_connection_prepare_write_reduce_tasks)
     BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::RDMA);
     LinkData linkData(portType, 0, 1, 0, 1);
 
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A2));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_910A2)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtRaQpCreate).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any()).will(returnValue(fakeQpHandle));
 
     // When
@@ -312,7 +339,10 @@ TEST_F(DevRdmaConnectionTest, rma_GetTaskNum_NOK)
     BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::RDMA);
     LinkData linkData(portType, 0, 1, 0, 1);
 
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A2));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_910A2)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtRaQpCreate).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any()).will(returnValue(fakeQpHandle));
 
     // When

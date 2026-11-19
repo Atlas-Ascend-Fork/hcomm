@@ -152,10 +152,14 @@ Hccl::TransportStatus AivUbMemTransport::GetStatus()
 
 HcclResult AivUbMemTransport::TriggerEnableP2P()
 {
-    localDeviceLogicId_ = Hccl::HrtGetDevice();
+    s32 devLogicIdTmp = 0;
+    CHK_RET(Hccl::HrtGetDevice(devLogicIdTmp));
+    localDeviceLogicId_ = devLogicIdTmp;
 
     // enable p2p 不支持本设备与自身执行：自环链路无需使能，跳过 enable/wait 全流程
-    uint32_t localDevicePhysicId = Hccl::HrtGetDevicePhyIdByUserDevId(localDeviceLogicId_);
+    Hccl::DevId devPhyIdOut = 0;
+    CHK_RET(Hccl::HrtGetDevicePhyIdByUserDevId(localDeviceLogicId_, devPhyIdOut));
+    uint32_t localDevicePhysicId = static_cast<uint32_t>(devPhyIdOut);
     uint32_t remoteDevicePhyId = channelDesc_.remoteEndpoint.loc.device.devPhyId;
     if (remoteDevicePhyId == localDevicePhysicId) {
         HCCL_INFO(

@@ -30,7 +30,10 @@ TEST_F(CcuResSpecsTest, St_Init_When_CcuDriverOk_Expect_Return_Ok)
 {
     MOCKER(HrtRaTlvRequestForCustomChannel).stubs().will(invoke(MockCcuDriverInterfaceReturnDieEnableStub));
 
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().with(mockcpp::any()).will(returnValue(MAX_MODULE_DEVICE_NUM));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(MAX_MODULE_DEVICE_NUM)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     CcuResSpecifications ccuResSpecs;
     const int32_t devLogicId = MAX_MODULE_DEVICE_NUM; // 避免影响其他用例
     ccuResSpecs.Init(devLogicId);

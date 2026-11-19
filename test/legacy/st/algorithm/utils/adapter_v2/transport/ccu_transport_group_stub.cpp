@@ -46,7 +46,12 @@ bool CcuTransportGroup::CheckTransports(const vector<CcuTransport*>& transports)
 
 HcclResult CcuTransportGroup::CheckTransportCntCke()
 {
-    devLogicId = HrtGetDevice();
+    s32 devId = 0;
+    if (HrtGetDevice(devId) != HCCL_SUCCESS) {
+        HCCL_WARNING("[CcuTransportGroup::%s] HrtGetDevice failed, use default devLogicId 0.", __func__);
+        devId = 0;
+    }
+    devLogicId = devId;
     HcclResult allocResHandleReturnValue = CcuDeviceManager::AllocCke(
         devLogicId, cntCkesGroupDieId, cntCkeNumTransportGroupUse, ckeInfoTransportGroupUse);
     if (allocResHandleReturnValue != HCCL_SUCCESS) {

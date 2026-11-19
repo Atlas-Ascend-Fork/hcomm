@@ -62,21 +62,31 @@ public:
 
 // Real stub definitions for Hccl hardware functions — called by LocalIpcRmaBuffer ctor
 namespace Hccl {
-void HrtDevMemAlignWithPage(void* ptr, u64 size, void*& ipcPtr, u64& ipcSize, u64& ipcOff)
+HcclResult HrtDevMemAlignWithPage(void* ptr, u64 size, void*& ipcPtr, u64& ipcSize, u64& ipcOff)
 {
     ipcPtr = ptr;
     ipcSize = size;
     ipcOff = 0;
+    return HCCL_SUCCESS;
 }
-void HrtIpcSetMemoryName(void* ptr, char_t* name, u64 ptrMaxLen, u32 nameMaxLen)
+HcclResult HrtIpcSetMemoryName(void* ptr, char_t* name, u64 ptrMaxLen, u32 nameMaxLen)
 {
     (void)ptr;
     (void)ptrMaxLen;
     const char* fakeName = "stub_ipc_name";
     (void)strncpy_s(name, nameMaxLen, fakeName, RTS_IPC_MEM_NAME_LEN - 1);
+    return HCCL_SUCCESS;
 }
-void HrtIpcDestroyMemoryName(const char_t* name) { (void)name; }
-s32 HrtDeviceGetBareTgid() { return 12345; }
+HcclResult HrtIpcDestroyMemoryName(const char_t* name)
+{
+    (void)name;
+    return HCCL_SUCCESS;
+}
+HcclResult HrtDeviceGetBareTgid(s32& pid)
+{
+    pid = 12345;
+    return HCCL_SUCCESS;
+}
 } // namespace Hccl
 
 class AivUbMemTransportTest : public testing::Test {

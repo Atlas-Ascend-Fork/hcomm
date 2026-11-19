@@ -163,15 +163,18 @@ protected:
 
 TEST_F(InterpreterTest, Ut_Submit_When_input_Expect_NO_THROW)
 {
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType(DevType::DEV_TYPE_950)));
-    MOCKER(HrtGetDevice).defaults().will(returnValue(0));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(DevType(DevType::DEV_TYPE_950)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevice).defaults().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(CcuDeviceManager::ReleaseCke).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CcuTransportGroup::CheckTransports).stubs().with(mockcpp::any()).will(returnValue(true));
     MOCKER_CPP(&CcuTransportGroup::CheckTransportCntCke).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CcuTransportGroup::Destroy).stubs();
     MOCKER_CPP(&CcuTransport::ReleaseTransRes).stubs();
     MOCKER_CPP(&CcuConnection::ReleaseConnRes).stubs().will(returnValue((HcclResult)HcclResult::HCCL_SUCCESS));
-    MOCKER(HrtMemcpy).stubs();
+    MOCKER(HrtMemcpy).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(&GetStreamCaptureInfo).stubs().will(returnValue(HCCL_SUCCESS));
 
     auto insQueue = make_shared<InsQueue>();

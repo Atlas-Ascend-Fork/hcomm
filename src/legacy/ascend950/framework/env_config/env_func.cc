@@ -9,6 +9,7 @@
  */
 
 #include "env_func.h"
+#include "internal_exception.h"
 #include <climits>
 #include <fstream>
 #include <linux/limits.h>
@@ -406,7 +407,8 @@ std::vector<HcclAlgoType> CastAlgoTypeVec(const std::string& s)
         algoTypeVec[level] = algo;
     }
 
-    DevType devType = HrtGetDeviceType(); // 910A3场景只支持level0为ring算法
+    DevType devType = DevType::INVALID; // 910A3场景只支持level0为ring算法
+    CHK_RET_THROW(InternalException, "[CastAlgoTypeVec] HrtGetDeviceType failed", HrtGetDeviceType(devType));
     if (devType == DevType::DEV_TYPE_910A3 && algoTypeVec[HCCL_ALGO_LEVEL_0] != HcclAlgoType::HCCL_ALGO_TYPE_RING) {
         algoTypeVec[HCCL_ALGO_LEVEL_0] = HcclAlgoType::HCCL_ALGO_TYPE_RING;
     }
@@ -1013,8 +1015,9 @@ DfsConfig CastDfsConfig(const std::string& dfsConfigEnv)
 /*----------------------------- validate functions -------------------------*/
 void CheckExecTimeOut(const u32& timeOut)
 {
-    DevType devType = HrtGetDeviceType();
-    // 代际判断归一化：950/960 判断收敛为 hcomm 谓词（真值源为全局 hrtGetDeviceType，获取失败按非 A5 处理）
+    DevType devType = DevType::INVALID;
+    CHK_RET_THROW(InternalException, "[CheckExecTimeOut] HrtGetDeviceType failed", HrtGetDeviceType(devType));
+    // 代际判断归一化：950/960 判断收敛为 hcomm 谓词（真值源为全局 hrtGetDeviceType）
     if (devType == DevType::DEV_TYPE_910A2 || devType == DevType::DEV_TYPE_910A3
         || hcomm::EqualToOrGreaterThan950().value_or(false)) {
         // 910A2和910A3算子超时时间范围0s-2147483647s,其中0代表永不超时
@@ -1053,8 +1056,9 @@ void SetRealPath(string& filePath)
 
 void ProcExecTimeOut(u32& timeOut)
 {
-    DevType devType = HrtGetDeviceType();
-    // 代际判断归一化：950/960 判断收敛为 hcomm 谓词（真值源为全局 hrtGetDeviceType，获取失败按非 A5 处理）
+    DevType devType = DevType::INVALID;
+    CHK_RET_THROW(InternalException, "[ProcExecTimeOut] HrtGetDeviceType failed", HrtGetDeviceType(devType));
+    // 代际判断归一化：950/960 判断收敛为 hcomm 谓词（真值源为全局 hrtGetDeviceType）
     if (devType == DevType::DEV_TYPE_910A2 || devType == DevType::DEV_TYPE_910A3
         || hcomm::EqualToOrGreaterThan950().value_or(false)) {
         return;

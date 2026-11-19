@@ -65,7 +65,7 @@ protected:
         MOCKER(HrtRaUbCreateJetty).stubs().will(returnValue(jettyOutParam));
 
         // Mock TpManager Init
-        MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+        MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
         MOCKER_CPP(&TpManager::Init).stubs().will(ignoreReturnValue());
     }
 
@@ -333,7 +333,7 @@ TEST_F(HostUbConnectionTest, HostUbConnection_release_tp)
 
     // Mock TpManager::ReleaseTpInfo
     MOCKER_CPP(&TpManager::ReleaseTpInfo).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // When: ReleaseTp
     conn.ReleaseTp();
@@ -355,7 +355,7 @@ TEST_F(HostUbConnectionTest, HostUbConnection_release_resource)
     MOCKER(HrtRaUbUnimportJetty).stubs().will(ignoreReturnValue());
     MOCKER(HrtRaUbDestroyJetty).stubs().will(ignoreReturnValue());
     MOCKER_CPP(&TpManager::ReleaseTpInfo).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // When: ReleaseResource
     conn.ReleaseResource();
@@ -441,7 +441,7 @@ TEST_F(HostUbConnectionTest, HostUbConnection_destructor_releases_resources)
     MOCKER(HrtRaUbUnimportJetty).stubs().will(ignoreReturnValue());
     MOCKER(HrtRaUbDestroyJetty).stubs().will(ignoreReturnValue());
     MOCKER_CPP(&TpManager::ReleaseTpInfo).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     {
         HostUbConnection conn(rdmaHandle, localIp, remoteIp, OpMode::OPBASE);

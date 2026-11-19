@@ -405,12 +405,16 @@ TEST_F(CollServiceAiCpuImplTest, St_AllocOpMem_When_Op_ALLTOALLVC_Expect_Success
 
 TEST_F(CollServiceAiCpuImplTest, reg_port_ub_first_time_get_then_second_no_throw_aicpu)
 {
-    MOCKER(HrtIpcSetMemoryName).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
+    MOCKER(HrtIpcSetMemoryName)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtDevMemAlignWithPage)
         .stubs()
-        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
-    MOCKER(HrtIpcDestroyMemoryName).stubs().with(mockcpp::any());
-    MOCKER(HrtUbDevQueryInfo).stubs().with(mockcpp::any(), mockcpp::any());
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtIpcDestroyMemoryName).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtUbDevQueryInfo).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
     shared_ptr<DevBuffer> devBuffer = DevBuffer::Create(0x100, 0x100);
     BufferType bufferType = BufferType::SCRATCH;
 
@@ -499,8 +503,11 @@ TEST_F(CollServiceAiCpuImplTest, test_RecoverTransport)
         .will(returnValue(rmaBuffer));
 
     void* addr = reinterpret_cast<void*>(0x12345678);
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(addr));
-    MOCKER(HrtFree).stubs();
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound(addr))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtFree).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     CommunicatorImpl comm;
     comm.InitNotifyManager();
@@ -601,8 +608,11 @@ TEST_F(CollServiceAiCpuImplTest, test_register_ccl_buffer)
         .will(returnValue(rmaBuffer));
 
     void* addr = reinterpret_cast<void*>(0x12345678);
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(addr));
-    MOCKER(HrtFree).stubs();
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound(addr))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtFree).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     CommunicatorImpl comm;
     comm.InitNotifyManager();
@@ -744,8 +754,11 @@ TEST_F(CollServiceAiCpuImplTest, test_coll_service_aicpu_resume)
     MOCKER_CPP(&HostDeviceSyncNotifyManager::GetHostWaitNotify).stubs().with().will(returnValue(&notify));
     MOCKER_CPP(&HostDeviceSyncNotifyManager::GetDeviceWaitNotify).stubs().with().will(returnValue(&notify1));
     MOCKER_CPP(&Hccl::MirrorTaskManager::AddTaskInfo).stubs().with(mockcpp::any()).will(ignoreReturnValue());
-    MOCKER(HrtNotifyRecord).stubs().with(mockcpp::any());
-    MOCKER(HrtNotifyWaitWithTimeOut).stubs();
+    MOCKER(HrtNotifyRecord).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyWaitWithTimeOut)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     service.Resume();
 
@@ -788,8 +801,11 @@ TEST_F(CollServiceAiCpuImplTest, test_init_LoadWithOpBasedMode)
         .with(mockcpp::any(), mockcpp::any())
         .will(returnValue(std::vector<char>{'1', '2'}));
     void* ptr1 = (void*)1;
-    MOCKER(HrtStreamCreateWithFlags).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(ptr1));
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtStreamCreateWithFlags)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound(ptr1))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     fakeComm.cclBuffer = DevBuffer::Create(0x100, 0x100);
     fakeComm.status = CommStatus::COMM_READY;
@@ -977,8 +993,11 @@ TEST_F(CollServiceAiCpuImplTest, st_GetAlgExecParam_When_Aicpu_Expect_ReturnNotS
 
 TEST_F(CollServiceAiCpuImplTest, test_LoadWithOffloadMode_Success)
 {
-    MOCKER(HrtNotifyRecord).stubs();
-    MOCKER(HrtNotifyWaitWithTimeOut).stubs();
+    MOCKER(HrtNotifyRecord).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyWaitWithTimeOut)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     Buffer* buf = nullptr;
     LocalRmaBuffer* rmaBuf = nullptr;

@@ -9,6 +9,7 @@
  */
 
 #include "common/cast_utils_pub.h"
+#include "internal_exception.h"
 #include "local_ipc_rma_buffer_v2.h"
 
 #include "rma_buffer.h"
@@ -18,8 +19,12 @@ namespace Hccl {
 
 LocalIpcRmaBuffer::LocalIpcRmaBuffer(std::shared_ptr<Buffer> buf) : LocalRmaBuffer(buf, RmaType::IPC)
 {
-    HrtDevMemAlignWithPage(ReinterpretAs<void*>(buf->GetAddr()), buf->GetSize(), ipcPtr, ipcSize, ipcOffset);
-    HrtIpcSetMemoryName(ipcPtr, name, ipcSize, RTS_IPC_MEM_NAME_LEN);
+    CHK_RET_THROW(
+        InternalException, "[LocalIpcRmaBuffer] HrtDevMemAlignWithPage failed",
+        HrtDevMemAlignWithPage(ReinterpretAs<void*>(buf->GetAddr()), buf->GetSize(), ipcPtr, ipcSize, ipcOffset));
+    CHK_RET_THROW(
+        InternalException, "[LocalIpcRmaBuffer] HrtIpcSetMemoryName failed",
+        HrtIpcSetMemoryName(ipcPtr, name, ipcSize, RTS_IPC_MEM_NAME_LEN));
 }
 
 LocalIpcRmaBuffer::LocalIpcRmaBuffer(std::shared_ptr<Buffer> buf, const LocalIpcRmaBuffer& parent)
@@ -38,7 +43,10 @@ LocalIpcRmaBuffer::LocalIpcRmaBuffer(std::shared_ptr<Buffer> buf, const LocalIpc
 LocalIpcRmaBuffer::~LocalIpcRmaBuffer()
 {
     if (!isAlias_) {
-        DECTOR_TRY_CATCH("LocalIpcRmaBuffer", HrtIpcDestroyMemoryName(name));
+        HcclResult ret = HrtIpcDestroyMemoryName(name);
+        if (ret != HCCL_SUCCESS) {
+            HCCL_ERROR("[LocalIpcRmaBuffer] HrtIpcDestroyMemoryName failed, ret[%d].", ret);
+        }
     }
 }
 
@@ -51,8 +59,12 @@ string LocalIpcRmaBuffer::Describe() const
 
 std::unique_ptr<Serializable> LocalIpcRmaBuffer::GetExchangeDto()
 {
+    s32 tgid = 0;
+    if (HrtDeviceGetBareTgid(tgid) != HCCL_SUCCESS) {
+        THROW<InternalException>("HrtDeviceGetBareTgid failed");
+    }
     std::unique_ptr<ExchangeIpcBufferDto> dto = make_unique<ExchangeIpcBufferDto>(
-        buf->GetAddr(), buf->GetSize(), ipcOffset, HrtDeviceGetBareTgid(), buf->GetMemInfo().c_str(),
+        buf->GetAddr(), buf->GetSize(), ipcOffset, static_cast<u32>(tgid), buf->GetMemInfo().c_str(),
         buf->GetMemType());
     (void)memcpy_s(dto->name, RTS_IPC_MEM_NAME_LEN, name, RTS_IPC_MEM_NAME_LEN);
     return std::unique_ptr<Serializable>(dto.release());
@@ -60,12 +72,17 @@ std::unique_ptr<Serializable> LocalIpcRmaBuffer::GetExchangeDto()
 
 void LocalIpcRmaBuffer::Grant(u32 pid)
 {
-    u32 myPid = HrtDeviceGetBareTgid();
+    s32 tgid = 0;
+    if (HrtDeviceGetBareTgid(tgid) != HCCL_SUCCESS) {
+        THROW<InternalException>("HrtDeviceGetBareTgid failed");
+    }
+    u32 myPid = static_cast<u32>(tgid);
     if (pid == myPid) {
         HCCL_INFO("pid is equal to myPid, do need to use HrtIpcSetMemoryPid grant, pid==myPid=%u", pid);
         return;
     }
-    HrtIpcSetMemoryPid(name, static_cast<s32>(pid));
+    CHK_RET_THROW(
+        InternalException, "[Grant] HrtIpcSetMemoryPid failed", HrtIpcSetMemoryPid(name, static_cast<s32>(pid)));
 }
 
 } // namespace Hccl

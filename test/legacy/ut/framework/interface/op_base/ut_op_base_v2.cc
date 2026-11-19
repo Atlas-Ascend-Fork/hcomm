@@ -357,7 +357,7 @@ TEST_F(OpbaseTestV2, HcclBatchSendRecvV2_With_Log)
 {
     EnvConfig::GetInstance().logCfg.entryLogEnable = CfgField<bool>({"HCCL_ENTRY_LOG_ENABLE", true, CastBin2Bool});
     EnvConfig::GetInstance().logCfg.entryLogEnable.isParsed = true;
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     Hccl::CommParams commParams;
     std::unique_ptr<Hccl::HcclCommunicator> communicator = std::make_unique<Hccl::HcclCommunicator>(commParams);
@@ -409,7 +409,7 @@ TEST_F(OpbaseTestV2, HcclAlltoAllV2_With_Log)
 {
     EnvConfig::GetInstance().logCfg.entryLogEnable = CfgField<bool>({"HCCL_ENTRY_LOG_ENABLE", true, CastBin2Bool});
     EnvConfig::GetInstance().logCfg.entryLogEnable.isParsed = true;
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     Hccl::CommParams commParams;
     std::unique_ptr<Hccl::HcclCommunicator> communicator = std::make_unique<Hccl::HcclCommunicator>(commParams);
@@ -463,7 +463,7 @@ TEST_F(OpbaseTestV2, HcclAlltoAllVV2_With_Log)
 {
     EnvConfig::GetInstance().logCfg.entryLogEnable = CfgField<bool>({"HCCL_ENTRY_LOG_ENABLE", true, CastBin2Bool});
     EnvConfig::GetInstance().logCfg.entryLogEnable.isParsed = true;
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     Hccl::CommParams commParams;
     std::unique_ptr<Hccl::HcclCommunicator> communicator = std::make_unique<Hccl::HcclCommunicator>(commParams);
@@ -511,7 +511,7 @@ TEST_F(OpbaseTestV2, HcclCommInitClusterInfoV2)
     HcclComm comm;
     CommManager::GetInstance(0).GetCommInfoV2().hcclGroupMap.clear();
     CommManager::GetInstance(0).GetCommInfoV2().pComm = nullptr;
-    MOCKER(HrtGetDevice).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     nlohmann::json rank_table = rank_table_950_1server_8rank;
     char file_name_t[] = "./st_hcom_test_rank_table_1server_8rank_950.json";
@@ -532,7 +532,7 @@ TEST_F(OpbaseTestV2, HcclCommInitClusterInfoV2)
     Hccl::DevType devType = Hccl::DevType::DEV_TYPE_950;
 
     char* clusterInfo = "./st_hcom_test_rank_table_1server_8rank_950.json";
-    MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&HcclCommunicator::Init, HcclResult(HcclCommunicator::*)(const std::string&))
         .stubs()
         .with(mockcpp::any())
@@ -556,7 +556,7 @@ void PrepareCommConfig(
 
 static void MockSubCommConfigV2Dependencies(HcclGroupParamsV2& groupParamsV2Tem)
 {
-    MOCKER(HrtGetDevice).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     groupParamsV2Tem.groupRank = 0;
     MOCKER(GetHcomRankListV2)
@@ -855,7 +855,7 @@ TEST_F(OpbaseTestV2, HcclAlltoAllVCV2_With_Log)
 {
     EnvConfig::GetInstance().logCfg.entryLogEnable = CfgField<bool>({"HCCL_ENTRY_LOG_ENABLE", true, CastBin2Bool});
     EnvConfig::GetInstance().logCfg.entryLogEnable.isParsed = true;
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // Prepare test data
     void* sendBuf = nullptr;
@@ -907,7 +907,7 @@ TEST_F(OpbaseTestV2, HcclReduceV2_Sum_ShouldPass_WhenValidParams_With_Log)
 {
     EnvConfig::GetInstance().logCfg.entryLogEnable = CfgField<bool>({"HCCL_ENTRY_LOG_ENABLE", true, CastBin2Bool});
     EnvConfig::GetInstance().logCfg.entryLogEnable.isParsed = true;
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // Mock objects and parameters
     void* sendBuf = nullptr;
@@ -1029,7 +1029,7 @@ TEST_F(OpbaseTestV2, HcclAllReduceV2_Sum_ShouldPass_WhenValidParams_v2_With_Log)
 {
     EnvConfig::GetInstance().logCfg.entryLogEnable = CfgField<bool>({"HCCL_ENTRY_LOG_ENABLE", true, CastBin2Bool});
     EnvConfig::GetInstance().logCfg.entryLogEnable.isParsed = true;
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // Mock objects and parameters
     void* sendBuf = nullptr;
@@ -1138,7 +1138,7 @@ TEST_F(OpbaseTestV2, HcclBroadcastV2_ShouldReturnSuccess_WhenAllParamsValid_With
 {
     EnvConfig::GetInstance().logCfg.entryLogEnable = CfgField<bool>({"HCCL_ENTRY_LOG_ENABLE", true, CastBin2Bool});
     EnvConfig::GetInstance().logCfg.entryLogEnable.isParsed = true;
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     void* buf = nullptr;
     uint64_t count = 10;
@@ -1180,7 +1180,7 @@ TEST_F(OpbaseTestV2, HcclAllocComResourceByTilingV2_With_Log)
 {
     EnvConfig::GetInstance().logCfg.entryLogEnable = CfgField<bool>({"HCCL_ENTRY_LOG_ENABLE", true, CastBin2Bool});
     EnvConfig::GetInstance().logCfg.entryLogEnable.isParsed = true;
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     Hccl::CommParams commParams;
     std::shared_ptr<Hccl::HcclCommunicator> hcclComm = std::make_shared<Hccl::HcclCommunicator>(commParams);
@@ -1211,7 +1211,7 @@ TEST_F(OpbaseTestV2, HcclCommResumeV2)
     Hccl::CommParams commParams;
     std::shared_ptr<Hccl::HcclCommunicator> hcclComm = std::make_shared<Hccl::HcclCommunicator>(commParams);
     HcclComm comm = static_cast<HcclComm>(hcclComm.get());
-    MOCKER(HrtGetDevice).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     HcclResult ret = HcclCommResumeV2(comm);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
@@ -1221,7 +1221,7 @@ TEST_F(OpbaseTestV2, HcclCommOperationImplV2)
     Hccl::CommParams commParams;
     std::shared_ptr<Hccl::HcclCommunicator> hcclComm = std::make_shared<Hccl::HcclCommunicator>(commParams);
     HcclComm comm = static_cast<HcclComm>(hcclComm.get());
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     HcclResult ret = HcclCommResumeV2(comm);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
@@ -1252,7 +1252,7 @@ TEST_F(OpbaseTestV2, HcclScatterV2_1)
 {
     EnvConfig::GetInstance().logCfg.entryLogEnable = CfgField<bool>({"HCCL_ENTRY_LOG_ENABLE", true, CastBin2Bool});
     EnvConfig::GetInstance().logCfg.entryLogEnable.isParsed = true;
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // Arrange
     void* sendBuf = (void*)0x1000000;
@@ -1301,7 +1301,7 @@ TEST_F(OpbaseTestV2, HcclAllGatherV2_With_Log)
 {
     EnvConfig::GetInstance().logCfg.entryLogEnable = CfgField<bool>({"HCCL_ENTRY_LOG_ENABLE", true, CastBin2Bool});
     EnvConfig::GetInstance().logCfg.entryLogEnable.isParsed = true;
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // Arrange
     void* sendBuf = nullptr;
@@ -1351,7 +1351,7 @@ TEST_F(OpbaseTestV2, HcclSendV2_With_Log)
 {
     EnvConfig::GetInstance().logCfg.entryLogEnable = CfgField<bool>({"HCCL_ENTRY_LOG_ENABLE", true, CastBin2Bool});
     EnvConfig::GetInstance().logCfg.entryLogEnable.isParsed = true;
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // Arrange
     void* sendBuf = nullptr;
@@ -1403,7 +1403,7 @@ TEST_F(OpbaseTestV2, HcclRecvV2_With_Log)
 {
     EnvConfig::GetInstance().logCfg.entryLogEnable = CfgField<bool>({"HCCL_ENTRY_LOG_ENABLE", true, CastBin2Bool});
     EnvConfig::GetInstance().logCfg.entryLogEnable.isParsed = true;
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // Arrange
     void* sendBuf = nullptr;
@@ -1463,7 +1463,7 @@ TEST_F(OpbaseTestV2, HcclReduceScatterV2_With_Log)
 {
     EnvConfig::GetInstance().logCfg.entryLogEnable = CfgField<bool>({"HCCL_ENTRY_LOG_ENABLE", true, CastBin2Bool});
     EnvConfig::GetInstance().logCfg.entryLogEnable.isParsed = true;
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     void* sendBuf = nullptr;
     void* recvBuf = nullptr;
@@ -1509,7 +1509,7 @@ TEST_F(OpbaseTestV2, HcclGetRawCommHandle)
     CommManager::GetInstance(0).GetCommInfoV2().commParams = commParams;
     CommManager::GetInstance(0).GetCommInfoV2().isUsed = true;
     CommManager::GetInstance(0).GetCommInfoV2().pComm = hcclComm_1;
-    MOCKER(HrtGetDevice).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     HcclComm commHandle;
 
@@ -1565,7 +1565,7 @@ TEST_F(OpbaseTestV2, HcclSnapshotSave_err)
     CommManager::GetInstance(0).GetCommInfoV2().isUsed = true;
     CommManager::GetInstance(0).GetCommInfoV2().pComm = hcclComm_1;
     CommManager::GetInstance(0).GetCommInfoV2().step = 0;
-    MOCKER(HrtGetDevice).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     uint32_t step = 0;
     char* snapshot = new char[200];
@@ -1590,7 +1590,7 @@ TEST_F(OpbaseTestV2, HcclSnapshotSave_err2)
     CommManager::GetInstance(0).GetCommInfoV2().isUsed = true;
     CommManager::GetInstance(0).GetCommInfoV2().pComm = hcclComm_1;
     CommManager::GetInstance(0).GetCommInfoV2().step = 1;
-    MOCKER(HrtGetDevice).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     uint32_t step = 1;
     char* snapshot = new char[200];
@@ -1619,7 +1619,7 @@ TEST_F(OpbaseTestV2, HcclSnapshotRecoverAllComms_OK)
     CommManager::GetInstance(0).GetCommInfoV2().isUsed = true;
     CommManager::GetInstance(0).GetCommInfoV2().pComm = hcclComm_1;
     CommManager::GetInstance(0).GetCommInfoV2().step = 0;
-    MOCKER(HrtGetDevice).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::shared_ptr<Hccl::SnapShotBuf> snapshotBuf = std::make_shared<Hccl::SnapShotBuf>();
     snapshotBuf->groupNum = 0;
@@ -1682,8 +1682,8 @@ TEST_F(OpbaseTestV2, HcclSnapshotGetBufSize_OK)
     CommManager::GetInstance(0).GetCommInfoV2().isUsed = true;
     CommManager::GetInstance(0).GetCommInfoV2().pComm = hcclComm_1;
     CommManager::GetInstance(0).GetCommInfoV2().step = 0;
-    MOCKER(HrtGetDevice).stubs().with(mockcpp::any()).will(returnValue(0));
-    MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue(devType));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
     // 生产点位真值源已切换为全局 hrtGetDeviceType，需同步补桩
     MOCKER(hrtGetDeviceType).stubs().with(outBound(::DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
 
@@ -1714,7 +1714,7 @@ TEST_F(OpbaseTestV2, HcclSnapshotGetBufSize_HCCL_SUCCESS)
     uint32_t size = 0;
     hcclComm_1.get()->pimpl.get()->id = "hccl_world_group";
     hcclComm_1.get()->pimpl.get()->isWorldGroup = true;
-    MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
     // 生产点位真值源已切换为全局 hrtGetDeviceType，需同步补桩
     MOCKER(hrtGetDeviceType).stubs().with(outBound(::DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
     HcclResult ret = HcclSnapshotGetBufSize(step, &size);
@@ -1802,7 +1802,7 @@ TEST_F(OpbaseTestV2, HcclCreateSubCommConfigV2_IDEL)
     MOCKER_CPP(&CommunicatorImpl::SetCommExecuteConfig).stubs().will(ignoreReturnValue());
     MOCKER_CPP(&CommunicatorImpl::RegisterAcceStateCallBack).stubs().will(ignoreReturnValue());
     Hccl::DevType devType = Hccl::DevType::DEV_TYPE_950;
-    MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
     HcclResult ret = HcclCreateSubCommConfigV2(
         &context.comm, context.rankNum, &context.rankIds, context.subCommId, context.subCommRankId, &context.config,
         &context.subComm);
@@ -1915,7 +1915,7 @@ TEST_F(OpbaseTestV2, HcclCommInitClusterInfoMemConfigV2_err)
     // 打桩GetCommInfoV2。
     CommManager::GetInstance(0).GetCommInfoV2().commParams.commId = "hccl_world_group";
 
-    MOCKER(HrtGetDevice).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     std::string rankTableString = "test";
     uint32_t rank = 0;
     HcclCommConfig config;
@@ -1948,7 +1948,7 @@ TEST_F(OpbaseTestV2, HcclCommInitClusterInfoMemConfigV2_err_2)
     // 打桩GetCommInfoV2。
     CommManager::GetInstance(0).GetCommInfoV2().commParams.commId = "hccl_world_group";
 
-    MOCKER(HrtGetDevice).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     MOCKER_CPP(&HcclCommunicator::Init, HcclResult(HcclCommunicator::*)(const std::string&))
         .stubs()
@@ -1986,7 +1986,7 @@ TEST_F(OpbaseTestV2, HcclCommInitClusterInfoMemConfigV2_err_3)
     // 打桩GetCommInfoV2。
     CommManager::GetInstance(0).GetCommInfoV2().commParams.commId = "hccl_world_group";
 
-    MOCKER(HrtGetDevice).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     MOCKER_CPP(&HcclCommunicator::Init, HcclResult(HcclCommunicator::*)(const std::string&))
         .stubs()
@@ -2023,7 +2023,7 @@ TEST_F(OpbaseTestV2, HcclCommInitClusterInfoMemConfigV2)
     // 打桩GetCommInfoV2。
     CommManager::GetInstance(0).GetCommInfoV2().commParams.commId = "hccl_world_group";
 
-    MOCKER(HrtGetDevice).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     MOCKER_CPP(&HcclCommunicator::Init, HcclResult(HcclCommunicator::*)(const std::string&))
         .stubs()
@@ -2072,7 +2072,7 @@ TEST_F(OpbaseTestV2, HcclCommDestroyV2_2)
 {
     MOCKER(aclrtGetDevice).stubs().will(returnValue(0));
     Hccl::DevType devType = Hccl::DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     Hccl::CommParams commParams;
     std::unique_ptr<Hccl::HcclCommunicator> communicator = std::make_unique<Hccl::HcclCommunicator>(commParams);
@@ -2672,8 +2672,11 @@ TEST_F(OpbaseTestV2, Ut_HcclGetRootInfoV2_When_ProviderFails_Expect_Return_HCCL_
 TEST_F(OpbaseTestV2, Ut_HcclCommInitRootInfoV2_When_InputValue_Expect_Return_HCCL_SUCCESS)
 {
     // when
-    MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_950));
-    MOCKER(HrtGetDeviceCount).stubs().will(returnValue(1));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((Hccl::DevType)Hccl::DevType::DEV_TYPE_950))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceCount).stubs().with(outBound(1u)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&HcclCommunicator::Init, HcclResult(HcclCommunicator::*)(const RankTableInfo&))
         .stubs()
         .with(mockcpp::any())
@@ -2692,8 +2695,11 @@ TEST_F(OpbaseTestV2, Ut_HcclCommInitRootInfoV2_When_InputValue_Expect_Return_HCC
 TEST_F(OpbaseTestV2, Ut_HcclCommInitRootInfoV2_When_RankSizeInvalid_Expect_Return_HCCL_E_PARA)
 {
     // when
-    MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_950));
-    MOCKER(HrtGetDeviceCount).stubs().will(returnValue(1));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((Hccl::DevType)Hccl::DevType::DEV_TYPE_950))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceCount).stubs().with(outBound(1u)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&HcclCommunicator::Init, HcclResult(HcclCommunicator::*)(const RankTableInfo&))
         .stubs()
         .with(mockcpp::any())
@@ -2712,8 +2718,11 @@ TEST_F(OpbaseTestV2, Ut_HcclCommInitRootInfoV2_When_RankSizeInvalid_Expect_Retur
 TEST_F(OpbaseTestV2, Ut_HcclCommInitRootInfoConfigV2_When_InputValue_Expect_Return_HCCL_SUCCESS)
 {
     // when
-    MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_950));
-    MOCKER(HrtGetDeviceCount).stubs().will(returnValue(1));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((Hccl::DevType)Hccl::DevType::DEV_TYPE_950))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceCount).stubs().with(outBound(1u)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&HcclCommunicator::Init, HcclResult(HcclCommunicator::*)(const RankTableInfo&))
         .stubs()
         .with(mockcpp::any())
@@ -2759,10 +2768,16 @@ TEST_F(OpbaseTestV2, Ut_HcclCommInitRootInfoConfigV2_When_CommNameDiffersFromRoo
     std::memcpy(rootInfo.internal, &rootHandle, sizeof(rootHandle));
 
     g_keepDetectContextForUt = true;
-    MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_950));
-    MOCKER(HrtGetDeviceCount).stubs().will(returnValue(1));
-    MOCKER(HrtGetDevice).stubs().with().will(returnValue(0));
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().with(mockcpp::any()).will(returnValue(static_cast<DevId>(0)));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((Hccl::DevType)Hccl::DevType::DEV_TYPE_950))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceCount).stubs().with(outBound(1u)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&HcclCommunicator::Init, HcclResult(HcclCommunicator::*)(const RankTableInfo&))
         .stubs()
         .with(mockcpp::any())
@@ -2797,8 +2812,11 @@ TEST_F(OpbaseTestV2, Ut_HcclCommInitRootInfoConfigV2_When_CommNameDiffersFromRoo
 TEST_F(OpbaseTestV2, Ut_HcclCommInitRootInfoConfigV2_When_NotSetBufSize_Expect_Return_HCCL_SUCCESS)
 {
     // when
-    MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_950));
-    MOCKER(HrtGetDeviceCount).stubs().will(returnValue(1));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((Hccl::DevType)Hccl::DevType::DEV_TYPE_950))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceCount).stubs().with(outBound(1u)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&HcclCommunicator::Init, HcclResult(HcclCommunicator::*)(const RankTableInfo&))
         .stubs()
         .with(mockcpp::any())
@@ -2834,8 +2852,11 @@ TEST_F(OpbaseTestV2, Ut_HcclCommInitRootInfoConfigV2_When_ProviderFails_Expect_R
 {
     // when
     g_detectRankTableResult = HCCL_E_INTERNAL;
-    MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_950));
-    MOCKER(HrtGetDeviceCount).stubs().will(returnValue(1));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((Hccl::DevType)Hccl::DevType::DEV_TYPE_950))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceCount).stubs().with(outBound(1u)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&HcclCommunicator::Init, HcclResult(HcclCommunicator::*)(const RankTableInfo&))
         .stubs()
         .with(mockcpp::any())
@@ -2878,8 +2899,11 @@ HcclResult CreateCommConfigRootInfo(
 TEST_F(OpbaseTestV2, Ut_HcclCommInitRootInfoV2_When_DuplicateCreation_Expect_Return_HCCL_E_PARA)
 {
     // when
-    MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_950));
-    MOCKER(HrtGetDeviceCount).stubs().will(returnValue(1));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((Hccl::DevType)Hccl::DevType::DEV_TYPE_950))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceCount).stubs().with(outBound(1u)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&HcclCommunicator::Init, HcclResult(HcclCommunicator::*)(const RankTableInfo&))
         .stubs()
         .with(mockcpp::any())
@@ -2917,8 +2941,11 @@ TEST_F(OpbaseTestV2, Ut_HcclCommInitRootInfoV2_When_DuplicateCreation_Expect_Ret
 TEST_F(OpbaseTestV2, Ut_HcclCommInitRootInfoConfigV2_When_DuplicateCreation_Expect_Return_HCCL_E_PARA)
 {
     // when
-    MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_950));
-    MOCKER(HrtGetDeviceCount).stubs().will(returnValue(1));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((Hccl::DevType)Hccl::DevType::DEV_TYPE_950))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceCount).stubs().with(outBound(1u)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&HcclCommunicator::Init, HcclResult(HcclCommunicator::*)(const RankTableInfo&))
         .stubs()
         .with(mockcpp::any())
@@ -2983,10 +3010,16 @@ TEST_F(OpbaseTestV2, Ut_CreateCommConfigRootInfo_When_DuplicateCreation_Expect_R
 TEST_F(OpbaseTestV2, Ut_HcclCommInitAllV2_When_InputValue_Expect_Return_HCCL_SUCCESS)
 {
     // when
-    MOCKER(HrtGetDeviceCount).stubs().will(returnValue(1));
-    MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_950));
-    MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_950));
-    MOCKER(HrtGetDeviceCount).stubs().will(returnValue(1));
+    MOCKER(HrtGetDeviceCount).stubs().with(outBound(1u)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((Hccl::DevType)Hccl::DevType::DEV_TYPE_950))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((Hccl::DevType)Hccl::DevType::DEV_TYPE_950))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceCount).stubs().with(outBound(1u)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&HcclCommunicator::Init, HcclResult(HcclCommunicator::*)(const RankTableInfo&))
         .stubs()
         .with(mockcpp::any())
@@ -3006,10 +3039,16 @@ TEST_F(OpbaseTestV2, Ut_HcclCommInitAllV2_When_ProviderFails_Expect_Return_HCCL_
 {
     // when
     g_getRootInfoResult = HCCL_E_INTERNAL;
-    MOCKER(HrtGetDeviceCount).stubs().will(returnValue(1));
-    MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_950));
-    MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_950));
-    MOCKER(HrtGetDeviceCount).stubs().will(returnValue(1));
+    MOCKER(HrtGetDeviceCount).stubs().with(outBound(1u)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((Hccl::DevType)Hccl::DevType::DEV_TYPE_950))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((Hccl::DevType)Hccl::DevType::DEV_TYPE_950))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceCount).stubs().with(outBound(1u)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&HcclCommunicator::Init, HcclResult(HcclCommunicator::*)(const RankTableInfo&))
         .stubs()
         .with(mockcpp::any())
@@ -3515,7 +3554,7 @@ TEST_F(OpbaseTestV2, Ut_WaitAllCommReady_When_Timeout_Expect_Return_HCCL_E_TIMEO
     CommManager::GetInstance(0).GetCommInfoV2().pComm = hcclComm_1;
     CommManager::GetInstance(0).GetCommInfoV2().isUsed = true;
 
-    MOCKER(HrtSetDevice).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER(HrtSetDevice).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&HcclCommunicator::IsCommReady).stubs().with().will(returnValue(false));
     MOCKER_CPP(&std::chrono::steady_clock::now)
         .stubs()

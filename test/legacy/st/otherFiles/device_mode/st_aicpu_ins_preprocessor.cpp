@@ -116,7 +116,10 @@ TEST(AicpuInsPreprocessorTest, should_no_throw_when_calling_packResAndCopyToDev)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(std::vector<char>{'1'}));
-    MOCKER(HrtMemcpy).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
+    MOCKER(HrtMemcpy)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     CommunicatorImpl comm;
     comm.InitMemTransportManager();

@@ -26,11 +26,15 @@ protected:
 
     virtual void SetUp()
     {
-        MOCKER(HrtIpcSetMemoryName).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
+        MOCKER(HrtIpcSetMemoryName)
+            .stubs()
+            .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
         MOCKER(HrtDevMemAlignWithPage)
             .stubs()
-            .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
-        MOCKER(HrtIpcDestroyMemoryName).stubs().with(mockcpp::any());
+            .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtIpcDestroyMemoryName).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
 
         std::cout << "A Test case in LocalRdmaRmaBuffer SetUP." << std::endl;
     }

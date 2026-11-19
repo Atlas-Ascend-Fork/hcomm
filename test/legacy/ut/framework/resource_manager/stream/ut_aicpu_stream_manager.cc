@@ -33,11 +33,20 @@ protected:
     {
         streamManager = new AicpuStreamManager();
 
-        MOCKER(HrtGetStreamId).stubs().will(returnValue(fakeId));
-        MOCKER(HrtStreamGetSqId).stubs().will(returnValue(fakeSqId));
-        MOCKER(HrtStreamDestroy).stubs();
-        MOCKER(HrtGetDevice).stubs().will(returnValue(fakeDevLogId));
-        MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(static_cast<DevId>(fakeDevPhyId)));
+        MOCKER(HrtGetStreamId)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeId))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtStreamGetSqId)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeSqId))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtStreamDestroy).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetDevice).stubs().with(outBound(fakeDevLogId)).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetDevicePhyIdByUserDevId)
+            .stubs()
+            .with(mockcpp::any(), outBound(static_cast<DevId>(fakeDevPhyId)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
 
         streamManager->AllocStreams(1);
         streamManager->AllocFreeStream();

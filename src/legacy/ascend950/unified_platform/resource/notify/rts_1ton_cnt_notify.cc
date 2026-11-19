@@ -10,18 +10,40 @@
 
 #include "rts_1ton_cnt_notify.h"
 #include "exception_util.h"
+#include "internal_exception.h"
 #include "task.h"
 
 namespace Hccl {
 
-Rts1ToNCntNotify::Rts1ToNCntNotify()
-    : deviceId(HrtGetDevice()),
-      devPhyId(HrtGetDevicePhyIdByUserDevId(HrtGetDevice())),
-      handle(HrtCntNotifyCreate(deviceId)),
-      id(HrtGetCntNotifyId(handle))
-{}
+Rts1ToNCntNotify::Rts1ToNCntNotify() : deviceId(0), devPhyId(0), handle(nullptr), id(0)
+{
+    s32 devId = 0;
+    if (HrtGetDevice(devId) != HCCL_SUCCESS) {
+        THROW<InternalException>("[Rts1ToNCntNotify] HrtGetDevice failed");
+    }
+    deviceId = static_cast<u32>(devId);
+    DevId devPhyIdOut = 0;
+    if (HrtGetDevicePhyIdByUserDevId(devId, devPhyIdOut) != HCCL_SUCCESS) {
+        THROW<InternalException>("[Rts1ToNCntNotify] HrtGetDevicePhyIdByUserDevId failed");
+    }
+    devPhyId = static_cast<u32>(devPhyIdOut);
+    aclrtCntNotify cntHandle = nullptr;
+    if (HrtCntNotifyCreate(deviceId, cntHandle) != HCCL_SUCCESS) {
+        THROW<InternalException>("[Rts1ToNCntNotify] HrtCntNotifyCreate failed");
+    }
+    handle = cntHandle;
+    if (HrtGetCntNotifyId(handle, id) != HCCL_SUCCESS) {
+        THROW<InternalException>("[Rts1ToNCntNotify] HrtGetCntNotifyId failed");
+    }
+}
 
-Rts1ToNCntNotify::~Rts1ToNCntNotify() { DECTOR_TRY_CATCH("Rts1ToNCntNotify", HrtCntNotifyDestroy(handle)); }
+Rts1ToNCntNotify::~Rts1ToNCntNotify()
+{
+    HcclResult ret = HrtCntNotifyDestroy(handle);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR("[Rts1ToNCntNotify] HrtCntNotifyDestroy failed, ret=%d", ret);
+    }
+}
 
 std::unique_ptr<BaseTask> Rts1ToNCntNotify::WaitBits(u32 bitValue)
 {
@@ -35,12 +57,16 @@ std::unique_ptr<BaseTask> Rts1ToNCntNotify::PostValue(u32 value)
 
 void Rts1ToNCntNotify::WaitBits(u32 bitValue, u32 timeout, const Stream& stream) const
 {
-    HrtCntNotifyWaitWithTimeOut(handle, stream.GetPtr(), HrtCntNotifyWaitMode::BITMAP, bitValue, timeout);
+    CHK_RET_THROW(
+        InternalException, "[Rts1ToNCntNotify::WaitBits] HrtCntNotifyWaitWithTimeOut failed",
+        HrtCntNotifyWaitWithTimeOut(handle, stream.GetPtr(), HrtCntNotifyWaitMode::BITMAP, bitValue, timeout));
 }
 
 void Rts1ToNCntNotify::PostValue(u32 value, const aclrtStream& rtStream) const
 {
-    HrtCntNotifyRecord(handle, rtStream, HrtCntNotifyRecordMode::STORE, value);
+    CHK_RET_THROW(
+        InternalException, "[Rts1ToNCntNotify::PostValue] HrtCntNotifyRecord failed",
+        HrtCntNotifyRecord(handle, rtStream, HrtCntNotifyRecordMode::STORE, value));
 }
 
 void Rts1ToNCntNotify::PostValue(u32 value, const Stream& stream) const { PostValue(value, stream.GetPtr()); }

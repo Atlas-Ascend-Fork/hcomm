@@ -47,25 +47,28 @@ protected:
     }
 };
 
-#define SETUP_COMM_INIT_PUB_MOCKS()                                                                                 \
-    do {                                                                                                            \
-        MOCKER_CPP(static_cast<HcclResult (CommunicatorImpl::*)(                                                    \
-                       const CommParams&, const std::string&, const HcclCommConfig&)>(&CommunicatorImpl::Init))     \
-            .stubs()                                                                                                \
-            .with(mockcpp::any(), mockcpp::any(), mockcpp::any())                                                   \
-            .will(returnValue(HCCL_SUCCESS));                                                                       \
-        MOCKER(HrtGetDevice).stubs().with().will(returnValue(0));                                                   \
-        MOCKER(HrtGetDeviceCount).stubs().with().will(returnValue(8));                                              \
-        MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().with(mockcpp::any()).will(returnValue(static_cast<DevId>(0))); \
+#define SETUP_COMM_INIT_PUB_MOCKS()                                                                             \
+    do {                                                                                                        \
+        MOCKER_CPP(static_cast<HcclResult (CommunicatorImpl::*)(                                                \
+                       const CommParams&, const std::string&, const HcclCommConfig&)>(&CommunicatorImpl::Init)) \
+            .stubs()                                                                                            \
+            .with(mockcpp::any(), mockcpp::any(), mockcpp::any())                                               \
+            .will(returnValue(HCCL_SUCCESS));                                                                   \
+        MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));             \
+        MOCKER(HrtGetDeviceCount).stubs().with(outBound(8)).will(returnValue(HcclResult::HCCL_SUCCESS));        \
+        MOCKER(HrtGetDevicePhyIdByUserDevId)                                                                    \
+            .stubs()                                                                                            \
+            .with(mockcpp::any(), outBound(static_cast<DevId>(0)))                                              \
+            .will(returnValue(HcclResult::HCCL_SUCCESS));                                                       \
     } while (0)
 
 TEST_F(HcclCommunicatorTest, should_success_when_calling_init_with_valid_params)
 {
     SETUP_COMM_INIT_PUB_MOCKS();
-    MOCKER(HrtSetDevice).stubs().with(mockcpp::any());
+    MOCKER(HrtSetDevice).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&HccpHdcManager::Init).stubs().with(mockcpp::any());
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(Hccl::DevType(devType))).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     GenRankTableFile1Ser8Dev();
     CommParams commParams;
@@ -83,13 +86,16 @@ TEST_F(HcclCommunicatorTest, should_failed_when_calling_init_with_invalid_params
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCL_E_PARA));
-    MOCKER(HrtGetDevice).stubs().with().will(returnValue(0));
-    MOCKER(HrtGetDeviceCount).stubs().with().will(returnValue(8));
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().with(mockcpp::any()).will(returnValue(static_cast<DevId>(0)));
-    MOCKER(HrtSetDevice).stubs().with(mockcpp::any());
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceCount).stubs().with(outBound(8)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtSetDevice).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&HccpHdcManager::Init).stubs().with(mockcpp::any());
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(Hccl::DevType(devType))).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     GenRankTableFile1Ser8Dev();
     CommParams commParams;
@@ -456,10 +462,10 @@ TEST_F(HcclCommunicatorTest, get_static_binary_info_should_success)
 TEST_F(HcclCommunicatorTest, should_success_when_IsUsingCcu)
 {
     SETUP_COMM_INIT_PUB_MOCKS();
-    MOCKER(HrtSetDevice).stubs().with(mockcpp::any());
+    MOCKER(HrtSetDevice).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&HccpHdcManager::Init).stubs().with(mockcpp::any());
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(Hccl::DevType(devType))).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     GenRankTableFile1Ser8Dev();
     CommParams commParams;
@@ -476,8 +482,14 @@ TEST_F(HcclCommunicatorTest, should_success_when_IsUsingCcu)
 TEST_F(HcclCommunicatorTest, Ut_GetLocalCclBuffer_When_Normal_Expect_OK)
 {
     void* bufAddr = reinterpret_cast<void*>(0x12345678);
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(bufAddr));
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType(DevType::DEV_TYPE_950)));
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound((void*)(bufAddr)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType(DevType(DevType::DEV_TYPE_950))))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     shared_ptr<DevBuffer> cclBuf = std::make_shared<DevBuffer>(10);
     GenRankTableFile1Ser8Dev();
@@ -497,7 +509,10 @@ TEST_F(HcclCommunicatorTest, Ut_GetLocalCclBuffer_When_Normal_Expect_OK)
 TEST_F(HcclCommunicatorTest, Ut_GetDevMemWorkSpace_When_Tag_Fill_Expect_OK)
 {
     void* bufAddr = reinterpret_cast<void*>(0x12345678);
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(bufAddr));
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound((void*)(bufAddr)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     GenRankTableFile1Ser8Dev();
     CommParams commParams;
     auto comm = std::make_unique<HcclCommunicator>(commParams);
@@ -517,7 +532,10 @@ TEST_F(HcclCommunicatorTest, Ut_GetDevMemWorkSpace_When_Tag_Fill_Expect_OK)
 TEST_F(HcclCommunicatorTest, Ut_GetDevMemWorkSpace_When_Tag_Empty_Expect_OK)
 {
     void* bufAddr = reinterpret_cast<void*>(0x12345678);
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(bufAddr));
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound((void*)(bufAddr)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     GenRankTableFile1Ser8Dev();
     CommParams commParams;
     auto comm = std::make_unique<HcclCommunicator>(commParams);

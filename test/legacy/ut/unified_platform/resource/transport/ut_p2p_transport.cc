@@ -75,25 +75,49 @@ protected:
     virtual void SetUp()
     {
         std::cout << "A Test case in P2PTransport SetUP" << std::endl;
-        MOCKER(HrtMemAsyncCopy).stubs().with(mockcpp::any());
-        MOCKER(HrtReduceAsync).stubs().with(mockcpp::any());
+        MOCKER(HrtMemAsyncCopy).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtReduceAsync).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
         // aclrtCreateStreamWithConfig 新签名将 stream 改为出参且返回 aclError，mock 出参繁琐；
         // 直接 mock 上层 HrtStreamCreateWithFlags 返回非空 fake 指针，避免真实 HrtStreamSetMode 空指针检查抛异常
-        MOCKER(HrtStreamCreateWithFlags).stubs().will(returnValue((void*)100));
-        MOCKER(HrtStreamDestroy).stubs();
-        MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A2));
-        MOCKER(HrtIpcOpenNotify).stubs().with(mockcpp::any()).will(returnValue((void*)fakeNotifyHandleAddr));
-        MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(fakePid));
-        MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-        MOCKER(HrtNotifyCreate).stubs().will(returnValue((void*)(fakeNotifyHandleAddr)));
-        MOCKER(HrtIpcSetNotifyName).stubs().with(mockcpp::any(), outBoundP(fakeName, sizeof(fakeName)), mockcpp::any());
-        MOCKER(HrtGetNotifyID).stubs().will(returnValue(fakeNotifyId));
-        MOCKER(HrtNotifyGetAddr).stubs().with(mockcpp::any()).will(returnValue(fakeAddress));
-        MOCKER(HrtNotifyGetOffset).stubs().will(returnValue(fakeOffset));
+        MOCKER(HrtStreamCreateWithFlags)
+            .stubs()
+            .with(mockcpp::any(), mockcpp::any(), outBound((void*)100))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtStreamDestroy).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_910A2)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtIpcOpenNotify)
+            .stubs()
+            .with(mockcpp::any(), outBound((void*)fakeNotifyHandleAddr))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtDeviceGetBareTgid).stubs().with(outBound(fakePid)).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyCreate)
+            .stubs()
+            .with(mockcpp::any(), outBound((void*)(fakeNotifyHandleAddr)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtIpcSetNotifyName)
+            .stubs()
+            .with(mockcpp::any(), outBoundP(fakeName, sizeof(fakeName)), mockcpp::any())
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetNotifyID)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeNotifyId))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyGetAddr)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeAddress))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyGetOffset)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeOffset))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
 
-        MOCKER(HrtNotifyRecord).stubs().with(mockcpp::any());
-        MOCKER(HrtNotifyWaitWithTimeOut).stubs().with(mockcpp::any());
+        MOCKER(HrtNotifyRecord).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyWaitWithTimeOut).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
     }
 
     virtual void TearDown()
@@ -177,7 +201,10 @@ TEST_F(P2PTransportTest, P2PTransport_get_status_pcie_enable_and_symmetric_disab
     LinkData link(PortDeploymentType::P2P, LinkProtocol::PCIE, 0, 1, ipAddress, ipAddress, 10, 20, 0);
     Socket fakeSocket(nullptr, ipAddress, 100, ipAddress, "tag", SocketRole::SERVER, NicType::DEVICE_NIC_TYPE);
 
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue((DevId)10));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>((DevId)10)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtEnableP2P).expects(once()).will(returnValue(HCCL_SUCCESS)); // INIT 首轮触发一次，后续轮询不重复下发
     MOCKER(HrtDisableP2P).expects(once()).will(returnValue(HCCL_SUCCESS)); // 析构对称 disable 恰好一次
     uint32_t drvStatus = DRV_P2P_STATUS_DISABLE;
@@ -231,8 +258,11 @@ TEST_F(P2PTransportTest, P2PTransport_get_status_self_loop_skip_enable)
     LinkData link(PortDeploymentType::P2P, LinkProtocol::PCIE, 0, 1, ipAddress, ipAddress, 10, 10, 0);
     Socket fakeSocket(nullptr, ipAddress, 100, ipAddress, "tag", SocketRole::SERVER, NicType::DEVICE_NIC_TYPE);
 
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue((DevId)10)); // 与对端物理 id 相同，判定为自环
-    MOCKER(HrtEnableP2P).expects(never());                                     // 自环链路不触发 enable p2p
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>((DevId)10)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtEnableP2P).expects(never());  // 自环链路不触发 enable p2p
     MOCKER(HrtDisableP2P).expects(never()); // 未持有引用，析构不执行对称 disable
     SocketStatus socketStatusInit = SocketStatus::INIT;
     MOCKER_CPP(&Socket::GetAsyncStatus).stubs().will(returnValue(socketStatusInit));
@@ -254,7 +284,10 @@ TEST_F(P2PTransportTest, P2PTransport_get_status_enable_failed_throw)
     LinkData link(PortDeploymentType::P2P, LinkProtocol::PCIE, 0, 1, ipAddress, ipAddress, 10, 20, 0);
     Socket fakeSocket(nullptr, ipAddress, 100, ipAddress, "tag", SocketRole::SERVER, NicType::DEVICE_NIC_TYPE);
 
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue((DevId)10));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>((DevId)10)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtEnableP2P).stubs().will(returnValue(HCCL_E_RUNTIME));
     MOCKER(HrtDisableP2P).expects(never()); // enable 失败未增加引用计数，析构不执行 disable
 

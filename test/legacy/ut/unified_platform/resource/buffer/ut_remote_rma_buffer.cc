@@ -171,7 +171,10 @@ TEST_F(RemoteRmaBufferTest, remoteipcrmabuffer_open_new_path_success)
     (void)memcpy_s(dto.name, RTS_IPC_MEM_NAME_LEN, "fakeName", sizeof("fakeName"));
 
     void* fakePtr = reinterpret_cast<void*>(0x2000);
-    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(100));
+    MOCKER(HrtDeviceGetBareTgid)
+        .stubs()
+        .with(outBound(static_cast<s32>(100)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(aclsysGetVersionNum).stubs().will(invoke(AclsysGetVersionNumHigh));
     MOCKER(aclrtIpcMemSetAttr).stubs().will(returnValue(ACL_SUCCESS));
     MOCKER(aclrtIpcMemImportByKey).stubs().with(outBoundP(&fakePtr, sizeof(fakePtr))).will(returnValue(ACL_SUCCESS));
@@ -193,7 +196,10 @@ TEST_F(RemoteRmaBufferTest, remoteipcrmabuffer_open_new_path_with_link_type_not_
     (void)memcpy_s(dto.name, RTS_IPC_MEM_NAME_LEN, "fakeName", sizeof("fakeName"));
 
     void* fakePtr = reinterpret_cast<void*>(0x2000);
-    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(100));
+    MOCKER(HrtDeviceGetBareTgid)
+        .stubs()
+        .with(outBound(static_cast<s32>(100)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(aclsysGetVersionNum).stubs().will(invoke(AclsysGetVersionNumHigh));
     MOCKER(aclrtIpcMemSetAttr)
         .stubs()
@@ -217,9 +223,13 @@ TEST_F(RemoteRmaBufferTest, remoteipcrmabuffer_open_new_path_ipc_open_fail)
     dto.memInfo = "test";
     (void)memcpy_s(dto.name, RTS_IPC_MEM_NAME_LEN, "fakeName", sizeof("fakeName"));
 
-    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(100));
+    MOCKER(HrtDeviceGetBareTgid)
+        .stubs()
+        .with(outBound(static_cast<s32>(100)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(aclsysGetVersionNum).stubs().will(invoke(AclsysGetVersionNumHigh));
     MOCKER(aclrtIpcMemSetAttr).stubs().will(returnValue(ACL_SUCCESS));
+    MOCKER(aclrtIpcMemImportByKey).stubs().will(returnValue(1));
 
     EXPECT_THROW(RemoteIpcRmaBuffer buffer(dto, 0), InternalException);
 };
@@ -237,7 +247,10 @@ TEST_F(RemoteRmaBufferTest, remoteipcrmabuffer_open_new_path_with_pathmode_one_m
     g_capturedSetAttrValue = 0;
     g_capturedSetAttrCallCount = 0;
     void* fakePtr = reinterpret_cast<void*>(0x2000);
-    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(100));
+    MOCKER(HrtDeviceGetBareTgid)
+        .stubs()
+        .with(outBound(static_cast<s32>(100)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(aclsysGetVersionNum).stubs().will(invoke(AclsysGetVersionNumHigh));
     MOCKER(aclrtIpcMemSetAttr).stubs().will(invoke(AclrtIpcMemSetAttrSuccess));
     MOCKER(aclrtIpcMemImportByKey).stubs().with(outBoundP(&fakePtr, sizeof(fakePtr))).will(returnValue(ACL_SUCCESS));
@@ -262,7 +275,10 @@ TEST_F(RemoteRmaBufferTest, remoteipcrmabuffer_open_new_path_with_pathmode_two_m
     g_capturedSetAttrValue = 0;
     g_capturedSetAttrCallCount = 0;
     void* fakePtr = reinterpret_cast<void*>(0x2000);
-    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(100));
+    MOCKER(HrtDeviceGetBareTgid)
+        .stubs()
+        .with(outBound(static_cast<s32>(100)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(aclsysGetVersionNum).stubs().will(invoke(AclsysGetVersionNumHigh));
     MOCKER(aclrtIpcMemSetAttr).stubs().will(invoke(AclrtIpcMemSetAttrSuccess));
     MOCKER(aclrtIpcMemImportByKey).stubs().with(outBoundP(&fakePtr, sizeof(fakePtr))).will(returnValue(ACL_SUCCESS));
@@ -287,7 +303,10 @@ TEST_F(RemoteRmaBufferTest, remoteipcrmabuffer_open_with_pathmode_default_goes_l
     g_capturedSetAttrValue = 0;
     g_capturedSetAttrCallCount = 0;
     void* fakePtr = reinterpret_cast<void*>(0x2000);
-    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(100));
+    MOCKER(HrtDeviceGetBareTgid)
+        .stubs()
+        .with(outBound(static_cast<s32>(100)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(aclsysGetVersionNum).stubs().will(invoke(AclsysGetVersionNumHigh));
     MOCKER(aclrtIpcMemSetAttr).stubs().will(invoke(AclrtIpcMemSetAttrSuccess));
     MOCKER(aclrtIpcMemImportByKey).stubs().with(outBoundP(&fakePtr, sizeof(fakePtr))).will(returnValue(ACL_SUCCESS));
@@ -312,7 +331,10 @@ TEST_F(RemoteRmaBufferTest, remoteipcrmabuffer_open_new_path_with_pathmode_one_l
     g_capturedSetAttrValue = 0;
     g_capturedSetAttrCallCount = 0;
     void* fakePtr = reinterpret_cast<void*>(0x2000);
-    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(100));
+    MOCKER(HrtDeviceGetBareTgid)
+        .stubs()
+        .with(outBound(static_cast<s32>(100)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(aclsysGetVersionNum).stubs().will(invoke(AclsysGetVersionNumHigh));
     MOCKER(aclrtIpcMemSetAttr).stubs().will(invoke(AclrtIpcMemSetAttrLinkNotSupported));
     MOCKER(aclrtIpcMemImportByKey).stubs().with(outBoundP(&fakePtr, sizeof(fakePtr))).will(returnValue(ACL_SUCCESS));

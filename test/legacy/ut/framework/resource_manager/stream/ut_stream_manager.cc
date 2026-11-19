@@ -34,11 +34,20 @@ protected:
         impl.opExecuteConfig.accState = AcceleratorState::CCU_MS;
         streamManager = new StreamManager(&impl);
 
-        MOCKER(HrtGetStreamId).stubs().will(returnValue(static_cast<s32>(fakeId)));
-        MOCKER(HrtStreamGetSqId).stubs().will(returnValue(fakeSqId));
-        MOCKER(HrtStreamDestroy).stubs();
-        MOCKER(HrtGetDevice).stubs().will(returnValue(fakeDevLogId));
-        MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(static_cast<DevId>(fakeDevPhyId)));
+        MOCKER(HrtGetStreamId)
+            .stubs()
+            .with(mockcpp::any(), outBound(static_cast<s32>(fakeId)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtStreamGetSqId)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeSqId))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtStreamDestroy).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetDevice).stubs().with(outBound(fakeDevLogId)).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetDevicePhyIdByUserDevId)
+            .stubs()
+            .with(mockcpp::any(), outBound(static_cast<DevId>(fakeDevPhyId)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
 
         std::cout << "A Test case in StreamManager SetUP" << std::endl;
     }

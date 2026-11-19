@@ -22,14 +22,20 @@ UbLocalNotify::UbLocalNotify(RdmaHandle rdmaHandle, bool devUsed)
     : BaseLocalNotify(RmaType::UB, devUsed),
       rdmaHandle(rdmaHandle)
 {
-    auto devType = HrtGetDeviceType(); // 先查询，避免后续失败资源泄露
+    DevType devType = DevType::INVALID; // 先查询，避免后续失败资源泄露
+    if (HrtGetDeviceType(devType) != HCCL_SUCCESS) {
+        THROW<InternalException>("HrtGetDeviceType failed");
+    }
     HrtDevResInfo devResInfo;
     devResInfo.dieId = 0;
     devResInfo.procType = HrtDevResProcType::PROCESS_HCCP;
     devResInfo.resType = HrtDevResType::RES_TYPE_STARS_NOTIFY_RECORD;
     devResInfo.resId = GetNotify()->GetId();
     devResInfo.flag = 0;
-    auto resAddrInfo = HrtGetDevResAddress(devResInfo);
+    HrtDevResAddrInfo resAddrInfo;
+    if (HrtGetDevResAddress(devResInfo, resAddrInfo) != HCCL_SUCCESS) {
+        THROW<InternalException>("HrtGetDevResAddress failed");
+    }
     addr = resAddrInfo.address;
     DevCapability::GetInstance().Init(devType); // 单例初始化
     size = DevCapability::GetInstance().GetNotifySize();
@@ -104,7 +110,10 @@ void UbLocalNotify::ReleaseResource()
     devResInfo.resType = HrtDevResType::RES_TYPE_STARS_NOTIFY_RECORD;
     devResInfo.resId = GetNotify()->GetId();
     devResInfo.flag = 0;
-    HrtReleaseDevResAddress(devResInfo);
+    HcclResult ret = HrtReleaseDevResAddress(devResInfo);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR("[UbLocalNotify::ReleaseResource] HrtReleaseDevResAddress failed, ret[%d]", ret);
+    }
 }
 
 UbLocalNotify::~UbLocalNotify() { DECTOR_TRY_CATCH("UbLocalNotify", ReleaseResource()); }

@@ -71,14 +71,29 @@ protected:
 
     void InitLocalNotify()
     {
-        MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-        MOCKER(HrtNotifyCreate).stubs().will(returnValue((void*)(1)));
-        MOCKER(HrtIpcSetNotifyName).stubs();
-        MOCKER(HrtGetNotifyID).stubs().will(returnValue(1));
-        MOCKER(HrtNotifyGetAddr).stubs().will(returnValue((u64)0));
-        MOCKER(HrtNotifyGetOffset).stubs().will(returnValue(1));
-        MOCKER(HrtGetSocVer).stubs();
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType(DevType::DEV_TYPE_910A2)));
+        MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyCreate)
+            .stubs()
+            .with(mockcpp::any(), outBound((void*)(1)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtIpcSetNotifyName).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetNotifyID)
+            .stubs()
+            .with(mockcpp::any(), outBound(static_cast<u32>(1)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyGetAddr)
+            .stubs()
+            .with(mockcpp::any(), outBound((u64)0))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyGetOffset)
+            .stubs()
+            .with(mockcpp::any(), outBound(1))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetSocVer).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound(Hccl::DevType(DevType(DevType::DEV_TYPE_910A2))))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
     }
 
     TaskLocalCopy* taskLocalCopy;

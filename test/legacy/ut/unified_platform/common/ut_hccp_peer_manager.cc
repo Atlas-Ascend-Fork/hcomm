@@ -57,9 +57,15 @@ TEST_F(HccpPeerManagerTest, hccp_peer_manager_init)
     s32 deviceLogicId1 = 1;
     s32 deviceLogicId2 = 2;
     DevId fakedevPhyId = 3;
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().with(mockcpp::any()).will(returnValue(fakedevPhyId));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(fakedevPhyId))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtRaDeInit).stubs().with();
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(static_cast<DevId>(1)));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(1)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // when
     HccpPeerManager::GetInstance().Init(deviceLogicId);

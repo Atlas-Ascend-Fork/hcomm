@@ -27,7 +27,10 @@ using namespace Hccl;
 void PrepareInitMocker()
 {
     MOCKER(HrtRaTlvRequestForCustomChannel).stubs().will(invoke(MockCcuDriverInterfaceReturnDieEnableStub));
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().with(mockcpp::any()).will(returnValue(MAX_MODULE_DEVICE_NUM));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(MAX_MODULE_DEVICE_NUM)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 }
 
 void MockRtGetDeviceInfo(int64_t outVal)

@@ -118,7 +118,10 @@ TEST_F(CcuPfeTest, HcclEidInfoPass)
     eidInfoListStbu.push_back(eidInfo);
 
     MOCKER(HrtRaGetDevEidInfoList).stubs().with(mockcpp::any()).will(returnValue(eidInfoListStbu));
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     vector<HrtDevEidInfo> eidInfoList = {};
     EXPECT_EQ(0, eidInfoList.size());
@@ -143,7 +146,10 @@ TEST_F(CcuPfeTest, GetPfeJettyCtxCfg)
     eidInfoListStbu.push_back(eidInfo);
 
     MOCKER(HrtRaGetDevEidInfoList).stubs().with(mockcpp::any()).will(returnValue(eidInfoListStbu));
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     CcuResSpecifications::GetInstance(phyDeviceId).dieEnableFlags[die_id] = true;
     CcuResSpecifications::GetInstance(phyDeviceId).resSpecs[die_id].jettyNum = 128;
@@ -179,7 +185,10 @@ TEST_F(CcuPfeTest, GetPfeJettyStrategy)
         .with(
             mockcpp::any(), mockcpp::any(), outBoundP(reinterpret_cast<void*>(&inBuff), sizeof(inBuff)),
             outBoundP(reinterpret_cast<void*>(&inBuff), sizeof(inBuff)));
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     MOCKER_CPP(&CcuPfeCfgGenerator::GetPfeJettyCtxCfg).stubs().will(returnValue(pfeJettyCtxCfgListStub));
     auto& ccuResSpecs = CcuResSpecifications::GetInstance(logicDevId);

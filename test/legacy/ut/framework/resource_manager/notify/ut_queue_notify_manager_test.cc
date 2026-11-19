@@ -25,7 +25,10 @@ protected:
 
     virtual void SetUp()
     {
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType(DevType::DEV_TYPE_910A2)));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound(Hccl::DevType(DevType(DevType::DEV_TYPE_910A2))))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
         std::cout << "A Test case in QueueNotifyManagerTest SetUP" << std::endl;
     }
 
@@ -42,13 +45,19 @@ TEST_F(QueueNotifyManagerTest, applyfor_return_ok)
     CommunicatorImpl comm;
     QueueNotifyManager queueNotifyManager(comm);
     // Given
-    MOCKER(HrtGetDevice).stubs().will(returnValue(1));
-    MOCKER(HrtNotifyCreate).stubs().will(returnValue((void*)(0)));
-    MOCKER(HrtIpcSetNotifyName).stubs();
-    MOCKER(HrtGetNotifyID).stubs().will(returnValue(1));
-    MOCKER(HrtNotifyGetAddr).stubs().will(returnValue((u64)0));
-    MOCKER(HrtNotifyGetOffset).stubs().will(returnValue(1));
-    MOCKER(HrtGetSocVer).stubs();
+    MOCKER(HrtGetDevice).stubs().with(outBound(1)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyCreate)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtIpcSetNotifyName).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetNotifyID)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<u32>(1)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyGetAddr).stubs().with(mockcpp::any(), outBound((u64)0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyGetOffset).stubs().with(mockcpp::any(), outBound(1)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetSocVer).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
     QId fakePostQid = 1;
     QId fakeWaitQid = 2;
@@ -66,13 +75,19 @@ TEST_F(QueueNotifyManagerTest, release_return_ok)
     CommunicatorImpl comm;
     QueueNotifyManager queueNotifyManager(comm);
     // Given
-    MOCKER(HrtGetDevice).stubs().will(returnValue(1));
-    MOCKER(HrtNotifyCreate).stubs().will(returnValue((void*)(0)));
-    MOCKER(HrtIpcSetNotifyName).stubs();
-    MOCKER(HrtGetNotifyID).stubs().will(returnValue(1));
-    MOCKER(HrtNotifyGetAddr).stubs().will(returnValue((u64)0));
-    MOCKER(HrtNotifyGetOffset).stubs().will(returnValue(1));
-    MOCKER(HrtGetSocVer).stubs();
+    MOCKER(HrtGetDevice).stubs().with(outBound(1)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyCreate)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtIpcSetNotifyName).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetNotifyID)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<u32>(1)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyGetAddr).stubs().with(mockcpp::any(), outBound((u64)0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyGetOffset).stubs().with(mockcpp::any(), outBound(1)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetSocVer).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
     QId fakePostQid = 1;
     QId fakeWaitQid = 2;
@@ -91,13 +106,19 @@ TEST_F(QueueNotifyManagerTest, destroy_return_nok)
     CommunicatorImpl comm;
     QueueNotifyManager queueNotifyManager(comm);
     // Given
-    MOCKER(HrtGetDevice).stubs().will(returnValue(1));
-    MOCKER(HrtNotifyCreate).stubs().will(returnValue((void*)(0)));
-    MOCKER(HrtIpcSetNotifyName).stubs();
-    MOCKER(HrtGetNotifyID).stubs().will(returnValue(1));
-    MOCKER(HrtNotifyGetAddr).stubs().will(returnValue((u64)0));
-    MOCKER(HrtNotifyGetOffset).stubs().will(returnValue(1));
-    MOCKER(HrtGetSocVer).stubs();
+    MOCKER(HrtGetDevice).stubs().with(outBound(1)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyCreate)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtIpcSetNotifyName).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetNotifyID)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<u32>(1)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyGetAddr).stubs().with(mockcpp::any(), outBound((u64)0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyGetOffset).stubs().with(mockcpp::any(), outBound(1)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetSocVer).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
     QId fakePostQid = 1;
     QId fakeWaitQid = 2;
@@ -121,12 +142,18 @@ TEST_F(QueueNotifyManagerTest, release_test)
     CommunicatorImpl comm;
     QueueNotifyManager queueNotifyManager(comm);
     // Given
-    MOCKER(HrtGetDevice).stubs().will(returnValue(1));
-    MOCKER(HrtNotifyCreate).stubs().will(returnValue((void*)(0)));
-    MOCKER(HrtIpcSetNotifyName).stubs();
-    MOCKER(HrtGetNotifyID).stubs().will(returnValue(1));
-    MOCKER(HrtNotifyGetAddr).stubs().will(returnValue((u64)0));
-    MOCKER(HrtNotifyGetOffset).stubs().will(returnValue(1));
-    MOCKER(HrtGetSocVer).stubs();
+    MOCKER(HrtGetDevice).stubs().with(outBound(1)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyCreate)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtIpcSetNotifyName).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetNotifyID)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<u32>(1)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyGetAddr).stubs().with(mockcpp::any(), outBound((u64)0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyGetOffset).stubs().with(mockcpp::any(), outBound(1)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetSocVer).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     auto result = queueNotifyManager.Release(999, 999, 399);
 }

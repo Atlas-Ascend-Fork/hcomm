@@ -154,7 +154,10 @@ inline void MockInitDeps(DevType devType, InitFailPoint fail = InitFailPoint::kN
     MOCKER(HrtHalHostUnregister).stubs().will(returnValue(HCCL_SUCCESS));
 
     // Stream(nullptr) 构造里 InitDevPhyId 的依赖
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(static_cast<Hccl::DevId>(0)));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<Hccl::DevId>(0)))
+        .will(returnValue(HCCL_SUCCESS));
 }
 } // namespace
 

@@ -32,11 +32,15 @@ protected:
 
     virtual void SetUp()
     {
-        MOCKER(HrtIpcSetMemoryName).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
+        MOCKER(HrtIpcSetMemoryName)
+            .stubs()
+            .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
         MOCKER(HrtDevMemAlignWithPage)
             .stubs()
-            .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
-        MOCKER(HrtIpcDestroyMemoryName).stubs().with(mockcpp::any());
+            .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtIpcDestroyMemoryName).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
         MOCKER(GetUbToken).stubs().will(returnValue(1));
 
         devBuffer = DevBuffer::Create(0x100, 0x100);
@@ -100,7 +104,7 @@ TEST_F(LocalRmaBufManagerTest, reg_port_ub_first_time_get_then_second_throw)
 
 TEST_F(LocalRmaBufManagerTest, reg_port_ub_first_time_get_then_second_no_throw_aicpu)
 {
-    MOCKER(HrtUbDevQueryInfo).stubs().with(mockcpp::any(), mockcpp::any());
+    MOCKER(HrtUbDevQueryInfo).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     CommunicatorImpl comm;
     LocalRmaBufManager localRmaBufManager(comm);
@@ -136,7 +140,7 @@ TEST_F(LocalRmaBufManagerTest, get_aiv_urma_buffer_tag_appends_suffix)
 // 路径
 TEST_F(LocalRmaBufManagerTest, reg_port_ub_aiv_flag_on_uses_local_ub_rma_buffer_without_rdma_handle)
 {
-    MOCKER(HrtUbDevQueryInfo).stubs().with(mockcpp::any(), mockcpp::any());
+    MOCKER(HrtUbDevQueryInfo).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     CommunicatorImpl comm;
     comm.opExecuteConfig.accState = AcceleratorState::AIV; // 开启 AIV flag

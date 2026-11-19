@@ -71,9 +71,9 @@ HcclResult AicpuTsUboeUbRtpChannelHelper::BuildDrainResource()
     std::shared_ptr<Hccl::DevBuffer> constMem;
     EXCEPTION_CATCH(constMem = std::make_shared<Hccl::DevBuffer>(notifySize), return HCCL_E_PTR);
 
-    Hccl::HrtMemcpy(
+    CHK_RET(Hccl::HrtMemcpy(
         ReinterpretAs<void*>(constMem->GetAddr()), constMem->GetSize(), &NORMAL_NOTIFY_VAL, sizeof(NORMAL_NOTIFY_VAL),
-        Hccl::tagRtMemcpyKind::RT_MEMCPY_HOST_TO_DEVICE);
+        Hccl::tagRtMemcpyKind::RT_MEMCPY_HOST_TO_DEVICE));
 
     EXCEPTION_CATCH(
         drainBuffer_ = std::make_unique<Hccl::LocalUbRmaBuffer>(constMem, local_.rdmaHandle), return HCCL_E_PTR);

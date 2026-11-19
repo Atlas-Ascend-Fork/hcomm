@@ -53,7 +53,7 @@ TEST_F(FlushHandleTest, DoubleDestroy_Expect_Idempotent)
     GlobalMockObject::verify();
     MOCKER(RaDeregisterMr).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
     MOCKER(RaQpDestroy).stubs().with(mockcpp::any()).will(returnValue(0));
-    MOCKER(HrtFree).stubs();
+    MOCKER(HrtFree).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
     FlushHandle handle;
     handle.rdmaHandle = fakeRdmaHandle;
@@ -81,13 +81,16 @@ TEST_F(FlushHandleTest, Init_WhenFlushOpcodePath_Expect_SuccessAndFlagSet)
     // lbMax > 0 → 走 flushOpcode 路径
     int lbMax = 1;
     MOCKER(RaGetLbMax).stubs().with(mockcpp::any(), outBoundP(&lbMax, sizeof(lbMax))).will(returnValue(0));
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeLocalMem));
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound((void*)(fakeLocalMem)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(RaLoopbackQpCreate).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any()).will(returnValue(0));
     MOCKER(RaRegisterMr)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), outBoundP(&fakeMrHandle, sizeof(fakeMrHandle)))
         .will(returnValue(0));
-    MOCKER(HrtFree).stubs();
+    MOCKER(HrtFree).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
     FlushHandle handle;
     IpAddress ip("192.168.1.1");
@@ -109,7 +112,10 @@ TEST_F(FlushHandleTest, Init_WhenAllocateLocalMemoryFails_Expect_MemoryError)
         .will(returnValue(fakeRdmaHandle));
     MOCKER(RaGetLbMax).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
     // AllocateLocalMemory（HrtMalloc）失败
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue((void*)nullptr));
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound((void*)nullptr))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(RaDeregisterMr).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
     MOCKER(RaQpDestroy).stubs().with(mockcpp::any()).will(returnValue(0));
 
@@ -129,11 +135,14 @@ TEST_F(FlushHandleTest, Init_WhenCreateLoopbackQpFails_Expect_RoceConnectError)
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(fakeRdmaHandle));
     MOCKER(RaGetLbMax).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeLocalMem));
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound((void*)(fakeLocalMem)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(RaLoopbackQpCreate).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any()).will(returnValue(-1));
     MOCKER(RaDeregisterMr).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
     MOCKER(RaQpDestroy).stubs().with(mockcpp::any()).will(returnValue(0));
-    MOCKER(HrtFree).stubs();
+    MOCKER(HrtFree).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
     FlushHandle handle;
     IpAddress ip("192.168.1.1");
@@ -150,13 +159,16 @@ TEST_F(FlushHandleTest, Init_WhenRegisterLocalMrFails_Expect_MemoryError)
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(fakeRdmaHandle));
     MOCKER(RaGetLbMax).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeLocalMem));
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound((void*)(fakeLocalMem)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(RaLoopbackQpCreate).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any()).will(returnValue(0));
     // RaRegisterMr 第一次调用（Local MR）失败
     MOCKER(RaRegisterMr).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any()).will(returnValue(-1));
     MOCKER(RaDeregisterMr).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
     MOCKER(RaQpDestroy).stubs().with(mockcpp::any()).will(returnValue(0));
-    MOCKER(HrtFree).stubs();
+    MOCKER(HrtFree).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
     FlushHandle handle;
     IpAddress ip("192.168.1.1");
@@ -174,13 +186,16 @@ TEST_F(FlushHandleTest, Destroy_AfterSuccessfulInit_Expect_AllResourcesCleanedUp
         .will(returnValue(fakeRdmaHandle));
     int lbMax = 1;
     MOCKER(RaGetLbMax).stubs().with(mockcpp::any(), outBoundP(&lbMax, sizeof(lbMax))).will(returnValue(0));
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeLocalMem));
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound((void*)(fakeLocalMem)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(RaLoopbackQpCreate).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any()).will(returnValue(0));
     MOCKER(RaRegisterMr)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), outBoundP(&fakeMrHandle, sizeof(fakeMrHandle)))
         .will(returnValue(0));
-    MOCKER(HrtFree).stubs();
+    MOCKER(HrtFree).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(RaDeregisterMr).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
     MOCKER(RaQpDestroy).stubs().with(mockcpp::any()).will(returnValue(0));
 

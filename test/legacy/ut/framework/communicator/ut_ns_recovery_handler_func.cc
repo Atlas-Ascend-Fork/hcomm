@@ -31,6 +31,24 @@ static HcclResult HrtDrvMemCpyStub(void* dst, uint64_t destMax, const void* src,
     return HCCL_SUCCESS;
 }
 
+static void* g_hostMallocBufs[3] = {nullptr, nullptr, nullptr};
+static uint32_t g_hostMallocIdx = 0;
+static HcclResult HrtMallocHostStub(u64 size, void*& hostPtr)
+{
+    hostPtr = g_hostMallocBufs[g_hostMallocIdx % 3U];
+    g_hostMallocIdx++;
+    return HCCL_SUCCESS;
+}
+
+static void* g_devMallocBufs[3] = {nullptr, nullptr, nullptr};
+static uint32_t g_devMallocIdx = 0;
+static HcclResult HrtMallocStub(u64 size, aclrtMemType_t memType, void*& devPtr)
+{
+    devPtr = g_devMallocBufs[g_devMallocIdx % 3U];
+    g_devMallocIdx++;
+    return HCCL_SUCCESS;
+}
+
 class NsRecoveryHandlerFuncTest : public testing::Test {
 protected:
     static void SetUpTestCase() { std::cout << "NsRecoveryHandlerFuncTest SetUP" << std::endl; }
@@ -42,24 +60,25 @@ protected:
         memset_s(hostBufH2d, sizeof(hostBufH2d), 0, sizeof(hostBufH2d));
         memset_s(hostBufD2h, sizeof(hostBufD2h), 0, sizeof(hostBufD2h));
         memset_s(hostCacheD2h, sizeof(hostCacheD2h), 0, sizeof(hostCacheD2h));
-        MOCKER(HrtMallocHost)
-            .stubs()
-            .with(mockcpp::any())
-            .will(returnValue(static_cast<void*>(hostBufH2d)))
-            .then(returnValue(static_cast<void*>(hostBufD2h)))
-            .then(returnValue(static_cast<void*>(hostCacheD2h)));
+        g_hostMallocBufs[0] = static_cast<void*>(hostBufH2d);
+        g_hostMallocBufs[1] = static_cast<void*>(hostBufD2h);
+        g_hostMallocBufs[2] = static_cast<void*>(hostCacheD2h);
+        g_hostMallocIdx = 0;
+        MOCKER(HrtMallocHost).stubs().with(mockcpp::any(), mockcpp::any()).will(invoke(HrtMallocHostStub));
         memset_s(devBufH2d, sizeof(devBufH2d), 0, sizeof(devBufH2d));
         memset_s(devCacheH2d, sizeof(devCacheH2d), 0, sizeof(devCacheH2d));
         memset_s(devBufD2h, sizeof(devBufD2h), 0, sizeof(devBufD2h));
-        MOCKER(HrtMalloc)
-            .stubs()
-            .with(mockcpp::any(), mockcpp::any())
-            .will(returnValue(static_cast<void*>(devBufH2d)))
-            .then(returnValue(static_cast<void*>(devCacheH2d)))
-            .then(returnValue(static_cast<void*>(devBufD2h)));
+        g_devMallocBufs[0] = static_cast<void*>(devBufH2d);
+        g_devMallocBufs[1] = static_cast<void*>(devCacheH2d);
+        g_devMallocBufs[2] = static_cast<void*>(devBufD2h);
+        g_devMallocIdx = 0;
+        MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any()).will(invoke(HrtMallocStub));
         MOCKER(HrtDrvMemCpy).stubs().with().will(invoke(HrtDrvMemCpyStub));
 
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_910A2));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound((Hccl::DevType)Hccl::DevType::DEV_TYPE_910A2))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
         MOCKER_CPP(&RtsqBase::QuerySqBaseAddr)
             .stubs()
             .with(mockcpp::any())

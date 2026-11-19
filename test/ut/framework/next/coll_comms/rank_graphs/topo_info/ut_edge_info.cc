@@ -37,7 +37,7 @@ protected:
 TEST_F(EdgeParserTest, Ut_Deserialize_When_Normal_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string edgeString = R"({
             "net_layer": 0,
@@ -80,7 +80,7 @@ TEST_F(EdgeParserTest, Ut_GetLinkProtocol_When_NewAndLegacyProtocol_Expect_UbRtp
 TEST_F(EdgeParserTest, Ut_Deserialize_When_OptionalFieldsMissing_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string edgeString = R"({
             "net_layer": 0,
@@ -113,7 +113,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_OptionalFieldsMissing_Expect_Success)
 TEST_F(EdgeParserTest, Ut_Deserialize_When_PEER2NET_ExistB_Expect_Warning)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string edgeString = R"({
             "net_layer": 0,
@@ -146,7 +146,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_PEER2NET_ExistB_Expect_Warning)
 TEST_F(EdgeParserTest, Ut_Deserialize_When_NormalPeer2Net_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string edgeString = R"({
             "net_layer": 0,
@@ -177,7 +177,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_NormalPeer2Net_Expect_Success)
 TEST_F(EdgeParserTest, Ut_Deserialize_When_NeededFieldMissing_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string edgeString = R"({
 			"net_layer": 0,
@@ -192,7 +192,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_NeededFieldMissing_Expect_Exception)
 TEST_F(EdgeParserTest, Ut_Deserialize_When_InvalidNetLayer_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string edgeString = R"({
 			"net_layer": 8,
@@ -214,7 +214,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_InvalidNetLayer_Expect_Exception)
 TEST_F(EdgeParserTest, Ut_Deserialize_When_InvalidLinkProtocol_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string edgeString = R"({
 			"net_layer": 4,
@@ -236,7 +236,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_InvalidLinkProtocol_Expect_Exception)
 TEST_F(EdgeParserTest, Ut_Deserialize_When_ToManyLinkProtocols_Expect_E_PARA)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string edgeString = R"({
 			"net_layer": 2,
@@ -258,7 +258,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_ToManyLinkProtocols_Expect_E_PARA)
 TEST_F(EdgeParserTest, Ut_Deserialize_When_InvalidTopoType_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string edgeString = R"({
 			"net_layer": 2,
@@ -280,7 +280,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_InvalidTopoType_Expect_Exception)
 TEST_F(EdgeParserTest, Ut_Deserialize_When_InvalidLinkType_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string edgeString = R"({
 			"net_layer": 2,
@@ -302,7 +302,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_InvalidLinkType_Expect_Exception)
 TEST_F(EdgeParserTest, Ut_Deserialize_When_PEER2PEERHasSameEndPoint_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string edgeString = R"({
 			"net_layer": 2,
@@ -324,7 +324,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_PEER2PEERHasSameEndPoint_Expect_Excep
 TEST_F(EdgeParserTest, Ut_Deserialize_When_PEER2PEERlocalBMissing_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string edgeString = R"({
 			"net_layer": 2,
@@ -345,7 +345,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_PEER2PEERlocalBMissing_Expect_Excepti
 TEST_F(EdgeParserTest, Ut_Deserialize_When_InvalidLengthOfPort_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string edgeString = R"({
 			"net_layer": 2,
@@ -366,7 +366,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_InvalidLengthOfPort_Expect_Exception)
 TEST_F(EdgeParserTest, Ut_Deserialize_When_InvalidSizeOflocalAPorts_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string edgeString = R"({
 			"net_layer": 0,
@@ -392,7 +392,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_InvalidSizeOflocalAPorts_Expect_Excep
 TEST_F(EdgeParserTest, Ut_Deserialize_When_InvalidPosition_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string edgeString = R"({
 			"net_layer": 2,

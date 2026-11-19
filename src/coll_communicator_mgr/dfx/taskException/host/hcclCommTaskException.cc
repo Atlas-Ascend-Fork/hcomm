@@ -869,7 +869,17 @@ void TaskExceptionHost::PrintUbDfxInfo(
             "errorMessage ubCqeStatus[%u], localEid[%s], remoteEid[%s]. ", static_cast<u32>(errorMessage.ubCqeStatus),
             errorMessage.locEid.Describe().c_str(), errorMessage.rmtEid.Describe().c_str());
         auto addr = Hccl::IpAddress(errorMessage.locEid);
-        u32 devPhyId = Hccl::HrtGetDevicePhyIdByUserDevId(exceptionInfo->deviceid);
+        Hccl::DevId devPhyIdOut = 0;
+        // 独立打印函数：HrtGetDevicePhyIdByUserDevId 失败时不抛异常，仅打印报错并跳过后续依赖 devPhyId 的寄存器打印，
+        // 不影响调用方后续 DFX 日志与上报逻辑。
+        HcclResult ret = Hccl::HrtGetDevicePhyIdByUserDevId(exceptionInfo->deviceid, devPhyIdOut);
+        if (ret != HCCL_SUCCESS) {
+            HCCL_ERROR(
+                "[PrintUbDfxInfo] HrtGetDevicePhyIdByUserDevId failed, deviceId[%u], ret[%d].",
+                static_cast<u32>(exceptionInfo->deviceid), ret);
+            return;
+        }
+        u32 devPhyId = static_cast<u32>(devPhyIdOut);
         auto rdmaHandle = Hccl::RdmaHandleManager::GetInstance().GetByIp(devPhyId, addr);
         HrtRaDumpJettyContext(reinterpret_cast<void*>(errorMessage.jettyHandle), errorMessage.jettyId);
         PrintUbRegisters(static_cast<s32>(exceptionInfo->deviceid), rdmaHandle);

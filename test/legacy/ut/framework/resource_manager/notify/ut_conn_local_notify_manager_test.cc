@@ -30,7 +30,10 @@ protected:
 
     virtual void SetUp()
     {
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType(DevType::DEV_TYPE_910A2)));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound(Hccl::DevType(DevType(DevType::DEV_TYPE_910A2))))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
         std::cout << "A Test case in ConnLocalNotifyManagerTest SetUP" << std::endl;
     }
 
@@ -47,13 +50,19 @@ TEST_F(ConnLocalNotifyManagerTest, applyfor_return_ok)
     CommunicatorImpl comm;
     ConnLocalNotifyManager connLocalNotifyManager(&comm);
     // Given
-    MOCKER(HrtGetDevice).stubs().will(returnValue(1));
-    MOCKER(HrtNotifyCreate).stubs().will(returnValue((void*)(0)));
-    MOCKER(HrtIpcSetNotifyName).stubs();
-    MOCKER(HrtGetNotifyID).stubs().will(returnValue(1));
-    MOCKER(HrtNotifyGetAddr).stubs().will(returnValue((u64)0));
-    MOCKER(HrtNotifyGetOffset).stubs().will(returnValue(1));
-    MOCKER(HrtGetSocVer).stubs();
+    MOCKER(HrtGetDevice).stubs().with(outBound(1)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyCreate)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtIpcSetNotifyName).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetNotifyID)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<u32>(1)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyGetAddr).stubs().with(mockcpp::any(), outBound((u64)0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyGetOffset).stubs().with(mockcpp::any(), outBound(1)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetSocVer).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
     RankId fakeLocalRankID = 1;
     RankId fakeRemoteRankID = 2;
@@ -78,13 +87,19 @@ TEST_F(ConnLocalNotifyManagerTest, release_return_ok)
     CommunicatorImpl comm;
     ConnLocalNotifyManager connLocalNotifyManager(&comm);
     // Given
-    MOCKER(HrtGetDevice).stubs().will(returnValue(1));
-    MOCKER(HrtNotifyCreate).stubs().will(returnValue((void*)(0)));
-    MOCKER(HrtIpcSetNotifyName).stubs();
-    MOCKER(HrtGetNotifyID).stubs().will(returnValue(1));
-    MOCKER(HrtNotifyGetAddr).stubs().will(returnValue((u64)0));
-    MOCKER(HrtNotifyGetOffset).stubs().will(returnValue(1));
-    MOCKER(HrtGetSocVer).stubs();
+    MOCKER(HrtGetDevice).stubs().with(outBound(1)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyCreate)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtIpcSetNotifyName).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetNotifyID)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<u32>(1)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyGetAddr).stubs().with(mockcpp::any(), outBound((u64)0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyGetOffset).stubs().with(mockcpp::any(), outBound(1)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetSocVer).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
     RankId fakeLocalRankID = 1;
     RankId fakeRemoteRankID = 2;
@@ -106,13 +121,19 @@ TEST_F(ConnLocalNotifyManagerTest, destroy_return_nok)
     CommunicatorImpl comm;
     ConnLocalNotifyManager connLocalNotifyManager(&comm);
     // Given
-    MOCKER(HrtGetDevice).stubs().will(returnValue(1));
-    MOCKER(HrtNotifyCreate).stubs().will(returnValue((void*)(0)));
-    MOCKER(HrtIpcSetNotifyName).stubs();
-    MOCKER(HrtGetNotifyID).stubs().will(returnValue(1));
-    MOCKER(HrtNotifyGetAddr).stubs().will(returnValue((u64)0));
-    MOCKER(HrtNotifyGetOffset).stubs().will(returnValue(1));
-    MOCKER(HrtGetSocVer).stubs();
+    MOCKER(HrtGetDevice).stubs().with(outBound(1)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyCreate)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtIpcSetNotifyName).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetNotifyID)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<u32>(1)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyGetAddr).stubs().with(mockcpp::any(), outBound((u64)0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyGetOffset).stubs().with(mockcpp::any(), outBound(1)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetSocVer).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
     RankId fakeLocalRankID = 1;
     RankId fakeRemoteRankID = 2;
@@ -143,14 +164,23 @@ TEST_F(ConnLocalNotifyManagerTest, apply_for_ub_notify_ok)
     comm.devPhyId = 0;
     ConnLocalNotifyManager connLocalNotifyManager(&comm);
     // Given
-    MOCKER(HrtGetDevice).stubs().will(returnValue(1));
-    MOCKER(HrtNotifyCreate).stubs().will(returnValue((void*)(0)));
-    MOCKER(HrtIpcSetNotifyName).stubs();
-    MOCKER(HrtGetNotifyID).stubs().will(returnValue(1));
-    MOCKER(HrtNotifyGetAddr).stubs().will(returnValue((u64)0));
-    MOCKER(HrtNotifyGetOffset).stubs().will(returnValue(1));
-    MOCKER(HrtGetSocVer).stubs();
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_950));
+    MOCKER(HrtGetDevice).stubs().with(outBound(1)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyCreate)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtIpcSetNotifyName).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetNotifyID)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<u32>(1)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyGetAddr).stubs().with(mockcpp::any(), outBound((u64)0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyGetOffset).stubs().with(mockcpp::any(), outBound(1)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetSocVer).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_950)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     pair<TokenIdHandle, uint32_t> fakeTokenInfo = make_pair(0x12345678, 1);
     MOCKER_CPP(&RdmaHandleManager::GetTokenIdInfo).stubs().will(returnValue(fakeTokenInfo));

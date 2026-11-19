@@ -109,7 +109,10 @@ MockMakeCcuConnection(hcomm::TpProtocol tpProtocol)
 #define SETUP_CCU_JETTY_MOCKS()                                                                 \
     do {                                                                                        \
         MOCKER(HcclGetThreadDeviceId).stubs().will(returnValue(0));                             \
-        MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(static_cast<s32>(0)));    \
+        MOCKER(HrtGetDevicePhyIdByUserDevId)                                                    \
+            .stubs()                                                                            \
+            .with(mockcpp::any(), outBound(static_cast<DevId>(0)))                              \
+            .will(returnValue(HcclResult::HCCL_SUCCESS));                                       \
         void* rdmaHandle = reinterpret_cast<void*>(0x300);                                      \
         MOCKER_CPP(&Hccl::RdmaHandleManager::GetByIp).stubs().will(returnValue(rdmaHandle));    \
         MOCKER_CPP(&Hccl::RdmaHandleManager::IsHandleValid).stubs().will(returnValue(true));    \

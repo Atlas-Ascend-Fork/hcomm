@@ -102,7 +102,10 @@ TEST(DevUbConnectionTest, rma_ub_connection_get_jfcMode_and_jettyHandle_ok)
 
 TEST(DevUbConnectionTest, tp_import_test)
 {
-    MOCKER(HrtGetDevicePhyIdByUserDevId).defaults().will(returnValue(static_cast<DevId>(0)));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .defaults()
+        .with(outBound(static_cast<DevId>(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     // construct DevUbConnection
     RdmaHandle rdmaHandle = (void*)0x1000000;
 

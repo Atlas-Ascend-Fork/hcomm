@@ -78,8 +78,8 @@ namespace {
                                nullptr :
                                reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(slabBase) + section.offset);
         CHK_PTR_NULL(sectionPtr);
-        Hccl::HrtMemcpy(
-            sectionPtr, section.size, hostArray, section.size, Hccl::tagRtMemcpyKind::RT_MEMCPY_HOST_TO_DEVICE);
+        CHK_RET(Hccl::HrtMemcpy(
+            sectionPtr, section.size, hostArray, section.size, Hccl::tagRtMemcpyKind::RT_MEMCPY_HOST_TO_DEVICE));
         *deviceArrayPtr = reinterpret_cast<T*>(sectionPtr);
         HCCL_INFO(
             "[CopyArrayToSlab] %s: host[%p] -> dev[%p], num[%u], size[%zu]", arrayName, hostArray, sectionPtr, arrayNum,
@@ -208,9 +208,9 @@ HcclResult AivEntitySlabBase::CopyChannelEntityHeaderToSlab(
 {
     entityDevPtr = GetSlabPtr(slabPtr, layout.entitySection);
     CHK_PTR_NULL(entityDevPtr);
-    Hccl::HrtMemcpy(
+    CHK_RET(Hccl::HrtMemcpy(
         entityDevPtr, sizeof(ChannelEntity), &devChannel, sizeof(ChannelEntity),
-        Hccl::tagRtMemcpyKind::RT_MEMCPY_HOST_TO_DEVICE);
+        Hccl::tagRtMemcpyKind::RT_MEMCPY_HOST_TO_DEVICE));
     return HCCL_SUCCESS;
 }
 
@@ -458,9 +458,9 @@ HcclResult AivChannelEntity::ZeroQueueIndexSection(
     }
     void* sectionPtr = GetSlabPtr(slabPtr, section);
     CHK_PTR_NULL(sectionPtr);
-    Hccl::HrtMemcpy(
+    CHK_RET(Hccl::HrtMemcpy(
         sectionPtr, section.size, zeroQueueIndexMem.data(), section.size,
-        Hccl::tagRtMemcpyKind::RT_MEMCPY_HOST_TO_DEVICE);
+        Hccl::tagRtMemcpyKind::RT_MEMCPY_HOST_TO_DEVICE));
     return HCCL_SUCCESS;
 }
 

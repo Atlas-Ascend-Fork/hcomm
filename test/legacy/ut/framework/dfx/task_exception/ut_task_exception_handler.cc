@@ -214,7 +214,10 @@ void TaskExceptionHandlerTest::StubCcuExceptionProcess() const
     MOCKER(GetCcuErrorMsg).stubs().will(invoke(MockGetCcuErrorMsg));
     MOCKER(CcuCleanDieCkes).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CcuComponent::Init).stubs();
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(static_cast<DevId>(0)));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtRaTlvRequestForCustomChannel).stubs();
     MOCKER(TaskExceptionHandler::PrintAicpuErrorMessage).stubs();
 }
@@ -364,7 +367,10 @@ TEST_F(TaskExceptionHandlerTest, test_process_mc2)
     // 打桩清除TaskKill状态, 清除表项, 清除CKE操作
     MOCKER(CcuCleanDieCkes).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CcuComponent::Init).stubs();
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtRaTlvRequestForCustomChannel).stubs();
 
     TaskExceptionHandler::Process(&exceptionInfo);
@@ -610,8 +616,11 @@ TEST_F(TaskExceptionHandlerTest, Ut_DisplayRPCMsg_When_Normal_Expect_InvokeDispl
     collServiceCcu->mc2Compont.comSyncBuffer = std::make_shared<DevBuffer>(CCU_TASK_NUM_MAX * 2 * sizeof(uint64_t));
 
     std::vector<uint64_t> hostBuf(CCU_TASK_NUM_MAX * CCU_PARAM_NUM_MAX, 0);
-    MOCKER(HrtMallocHost).stubs().will(returnValue(static_cast<void*>(hostBuf.data())));
-    MOCKER(HrtMemcpy).stubs();
+    MOCKER(HrtMallocHost)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<void*>(hostBuf.data())))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtMemcpy).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
     EXPECT_NO_THROW(TaskExceptionHandler::DisplayRPCMsg(*taskInfo));
 }
@@ -642,7 +651,10 @@ TEST_F(TaskExceptionHandlerTest, Ut_ProcessCcuMC2Exception_When_StatusZero_Expec
     // 打桩循环后清理操作
     MOCKER(CcuCleanDieCkes).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CcuComponent::Init).stubs();
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtRaTlvRequestForCustomChannel).stubs();
     MOCKER(TaskExceptionHandler::PrintAicpuErrorMessage).stubs();
 

@@ -13,6 +13,8 @@
 #include "task_abort_handler_v2.h"
 #include "ccu_dev_mgr.h"
 #include "log.h"
+#include "internal_exception.h"
+#include "exception_util.h"
 
 namespace Hccl {
 using HcclUs = std::chrono::steady_clock::time_point;
@@ -120,13 +122,18 @@ ProcessTaskAbortHandleCallback(int32_t deviceLogicId, aclrtDeviceTaskAbortStage 
 TaskAbortHandler::TaskAbortHandler()
 {
     std::string name = "HCCL";
-    HrtDeviceAbortRegCallBack(ProcessTaskAbortHandleCallback, static_cast<void*>(&commVector), name);
+    CHK_RET_THROW(
+        InternalException, "[TaskAbortHandler] HrtDeviceAbortRegCallBack failed",
+        HrtDeviceAbortRegCallBack(ProcessTaskAbortHandleCallback, static_cast<void*>(&commVector), name));
 }
 
 TaskAbortHandler::~TaskAbortHandler()
 {
     std::string name = "HCCL";
-    DECTOR_TRY_CATCH("TaskAbortHandler", HrtDeviceAbortRegCallBack(nullptr, nullptr, name));
+    HcclResult ret = HrtDeviceAbortRegCallBack(nullptr, nullptr, name);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR("[TaskAbortHandler] HrtDeviceAbortRegCallBack failed, ret[%d].", ret);
+    }
 }
 
 TaskAbortHandler& TaskAbortHandler::GetInstance()

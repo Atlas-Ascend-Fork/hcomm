@@ -30,14 +30,32 @@ protected:
 
     virtual void SetUp()
     {
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType(DevType::DEV_TYPE_910A2)));
-        MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-        MOCKER(HrtNotifyCreate).stubs().will(returnValue((void*)(fakeNotifyHandleAddr)));
-        MOCKER(HrtIpcSetNotifyName).stubs().with(mockcpp::any(), outBoundP(fakeName, sizeof(fakeName)), mockcpp::any());
-        MOCKER(HrtGetNotifyID).stubs().will(returnValue(fakeNotifyId));
-        MOCKER(HrtNotifyGetAddr).stubs().with(mockcpp::any()).will(returnValue(fakeAddress));
-        MOCKER(HrtNotifyGetOffset).stubs().will(returnValue(fakeOffset));
-        MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(fakePid));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound(Hccl::DevType(DevType(DevType::DEV_TYPE_910A2))))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyCreate)
+            .stubs()
+            .with(mockcpp::any(), outBound((void*)(fakeNotifyHandleAddr)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtIpcSetNotifyName)
+            .stubs()
+            .with(mockcpp::any(), outBoundP(fakeName, sizeof(fakeName)), mockcpp::any())
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetNotifyID)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeNotifyId))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyGetAddr)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeAddress))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyGetOffset)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeOffset))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtDeviceGetBareTgid).stubs().with(outBound(fakePid)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
         std::cout << "A Test case in IpcLocalNotifyTest SetUP" << std::endl;
     }
@@ -76,15 +94,36 @@ protected:
 
     virtual void SetUp()
     {
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType(DevType::DEV_TYPE_910A2)));
-        MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-        MOCKER(HrtNotifyCreate).stubs().will(returnValue((void*)(fakeNotifyHandleAddr)));
-        MOCKER(HrtIpcSetNotifyName).stubs().with(mockcpp::any(), outBoundP(fakeName, sizeof(fakeName)), mockcpp::any());
-        MOCKER(HrtGetNotifyID).stubs().will(returnValue(fakeNotifyId));
-        MOCKER(HrtNotifyGetAddr).stubs().with(mockcpp::any()).will(returnValue(fakeAddress));
-        MOCKER(HrtNotifyGetOffset).stubs().will(returnValue(fakeOffset));
-        MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(fakePid));
-        MOCKER(HrtNotifyCreateWithFlag).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(notifyInfo));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound(Hccl::DevType(DevType(DevType::DEV_TYPE_910A2))))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyCreate)
+            .stubs()
+            .with(mockcpp::any(), outBound((void*)(fakeNotifyHandleAddr)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtIpcSetNotifyName)
+            .stubs()
+            .with(mockcpp::any(), outBoundP(fakeName, sizeof(fakeName)), mockcpp::any())
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetNotifyID)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeNotifyId))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyGetAddr)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeAddress))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyGetOffset)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeOffset))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtDeviceGetBareTgid).stubs().with(outBound(fakePid)).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyCreateWithFlag)
+            .stubs()
+            .with(mockcpp::any(), mockcpp::any(), outBound((void*)(notifyInfo)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
 
         MOCKER(HrtRaGetNotifyBaseAddr)
             .stubs()
@@ -136,7 +175,10 @@ protected:
         localMemRegInfo.tokenId = fakeTokenId;
         localMemRegInfo.targetSegVa = fakeSegVa;
         HrtDevResAddrInfo resAddrInfo;
-        MOCKER(HrtGetDevResAddress).stubs().with(mockcpp::any()).will(returnValue(resAddrInfo));
+        MOCKER(HrtGetDevResAddress)
+            .stubs()
+            .with(mockcpp::any(), outBound(resAddrInfo))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
 
         RequestHandle fakeReqHandle = 1;
 
@@ -154,16 +196,34 @@ protected:
             .will(returnValue(fakeReqHandle));
         MOCKER(RaUbLocalMemUnregAsync).stubs().will(returnValue(fakeReqHandle));
 
-        MOCKER(HrtReleaseDevResAddress).stubs().with(mockcpp::any());
+        MOCKER(HrtReleaseDevResAddress).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
 
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType(DevType::DEV_TYPE_950)));
-        MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-        MOCKER(HrtNotifyCreate).stubs().will(returnValue((void*)(fakeNotifyHandleAddr)));
-        MOCKER(HrtIpcSetNotifyName).stubs().with(mockcpp::any(), outBoundP(fakeName, sizeof(fakeName)), mockcpp::any());
-        MOCKER(HrtGetNotifyID).stubs().will(returnValue(fakeNotifyId));
-        MOCKER(HrtNotifyGetAddr).stubs().with(mockcpp::any()).will(returnValue(fakeAddress));
-        MOCKER(HrtNotifyGetOffset).stubs().will(returnValue(fakeOffset));
-        MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(fakePid));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound(Hccl::DevType(DevType(DevType::DEV_TYPE_950))))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyCreate)
+            .stubs()
+            .with(mockcpp::any(), outBound((void*)(fakeNotifyHandleAddr)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtIpcSetNotifyName)
+            .stubs()
+            .with(mockcpp::any(), outBoundP(fakeName, sizeof(fakeName)), mockcpp::any())
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetNotifyID)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeNotifyId))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyGetAddr)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeAddress))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyGetOffset)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeOffset))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtDeviceGetBareTgid).stubs().with(outBound(fakePid)).will(returnValue(HcclResult::HCCL_SUCCESS));
         MOCKER(HrtRaGetNotifyBaseAddr)
             .stubs()
             .with(mockcpp::any(), outBoundP(&fakeVa, sizeof(fakeVa)), outBoundP(&fakeSize, sizeof(fakeSize)))
@@ -266,7 +326,7 @@ TEST_F(UbLocalNotifyTest, Ut_When_RdmaHandleInvalid_ThenReleaseResource_Expect_S
     SetupConstructMocks(rdmaHandle);
     MOCKER(HrtRaUbLocalMemUnreg).expects(atMost(0));
     MOCKER_CPP(&RdmaHandleManager::PutTokenIdInfo).expects(atMost(0));
-    MOCKER(HrtReleaseDevResAddress).stubs().with(mockcpp::any());
+    MOCKER(HrtReleaseDevResAddress).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // when
     UbLocalNotify ubLocalNotify(rdmaHandle);
@@ -287,7 +347,7 @@ TEST_F(UbLocalNotifyTest, Ut_When_RdmaHandleValid_ThenReleaseResource_Expect_Unr
     SetupConstructMocks(rdmaHandle);
     MOCKER(HrtRaUbLocalMemUnreg).expects(atMost(1)).with(mockcpp::any(), mockcpp::any());
     MOCKER_CPP(&RdmaHandleManager::PutTokenIdInfo).stubs();
-    MOCKER(HrtReleaseDevResAddress).stubs().with(mockcpp::any());
+    MOCKER(HrtReleaseDevResAddress).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // when
     UbLocalNotify ubLocalNotify(rdmaHandle);
@@ -308,7 +368,7 @@ TEST_F(UbLocalNotifyTest, Ut_When_DestroyAllDone_ThenDestructUbLocalNotify_Expec
     SetupConstructMocks(rdmaHandle);
     MOCKER(HrtRaUbLocalMemUnreg).expects(atMost(0));
     MOCKER_CPP(&RdmaHandleManager::PutTokenIdInfo).expects(atMost(0));
-    MOCKER(HrtReleaseDevResAddress).stubs().with(mockcpp::any());
+    MOCKER(HrtReleaseDevResAddress).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // when: DestroyAll 置 destroyed 并清空 activeHandles_，再触发析构
     {

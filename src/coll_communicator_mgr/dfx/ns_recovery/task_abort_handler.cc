@@ -9,6 +9,7 @@
  */
 
 #include "task_abort_handler.h"
+#include "internal_exception.h"
 #include <algorithm>
 #include <mutex>
 #include "log.h"
@@ -129,13 +130,18 @@ int32_t ProcessTaskAbortCallback(int32_t deviceLogicId, aclrtDeviceTaskAbortStag
 HcclTaskAbortHandler::HcclTaskAbortHandler()
 {
     std::string name = "HCOMM";
-    Hccl::HrtDeviceAbortRegCallBack(ProcessTaskAbortCallback, static_cast<void*>(this), name);
+    CHK_RET_THROW(
+        Hccl::InternalException, "[HcclTaskAbortHandler] HrtDeviceAbortRegCallBack failed",
+        Hccl::HrtDeviceAbortRegCallBack(ProcessTaskAbortCallback, static_cast<void*>(this), name));
 }
 
 HcclTaskAbortHandler::~HcclTaskAbortHandler()
 {
     std::string name = "HCOMM";
-    Hccl::HrtDeviceAbortRegCallBack(nullptr, nullptr, name);
+    HcclResult ret = Hccl::HrtDeviceAbortRegCallBack(nullptr, nullptr, name);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR("[%s] HrtDeviceAbortRegCallBack failed, ret[%d]", __func__, ret);
+    }
 }
 
 HcclResult HcclTaskAbortHandler::Register(CollComm* communicator)

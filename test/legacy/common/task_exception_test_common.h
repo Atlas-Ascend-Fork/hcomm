@@ -58,7 +58,10 @@ inline void SetupAndProcessCcuException()
 
     MOCKER(CcuCleanDieCkes).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CcuComponent::Init).stubs();
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtRaTlvRequestForCustomChannel).stubs();
 
     TaskExceptionHandler::Process(&exceptionInfo);

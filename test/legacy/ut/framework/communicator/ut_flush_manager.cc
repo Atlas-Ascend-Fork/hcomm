@@ -136,7 +136,10 @@ TEST_F(FlushManagerTest, Ut_InitFlushHandle_When_HrtRdmaInitSucceeds_Expect_Flus
         .will(returnValue(fakeRdmaHandle));
     int lbMax = 1;
     MOCKER(RaGetLbMax).stubs().with(mockcpp::any(), outBoundP(&lbMax, sizeof(lbMax))).will(returnValue(0));
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeLocalMem));
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound((void*)(fakeLocalMem)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(RaLoopbackQpCreate).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any()).will(returnValue(0));
     MOCKER(RaRegisterMr)
         .stubs()
@@ -146,7 +149,7 @@ TEST_F(FlushManagerTest, Ut_InitFlushHandle_When_HrtRdmaInitSucceeds_Expect_Flus
     // map 清理触发 FlushHandle::Destroy 的释放链路
     MOCKER(RaDeregisterMr).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
     MOCKER(RaQpDestroy).stubs().with(mockcpp::any()).will(returnValue(0));
-    MOCKER(HrtFree).stubs();
+    MOCKER(HrtFree).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
     IpAddress ip("192.168.1.1");
     HcclResult ret = fm.initFlushHandle(ip, 0);
@@ -180,7 +183,10 @@ TEST_F(FlushManagerTest, Ut_InitFlushHandle_When_HrtRdmaInitReturnsNonLinkDownEr
         .will(returnValue(fakeRdmaHandle));
     int lbMax = 1;
     MOCKER(RaGetLbMax).stubs().with(mockcpp::any(), outBoundP(&lbMax, sizeof(lbMax))).will(returnValue(0));
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeLocalMem));
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound((void*)(fakeLocalMem)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(RaLoopbackQpCreate).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any()).will(returnValue(0));
     MOCKER(RaRegisterMr)
         .stubs()
@@ -190,7 +196,7 @@ TEST_F(FlushManagerTest, Ut_InitFlushHandle_When_HrtRdmaInitReturnsNonLinkDownEr
     // map 清理触发 FlushHandle::Destroy 的释放链路
     MOCKER(RaDeregisterMr).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
     MOCKER(RaQpDestroy).stubs().with(mockcpp::any()).will(returnValue(0));
-    MOCKER(HrtFree).stubs();
+    MOCKER(HrtFree).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
     IpAddress ip("192.168.1.1");
     HcclResult ret = fm.initFlushHandle(ip, 0);

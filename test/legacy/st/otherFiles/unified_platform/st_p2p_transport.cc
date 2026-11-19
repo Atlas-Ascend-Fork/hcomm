@@ -118,22 +118,48 @@ static char fakeName[65] = "testRtsNotify";
 
 static void Mock()
 {
-    MOCKER(HrtMemAsyncCopy).stubs().with(mockcpp::any());
-    MOCKER(HrtReduceAsync).stubs().with(mockcpp::any());
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
-    MOCKER(HrtStreamDestroy).stubs();
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A2));
-    MOCKER(HrtIpcOpenNotify).stubs().with(mockcpp::any()).will(returnValue((void*)fakeNotifyHandleAddr));
-    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(fakePid));
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-    MOCKER(HrtNotifyCreate).stubs().will(returnValue((void*)(fakeNotifyHandleAddr)));
-    MOCKER(HrtIpcSetNotifyName).stubs().with(mockcpp::any(), outBoundP(fakeName, sizeof(fakeName)), mockcpp::any());
-    MOCKER(HrtGetNotifyID).stubs().will(returnValue(fakeNotifyId));
-    MOCKER(HrtNotifyGetAddr).stubs().with(mockcpp::any()).will(returnValue(fakeAddress));
-    MOCKER(HrtNotifyGetOffset).stubs().will(returnValue(fakeOffset));
+    MOCKER(HrtMemAsyncCopy)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtReduceAsync)
+        .stubs()
+        .with(
+            mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(),
+            mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtStreamDestroy).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((DevType)DevType::DEV_TYPE_910A2))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtIpcOpenNotify)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)fakeNotifyHandleAddr))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtDeviceGetBareTgid).stubs().with(outBound(s32(fakePid))).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyCreate)
+        .stubs()
+        .with(outBound((void*)(fakeNotifyHandleAddr)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtIpcSetNotifyName)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(fakeName, sizeof(fakeName)), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetNotifyID).stubs().with(outBound(u32(fakeNotifyId))).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyGetAddr)
+        .stubs()
+        .with(mockcpp::any(), outBound(u64(fakeAddress)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyGetOffset).stubs().with(outBound(u32(fakeOffset))).will(returnValue(HcclResult::HCCL_SUCCESS));
 
-    MOCKER(HrtNotifyRecord).stubs().with(mockcpp::any());
-    MOCKER(HrtNotifyWaitWithTimeOut).stubs().with(mockcpp::any());
+    MOCKER(HrtNotifyRecord).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtNotifyWaitWithTimeOut)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 }
 
 class P2PTransportTest : public testing::Test {
@@ -362,7 +388,7 @@ TEST(P2PTransportTest, P2PTransport_send_recv_exchange_data)
     P2PTransport transport(locRes, attr, link, fakeSocket);
 
     MOCKER(memcpy_s).stubs().with().will(invoke(memcpy_stub));
-    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(100));
+    MOCKER(HrtDeviceGetBareTgid).stubs().with(outBound(s32(100))).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     StubSocket stubSocket;
     transport.socket = &stubSocket;

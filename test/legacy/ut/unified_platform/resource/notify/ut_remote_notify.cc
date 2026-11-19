@@ -26,14 +26,20 @@ protected:
 
     virtual void SetUp()
     {
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType::DEV_TYPE_910A2));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound(Hccl::DevType(DevType::DEV_TYPE_910A2)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
         MOCKER(HrtIpcOpenNotify).stubs().with(mockcpp::any()).will(returnValue((void*)fakeNotifyHandleAddr));
         MOCKER(HrtIpcOpenNotifyWithFlag)
             .stubs()
             .with(mockcpp::any(), mockcpp::any())
             .will(returnValue((void*)fakeNotifyHandleAddr));
-        MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(fakePid));
-        MOCKER(HrtNotifyGetAddr).stubs().with(mockcpp::any()).will(returnValue(fakeAddress));
+        MOCKER(HrtDeviceGetBareTgid).stubs().with(outBound(fakePid)).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyGetAddr)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeAddress))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
         std::cout << "A Test case in IpcRemoteNotifyTest SetUP" << std::endl;
     }
 
@@ -58,10 +64,16 @@ protected:
 
     virtual void SetUp()
     {
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType::DEV_TYPE_910A2));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound(Hccl::DevType(DevType::DEV_TYPE_910A2)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
         MOCKER(HrtIpcOpenNotify).stubs().with(mockcpp::any()).will(returnValue((void*)fakeNotifyHandleAddr));
-        MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(fakePid));
-        MOCKER(HrtNotifyGetAddr).stubs().with(mockcpp::any()).will(returnValue(fakeAddress));
+        MOCKER(HrtDeviceGetBareTgid).stubs().with(outBound(fakePid)).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyGetAddr)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeAddress))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
         std::cout << "A Test case in RdmaRemoteNotifyTest SetUP" << std::endl;
     }
 

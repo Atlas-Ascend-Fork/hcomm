@@ -9,6 +9,7 @@
  */
 
 #include "coll_service_base.h"
+#include "internal_exception.h"
 #include "communicator_impl.h"
 #include "link_data_adapter.h"
 #include "env_config_v2.h"
@@ -305,15 +306,21 @@ void CollServiceBase::AddOpCounterMems()
     u64 srcSize = 4;
     float srcValue = 1;
     void* srcAddr = reinterpret_cast<void*>(counterBuf->GetAddr());
-    HrtMemcpy(srcAddr, srcSize, &srcValue, srcSize, RT_MEMCPY_HOST_TO_DEVICE);
+    CHK_RET_THROW(
+        InternalException, "[CollServiceBase::AddOpCounterMems] HrtMemcpy srcAddr failed",
+        HrtMemcpy(srcAddr, srcSize, &srcValue, srcSize, RT_MEMCPY_HOST_TO_DEVICE));
 
     // 初始化后面两个四字节置0
     u64 countMemSize = srcSize;
     float startValue = 0; // value为0表示从0开始计数
     void* headCountAddr = reinterpret_cast<void*>(counterBuf->GetAddr() + srcSize);
     void* tailCountAddr = reinterpret_cast<void*>(counterBuf->GetAddr() + srcSize * 2);
-    HrtMemcpy(headCountAddr, countMemSize, &startValue, countMemSize, RT_MEMCPY_HOST_TO_DEVICE);
-    HrtMemcpy(tailCountAddr, countMemSize, &startValue, countMemSize, RT_MEMCPY_HOST_TO_DEVICE);
+    CHK_RET_THROW(
+        InternalException, "[CollServiceBase::AddOpCounterMems] HrtMemcpy headCount failed",
+        HrtMemcpy(headCountAddr, countMemSize, &startValue, countMemSize, RT_MEMCPY_HOST_TO_DEVICE));
+    CHK_RET_THROW(
+        InternalException, "[CollServiceBase::AddOpCounterMems] HrtMemcpy tailCount failed",
+        HrtMemcpy(tailCountAddr, countMemSize, &startValue, countMemSize, RT_MEMCPY_HOST_TO_DEVICE));
     HCCL_INFO(
         "[CollServiceBase::%s] end, counterBuf[%llu] srcAddr[%p] headCountAddr[%p] tailCountAddr[%p].", __func__,
         counterBuf->GetAddr(), srcAddr, headCountAddr, tailCountAddr);
@@ -330,8 +337,12 @@ std::pair<u32, u32> CollServiceBase::GetOpCount()
     }
     void* headAddr = reinterpret_cast<void*>(counterBuf->GetAddr() + size);
     void* tailAddr = reinterpret_cast<void*>(counterBuf->GetAddr() + size * 2);
-    HrtMemcpy(&floatCounter.first, size, headAddr, size, RT_MEMCPY_DEVICE_TO_HOST);
-    HrtMemcpy(&floatCounter.second, size, tailAddr, size, RT_MEMCPY_DEVICE_TO_HOST);
+    CHK_RET_THROW(
+        InternalException, "[GetOpCount] HrtMemcpy failed",
+        HrtMemcpy(&floatCounter.first, size, headAddr, size, RT_MEMCPY_DEVICE_TO_HOST));
+    CHK_RET_THROW(
+        InternalException, "[GetOpCount] HrtMemcpy failed",
+        HrtMemcpy(&floatCounter.second, size, tailAddr, size, RT_MEMCPY_DEVICE_TO_HOST));
 
     std::pair<u32, u32> counter;
     counter.first = static_cast<u32>(floatCounter.first);
@@ -414,7 +425,9 @@ void CollServiceBase::AddCountTask(bool isHead)
     aclDataType rtDataType = ACL_FLOAT;
     aclrtStream streamPtr = comm->GetStreamManager().GetMaster()->GetPtr();
     CHECK_NULLPTR(streamPtr, "master stream pointer is nullptr!");
-    HrtReduceAsync(dst, size, src, size, rtReduceOp, rtDataType, streamPtr);
+    CHK_RET_THROW(
+        InternalException, "[AddCountTask] HrtReduceAsync failed",
+        HrtReduceAsync(dst, size, src, size, rtReduceOp, rtDataType, streamPtr));
 
     HCCL_INFO("[CollServiceBase::AddCountTask] isHead[%d] dst addr[%p] src addr[%p]", isHead, dst, src);
 }

@@ -41,8 +41,8 @@ public:
      * @param[in] size 申请尺寸
      * @param[in] deviceLogicId 设备逻辑 id（PCIE/UB 分支 HrtHalHostRegister 使用）
      * @return HcclResult 成功返回 HCCL_SUCCESS；tag 已存在返回 HCCL_E_PARA（调用方须先 Free）
-     * @note PCIE 分支经 HrtMalloc 申请，其失败以异常上抛而非返回错误码，故本接口可能抛出异常：
-     *       调用方须保证自身处于异常边界内。UB 分支用 malloc，失败仍走错误码路径返回 HCCL_E_PTR。
+     * @note PCIE 分支经 HrtMalloc 申请（已改为返回 HcclResult，失败经 CHK_RET 向上传播错误码）。
+     *       UB 分支用 malloc，失败返回 HCCL_E_PTR。
      */
     HcclResult Alloc(const std::string& tag, uint64_t size, int32_t deviceLogicId);
 

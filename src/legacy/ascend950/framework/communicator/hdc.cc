@@ -82,7 +82,8 @@ HcclResult HDCommunicate::VerifyDeviceMemoryRegisterSupport()
     size_t outputLen = 0;
     struct supportFeaturePara input = {};
     struct supportFeaturePara output = {};
-    s32 userDevId = HrtGetDevice();
+    s32 userDevId = 0;
+    CHK_RET(HrtGetDevice(userDevId));
     s32 logicDevId = 0;
     // 调用驱动接口前需将userDevId转换为logicDevId
     CHK_RET(HrtGetLogicDevIdByUserDevId(userDevId, logicDevId));
@@ -294,7 +295,7 @@ HcclResult HDCommunicate::AllocShm()
     size_t size
         = (buffLen + HCCL_HDC_CONTROL_WORDS * sizeof(u32) + HCCL_SHM_ALIGN - 1) / HCCL_SHM_ALIGN * HCCL_SHM_ALIGN;
     devMem = std::make_unique<DevBuffer>(size);
-    HrtMemset(reinterpret_cast<void*>(devMem->GetAddr()), devMem->GetSize(), devMem->GetSize());
+    CHK_RET(HrtMemset(reinterpret_cast<void*>(devMem->GetAddr()), devMem->GetSize(), devMem->GetSize()));
 
     if (supportDevMemReg) {
         void* hostAddr = nullptr;
@@ -324,7 +325,7 @@ HcclResult HDCommunicate::AllocReadCache()
         readCacheAddr = reinterpret_cast<void*>(hostCache->GetAddr());
     } else {
         devCache = std::make_unique<DevBuffer>(devMem->GetSize());
-        HrtMemset(reinterpret_cast<void*>(devCache->GetAddr()), devCache->GetSize(), devCache->GetSize());
+        CHK_RET(HrtMemset(reinterpret_cast<void*>(devCache->GetAddr()), devCache->GetSize(), devCache->GetSize()));
         readCacheAddr = reinterpret_cast<void*>(devCache->GetAddr());
     }
     return HCCL_SUCCESS;

@@ -92,8 +92,14 @@ protected:
             .with(mockcpp::any(), mockcpp::any())
             .will(returnValue(std::vector<char>{'1', '2'}));
         void* ptr1 = (void*)1;
-        MOCKER(HrtStreamCreateWithFlags).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(ptr1));
-        MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+        MOCKER(HrtStreamCreateWithFlags)
+            .stubs()
+            .with(mockcpp::any(), mockcpp::any(), outBound(ptr1))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetStreamId)
+            .stubs()
+            .with(mockcpp::any(), outBound(s32(0)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
 
         fakeComm.cclBuffer = DevBuffer::Create(0x100, 0x100);
         fakeComm.status = CommStatus::COMM_READY;
@@ -199,8 +205,11 @@ protected:
 TEST_F(CollServiceDeviceModeTest, test_init_LoadWithOpBasedMode)
 {
     void* ptr1 = (void*)1;
-    MOCKER(HrtStreamCreateWithFlags).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(ptr1));
-    MOCKER(HrtGetStreamId).stubs().will(returnValue(0));
+    MOCKER(HrtStreamCreateWithFlags)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound(ptr1))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetStreamId).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
     auto service = dynamic_cast<CollServiceDeviceMode*>(this->fakeComm.collService);
     auto stream = std::make_unique<Stream>();
     EXPECT_NO_THROW(service->LoadWithOpBasedMode(*fakeComm.currentCollOperator, std::move(stream)));
@@ -219,8 +228,11 @@ TEST_F(CollServiceDeviceModeTest, test_init_LoadWithOpBasedMode)
 TEST_F(CollServiceDeviceModeTest, test_init_LoadWithOffloadMode)
 {
     void* ptr1 = (void*)1;
-    MOCKER(HrtStreamCreateWithFlags).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(ptr1));
-    MOCKER(HrtGetStreamId).stubs().will(returnValue(0));
+    MOCKER(HrtStreamCreateWithFlags)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound(ptr1))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetStreamId).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CollServiceDefaultImpl::AddCountTask).stubs().will(ignoreReturnValue());
     auto service = dynamic_cast<CollServiceDeviceMode*>(fakeComm.collService);
     OpType opType = OpType::ALLREDUCE;
@@ -296,8 +308,14 @@ TEST_F(CollServiceDeviceModeTest, test_alloc_comm_resource_by_tiling_success)
     MOCKER_CPP(&ConnectionsBuilder::BatchBuild).stubs();
     std::vector<Hccl::LinkData> linkVec;
     char* buf = new char[16 * 1024 * 1024];
-    MOCKER(HrtMallocHost).stubs().with(mockcpp::any()).will(returnValue(static_cast<void*>(buf)));
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue((void*)0x100000));
+    MOCKER(HrtMallocHost)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<void*>(buf)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound((void*)0x100000))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     rtFusionArgsEx_t fusionArgs;
     rtCcuTaskGroup_t ccuTaskGroup;
@@ -471,8 +489,11 @@ TEST_F(CollServiceDeviceModeTest, test_coll_service_device_mode_resume)
 
     CollServiceDeviceMode service(&comm);
 
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(static_cast<DevId>(1)));
+    MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(outBound(static_cast<DevId>(1)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&RdmaHandleManager::GetDieAndFuncId).stubs().will(returnValue(make_pair<uint32_t, uint32_t>(0, 0)));
     BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::UB);
     LinkData linkData{PortDeploymentType::P2P, LinkProtocol::UB_CTP, 0, 1,
@@ -601,10 +622,19 @@ TEST_F(CollServiceDeviceModeTest, should_success_when_AllocCommResource_aiv)
     MOCKER_CPP(&ConnectionsBuilder::BatchBuild).stubs();
     std::vector<Hccl::LinkData> linkVec;
     char* buf = new char[16 * 1024 * 1024];
-    MOCKER(HrtMallocHost).stubs().with(mockcpp::any()).will(returnValue(static_cast<void*>(buf)));
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue((void*)0x100000));
-    MOCKER(HrtMemcpy).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
-    MOCKER(HrtFree).stubs();
+    MOCKER(HrtMallocHost)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<void*>(buf)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound((void*)0x100000))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtMemcpy)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtFree).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     rtFusionArgsEx_t fusionArgs;
     rtCcuTaskGroup_t ccuTaskGroup;
@@ -694,8 +724,14 @@ TEST_F(CollServiceDeviceModeTest, St_AllocCommResource_When_versionIs0_Expect_TH
     MOCKER_CPP(&ConnectionsBuilder::BatchBuild).stubs();
     std::vector<Hccl::LinkData> linkVec;
     char* buf = new char[16 * 1024 * 1024];
-    MOCKER(HrtMallocHost).stubs().with(mockcpp::any()).will(returnValue(static_cast<void*>(buf)));
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue((void*)0x100000));
+    MOCKER(HrtMallocHost)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<void*>(buf)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound((void*)0x100000))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     rtFusionArgsEx_t fusionArgs;
     rtCcuTaskGroup_t ccuTaskGroup;
@@ -804,8 +840,14 @@ TEST_F(CollServiceDeviceModeTest, St_AllocCommResource_When_versionIs100_Expect_
     MOCKER_CPP(&ConnectionsBuilder::BatchBuild).stubs();
     std::vector<Hccl::LinkData> linkVec;
     char* buf = new char[16 * 1024 * 1024];
-    MOCKER(HrtMallocHost).stubs().with(mockcpp::any()).will(returnValue(static_cast<void*>(buf)));
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue((void*)0x100000));
+    MOCKER(HrtMallocHost)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<void*>(buf)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound((void*)0x100000))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     void* mem = malloc(sizeof(Mc2InitTilingInner) + sizeof(Mc2CcTilingInner));
     Mc2InitTilingInner* mc2TilingPtr = reinterpret_cast<Mc2InitTilingInner*>(mem);
@@ -880,8 +922,14 @@ TEST_F(CollServiceDeviceModeTest, should_success_when_AllocCommResource_ccu)
     MOCKER_CPP(&ConnectionsBuilder::BatchBuild).stubs();
     std::vector<Hccl::LinkData> linkVec;
     char* buf = new char[16 * 1024 * 1024];
-    MOCKER(HrtMallocHost).stubs().with(mockcpp::any()).will(returnValue(static_cast<void*>(buf)));
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue((void*)0x100000));
+    MOCKER(HrtMallocHost)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<void*>(buf)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound((void*)0x100000))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
 #define FUSION_SUB_TASK_MAX_CPU_NUM (1U)
     typedef struct rtHostInputInfo {

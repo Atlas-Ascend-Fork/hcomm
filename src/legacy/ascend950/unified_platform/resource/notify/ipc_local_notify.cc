@@ -30,8 +30,12 @@ void IpcLocalNotify::Post(const Stream& stream) const { GetNotify()->Post(stream
 
 std::unique_ptr<Serializable> IpcLocalNotify::GetExchangeDto()
 {
+    s32 tgid = 0;
+    if (HrtDeviceGetBareTgid(tgid) != HCCL_SUCCESS) {
+        THROW<InternalException>("HrtDeviceGetBareTgid failed");
+    }
     std::unique_ptr<ExchangeIpcNotifyDto> dto = make_unique<ExchangeIpcNotifyDto>(
-        GetNotify()->GetHandleAddr(), GetNotify()->GetId(), HrtDeviceGetBareTgid(), GetNotify()->GetDevPhyId(),
+        GetNotify()->GetHandleAddr(), GetNotify()->GetId(), static_cast<u32>(tgid), GetNotify()->GetDevPhyId(),
         GetNotify()->IsDevUsed());
     (void)memcpy_s(dto->name, RTS_IPC_MEM_NAME_LEN, ipcName, RTS_IPC_MEM_NAME_LEN);
     return std::unique_ptr<Serializable>(dto.release());
@@ -44,7 +48,11 @@ string IpcLocalNotify::Describe() const
 
 void IpcLocalNotify::Grant(u32 pid) const
 {
-    u32 myPid = HrtDeviceGetBareTgid();
+    s32 tgid = 0;
+    if (HrtDeviceGetBareTgid(tgid) != HCCL_SUCCESS) {
+        THROW<InternalException>("HrtDeviceGetBareTgid failed");
+    }
+    u32 myPid = static_cast<u32>(tgid);
     if (pid != myPid) {
         GetNotify()->SetIpcPid(static_cast<s32>(pid));
     }

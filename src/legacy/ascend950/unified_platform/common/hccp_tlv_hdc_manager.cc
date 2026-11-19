@@ -9,6 +9,8 @@
  */
 
 #include "hccp_tlv_hdc_manager.h"
+#include "exception_util.h"
+#include "internal_exception.h"
 #include "orion_adapter_rts.h"
 #include "socket_handle_manager.h"
 
@@ -38,7 +40,11 @@ void HccpTlvHdcManager::Init(s32 deviceLogicId)
     }
 
     HRaTlvInitConfig cfg;
-    cfg.phyId = HrtGetDevicePhyIdByUserDevId(deviceLogicId);
+    DevId phyIdOut = 0;
+    CHK_RET_THROW(
+        InternalException, "[HccpTlvHdcManager::Init] HrtGetDevicePhyIdByUserDevId failed",
+        HrtGetDevicePhyIdByUserDevId(static_cast<s32>(deviceLogicId), phyIdOut));
+    cfg.phyId = static_cast<u32>(phyIdOut);
     cfg.mode = HrtNetworkMode::HDC;
     cfg.version = 1;
     tlvHandleMap[deviceLogicId] = HrtRaTlvInit(cfg);

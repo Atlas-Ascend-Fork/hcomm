@@ -153,7 +153,7 @@ TEST(NewCollServiceCcuImplTest, should_return_success_when_calling_CollAlgCompon
 TEST(NewCollServiceCcuImplTest, should_return_fail_when_calling_CollAlgComponentInit)
 {
     GlobalMockObject::verify();
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
     EnvTestConfig envTestConfig;
     EnvTestConfig& fakeEnvTestConfig = envTestConfig;
     fakeEnvTestConfig.testCase = CfgField<HcclDebugTestCase>(

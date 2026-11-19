@@ -248,15 +248,36 @@ protected:
 
     virtual void SetUp()
     {
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A2));
-        MOCKER(HrtIpcOpenNotify).stubs().with(mockcpp::any()).will(returnValue((void*)fakeNotifyHandleAddr));
-        MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(fakePid));
-        MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-        MOCKER(HrtNotifyCreate).stubs().will(returnValue((void*)(fakeNotifyHandleAddr)));
-        MOCKER(HrtIpcSetNotifyName).stubs().with(mockcpp::any(), outBoundP(fakeName, sizeof(fakeName)), mockcpp::any());
-        MOCKER(HrtGetNotifyID).stubs().will(returnValue(fakeNotifyId));
-        MOCKER(HrtNotifyGetAddr).stubs().with(mockcpp::any()).will(returnValue(fakeAddress));
-        MOCKER(HrtNotifyGetOffset).stubs().will(returnValue(fakeOffset));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound((DevType)DevType::DEV_TYPE_910A2))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtIpcOpenNotify)
+            .stubs()
+            .with(mockcpp::any(), outBound((void*)fakeNotifyHandleAddr))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtDeviceGetBareTgid).stubs().with(outBound(fakePid)).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyCreate)
+            .stubs()
+            .with(mockcpp::any(), outBound((void*)(fakeNotifyHandleAddr)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtIpcSetNotifyName)
+            .stubs()
+            .with(mockcpp::any(), outBoundP(fakeName, sizeof(fakeName)), mockcpp::any())
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetNotifyID)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeNotifyId))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyGetAddr)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeAddress))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtNotifyGetOffset)
+            .stubs()
+            .with(mockcpp::any(), outBound(fakeOffset))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
 
         std::cout << "A Test case in InsRulesTest SetUP" << std::endl;
     }
@@ -308,10 +329,19 @@ TEST_F(InsRulesTest, Interpret_local_post_to)
     InsLocalPostTo insLocalPostToCounter(1, NotifyType::COUNTER, 0);
     insLocalPostToCounter.SetPostQid(0);
 
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType::DEV_TYPE_910A2));
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-    MOCKER(HrtCntNotifyCreate).stubs().will(returnValue((void*)(fakeNotifyHandleAddr)));
-    MOCKER(HrtGetCntNotifyId).stubs().will(returnValue(fakeNotifyId));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(DevType::DEV_TYPE_910A2))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtCntNotifyCreate)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)(fakeNotifyHandleAddr)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetCntNotifyId)
+        .stubs()
+        .with(mockcpp::any(), outBound(fakeNotifyId))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     RtsNotify* nullLocalNotify = nullptr;
 
@@ -329,7 +359,7 @@ TEST_F(InsRulesTest, Interpret_local_post_to)
     InsLocalPostTo insLocalPostTo(1, NotifyType::NORMAL, 0);
     insLocalPostTo.SetPostQid(0);
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -368,7 +398,7 @@ TEST_F(InsRulesTest, Interpret_local_wait_from)
     InsLocalWaitFrom insLocalWaitFrom(0, NotifyType::NORMAL, 0);
     insLocalWaitFrom.SetWaitQid(1);
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -384,10 +414,19 @@ TEST_F(InsRulesTest, Interpret_local_wait_from_cnt_notify)
     InsLocalWaitFrom insLocalWaitFrom(0, NotifyType::COUNTER, 0);
     insLocalWaitFrom.SetWaitQid(1);
 
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType::DEV_TYPE_910A2));
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-    MOCKER(HrtCntNotifyCreate).stubs().will(returnValue((void*)(fakeNotifyHandleAddr)));
-    MOCKER(HrtGetCntNotifyId).stubs().will(returnValue(fakeNotifyId));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(DevType::DEV_TYPE_910A2))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtCntNotifyCreate)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)(fakeNotifyHandleAddr)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetCntNotifyId)
+        .stubs()
+        .with(mockcpp::any(), outBound(fakeNotifyId))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     StubCommunicatorImpl fakeComm;
 
@@ -399,7 +438,7 @@ TEST_F(InsRulesTest, Interpret_local_wait_from_cnt_notify)
         .will(returnValue(null1ToNCntNotify))
         .then(returnValue(&rts1ToNCntNotify));
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -414,10 +453,19 @@ TEST_F(InsRulesTest, Interpret_local_wait_group)
     u32 fakeNotifyId = 1;
     u64 fakeNotifyHandleAddr = 100;
 
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType::DEV_TYPE_910A2));
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-    MOCKER(HrtCntNotifyCreate).stubs().will(returnValue((void*)(fakeNotifyHandleAddr)));
-    MOCKER(HrtGetCntNotifyId).stubs().will(returnValue(fakeNotifyId));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(DevType::DEV_TYPE_910A2))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtCntNotifyCreate)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)(fakeNotifyHandleAddr)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetCntNotifyId)
+        .stubs()
+        .with(mockcpp::any(), outBound(fakeNotifyId))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     RtsCntNotify* nullCntNotify = nullptr;
     RtsCntNotify rtsCntNotify;
@@ -431,7 +479,7 @@ TEST_F(InsRulesTest, Interpret_local_wait_group)
     insLocalWaitGroup.Append(0);
     insLocalWaitGroup.Append(1);
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -446,10 +494,19 @@ TEST_F(InsRulesTest, Interpret_local_bcast_post)
     u32 fakeNotifyId = 1;
     u64 fakeNotifyHandleAddr = 100;
 
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType::DEV_TYPE_910A2));
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-    MOCKER(HrtCntNotifyCreate).stubs().will(returnValue((void*)(fakeNotifyHandleAddr)));
-    MOCKER(HrtGetCntNotifyId).stubs().will(returnValue(fakeNotifyId));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(DevType::DEV_TYPE_910A2))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtCntNotifyCreate)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)(fakeNotifyHandleAddr)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetCntNotifyId)
+        .stubs()
+        .with(mockcpp::any(), outBound(fakeNotifyId))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     Rts1ToNCntNotify* nullCntNotify = nullptr;
     Rts1ToNCntNotify rts1toNCntNotify;
@@ -463,7 +520,7 @@ TEST_F(InsRulesTest, Interpret_local_bcast_post)
     insLocalBcastPost.Append(0);
     insLocalBcastPost.Append(1);
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -485,10 +542,10 @@ TEST_F(InsRulesTest, Interpret_local_copy)
     DataSlice dstSlice2(BufferType::SCRATCH, 100, 0);
     InsLocalCopy insLocalCopy2(srcSlice2, dstSlice2);
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
-    MOCKER(HrtMemAsyncCopy).stubs();
+    MOCKER(HrtMemAsyncCopy).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // When
     Interpret(insLocalCopy, fakeComm, stream, taskConfig);
@@ -519,7 +576,7 @@ TEST_F(InsRulesTest, Interpret_post_ready)
     // Given instruction post ready:
     InsPostReady insPostReady(remoteRank, link);
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -552,7 +609,7 @@ TEST_F(InsRulesTest, Interpret_wait_ready)
     // Given instruction wait ready:
     InsWaitReady insWaitReady(remoteRank, link);
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -585,7 +642,7 @@ TEST_F(InsRulesTest, Interpret_post_fin)
     // Given instruction post fin:
     InsPostFin insPostFin(remoteRank, link);
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -618,7 +675,7 @@ TEST_F(InsRulesTest, Interpret_wait_fin)
     // Given instruction wait fin:
     InsWaitFin insWaitFin(remoteRank, link);
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -648,7 +705,7 @@ TEST_F(InsRulesTest, Interpret_post_fin_ack_p2p_0_task)
     // Given instruction post fin ack:
     InsPostFinAck insPostFinAck(remoteRank, link);
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -676,7 +733,7 @@ TEST_F(InsRulesTest, Interpret_wait_fin_ack_p2p_0_task)
     // Given instruction wait fin ack:
     InsWaitFinAck insWaitFinAck(remoteRank, link);
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -711,7 +768,7 @@ TEST_F(InsRulesTest, Interpret_post_fin_ack_rdma_1_task)
     // Given instruction post fin ack:
     InsPostFinAck insPostFinAck(remoteRank, link);
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -748,7 +805,7 @@ TEST_F(InsRulesTest, Interpret_wait_fin_ack_rdma_1_task)
     // Given instruction wait fin ack:
     InsWaitFinAck insWaitFinAck(remoteRank, link);
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -787,7 +844,7 @@ TEST_F(InsRulesTest, Interpret_read_p2p_slice_is_not_zero_one_task)
     DataBufManager dataBufManager;
     MOCKER_CPP(&DataBufManager::Get).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(buffer));
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -814,7 +871,7 @@ TEST_F(InsRulesTest, Interpret_read_p2p_rma_connection_is_null_ptr)
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(rmaConnection));
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -840,7 +897,7 @@ TEST_F(InsRulesTest, Interpret_read_p2p_data_buffer_is_null_ptr)
     Buffer* nullBuffer = nullptr;
     MOCKER_CPP(&DataBufManager::Get).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(nullBuffer));
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -873,7 +930,7 @@ TEST_F(InsRulesTest, Interpret_read_p2p_remote_rma_buffer_is_null_ptr)
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(nullRemoteRmaBuffer));
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -909,7 +966,7 @@ TEST_F(InsRulesTest, Interpret_read_reduce_p2p_slice_is_not_zero_one_task)
     DataBufManager dataBufManager;
     MOCKER_CPP(&DataBufManager::Get).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(buffer));
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -924,7 +981,7 @@ TEST_F(InsRulesTest, Interpret_local_reduce_not_support_now)
     DataSlice dstSlice(BufferType::OUTPUT, 0, 100);
     InsLocalReduce insLocalReduce(srcSlice, dstSlice, DataType::FP32, ReduceOp::SUM);
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
     Interpret(insLocalReduce, fakeComm, stream, taskConfig);
@@ -938,7 +995,7 @@ TEST_F(InsRulesTest, Interpret_local_reduce_int64_not_support)
     DataSlice dstSlice(BufferType::OUTPUT, 0, 100);
     InsLocalReduce insLocalReduce(srcSlice, dstSlice, DataType::INT64, ReduceOp::SUM);
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
     EXPECT_THROW(Interpret(insLocalReduce, fakeComm, stream, taskConfig), InvalidParamsException);
@@ -973,7 +1030,7 @@ TEST_F(InsRulesTest, Interpret_write_p2p)
     DataBufManager dataBufManager;
     MOCKER_CPP(&DataBufManager::Get).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(buffer));
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
     Interpret(insWrite, fakeComm, stream, taskConfig);
@@ -1016,7 +1073,7 @@ TEST_F(InsRulesTest, Interpret_write_dev_net_rdma_slice_is_not_zero_one_task)
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(localRmaBuffer));
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -1063,7 +1120,7 @@ TEST_F(InsRulesTest, Interpret_write_dev_net_rdma_remote_rma_buffer_is_nullptr)
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(localRmaBuffer));
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -1105,7 +1162,7 @@ TEST_F(InsRulesTest, Interpret_write_with_fin_dev_net_ub_slice_is_not_zero_one_t
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(localRmaBuffer));
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -1147,7 +1204,7 @@ TEST_F(InsRulesTest, Interpret_write_with_fin_cnt_notify)
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(localRmaBuffer));
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -1189,7 +1246,7 @@ TEST_F(InsRulesTest, Interpret_write_reduce_dev_net_ub_slice_is_not_zero_one_tas
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(localRmaBuffer));
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -1232,7 +1289,7 @@ TEST_F(InsRulesTest, Interpret_write_reduce_with_fin_dev_net_ub_slice_is_not_zer
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(localRmaBuffer));
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -1275,7 +1332,7 @@ TEST_F(InsRulesTest, Interpret_write_reduce_with_fin_dev_net_ub_slice_is_not_zer
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(localRmaBuffer));
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -1317,7 +1374,7 @@ TEST_F(InsRulesTest, Interpret_write_with_fin_dev_net_ub_slice_is_zero_one_task)
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(localRmaBuffer));
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -1359,7 +1416,7 @@ TEST_F(InsRulesTest, Interpret_write_with_fin_dev_net_ub_slice_is_zero_one_task_
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(localRmaBuffer));
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -1402,7 +1459,7 @@ TEST_F(InsRulesTest, Interpret_write_reduce_with_fin_dev_net_ub_slice_is_zero_on
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(localRmaBuffer));
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -1445,7 +1502,7 @@ TEST_F(InsRulesTest, Interpret_write_reduce_with_fin_dev_net_ub_slice_is_zero_on
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(localRmaBuffer));
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -1487,7 +1544,7 @@ TEST_F(InsRulesTest, Interpret_read_reduce_dev_net_ub_slice_is_not_zero_one_task
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(localRmaBuffer));
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -1529,7 +1586,7 @@ TEST_F(InsRulesTest, Interpret_read_dev_net_ub_slice_is_not_zero_one_task)
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(localRmaBuffer));
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -1562,7 +1619,7 @@ TEST_F(InsRulesTest, Interpret_wait_group_fin)
     insWaitGroupFin->Append(link);
     comm.connLocalCntNotifyManager->ApplyFor(0, links);
 
-    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetStreamId).stubs().with(mockcpp::any(), outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     Stream stream;
     OpTaskConfig taskConfig{};
 
@@ -1695,8 +1752,8 @@ TEST_F(InsRulesTest, Interpret_aiv_instruction)
     comm.currentCollOperator->inputMem = DevBuffer::Create(0x100, 0x100);
     comm.currentCollOperator->outputMem = DevBuffer::Create(0x100, 0x100);
     comm.SetAivTag(1);
-    MOCKER(HrtMemAsyncCopy).stubs();
-    MOCKER(HrtMemcpy).stubs();
+    MOCKER(HrtMemAsyncCopy).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtMemcpy).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     Interpret(ins, comm, stream, taskConfig);
 }
 

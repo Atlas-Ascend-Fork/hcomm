@@ -152,7 +152,9 @@ static HcclResult CheckResSpecifications(
 
 HcclResult CcuResSpecifications::Init_()
 {
-    TRY_CATCH_RETURN(devPhyId = HrtGetDevicePhyIdByUserDevId(devLogicId); ccuVersion = CheckCcuVersion();
+    DevId devPhyIdTmp = 0;
+    CHK_RET(HrtGetDevicePhyIdByUserDevId(devLogicId, devPhyIdTmp));
+    TRY_CATCH_RETURN(devPhyId = devPhyIdTmp; ccuVersion = CheckCcuVersion();
                      auto tlvHandle = HccpTlvHdcManager::GetInstance().GetTlvHandle(devLogicId);
                      auto memTypeBitmap = GetCombinedMemTypeBitmap(); auto count = GetMemTypeVector().size();
                      for (uint8_t dieId = 0; dieId < MAX_CCU_IODIE_NUM; dieId++) {

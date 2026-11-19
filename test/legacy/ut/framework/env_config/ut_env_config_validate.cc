@@ -106,7 +106,10 @@ TEST_F(EnvConfigValidateTest, test_parse_HCCL_EXEC_TIMEOUT_shoudl_success_910A3)
 {
     EnvRtsConfig rtsCfg{};
     MOCKER(SalGetEnv).stubs().will(returnValue(string("300")));
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_910A3));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType((Hccl::DevType)Hccl::DevType::DEV_TYPE_910A3)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     rtsCfg.execTimeOut.Parse();
     EXPECT_EQ(rtsCfg.execTimeOut.Get(), 300);
 }
@@ -115,7 +118,10 @@ TEST_F(EnvConfigValidateTest, test_parse_HCCL_EXEC_TIMEOUT_should_success_when_v
 {
     EnvRtsConfig rtsCfg{};
     MOCKER(SalGetEnv).stubs().will(returnValue(string("0")));
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_950));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType((Hccl::DevType)Hccl::DevType::DEV_TYPE_950)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     // 生产点位真值源已切换为全局 hrtGetDeviceType，需同步补桩
     MOCKER(hrtGetDeviceType).stubs().with(outBound(::DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
     rtsCfg.execTimeOut.Parse();
@@ -126,7 +132,10 @@ TEST_F(EnvConfigValidateTest, test_parse_HCCL_EXEC_TIMEOUT_should_success_when_v
 {
     EnvRtsConfig rtsCfg{};
     MOCKER(SalGetEnv).stubs().will(returnValue(string("2147483587")));
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_950));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType((Hccl::DevType)Hccl::DevType::DEV_TYPE_950)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     // 生产点位真值源已切换为全局 hrtGetDeviceType，需同步补桩
     MOCKER(hrtGetDeviceType).stubs().with(outBound(::DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
     rtsCfg.execTimeOut.Parse();
@@ -137,7 +146,10 @@ TEST_F(EnvConfigValidateTest, test_parse_HCCL_EXEC_TIMEOUT_shoudl_success_v950)
 {
     EnvRtsConfig rtsCfg{};
     MOCKER(SalGetEnv).stubs().will(returnValue(string("300")));
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_950));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType((Hccl::DevType)Hccl::DevType::DEV_TYPE_950)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     // 生产点位真值源已切换为全局 hrtGetDeviceType，需同步补桩
     MOCKER(hrtGetDeviceType).stubs().with(outBound(::DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
     rtsCfg.execTimeOut.Parse();

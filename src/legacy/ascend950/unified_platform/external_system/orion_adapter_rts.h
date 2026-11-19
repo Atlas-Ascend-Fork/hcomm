@@ -229,87 +229,87 @@ enum class HcclRtMemcpyKind {
     HCCL_RT_MEMCPY_ADDR_DEVICE_TO_DEVICE, /**< Level-2 address copy, device to device */
     HCCL_RT_MEMCPY_KIND_RESERVED,
 };
-DevId HrtGetDevicePhyIdByUserDevId(s32 userDevId);
+HcclResult HrtGetDevicePhyIdByUserDevId(s32 userDevId, DevId& devicePhyIdOut);
 HcclResult HrtGetUserDevIdByPhyDevId(s32 devicePhyId, s32& userDevId);
-DevType HrtGetDeviceType();
-s32 HrtDeviceGetBareTgid();
-void HrtGetSocVer(std::string& socName);
-s32 HrtGetDevice();
+HcclResult HrtGetDeviceType(DevType& devType);
+HcclResult HrtDeviceGetBareTgid(s32& pid);
+HcclResult HrtGetSocVer(std::string& socName);
+HcclResult HrtGetDevice(s32& userDevId);
 HcclResult HrtGetLogicDevIdByUserDevId(s32 userDevId, s32& logicDevId);
 // 非主线程使用rts添加task情况下，需要先使用该函数通知RTS，将线程和 device logic id绑定
-void HrtSetDevice(s32 deviceLogicId);
-void HrtResetDevice(s32 deviceLogicId);
-u32 HrtGetDeviceCount();
+HcclResult HrtSetDevice(s32 deviceLogicId);
+HcclResult HrtResetDevice(s32 deviceLogicId);
+HcclResult HrtGetDeviceCount(u32& count);
 HcclResult HrtGetDeviceInfo(uint32_t deviceLogicId, int32_t moduleType, aclrtDevAttr infoType, int64_t& val);
 HcclResult HrtGetMainboardId(uint32_t deviceLogicId, HcclMainboardId& hcclMainboardId);
-aclrtStream HrtStreamCreateWithFlags(uint32_t priority, uint32_t flag);
-void HrtStreamDestroy(aclrtStream ptr);
-void HrtStreamSetMode(HcclRtStream streamPtr, const uint64_t stmMode);
-u64 HrtStreamGetMode(HcclRtStream const ptr);
-void HcclStreamSynchronize(HcclRtStream ptr);
-s32 HrtGetStreamId(aclrtStream ptr);
-void HrtStreamActive(aclrtStream activeStream, aclrtStream stream);
+HcclResult HrtStreamCreateWithFlags(uint32_t priority, uint32_t flag, aclrtStream& ptr);
+HcclResult HrtStreamDestroy(aclrtStream ptr);
+HcclResult HrtStreamSetMode(HcclRtStream streamPtr, const uint64_t stmMode);
+HcclResult HrtStreamGetMode(HcclRtStream const ptr, u64& stmMode);
+HcclResult HcclStreamSynchronize(HcclRtStream ptr);
+HcclResult HrtGetStreamId(aclrtStream ptr, s32& streamId);
+HcclResult HrtStreamActive(aclrtStream activeStream, aclrtStream stream);
 
-void* HrtMalloc(u64 size, aclrtMemType_t memType);
-void HrtFree(void* devPtr);
-void HrtMemcpy(void* dst, uint64_t destMax, const void* src, uint64_t count, rtMemcpyKind_t kind);
-void HrtMemset(void* dst, uint64_t destMax, uint64_t count);
-void HrtIpcSetMemoryName(void* ptr, char_t* name, u64 ptrMaxLen, u32 nameMaxLen);
-void HrtIpcDestroyMemoryName(const char_t* name);
-void* HrtIpcOpenMemory(const char_t* name);
-void HrtIpcCloseMemory(const void* ptr);
-void HrtIpcSetMemoryPid(const char_t* name, int pid);
-aclrtPtrAttributes HrtPointerGetAttributes(const void* ptr);
+HcclResult HrtMalloc(u64 size, aclrtMemType_t memType, void*& devPtr);
+HcclResult HrtFree(void* devPtr);
+HcclResult HrtMemcpy(void* dst, uint64_t destMax, const void* src, uint64_t count, rtMemcpyKind_t kind);
+HcclResult HrtMemset(void* dst, uint64_t destMax, uint64_t count);
+HcclResult HrtIpcSetMemoryName(void* ptr, char_t* name, u64 ptrMaxLen, u32 nameMaxLen);
+HcclResult HrtIpcDestroyMemoryName(const char_t* name);
+HcclResult HrtIpcOpenMemory(const char_t* name, void*& ptr);
+HcclResult HrtIpcCloseMemory(const void* ptr);
+HcclResult HrtIpcSetMemoryPid(const char_t* name, int pid);
+HcclResult HrtPointerGetAttributes(const void* ptr, aclrtPtrAttributes& ptrAttr);
 void PrintMemoryAttr(const void* memAddr);
-void HrtDevMemAlignWithPage(void* ptr, u64 size, void*& ipcPtr, u64& ipcSize, u64& ipcOff);
+HcclResult HrtDevMemAlignWithPage(void* ptr, u64 size, void*& ipcPtr, u64& ipcSize, u64& ipcOff);
 HcclResult HrtMemPrefetchToDevice(void* devPtr, uint64_t len);
 
-void* HrtMallocHost(u64 size);
-void HrtFreeHost(void* hostPtr);
+HcclResult HrtMallocHost(u64 size, void*& hostPtr);
+HcclResult HrtFreeHost(void* hostPtr);
 
 // rts notify manager api
-aclrtNotify HrtNotifyCreate(s32 deviceLogicId);
-aclrtNotify HrtNotifyCreateWithFlag(u32 devId, u32 flag);
-void HrtNotifyDestroy(RtNotify_t ptr);
-void HrtIpcSetNotifyName(RtNotify_t ptr, char_t* name, uint32_t len);
+HcclResult HrtNotifyCreate(s32 deviceLogicId, aclrtNotify& ptr);
+HcclResult HrtNotifyCreateWithFlag(u32 devId, u32 flag, aclrtNotify& ptr);
+HcclResult HrtNotifyDestroy(RtNotify_t ptr);
+HcclResult HrtIpcSetNotifyName(RtNotify_t ptr, char_t* name, uint32_t len);
 
-u32 HrtGetNotifyID(RtNotify_t notifyHandle);
-u64 HrtNotifyGetAddr(RtNotify_t notifyHandle);
-void HrtSetIpcNotifyPid(aclrtNotify notify, int32_t pid);
-RtNotify_t HrtIpcOpenNotify(const char_t* name);
-RtNotify_t HrtIpcOpenNotifyWithFlag(const char_t* name, uint32_t flags);
-u32 HrtNotifyGetOffset(RtNotify_t ptr);
+HcclResult HrtGetNotifyID(RtNotify_t notifyHandle, u32& notifyID);
+HcclResult HrtNotifyGetAddr(RtNotify_t notifyHandle, u64& addr);
+HcclResult HrtSetIpcNotifyPid(aclrtNotify notify, int32_t pid);
+HcclResult HrtIpcOpenNotify(const char_t* name, RtNotify_t& notify);
+HcclResult HrtIpcOpenNotifyWithFlag(const char_t* name, uint32_t flags, RtNotify_t& ptr);
+HcclResult HrtNotifyGetOffset(RtNotify_t ptr, u32& offset);
 
 // rts notify task api
-void HrtNotifyWaitWithTimeOut(RtNotify_t notifyPtr, aclrtStream streamPtr, uint32_t timeOut);
-void HrtNotifyRecord(RtNotify_t notifyPtr, aclrtStream streamPtr);
+HcclResult HrtNotifyWaitWithTimeOut(RtNotify_t notifyPtr, aclrtStream streamPtr, uint32_t timeOut);
+HcclResult HrtNotifyRecord(RtNotify_t notifyPtr, aclrtStream streamPtr);
 
 // rts memcpy task api
-void HrtMemAsyncCopy(
+HcclResult HrtMemAsyncCopy(
     void* dst, uint64_t destMax, const void* src, uint64_t count, aclrtMemcpyKind kind, aclrtStream streamPtr);
 
 // rts reduce task api
-void HrtReduceAsync(
+HcclResult HrtReduceAsync(
     void* dst, uint64_t destMax, const void* src, uint64_t count, aclrtReduceKind kind, aclDataType type,
     aclrtStream streamPtr);
 
 // rts rdma task
-void HrtRDMASend(u32 qpn, u32 wqeIndex, aclrtStream streamPtr); // 910A offload
-void HrtRDMADBSend(uint32_t dbindex, uint64_t dbinfo,
-                   aclrtStream streamPtr); // 910A opbase and 910A2/910A3
-void HrtAicpuLaunchKernelWithHostArgs(
+HcclResult HrtRDMASend(u32 qpn, u32 wqeIndex, aclrtStream streamPtr); // 910A offload
+HcclResult HrtRDMADBSend(uint32_t dbindex, uint64_t dbinfo,
+                         aclrtStream streamPtr); // 910A opbase and 910A2/910A3
+HcclResult HrtAicpuLaunchKernelWithHostArgs(
     aclrtFuncHandle funcHandle, uint32_t numBlocks, aclrtStream stream, aclrtLaunchKernelCfg* cfg, void* hostArgs,
     size_t argsSize, aclrtPlaceHolderInfo* placeHolderArray = nullptr, size_t placeHolderNum = 0);
 
 // rts task exception api
-void HrtRegTaskExceptionCallbackByModule(aclrtExceptionInfoCallback callback);
+HcclResult HrtRegTaskExceptionCallbackByModule(aclrtExceptionInfoCallback callback);
 HcclResult HrtUnregTaskExceptionCallbackByModule(aclrtExceptionInfoCallback callback);
 
 // 添加任一task后可获取得到 taskId, streamId
-void HrtGetTaskIdAndStreamID(u32& taskId, u32& streamId);
+HcclResult HrtGetTaskIdAndStreamID(u32& taskId, u32& streamId);
 u64 HrtGetRdmaDoorbellAddr(s32 deviceLogicId, u32 dbIndex);
-u32 HrtStreamGetSqId(const aclrtStream ptr);
-u32 HrtStreamGetCqId(const aclrtStream ptr);
+HcclResult HrtStreamGetSqId(const aclrtStream ptr, u32& sqId);
+HcclResult HrtStreamGetCqId(const aclrtStream ptr, u32& logicCqId);
 
 // 对rts结构体打桩，联调用，待RTS接口上线后，删除掉
 struct HrtUbDbDetailInfo {
@@ -339,26 +339,26 @@ struct HrtUbWqeInfo {
 constexpr u32 DWQE_SIZE_64 = 64;
 constexpr u32 DWQE_SIZE_128 = 128;
 
-void HrtUbDbSend(const HrtUbDbInfo& info, aclrtStream streamPtr);
+HcclResult HrtUbDbSend(const HrtUbDbInfo& info, aclrtStream streamPtr);
 
-void HrtUbDirectSend(const HrtUbWqeInfo& info, aclrtStream streamPtr);
+HcclResult HrtUbDirectSend(const HrtUbWqeInfo& info, aclrtStream streamPtr);
 
-aclrtCntNotify HrtCntNotifyCreate(u32 deviceId);
+HcclResult HrtCntNotifyCreate(u32 deviceId, aclrtCntNotify& handle);
 
-u32 HrtGetCntNotifyId(const aclrtCntNotify inCntNotify);
+HcclResult HrtGetCntNotifyId(const aclrtCntNotify inCntNotify, u32& notifyId);
 
-void HrtCntNotifyDestroy(const aclrtCntNotify inCntNotify);
+HcclResult HrtCntNotifyDestroy(const aclrtCntNotify inCntNotify);
 
 MAKE_ENUM(HrtCntNotifyRecordMode, WRITE_BIT, STORE)
-void HrtCntNotifyRecord(
+HcclResult HrtCntNotifyRecord(
     const aclrtCntNotify inCntNotify, const aclrtStream streamPtr, HrtCntNotifyRecordMode mode, u32 value);
 MAKE_ENUM(HrtCntNotifyWaitMode, EQUAL, BITMAP)
-void HrtCntNotifyWaitWithTimeOut(
+HcclResult HrtCntNotifyWaitWithTimeOut(
     const aclrtCntNotify inCntNotify, const aclrtStream streamPtr, HrtCntNotifyWaitMode mode, u32 value, u32 timeout,
     bool isClear = true);
 
-void HrtCcuLaunch(rtCcuTaskInfo_t& taskInfo, aclrtStream const streamPtr);
-void HrtUbDevQueryInfo(rtUbDevQueryCmd cmd, void* devInfo);
+HcclResult HrtCcuLaunch(rtCcuTaskInfo_t& taskInfo, aclrtStream const streamPtr);
+HcclResult HrtUbDevQueryInfo(rtUbDevQueryCmd cmd, void* devInfo);
 // pair<tokendId, tokenValue>
 std::pair<u32, u32> HrtUbDevQueryToken(u64 addr, u64 size);
 MAKE_ENUM(HrtDevResProcType, PROCESS_CP1, PROCESS_HCCP)
@@ -378,17 +378,17 @@ struct HrtDevResAddrInfo {
     u32 len{0};
 };
 
-HrtDevResAddrInfo HrtGetDevResAddress(const HrtDevResInfo& devResInfo);
-void HrtReleaseDevResAddress(const HrtDevResInfo& devResInfo);
+HcclResult HrtGetDevResAddress(const HrtDevResInfo& devResInfo, HrtDevResAddrInfo& devResAddrInfo);
+HcclResult HrtReleaseDevResAddress(const HrtDevResInfo& devResInfo);
 
 MAKE_ENUM(HrtEventStatus, EVENT_INIT, EVENT_RECORDED)
-aclrtEvent HrtEventCreateWithFlag(u32 flag);
-void HrtEventDestroy(RtEvent_t eventPtr);
-void HrtEventRecord(RtEvent_t eventPtr, aclrtStream streamPtr);
-HrtEventStatus HrtEventQueryStatus(RtEvent_t eventPtr);
+HcclResult HrtEventCreateWithFlag(u32 flag, aclrtEvent& ptr);
+HcclResult HrtEventDestroy(RtEvent_t eventPtr);
+HcclResult HrtEventRecord(RtEvent_t eventPtr, aclrtStream streamPtr);
+HcclResult HrtEventQueryStatus(RtEvent_t eventPtr, HrtEventStatus& status);
 
-void HrtWriteValue(u64 addr, u32 piVal, const aclrtStream streamPtr);
-void HrtDeviceAbortRegCallBack(aclrtDeviceTaskAbortCallback callback, void* args, const std::string& name);
+HcclResult HrtWriteValue(u64 addr, u32 piVal, const aclrtStream streamPtr);
+HcclResult HrtDeviceAbortRegCallBack(aclrtDeviceTaskAbortCallback callback, void* args, const std::string& name);
 HcclResult HrtEnableP2P(u32 deviceLogicId, u32 devicePhyId);
 HcclResult HrtDisableP2P(u32 deviceLogicId, u32 devicePhyId);
 HcclResult HrtGetP2PStatus(u32 deviceLogicId, u32 devicePhyId, uint32_t* status);

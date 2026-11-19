@@ -17,7 +17,10 @@ DevRdmaConnection::DevRdmaConnection(Socket* socket, RdmaHandle rdmaHandle, OpMo
     : RmaConnection(socket, RmaConnType::RDMA)
 {
     int qpMode = 0;
-    DevType devType = HrtGetDeviceType();
+    DevType devType = DevType::INVALID;
+    if (HrtGetDeviceType(devType) != HCCL_SUCCESS) {
+        THROW<InternalException>("[DevRdmaConnection] HrtGetDeviceType failed");
+    }
     if (devType == DevType::DEV_TYPE_910A2 || devType == DevType::DEV_TYPE_910A3) {
         qpMode = (opMode == OpMode::OPBASE) ? OPBASE_QP_MODE_EXT : OFFLINE_QP_MODE_EXT;
     } else if (devType == DevType::DEV_TYPE_910A) {

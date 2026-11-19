@@ -216,9 +216,11 @@ HcclResult CpuThreadBase::PrepareDpuKernelResource(const char* entryName)
         HCCL_ERROR("[CpuThreadBase][%s] Create Local Stream Failed", __func__);
         return HCCL_E_INTERNAL;
     }
-    HCCL_INFO(
-        "[CpuThreadBase][%s] Create Stream para: deviceId[%d] streamId[%d]", __func__, Hccl::HrtGetDevice(),
-        Hccl::HrtGetStreamId(rtStream_));
+    s32 devId = 0;
+    s32 streamId = 0;
+    CHK_RET(Hccl::HrtGetDevice(devId));
+    CHK_RET(Hccl::HrtGetStreamId(rtStream_, streamId));
+    HCCL_INFO("[CpuThreadBase][%s] Create Stream para: deviceId[%d] streamId[%d]", __func__, devId, streamId);
 
     // 查找核函数：入口名由调用方给出（RunDpuRpcSrvLaunch / RunDpuRpcSrvLaunchNew），
     // 必须按传入名取 —— 无条件取 RunDpuRpcSrvLaunchNew 会在 json 尚未生效的环境里把 TaskService 通道一起弄挂
@@ -311,7 +313,9 @@ HcclResult CpuThreadBase::WaitKernelTerminate()
 
 HcclResult CpuThreadBase::RefreshStreamId()
 {
-    streamId_ = Hccl::HrtGetStreamId(rtStream_);
+    s32 streamId = 0;
+    CHK_RET(Hccl::HrtGetStreamId(rtStream_, streamId));
+    streamId_ = static_cast<u32>(streamId);
     HCCL_INFO("[CpuThreadBase][%s] dpuStreamId[%u]", __func__, streamId_);
     return HCCL_SUCCESS;
 }

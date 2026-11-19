@@ -625,7 +625,7 @@ TEST_F(CcuInsPreprocessorTest, should_no_throw_when_calling_fallback)
 {
     // when
     GlobalMockObject::verify();
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(CcuCtxMgr::ReleaseRes)
         .stubs()
         .with(mockcpp::any(), mockcpp::any())
@@ -649,7 +649,7 @@ TEST_F(CcuInsPreprocessorTest, should_no_throw_when_calling_fallback)
 TEST_F(CcuInsPreprocessorTest, should_error_log_when_calling_fallback)
 {
     // when
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(CcuCtxMgr::ReleaseRes)
         .stubs()
         .with(mockcpp::any(), mockcpp::any())
@@ -734,7 +734,10 @@ TEST_F(CcuInsPreprocessorTest, RecoverCcuTransportCtx_test1)
         .stubs()
         .with(mockcpp::any(), outBound(ccuTrans))
         .will(returnValue(HcclResult::HCCL_SUCCESS));
-    MOCKER(&HrtGetDeviceType).stubs().will(returnValue(DevType(DevType::DEV_TYPE_950)));
+    MOCKER(&HrtGetDeviceType)
+        .stubs()
+        .with(outBound(DevType(DevType::DEV_TYPE_950)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     CommunicatorImpl* communicator;
     CcuInsPreprocessor preprocessor(communicator);
     bool transportStatus = true;

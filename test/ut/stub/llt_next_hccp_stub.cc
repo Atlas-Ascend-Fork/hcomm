@@ -200,7 +200,10 @@ HcclResult HrtRaGetTlsStatus(struct RaInfo* info, TlsStatus& tlsStatus)
     return HCCL_SUCCESS;
 }
 
-void HrtDeviceAbortRegCallBack(aclrtDeviceTaskAbortCallback callback, void* args, const std::string& name) { return; }
+HcclResult HrtDeviceAbortRegCallBack(aclrtDeviceTaskAbortCallback callback, void* args, const std::string& name)
+{
+    return HCCL_SUCCESS;
+}
 
 void HrtRaSocketWhiteListDel(SocketHandle socketHandle, vector<RaSocketWhitelist>& wlists) { return; }
 
@@ -266,7 +269,7 @@ void HrtRaUbDestroyJfc(RdmaHandle handle, JfcHandle jfcHandle) {}
 
 void HrtRaSocketDeInit(SocketHandle socketHandle) {}
 
-void HrtResetDevice(s32 deviceLogicId) {}
+HcclResult HrtResetDevice(s32 deviceLogicId) { return HCCL_SUCCESS; }
 
 void RaUbFreeTokenIdHandle(RdmaHandle handle, TokenIdHandle tokenIdHandle) {}
 

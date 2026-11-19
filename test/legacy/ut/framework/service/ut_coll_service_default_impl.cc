@@ -91,18 +91,24 @@ public:
     }
 };
 
-#define SETUP_COLL_SERVICE_DEFAULT_MOCKS()                                                     \
-    do {                                                                                       \
-        MOCKER(HrtGetDevice).stubs().will(returnValue(0));                                     \
-        MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(static_cast<DevId>(1))); \
-        DevType devType = DevType::DEV_TYPE_950;                                               \
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));                           \
-        MOCKER(HrtIpcSetMemoryName).stubs();                                                   \
-        MOCKER(HrtDevMemAlignWithPage).stubs();                                                \
-        MOCKER(HrtIpcDestroyMemoryName).stubs();                                               \
-        std::unique_ptr<RdmaHandle> handle = std::make_unique<RdmaHandle>();                   \
-        RdmaHandle handlePtr = handle.get();                                                   \
-        MOCKER(HrtRaUbCtxInit).stubs().with(mockcpp::any()).will(returnValue(handlePtr));      \
+#define SETUP_COLL_SERVICE_DEFAULT_MOCKS()                                                                    \
+    do {                                                                                                      \
+        MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));           \
+        MOCKER(HrtGetDevicePhyIdByUserDevId)                                                                  \
+            .stubs()                                                                                          \
+            .with(mockcpp::any(), outBound(static_cast<DevId>(1)))                                            \
+            .will(returnValue(HcclResult::HCCL_SUCCESS));                                                     \
+        DevType devType = DevType::DEV_TYPE_950;                                                              \
+        MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS)); \
+        MOCKER(HrtIpcSetMemoryName).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));                      \
+        MOCKER(HrtDevMemAlignWithPage)                                                                        \
+            .stubs()                                                                                          \
+            .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())             \
+            .will(returnValue(HcclResult::HCCL_SUCCESS));                                                     \
+        MOCKER(HrtIpcDestroyMemoryName).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));                  \
+        std::unique_ptr<RdmaHandle> handle = std::make_unique<RdmaHandle>();                                  \
+        RdmaHandle handlePtr = handle.get();                                                                  \
+        MOCKER(HrtRaUbCtxInit).stubs().with(mockcpp::any()).will(returnValue(handlePtr));                     \
     } while (0)
 
 TEST_F(CollServiceDefaultImplTest, test_base_register_op_base_buf)
@@ -191,7 +197,7 @@ TEST_F(CollServiceDefaultImplTest, test_base_register_op_base_stream)
     comm.streamManager = make_unique<StreamManager>(&comm);
     CollServiceDefaultImpl service(&comm);
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
     EXPECT_NO_THROW(service.RegisterOpbasedStream(move(make_unique<Stream>((void*)1))));
 }
 
@@ -205,7 +211,10 @@ TEST_F(CollServiceDefaultImplTest, test_alloc_queue_notify)
 
 TEST_F(CollServiceDefaultImplTest, alloc_queue_notify_for_single_queue)
 {
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType(DevType::DEV_TYPE_910A2)));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(DevType(DevType::DEV_TYPE_910A2)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     CommunicatorImpl comm;
     auto queueNotifyManager = std::make_unique<QueueNotifyManager>(comm);
@@ -222,7 +231,10 @@ TEST_F(CollServiceDefaultImplTest, alloc_queue_notify_for_single_queue)
 
 TEST_F(CollServiceDefaultImplTest, alloc_cnt_notify_for_single_queue)
 {
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType(DevType::DEV_TYPE_910A2)));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(DevType(DevType::DEV_TYPE_910A2)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     CommunicatorImpl comm;
     auto queueNotifyManager = std::make_unique<QueueNotifyManager>(comm);
@@ -279,7 +291,7 @@ TEST_F(CollServiceDefaultImplTest, col_service_default_impl_load_with_op_based_m
         .will(returnValue(HcclResult::HCCL_SUCCESS));
     service.connectionsBuilders[comm.id] = std::make_unique<ConnectionsBuilder>(comm);
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     MOCKER_CPP(&CollServiceDefaultImpl::RegisterOpBufToBufMgr).stubs();
     MOCKER_CPP(&CollServiceDefaultImpl::RegisterOpbasedStream).stubs();
@@ -364,7 +376,7 @@ TEST_F(CollServiceDefaultImplTest, coll_service_default_impl_orchestrate_with_in
     service.connectionsBuilders[comm.id] = std::make_unique<ConnectionsBuilder>(comm);
 
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CollServiceDefaultImpl::RegisterOpBufToBufMgr).stubs();
     MOCKER_CPP(&CollServiceDefaultImpl::RegisterOpbasedStream).stubs();
     MOCKER_CPP(&SocketManager::BatchCreateSockets, void(SocketManager::*)(const std::vector<LinkData>&)).stubs();
@@ -407,15 +419,24 @@ TEST_F(CollServiceDefaultImplTest, test_base_register_offload_buf)
     MOCKER_CPP(&CommunicatorImpl::GetTopoFilePath).stubs().will(returnValue(topoInfoPath));
     MOCKER(memset_s).stubs().with(mockcpp::any()).will(returnValue(0));
 
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(static_cast<DevId>(1)));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(1)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     DevType devType = DevType::DEV_TYPE_950;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
-    MOCKER(HrtIpcSetMemoryName).stubs();
-    MOCKER(HrtDevMemAlignWithPage).stubs();
-    MOCKER(HrtIpcDestroyMemoryName).stubs();
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtIpcSetMemoryName).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtDevMemAlignWithPage)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtIpcDestroyMemoryName).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     void* devPtr = nullptr;
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(devPtr));
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound(devPtr))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     GenRankTableFile4p();
     GenTopoFile();
@@ -462,7 +483,7 @@ TEST_F(CollServiceDefaultImplTest, test_base_register_offload_stream)
     CollServiceDefaultImpl service(&comm);
     std::string opTag = "opTag";
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
     EXPECT_NO_THROW(service.RegisterOffloadMasterStream(opTag, move(make_unique<Stream>())));
 }
 #if 0
@@ -513,13 +534,19 @@ TEST_F(CollServiceDefaultImplTest, test_init)
     RdmaHandle handlePtr = handle.get();
     MOCKER(HrtRaUbCtxInit).stubs().with(mockcpp::any()).will(returnValue(handlePtr));
 
-    MOCKER(HrtGetDevice).stubs().will(returnValue(1));
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(static_cast<DevId>(1)));
+    MOCKER(HrtGetDevice).stubs().with(outBound(1)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(1)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     DevType devType = DevType::DEV_TYPE_950;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
-    MOCKER(HrtIpcSetMemoryName).stubs();
-    MOCKER(HrtDevMemAlignWithPage).stubs();
-    MOCKER(HrtIpcDestroyMemoryName).stubs();
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtIpcSetMemoryName).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtDevMemAlignWithPage)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtIpcDestroyMemoryName).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
     GenRankTableFile4p();
     GenTopoFile();
@@ -720,11 +747,17 @@ TEST_F(CollServiceDefaultImplTest, test_load_with_offload_mode)
 TEST_F(CollServiceDefaultImplTest, AddCountTask)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
-    MOCKER(HrtReduceAsync).stubs().with(mockcpp::any());
-    MOCKER(HrtMemcpy).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtReduceAsync).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtMemcpy)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     void* devPtr = nullptr;
-    MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(devPtr));
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound(devPtr))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     CommunicatorImpl comm;
     comm.streamManager = make_unique<StreamManager>(&comm);
@@ -738,13 +771,19 @@ TEST_F(CollServiceDefaultImplTest, AddCountTask)
 
 TEST_F(CollServiceDefaultImplTest, test_load_with_offload_mode_with_task)
 {
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(static_cast<DevId>(1)));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(1)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     DevType devType = DevType::DEV_TYPE_950;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
-    MOCKER(HrtIpcSetMemoryName).stubs();
-    MOCKER(HrtDevMemAlignWithPage).stubs();
-    MOCKER(HrtIpcDestroyMemoryName).stubs();
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtIpcSetMemoryName).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtDevMemAlignWithPage)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtIpcDestroyMemoryName).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CommunicatorImpl::GetTopoFilePath).stubs().will(returnValue(topoInfoPath));
     MOCKER(memset_s).stubs().with(mockcpp::any()).will(returnValue(0));
 
@@ -834,7 +873,7 @@ TEST_F(CollServiceDefaultImplTest, Test_RecoverTransport)
 
     MOCKER_CPP(&RdmaHandleManager::GetDieAndFuncId).stubs().will(returnValue(make_pair<uint32_t, uint32_t>(0, 0)));
     DevType devType = DevType::DEV_TYPE_950;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     vector<LinkData> links;
     vector<std::pair<LinkGroup, u32>> linkGroupPair;

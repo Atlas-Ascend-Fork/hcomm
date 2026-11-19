@@ -33,7 +33,10 @@ protected:
     virtual void SetUp()
     {
         dataSliceSize = 128;
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A2));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound((DevType)DevType::DEV_TYPE_910A2))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
         std::cout << "A Test case in PrimRulesTest SetUP" << std::endl;
     }
 
@@ -606,7 +609,10 @@ TEST_F(PrimRulesTest, translate_send_reduce_link_dev_net_ub_fp32_sum_support_inl
     DataSlice remoteDstSlice(BufferType::SCRATCH, 100, dataSliceSize);
 
     // 910A2 does not support FP32+ReduceOp::SUM inline reduce
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(Hccl::DevType::DEV_TYPE_910A2));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(Hccl::DevType::DEV_TYPE_910A2))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     PrimSendReduce primSendReduce(
         remoteRank, link, localSlice, remoteSrcSlice, remoteDstSlice, DataType::FP32, ReduceOp::SUM);
     DataSlice localSlice1(BufferType::INPUT, 0, dataSliceSize);

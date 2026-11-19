@@ -321,19 +321,19 @@ global:
         "Hccl::HostUbTpConnection::HostUbTpConnection(void*, Hccl::IpAddress const&, Hccl::IpAddress const&, Hccl::OpMode, Hccl::HrtUbJfcMode, unsigned char, unsigned int, unsigned int)";  # _ZN4Hccl18HostUbTpConnectionC1EPvRKNS_9IpAddressES4_NS_6OpModeENS_12HrtUbJfcModeEhjj
         "Hccl::HrtDeviceAbortRegCallBack(int (*)(int, aclrtDeviceTaskAbortStage, unsigned int, void*), void*, std::string const&)";  # _ZN4Hccl25HrtDeviceAbortRegCallBackEPFii25aclrtDeviceTaskAbortStagejPvES1_RKSs
         "Hccl::HrtFree(void*)";  # _ZN4Hccl7HrtFreeEPv
-        "Hccl::HrtGetDevice()";  # _ZN4Hccl12HrtGetDeviceEv
-        "Hccl::HrtGetDeviceCount()";  # _ZN4Hccl17HrtGetDeviceCountEv
+        "Hccl::HrtGetDevice(int&)";  # _ZN4Hccl12HrtGetDeviceERi
+        "Hccl::HrtGetDeviceCount(unsigned int&)";  # _ZN4Hccl17HrtGetDeviceCountERj
         "Hccl::HrtGetDevicePhyIdByIndex(int)";  # _ZN4Hccl24HrtGetDevicePhyIdByIndexEi
-        "Hccl::HrtGetDevicePhyIdByUserDevId(int)";  # _ZN4Hccl28HrtGetDevicePhyIdByUserDevIdEi
-        "Hccl::HrtGetDeviceType()";  # _ZN4Hccl16HrtGetDeviceTypeEv
+        "Hccl::HrtGetDevicePhyIdByUserDevId(int, unsigned int&)";  # _ZN4Hccl28HrtGetDevicePhyIdByUserDevIdEiRj
+        "Hccl::HrtGetDeviceType(Hccl::DevType&)";  # _ZN4Hccl16HrtGetDeviceTypeERNS_7DevTypeE
         "Hccl::HrtGetHostIf(unsigned int)";  # _ZN4Hccl12HrtGetHostIfEj
         "Hccl::HrtGetMainboardId(unsigned int, Hccl::HcclMainboardId&)";  # _ZN4Hccl17HrtGetMainboardIdEjRNS_15HcclMainboardIdE
         "Hccl::HrtGetQpNum(void*)";  # _ZN4Hccl11HrtGetQpNumEPv
-        "Hccl::HrtGetStreamId(void*)";  # _ZN4Hccl14HrtGetStreamIdEPv
+        "Hccl::HrtGetStreamId(void*, int&)";  # _ZN4Hccl14HrtGetStreamIdEPvRi
         "Hccl::HrtHalGetDeviceInfo(unsigned int, int, int, long&)";  # _ZN4Hccl19HrtHalGetDeviceInfoEjiiRl
         "Hccl::HrtHalHostRegister(void*, unsigned long, unsigned int, int, void**)";  # _ZN4Hccl18HrtHalHostRegisterEPvmjiPS0_
         "Hccl::HrtHalHostUnregister(void*, int)";  # _ZN4Hccl20HrtHalHostUnregisterEPvi
-        "Hccl::HrtMalloc(unsigned long long, int)";  # _ZN4Hccl9HrtMallocEyi
+        "Hccl::HrtMalloc(unsigned long long, int, void*&)";  # _ZN4Hccl9HrtMallocEyiRPv
         "Hccl::HrtMemcpy(void*, unsigned long, void const*, unsigned long, Hccl::tagRtMemcpyKind)";  # _ZN4Hccl9HrtMemcpyEPvmPKvmNS_15tagRtMemcpyKindE
         "Hccl::HrtMemset(void*, unsigned long, unsigned long)";  # _ZN4Hccl9HrtMemsetEPvmm
         "Hccl::HrtRaCreateQpWithCq(void*, int, int, void*, void*, Hccl::QpInfoDef&, Hccl::CqInfoDef&, bool)";  # _ZN4Hccl19HrtRaCreateQpWithCqEPviiS0_S0_RNS_9QpInfoDefERNS_9CqInfoDefEb

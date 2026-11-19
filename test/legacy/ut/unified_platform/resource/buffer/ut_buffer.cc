@@ -27,10 +27,16 @@ protected:
 
     virtual void SetUp()
     {
-        MOCKER(HrtMallocHost).stubs().with(mockcpp::any()).will(returnValue((void*)fakeAddr));
-        MOCKER(HrtFreeHost).stubs().with(mockcpp::any());
-        MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue((void*)fakeAddr));
-        MOCKER(HrtFree).stubs().with(mockcpp::any());
+        MOCKER(HrtMallocHost)
+            .stubs()
+            .with(mockcpp::any(), outBound((void*)fakeAddr))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtFreeHost).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtMalloc)
+            .stubs()
+            .with(mockcpp::any(), mockcpp::any(), outBound((void*)fakeAddr))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtFree).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
         std::cout << "A Test case in DataBufManager SetUP" << std::endl;
     }
 

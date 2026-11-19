@@ -95,7 +95,7 @@ HcclResult FlushHandle::AllocateLocalMemory()
     u64 bufferSize = FLUSH_BUFFER_SIZE;
     if (flushOpcodeSupport_) {
         // 1825 主动排空要求使用device 内存
-        localMem = HrtMalloc(bufferSize, static_cast<int>(ACL_MEM_TYPE_HIGH_BAND_WIDTH));
+        CHK_RET(HrtMalloc(bufferSize, static_cast<int>(ACL_MEM_TYPE_HIGH_BAND_WIDTH), localMem));
     } else {
         localMem = malloc(bufferSize);
     }
@@ -112,7 +112,7 @@ HcclResult FlushHandle::AllocateLocalMemory()
 HcclResult FlushHandle::AllocateDeviceMemory()
 {
     u64 bufferSize = FLUSH_BUFFER_SIZE;
-    deviceMem = HrtMalloc(bufferSize, static_cast<int>(ACL_MEM_TYPE_HIGH_BAND_WIDTH));
+    CHK_RET(HrtMalloc(bufferSize, static_cast<int>(ACL_MEM_TYPE_HIGH_BAND_WIDTH), deviceMem));
     if (deviceMem == nullptr) {
         HcclResult eRet = Destroy();
         HCCL_ERROR("[AllocateDeviceMemory]Failed to Allocate Device Memory. Destroy Flush code=%d", eRet);
@@ -238,7 +238,7 @@ HcclResult FlushHandle::FreeLocalMemory()
 
     try {
         if (flushOpcodeSupport_) {
-            HrtFree(localMem);
+            CHK_RET(HrtFree(localMem));
         } else {
             free(localMem);
         }
@@ -265,8 +265,9 @@ HcclResult FlushHandle::FreeDeviceMemory()
     }
 
     try {
-        HrtFree(deviceMem);
+        HcclResult freeRet = HrtFree(deviceMem);
         deviceMem = nullptr;
+        CHK_RET(freeRet);
         HCCL_DEBUG("[FreeDeviceMemory] Device memory successfully freed.");
         return HCCL_SUCCESS;
     } catch (...) {

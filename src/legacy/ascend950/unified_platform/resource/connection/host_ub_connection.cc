@@ -360,7 +360,10 @@ bool HostUbConnection::GetTpInfo()
         ThrowAbnormalStatus(std::string(__func__));
     }
 
-    int32_t devLogicId = HrtGetDevice();
+    int32_t devLogicId = 0;
+    if (HrtGetDevice(devLogicId) != HCCL_SUCCESS) {
+        THROW<InternalException>("[HostUbConnection::GetTpInfo] HrtGetDevice failed");
+    }
     RaUbGetTpInfoParam p{};
     p.locAddr = locAddr;
     p.rmtAddr = rmtAddr;
@@ -414,8 +417,13 @@ void HostUbConnection::SetImportInfo()
 
 void HostUbConnection::ReleaseTp()
 {
+    s32 devLogicId = 0;
+    if (HrtGetDevice(devLogicId) != HCCL_SUCCESS) {
+        HCCL_WARNING("[HostUbConnection::ReleaseTp] HrtGetDevice failed");
+        return;
+    }
     HcclResult ret
-        = ReleaseUbConnectionTp(HrtGetDevice(), locAddr, rmtAddr, tpProtocol, tpInfo, static_cast<uint32_t>(qos_));
+        = ReleaseUbConnectionTp(devLogicId, locAddr, rmtAddr, tpProtocol, tpInfo, static_cast<uint32_t>(qos_));
     if (ret != HCCL_SUCCESS) {
         // 审计路径：释放失败（如缓存键漂移导致 NOT_FOUND）时 useCnt 不回减，记 ERROR 供定位
         HCCL_ERROR(

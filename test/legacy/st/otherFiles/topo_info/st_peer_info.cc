@@ -36,7 +36,7 @@ protected:
 TEST_F(PeerParserTest, St_Deserialize_When_Normal_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string peerString = R"({"local_id" : 1})";
     PeerInfo peerInfo;
@@ -50,7 +50,7 @@ TEST_F(PeerParserTest, St_Deserialize_When_Normal_Expect_Success)
 TEST_F(PeerParserTest, St_Deserialize_When_LocalIdMissing_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string peerString = R"({"id" : "1"})";
     PeerInfo peerInfo;
@@ -60,7 +60,7 @@ TEST_F(PeerParserTest, St_Deserialize_When_LocalIdMissing_Expect_Exception)
 TEST_F(PeerParserTest, St_Deserialize_When_InvalidLocalId_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     std::string peerString = R"({"local_id" : "-1"})";
     PeerInfo peerInfo;

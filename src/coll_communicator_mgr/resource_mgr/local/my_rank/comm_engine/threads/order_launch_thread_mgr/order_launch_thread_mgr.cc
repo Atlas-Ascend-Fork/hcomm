@@ -9,6 +9,7 @@
  */
 
 #include "order_launch_thread_mgr.h"
+#include "internal_exception.h"
 #include "hcomm_res.h"
 #include "acl/acl_rt.h"
 #include "orion_adapter_rts.h"
@@ -277,7 +278,10 @@ void OrderLaunchThreadMgr::UpdateGroupContextMapping(const std::string& group, u
 bool OrderLaunchThreadMgr::IsOrderLaunchDisabled(u64 currentContext)
 {
     if (blockNum_ == 0U) {
-        blockNum_ = GetAicpuBlockNum(static_cast<s32>(Hccl::HrtGetDevice()));
+        s32 devId = 0;
+        CHK_RET_THROW(
+            Hccl::InternalException, "[IsOrderLaunchDisabled] HrtGetDevice failed", Hccl::HrtGetDevice(devId));
+        blockNum_ = GetAicpuBlockNum(devId);
     }
     if (blockNum_ == 0U) {
         return false;

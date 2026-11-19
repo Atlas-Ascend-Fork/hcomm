@@ -86,7 +86,10 @@ protected:
         char c = '1';
         MOCKER(realpath).stubs().with(mockcpp::any()).will(returnValue(&c));
 
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound((DevType)DevType::DEV_TYPE_910A))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
     }
 
 private:
@@ -181,9 +184,7 @@ TEST_F(EnvConfigTest, parse_env_config_should_success2)
     .with(mockcpp::any())
     .will(returnValue(&c));
 
-    MOCKER(HrtGetDeviceType)
-    .stubs()
-    .will(returnValue((DevType)DevType::DEV_TYPE_910A3));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound((DevType)DevType::DEV_TYPE_910A3)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     EnvConfigStub envCfg;
 

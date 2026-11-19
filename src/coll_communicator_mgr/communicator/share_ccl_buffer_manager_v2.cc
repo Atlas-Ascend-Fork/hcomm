@@ -13,11 +13,17 @@
 #include "log.h"
 #include "orion_adapter_rts.h"
 #include "exception_util.h"
+#include "internal_exception.h"
 #include "invalid_params_exception.h"
 
 namespace Hccl {
 
-ShareCclBufferManager& ShareCclBufferManager::GetInstance() { return GetInstance(static_cast<DevId>(HrtGetDevice())); }
+ShareCclBufferManager& ShareCclBufferManager::GetInstance()
+{
+    s32 devId = 0;
+    CHK_RET_THROW(InternalException, "[ShareCclBufferManager] HrtGetDevice failed", HrtGetDevice(devId));
+    return GetInstance(static_cast<DevId>(devId));
+}
 
 ShareCclBufferManager& ShareCclBufferManager::GetInstance(DevId deviceLogicId)
 {

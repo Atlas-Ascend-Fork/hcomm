@@ -27,7 +27,7 @@ namespace {
 
     HcclResult GetCurrentDeviceIds(s32& userDevId, s32& devPhyId)
     {
-        userDevId = HrtGetDevice();
+        CHK_RET(HrtGetDevice(userDevId));
         aclError aclRet = aclrtGetPhyDevIdByUserDevId(userDevId, &devPhyId);
         CHK_PRT_RET(
             aclRet != ACL_SUCCESS,

@@ -38,7 +38,10 @@ protected:
     virtual void SetUp()
     {
         std::cout << "A Test case in Mc2ContextTest SetUP" << std::endl;
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_950));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_950)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
         MOCKER(&CcuDeviceManager::GetLoopChannelId)
             .stubs()
             .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())

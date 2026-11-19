@@ -108,7 +108,7 @@ TEST_F(HcomutCommManagerTest, ut_V2_gradient_Manage_Split_API)
     CommManager::GetInstance(0).GetCommInfoV2().commParams = commParams;
     CommManager::GetInstance(0).GetCommInfoV2().isUsed = true;
     CommManager::GetInstance(0).GetCommInfoV2().pComm = hcclComm;
-    MOCKER(HrtGetDevice).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     HcclGroupParamsV2 params;
     params.pComm = hcclComm;
@@ -139,7 +139,7 @@ TEST_F(HcomutCommManagerTest, ut_hcomv2_backlog_group)
     CommManager::GetInstance(0).GetCommInfoV2().commParams = commParams;
     CommManager::GetInstance(0).GetCommInfoV2().isUsed = true;
     CommManager::GetInstance(0).GetCommInfoV2().pComm = hcclComm;
-    MOCKER(HrtGetDevice).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     HcclGroupParamsV2 params;
     params.pComm = hcclComm;
@@ -273,7 +273,7 @@ TEST_F(HcomutCommManagerTest, St_HcomGetRankSizeV2_When_InvalidGetRankSize_Expec
     CommManager::GetInstance(0).GetCommInfoV2().commParams = commParams;
     CommManager::GetInstance(0).GetCommInfoV2().isUsed = true;
     CommManager::GetInstance(0).GetCommInfoV2().pComm = hcclComm;
-    MOCKER(HrtGetDevice).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     HcclGroupParamsV2 params;
     params.pComm = hcclComm;
@@ -314,7 +314,7 @@ TEST_F(HcomutCommManagerTest, st_HcomInitByStringV2_expectHCCL_E_INTERNAL)
         .stubs()
         .with(mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CommManager::SetCommAcceleratorV2).stubs().will(returnValue(HCCL_SUCCESS));
     HcclResult ret = HcomInitByStringV2(rank_table_string.c_str(), "0");
     EXPECT_EQ(ret, HCCL_SUCCESS);

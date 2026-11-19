@@ -2291,7 +2291,8 @@ HcclResult CollComm::CreateCommunicatorForNewRank(
     uint32_t nRanks, uint32_t rank, const GrowNewRankDetectResult& detectResult, const HcclCommConfig* config,
     GrowNewRankCommResult& result)
 {
-    Hccl::DevType devType = Hccl::HrtGetDeviceType();
+    Hccl::DevType devType;
+    CHK_RET(Hccl::HrtGetDeviceType(devType));
     std::string identifierNew = BuildIdentifierFromRootHandle(detectResult.newRootHandle);
     CHK_PRT_RET(
         identifierNew.size() >= Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH,

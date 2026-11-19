@@ -181,7 +181,10 @@ TEST_F(CcuMesh2DTest, CCU_A2A_Mesh_template_run)
 
 TEST_F(CcuMesh2DTest, CCU_A2A_Mesh_sole_executor)
 {
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_950));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((DevType)DevType::DEV_TYPE_950))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     VirtualTopoStub virtTopo(0);
     string rankTable = "test";
     virtTopo.TopoInit91095TwoTimesTwo(rankTable);
@@ -353,7 +356,7 @@ HcclResult CcuResourceMangerGetLoopChannelIdStub(
 
 TEST_F(CcuMesh2DTest, CCU_A2A_Mesh_sole_context)
 {
-    MOCKER(HrtGetDevice).defaults().will(returnValue(0));
+    MOCKER(HrtGetDevice).defaults().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(CcuDeviceManager::ReleaseCke).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CcuTransportGroup::CheckTransports).stubs().with(mockcpp::any()).will(returnValue(true));
     MOCKER_CPP(&CcuTransportGroup::CheckTransportCntCke).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
@@ -376,11 +379,17 @@ TEST_F(CcuMesh2DTest, CCU_A2A_Mesh_sole_context)
     MOCKER(CcuDeviceManager::GetInstructionNum).stubs().will(invoke(CtxMgrGetInstructionNumStubAlg));
     MOCKER(CcuDeviceManager::GetMissionKey).stubs().will(invoke(CtxMgrGetMissionKeyStubAlg));
 
-    MOCKER(HrtMemcpy).stubs();
+    MOCKER(HrtMemcpy)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     MOCKER(CcuDeviceManager::AllocCke).stubs().will(invoke(AllocCkeStub));
     MOCKER(CcuDeviceManager::AllocXn).stubs().will(invoke(AllocXnStub));
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_950));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((DevType)DevType::DEV_TYPE_950))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(CcuDeviceManager::GetLoopChannelId).stubs().will(invoke(CcuResourceMangerGetLoopChannelIdStub));
     MOCKER(&CcuDeviceManager::GetXnBaseAddr)
         .stubs()

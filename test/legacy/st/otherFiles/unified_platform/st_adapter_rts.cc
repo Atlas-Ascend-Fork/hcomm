@@ -25,7 +25,8 @@ TEST_F(AdapterRtsTest, HrtGetDeviceType_return_ok)
     MOCKER(hrtGetDeviceType).stubs().with(outBound(globalDevType)).will(returnValue(HCCL_SUCCESS));
 
     // when
-    Hccl::DevType devType = HrtGetDeviceType();
+    Hccl::DevType devType = Hccl::DevType::DEV_TYPE_NOSOC;
+    HrtGetDeviceType(devType);
 
     // then
     EXPECT_TRUE(devType == Hccl::DevType::DEV_TYPE_910A2);
@@ -39,19 +40,20 @@ TEST_F(AdapterRtsTest, HrtGetDeviceType_return_nok)
     // when
 
     // then
-    EXPECT_THROW(HrtGetDeviceType(), RuntimeApiException);
+    Hccl::DevType devType = Hccl::DevType::DEV_TYPE_NOSOC;
+    EXPECT_EQ(HrtGetDeviceType(devType), HcclResult::HCCL_E_RUNTIME);
 }
 
 TEST_F(AdapterRtsTest, HrtGetDevicePhyIdByUserDevId_return_zero)
 {
     // Given
     Hccl::DevType fakeDeviceType = Hccl::DevType::DEV_TYPE_NOSOC;
-    MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue(fakeDeviceType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(fakeDeviceType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // when
     u32 devicePhyId = 1;
     u32 deviceLogicId = 1;
-    devicePhyId = HrtGetDevicePhyIdByUserDevId(deviceLogicId);
+    HrtGetDevicePhyIdByUserDevId(deviceLogicId, devicePhyId);
 
     u32 result = 0;
     // then
@@ -62,7 +64,7 @@ TEST_F(AdapterRtsTest, HrtGetDevicePhyIdByUserDevId_return_ok)
 {
     // Given
     Hccl::DevType fakeDeviceType = Hccl::DevType::DEV_TYPE_910A2;
-    MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue(fakeDeviceType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(fakeDeviceType)).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     u32 fakeDevicePhyId = 0;
     MOCKER(aclrtGetPhyDevIdByUserDevId)
@@ -71,7 +73,8 @@ TEST_F(AdapterRtsTest, HrtGetDevicePhyIdByUserDevId_return_ok)
         .will(returnValue(RT_ERROR_NONE));
     // when
     u32 deviceLogicId = 1;
-    u32 devicePhyId = HrtGetDevicePhyIdByUserDevId(deviceLogicId);
+    u32 devicePhyId = 0;
+    HrtGetDevicePhyIdByUserDevId(deviceLogicId, devicePhyId);
 
     // then
     EXPECT_EQ(fakeDevicePhyId, devicePhyId);
@@ -85,7 +88,8 @@ TEST_F(AdapterRtsTest, HrtGetDevicePhyIdByUserDevId_return_nok)
     // when
 
     // then
-    EXPECT_THROW(HrtGetDevicePhyIdByUserDevId(32), RuntimeApiException);
+    u32 devPhyId = 0;
+    EXPECT_NE(HrtGetDevicePhyIdByUserDevId(32, devPhyId), HcclResult::HCCL_SUCCESS);
 }
 
 TEST_F(AdapterRtsTest, HrtDeviceGetBareTgid_return_ok)
@@ -95,7 +99,8 @@ TEST_F(AdapterRtsTest, HrtDeviceGetBareTgid_return_ok)
     MOCKER(aclrtDeviceGetBareTgid).stubs().with(outBoundP(&fakePid, sizeof(fakePid))).will(returnValue(RT_ERROR_NONE));
 
     // when
-    u32 pid = HrtDeviceGetBareTgid();
+    s32 pid = 0;
+    HrtDeviceGetBareTgid(pid);
 
     // then
     EXPECT_EQ(fakePid, pid);
@@ -109,7 +114,8 @@ TEST_F(AdapterRtsTest, HrtDeviceGetBareTgid_return_nok)
     // when
 
     // then
-    EXPECT_THROW(HrtDeviceGetBareTgid(), RuntimeApiException);
+    s32 pid = 0;
+    EXPECT_NE(HrtDeviceGetBareTgid(pid), HcclResult::HCCL_SUCCESS);
 }
 
 TEST_F(AdapterRtsTest, HrtGetSocVer_return_nok)
@@ -118,7 +124,8 @@ TEST_F(AdapterRtsTest, HrtGetSocVer_return_nok)
     MOCKER(rtGetSocVersion).stubs().will(returnValue(1));
 
     // then
-    EXPECT_THROW(HrtGetSocVer(nullptr, 32), RuntimeApiException);
+    std::string socName;
+    EXPECT_NE(HrtGetSocVer(socName), HcclResult::HCCL_SUCCESS);
 }
 
 TEST_F(AdapterRtsTest, HrtGetDevice_return_ok)
@@ -131,7 +138,8 @@ TEST_F(AdapterRtsTest, HrtGetDevice_return_ok)
         .will(returnValue(ACL_SUCCESS));
 
     // when
-    s32 deviceLogicId = HrtGetDevice();
+    s32 deviceLogicId = 0;
+    HrtGetDevice(deviceLogicId);
 
     // then
     EXPECT_EQ(fakeDeviceLogicId, deviceLogicId);
@@ -145,7 +153,8 @@ TEST_F(AdapterRtsTest, HrtGetDevice_return_nok)
     // when
 
     // then
-    EXPECT_THROW(HrtGetDevice(), RuntimeApiException);
+    s32 devId = 0;
+    EXPECT_EQ(HrtGetDevice(devId), HcclResult::HCCL_E_RUNTIME);
 }
 
 TEST_F(AdapterRtsTest, HrtSetDevice_return_nok)
@@ -173,7 +182,8 @@ TEST_F(AdapterRtsTest, HrtGetDeviceCount_return_ok)
     MOCKER(rtGetDeviceCount).stubs().with(outBoundP(&fakeCount, sizeof(fakeCount))).will(returnValue(RT_ERROR_NONE));
 
     // when
-    s32 count = HrtGetDeviceCount();
+    u32 count = 0;
+    HrtGetDeviceCount(count);
 
     // then
     EXPECT_EQ(fakeCount, count);
@@ -186,7 +196,8 @@ TEST_F(AdapterRtsTest, HrtGetDeviceCount_return_nok)
     MOCKER(rtGetDeviceCount).stubs().with(mockcpp::any()).will(returnValue(1));
 
     // then
-    EXPECT_THROW(HrtGetDeviceCount(), RuntimeApiException);
+    u32 count = 0;
+    EXPECT_EQ(HrtGetDeviceCount(count), HcclResult::HCCL_E_RUNTIME);
 }
 
 TEST_F(AdapterRtsTest, HrtGetDeviceIndexByPhyId_return_ok)
@@ -219,7 +230,10 @@ TEST_F(AdapterRtsTest, HrtIpcSetNotifyName_return_ok)
 {
     // Given
     char_t fakeName[128] = "fakeName";
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_910A3));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((Hccl::DevType)Hccl::DevType::DEV_TYPE_910A3))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(aclrtNotifyGetExportKey)
         .stubs()
         .with(mockcpp::any(), outBoundP(fakeName, sizeof(fakeName)), mockcpp::any())
@@ -317,7 +331,8 @@ TEST_F(AdapterRtsTest, HrtGetStreamId_return_ok)
         .will(returnValue(ACL_SUCCESS));
 
     // when
-    s32 streamId = HrtGetStreamId(nullptr);
+    s32 streamId = 0;
+    HrtGetStreamId(nullptr, streamId);
     // then
     EXPECT_EQ(streamId, fakeStreamId);
 }
@@ -330,7 +345,8 @@ TEST_F(AdapterRtsTest, HrtGetStreamId_return_nok)
     // when
 
     // then
-    EXPECT_THROW(HrtGetStreamId(nullptr), RuntimeApiException);
+    s32 streamId = 0;
+    EXPECT_EQ(HrtGetStreamId(nullptr, streamId), HcclResult::HCCL_E_RUNTIME);
 }
 
 TEST_F(AdapterRtsTest, HrtStreamGetMode_return_ok)
@@ -411,7 +427,8 @@ TEST_F(AdapterRtsTest, HrtMalloc_return_ok)
     // when
     u64 size = 100;
     aclrtMemType_t memType = 2;
-    void* devPtr = HrtMalloc(size, memType);
+    void* devPtr = nullptr;
+    HrtMalloc(size, memType, devPtr);
     // then
     EXPECT_EQ(fakeDevPtr, devPtr);
 }
@@ -423,7 +440,8 @@ TEST_F(AdapterRtsTest, HrtMalloc_return_nok)
     u64 size = 100;
     aclrtMemType_t memType = 2;
     // then
-    EXPECT_THROW(HrtMalloc(size, memType), RuntimeApiException);
+    void* devPtr = nullptr;
+    EXPECT_NE(HrtMalloc(size, memType, devPtr), HcclResult::HCCL_SUCCESS);
 }
 
 TEST_F(AdapterRtsTest, HrtFree_return_nok)
@@ -607,7 +625,7 @@ TEST_F(AdapterRtsTest, PrintMemoryAttr_run)
 {
     aclrtPtrAttributes memAttr = {rtMemoryType_t::RT_MEMORY_TYPE_DEVICE, rtMemLocationType::RT_MEMORY_LOC_DEVICE, 0, 1};
     // Given
-    MOCKER(HrtPointerGetAttributes).stubs().will(returnValue(memAttr));
+    MOCKER(HrtPointerGetAttributes).stubs().with(outBound(memAttr)).will(returnValue(HcclResult::HCCL_SUCCESS));
     PrintMemoryAttr(nullptr);
 }
 
@@ -616,7 +634,10 @@ TEST_F(AdapterRtsTest, HrtDevMemAlignWithPage_pagesize_zero)
     // Given
     tagRtPointerAttributes ptrAttr
         = {tagRtMemoryType::RT_MEMORY_TYPE_DEVICE, rtMemLocationType::RT_MEMORY_LOC_DEVICE, 1, 0};
-    MOCKER(HrtPointerGetAttributes).stubs().with(mockcpp::any()).will(returnValue(ptrAttr));
+    MOCKER(HrtPointerGetAttributes)
+        .stubs()
+        .with(mockcpp::any(), outBound(ptrAttr))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // when
     void* ptr = nullptr;
@@ -634,7 +655,10 @@ TEST_F(AdapterRtsTest, HrtDevMemAlignWithPage_pargesize_nzero)
     // Given
     tagRtPointerAttributes ptrAttr
         = {tagRtMemoryType::RT_MEMORY_TYPE_DEVICE, rtMemLocationType::RT_MEMORY_LOC_DEVICE, 1, 32};
-    MOCKER(HrtPointerGetAttributes).stubs().with(mockcpp::any()).will(returnValue(ptrAttr));
+    MOCKER(HrtPointerGetAttributes)
+        .stubs()
+        .with(mockcpp::any(), outBound(ptrAttr))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     // when
     // when
     void* ptr = (void*)4;

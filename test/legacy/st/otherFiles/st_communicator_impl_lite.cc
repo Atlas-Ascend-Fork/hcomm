@@ -35,7 +35,10 @@ protected:
 
     virtual void SetUp()
     {
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_950));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound((Hccl::DevType)Hccl::DevType::DEV_TYPE_950))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
         MOCKER_CPP(&RtsqBase::QuerySqBaseAddr)
             .stubs()
             .with(mockcpp::any())
@@ -245,7 +248,7 @@ TEST_F(CommunicatorImplLiteTest, test_update_comm_success)
     notifyStream2.Dump(notifyUniqueId2);
     service.GetHostDeviceSyncNotifyLiteMgr()->notifys[1] = std::make_unique<NotifyLite>(notifyUniqueId2);
 
-    // MOCKER(HrtGetDeviceType).stubs().will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_910A2));
+    // MOCKER(HrtGetDeviceType).stubs().with(outBound((Hccl::DevType)Hccl::DevType::DEV_TYPE_910A2)).will(returnValue(HcclResult::HCCL_SUCCESS));
     u8 mockSq[AC_SQE_SIZE * AC_SQE_MAX_CNT]{0};
     MOCKER_CPP(&RtsqBase::QuerySqBaseAddr)
         .stubs()

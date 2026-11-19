@@ -9,6 +9,7 @@
  */
 
 #include "aiv_mc2_compont.h"
+#include "internal_exception.h"
 #include "hccl_aiv_utils.h"
 #include <algorithm>
 #include <unordered_set>
@@ -89,9 +90,11 @@ void AivMc2Compont::GenerateCommContext(void** commContext)
     }
     auto paramSize = sizeof(HcclCombinOpParam);
     combinOpParamBuffer = std::make_shared<DevBuffer>(paramSize);
-    HrtMemcpy(
-        reinterpret_cast<void*>(combinOpParamBuffer->GetAddr()), paramSize, static_cast<void*>(&combinOpParam),
-        paramSize, RT_MEMCPY_HOST_TO_DEVICE);
+    CHK_RET_THROW(
+        InternalException, "[GenerateCommContext] HrtMemcpy failed",
+        HrtMemcpy(
+            reinterpret_cast<void*>(combinOpParamBuffer->GetAddr()), paramSize, static_cast<void*>(&combinOpParam),
+            paramSize, RT_MEMCPY_HOST_TO_DEVICE));
     *commContext = reinterpret_cast<void*>(combinOpParamBuffer->GetAddr());
 }
 

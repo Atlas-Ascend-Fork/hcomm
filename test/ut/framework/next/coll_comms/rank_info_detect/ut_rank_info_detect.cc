@@ -72,18 +72,24 @@ protected:
             .stubs()
             .with(mockcpp::any(), mockcpp::any())
             .will(returnValue(hostSocketHandle));
-        MOCKER(HrtGetDevice).stubs().with().will(returnValue(0));
-        MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().with(mockcpp::any()).will(returnValue(static_cast<DevId>(0)));
+        MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtGetDevicePhyIdByUserDevId)
+            .stubs()
+            .with(mockcpp::any(), outBound(static_cast<DevId>(0)))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
         MOCKER(HrtRaInit).stubs().with(mockcpp::any()).will(ignoreReturnValue());
         MOCKER(HrtRaDeInit).stubs().with(mockcpp::any()).will(ignoreReturnValue());
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_950));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound((Hccl::DevType)Hccl::DevType::DEV_TYPE_950))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
         std::vector<std::pair<std::string, IpAddress>> hostIfInfos;
         hostIfInfos.push_back(std::make_pair("lo", IpAddress("127.0.0.1")));
         MOCKER(HrtGetHostIf).stubs().with(mockcpp::any()).will(returnValue(hostIfInfos));
         MOCKER(HrtRaSocketTryListenOneStart).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(true));
-        MOCKER(HrtGetDeviceCount).stubs().with().will(returnValue(8));
-        MOCKER(HrtSetDevice).stubs().with(mockcpp::any()).will(ignoreReturnValue());
-        MOCKER(HrtResetDevice).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+        MOCKER(HrtGetDeviceCount).stubs().with(outBound(u32(8))).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtSetDevice).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(HrtResetDevice).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
         std::cout << "A Test case in RankInfoDetectTest SetUP" << std::endl;
     }
 
@@ -160,7 +166,7 @@ TEST_F(RankInfoDetectTest, Ut_SetupServer_When_WhitelistReturnsEInternal_Expect_
 TEST_F(RankInfoDetectTest, Ut_GetHostSocketHandle_When_WhitelistEnabled_Expect_DeferTagConfiguration)
 {
     // when
-    MOCKER(HrtGetDeviceCount).stubs().with().will(returnValue(8));
+    MOCKER(HrtGetDeviceCount).stubs().with(outBound(8u)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtRaSocketWhiteListAdd).stubs().with(mockcpp::any(), mockcpp::any()).will(ignoreReturnValue());
     MOCKER(HrtRaSocketSetWhiteListStatus).stubs().with(mockcpp::any()).will(ignoreReturnValue());
     EnvHostNicConfig envConfig;

@@ -106,7 +106,10 @@ HcclResult CcuAllocChannelsStub(
 
 void MockPlatformDeps(uint32_t ccuVersion)
 {
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().with(mockcpp::any()).will(returnValue((DevId)(MAX_MODULE_DEVICE_NUM)));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>((DevId)(MAX_MODULE_DEVICE_NUM))))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&RdmaHandleManager::GetByIp).stubs().will(returnValue((void*)0x12345678));
     pair<uint32_t, uint32_t> fakeDieFuncPair = make_pair(1, 4);
     MOCKER_CPP(&RdmaHandleManager::GetDieAndFuncId).stubs().will(returnValue(fakeDieFuncPair));

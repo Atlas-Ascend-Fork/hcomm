@@ -134,21 +134,26 @@ namespace Hccl {
 
 constexpr u32 LLT_UB_WQE_NUM_PER_SQE = 4;
 
-void* HrtMalloc(u64 size, aclrtMemType_t memType) { return (void*)0x12345678; }
-
-void HrtMemset(void* dst, uint64_t destMax, uint64_t count)
+HcclResult HrtMalloc(u64 size, aclrtMemType_t memType, void*& devPtr)
 {
-    memset(dst, 0, count);
-    return;
+    devPtr = (void*)0x12345678;
+    return HCCL_SUCCESS;
 }
 
-void HrtMemcpy(void* dst, uint64_t destMax, const void* src, uint64_t count, rtMemcpyKind_t kind)
+HcclResult HrtMemset(void* dst, uint64_t destMax, uint64_t count)
+{
+    memset(dst, 0, count);
+    return HCCL_SUCCESS;
+}
+
+HcclResult HrtMemcpy(void* dst, uint64_t destMax, const void* src, uint64_t count, rtMemcpyKind_t kind)
 {
     (void)kind;
     if (dst == nullptr || src == nullptr || count > destMax) {
-        return;
+        return HCCL_E_PARA;
     }
     (void)memcpy_s(dst, destMax, src, count);
+    return HCCL_SUCCESS;
 }
 
 SocketStatus Socket::GetAsyncStatus() { return SocketStatus::OK; }
@@ -236,8 +241,10 @@ std::shared_ptr<DevBuffer> DevBuffer::CreateHugePageBuf(std::size_t size)
 {
     std::shared_ptr<DevBuffer> buffer(new (std::nothrow) DevBuffer(size));
     if (buffer != nullptr) {
-        buffer->addr_
-            = reinterpret_cast<uintptr_t>(HrtMalloc(size, static_cast<aclrtMemType_t>(ACL_MEM_MALLOC_HUGE_ONLY)));
+        void* devPtr = nullptr;
+        if (HrtMalloc(size, static_cast<aclrtMemType_t>(ACL_MEM_MALLOC_HUGE_ONLY), devPtr) == HCCL_SUCCESS) {
+            buffer->addr_ = reinterpret_cast<uintptr_t>(devPtr);
+        }
     }
     return buffer;
 }
@@ -292,10 +299,22 @@ unique_ptr<RankGraph> RankGraphBuilder::Build(const string& ranktableM, const st
 
 std::unique_ptr<RankTableInfo> RankGraphBuilder::GetRankTableInfo() { return nullptr; }
 
-s32 HrtGetDevice() { return 1; }
-u32 HrtGetDevicePhyIdByUserDevId(s32 deviceLogicId) { return 1U; }
+HcclResult HrtGetDevice(s32& userDevId)
+{
+    userDevId = 1;
+    return HCCL_SUCCESS;
+}
+HcclResult HrtGetDevicePhyIdByUserDevId(s32 deviceLogicId, DevId& devicePhyIdOut)
+{
+    devicePhyIdOut = static_cast<DevId>(1U);
+    return HCCL_SUCCESS;
+}
 
-DevType HrtGetDeviceType() { return DevType::DEV_TYPE_950; }
+HcclResult HrtGetDeviceType(DevType& devType)
+{
+    devType = DevType::DEV_TYPE_950;
+    return HCCL_SUCCESS;
+}
 
 HcclResult HrtGetMainboardId(uint32_t deviceLogicId, HcclMainboardId& hcclMainboardId)
 {
@@ -311,7 +330,11 @@ s32 HrtRaRdmaInit(HrtNetworkMode, RaInterface&, RdmaHandle& rdmaHandle)
     return 0;
 }
 
-void HrtGetSocVer(std::string& socName) { socName = "Ascend958B"; }
+HcclResult HrtGetSocVer(std::string& socName)
+{
+    socName = "Ascend958B";
+    return HCCL_SUCCESS;
+}
 
 QpHandle HrtRaQpCreate(RdmaHandle rdmaHandle, int flag, int qpMode) { return (QpHandle)0x12345678; }
 
@@ -1593,7 +1616,7 @@ RaBatchQueryJettyStatus(const std::vector<JettyHandle>& jettyHandles, std::vecto
 {
     return HCCL_SUCCESS;
 }
-void HrtGetTaskIdAndStreamID(u32& taskId, u32& streamId) {}
+HcclResult HrtGetTaskIdAndStreamID(u32& taskId, u32& streamId) { return HCCL_SUCCESS; }
 
 HcclResult CcuCleanDieCkes(const int32_t deviceLogicId, const uint8_t dieId) { return HCCL_SUCCESS; }
 
@@ -1714,7 +1737,7 @@ HcclResult HcclCommunicator::GetRankIpPortMap(RankIpPortMapPtr& rankIpPortMap)
     return HCCL_SUCCESS;
 }
 
-void HrtFree(void* devPtr) {}
+HcclResult HrtFree(void* devPtr) { return HCCL_SUCCESS; }
 
 HcclResult HrtRaNdaQpCreate(
     RdmaHandle rdmaHandle, NdaOps* ndaOps, uint32_t dmaMode, NdaCqInfo* cqInfo, NdaQpInfo* qpInfo, QpHandle* qpHandle)
@@ -1789,55 +1812,97 @@ std::vector<CommunicatorImplLite*> CommunicatorImplLiteMgr::GetAll() { return {}
 
 std::string CollOpToString(const BaseCollOperator& collOp) { return "collOp"; }
 
-RtNotify_t HrtIpcOpenNotifyWithFlag(const char_t* name, uint32_t flags) { return nullptr; }
+HcclResult HrtIpcOpenNotifyWithFlag(const char_t* name, uint32_t flags, RtNotify_t& ptr)
+{
+    ptr = nullptr;
+    return HCCL_SUCCESS;
+}
 
-u32 HrtStreamGetCqId(const aclrtStream ptr) { return 0; }
+HcclResult HrtStreamGetCqId(const aclrtStream ptr, u32& logicCqId)
+{
+    logicCqId = 0;
+    return HCCL_SUCCESS;
+}
 
-void HrtNotifyDestroy(RtNotify_t ptr) { return; }
+HcclResult HrtNotifyDestroy(RtNotify_t ptr) { return HCCL_SUCCESS; }
 
-s32 HrtGetStreamId(aclrtStream ptr) { return 0; }
+HcclResult HrtGetStreamId(aclrtStream ptr, s32& streamId)
+{
+    streamId = 0;
+    return HCCL_SUCCESS;
+}
 
-aclrtStream HrtStreamCreateWithFlags(uint32_t priority, uint32_t flag)
+HcclResult HrtStreamCreateWithFlags(uint32_t priority, uint32_t flag, aclrtStream& ptr)
 {
     static aclrtStream stream;
-    return stream;
+    ptr = stream;
+    return HCCL_SUCCESS;
 }
 
-void HrtStreamSetMode(HcclRtStream streamPtr, const uint64_t stmMode) { return; }
+HcclResult HrtStreamSetMode(HcclRtStream streamPtr, const uint64_t stmMode) { return HCCL_SUCCESS; }
 
-u32 HrtNotifyGetOffset(RtNotify_t ptr) { return 0; }
+HcclResult HrtNotifyGetOffset(RtNotify_t ptr, u32& offset)
+{
+    offset = 0;
+    return HCCL_SUCCESS;
+}
 
-u32 HrtGetNotifyID(RtNotify_t notifyHandle) { return 0; }
+HcclResult HrtGetNotifyID(RtNotify_t notifyHandle, u32& notifyID)
+{
+    notifyID = 0;
+    return HCCL_SUCCESS;
+}
 
-s32 HrtDeviceGetBareTgid() { return 0; }
+HcclResult HrtDeviceGetBareTgid(s32& pid)
+{
+    pid = 0;
+    return HCCL_SUCCESS;
+}
 
-void HrtSetIpcNotifyPid(aclrtNotify notify, int32_t pid) { return; }
+HcclResult HrtSetIpcNotifyPid(aclrtNotify notify, int32_t pid) { return HCCL_SUCCESS; }
 
-void HrtStreamDestroy(aclrtStream ptr) { return; }
+HcclResult HrtStreamDestroy(aclrtStream ptr) { return HCCL_SUCCESS; }
 
-void HrtIpcSetNotifyName(RtNotify_t ptr, char_t* name, uint32_t len) { return; }
+HcclResult HrtIpcSetNotifyName(RtNotify_t ptr, char_t* name, uint32_t len) { return HCCL_SUCCESS; }
 
-aclrtNotify HrtNotifyCreateWithFlag(u32 devId, u32 flag)
+HcclResult HrtNotifyCreateWithFlag(u32 devId, u32 flag, aclrtNotify& ptr)
 {
     static aclrtNotify notify;
-    return notify;
+    ptr = notify;
+    return HCCL_SUCCESS;
 }
 
-aclrtNotify HrtNotifyCreate(s32 deviceLogicId)
+HcclResult HrtNotifyCreate(s32 deviceLogicId, aclrtNotify& ptr)
 {
     static aclrtNotify notify;
-    return notify;
+    ptr = notify;
+    return HCCL_SUCCESS;
 }
 
-u64 HrtNotifyGetAddr(RtNotify_t notifyHandle) { return 0; }
+HcclResult HrtNotifyGetAddr(RtNotify_t notifyHandle, u64& addr)
+{
+    addr = 0;
+    return HCCL_SUCCESS;
+}
 
-RtNotify_t HrtIpcOpenNotify(const char_t* name) { return nullptr; }
+HcclResult HrtIpcOpenNotify(const char_t* name, RtNotify_t& notify)
+{
+    notify = nullptr;
+    return HCCL_SUCCESS;
+}
 
-u32 HrtStreamGetSqId(const aclrtStream ptr) { return 0; }
+HcclResult HrtStreamGetSqId(const aclrtStream ptr, u32& sqId)
+{
+    sqId = 0;
+    return HCCL_SUCCESS;
+}
 
-void HrtNotifyRecord(RtNotify_t notifyPtr, aclrtStream streamPtr) { return; }
+HcclResult HrtNotifyRecord(RtNotify_t notifyPtr, aclrtStream streamPtr) { return HCCL_SUCCESS; }
 
-void HrtNotifyWaitWithTimeOut(RtNotify_t notifyPtr, aclrtStream streamPtr, uint32_t timeOut) { return; }
+HcclResult HrtNotifyWaitWithTimeOut(RtNotify_t notifyPtr, aclrtStream streamPtr, uint32_t timeOut)
+{
+    return HCCL_SUCCESS;
+}
 
 // AivUbMemTransport 按需 enable p2p 依赖 P2PEnableManager（真实实现 p2p_enable_manager.cc 未编入 stub 库），
 // 此处提供最小桩符号；UT 需要控制行为时可用 MOCKER_CPP 拦截这些成员函数

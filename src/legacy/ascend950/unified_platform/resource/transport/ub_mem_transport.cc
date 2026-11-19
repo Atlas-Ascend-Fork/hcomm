@@ -20,6 +20,7 @@
 #include "dev_buffer.h"
 #include "user_remote_mem_getter.h"
 #include "exception_util.h"
+#include "internal_exception.h"
 #include "env_config/env_config_v2.h"
 
 namespace Hccl {
@@ -78,9 +79,9 @@ HcclResult UbMemTransport::BuildDrainResource()
         std::shared_ptr<Hccl::DevBuffer> constMem;
         EXCEPTION_CATCH(constMem = std::make_shared<Hccl::DevBuffer>(notifySize), return HCCL_E_PTR);
 
-        Hccl::HrtMemcpy(
+        CHK_RET(Hccl::HrtMemcpy(
             ReinterpretAs<void*>(constMem->GetAddr()), constMem->GetSize(), &NORMAL_NOTIFY_VAL,
-            sizeof(NORMAL_NOTIFY_VAL), RT_MEMCPY_HOST_TO_DEVICE);
+            sizeof(NORMAL_NOTIFY_VAL), RT_MEMCPY_HOST_TO_DEVICE));
 
         EXCEPTION_CATCH(
             drainBuffer_ = std::make_unique<Hccl::LocalUbRmaBuffer>(constMem, rdmaHandle), return HCCL_E_PTR);

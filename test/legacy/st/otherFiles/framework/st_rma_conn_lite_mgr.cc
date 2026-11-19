@@ -30,7 +30,7 @@ protected:
 
     virtual void SetUp()
     {
-        MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+        MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
         std::cout << "A Test case in RmaConnLiteMgrTest SetUP" << std::endl;
     }
 

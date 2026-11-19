@@ -107,7 +107,8 @@ HcclResult RankInfoDetectService::Setup()
 
     // 保留 connSockets_ 供 Grow 复用，老 rank 的 WaitForNextBroadcast 依赖持久连接。
     if (serverSocket_ != nullptr) {
-        s32 logicDevId = HrtGetDevice();
+        s32 logicDevId = 0;
+        CHK_RET(HrtGetDevice(logicDevId));
         if (EnvConfig::GetInstance().GetHostNicConfig().GetHostSocketPortRange().size() > 0
             || EnvConfig::GetInstance().GetHostNicConfig().GetIfBasePort() == HCCL_INVALID_PORT) {
             // 若开启抢占监听端口
@@ -927,7 +928,10 @@ HcclResult RankInfoDetectService::TearDown()
         }
     }
 
-    s32 logicDevId = HrtGetDevice();
+    s32 logicDevId = 0;
+    if (HrtGetDevice(logicDevId) != HCCL_SUCCESS) {
+        HCCL_WARNING("[%s] HrtGetDevice failed", __func__);
+    }
     if (EnvConfig::GetInstance().GetHostNicConfig().GetHostSocketPortRange().size() > 0
         || EnvConfig::GetInstance().GetHostNicConfig().GetIfBasePort() == HCCL_INVALID_PORT) {
         // 若开启抢占监听端口
@@ -1111,7 +1115,9 @@ HcclResult
 RankInfoDetectService::SetupScalable(u32 groupSize, const std::function<HcclResult(RankTableInfo&)>& meshMergeCallback)
 {
     // server 侧 ra 引用：与 TearDown 链尾的 DeInit 配对
-    TRY_CATCH_RETURN(HccpPeerManager::GetInstance().Init(HrtGetDevice()););
+    s32 devId = 0;
+    CHK_RET(HrtGetDevice(devId));
+    TRY_CATCH_RETURN(HccpPeerManager::GetInstance().Init(devId););
 
     // 1. 按 groupSize 连接本组 rank（client 上报的全局 nRanks 仅作一致性校验）。
     HcclResult ret = GetConnectionsScalable(groupSize);

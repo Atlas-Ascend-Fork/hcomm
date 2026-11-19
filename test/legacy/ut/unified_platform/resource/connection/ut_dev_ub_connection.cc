@@ -252,7 +252,7 @@ TEST_F(DevUbConnectionTest, rma_ub_connection_suspend_change_status_suspend)
     DevUbConnection devUbConnection(rdmaHandle, linkData.GetLocalAddr(), linkData.GetRemoteAddr(), OpMode::OPBASE);
 
     //  When:
-    MOCKER(HrtFree).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER(HrtFree).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
     devUbConnection.jettyHandle = 1;
     devUbConnection.sqBuffVa = 0x1000000;
     devUbConnection.status = RmaConnStatus::READY;
@@ -274,7 +274,7 @@ TEST_F(DevUbConnectionTest, rma_ub_connection_suspend_change_status_invalid)
     DevUbConnection devUbConnection(rdmaHandle, linkData.GetLocalAddr(), linkData.GetRemoteAddr(), OpMode::OPBASE);
 
     //  When:
-    MOCKER(HrtFree).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER(HrtFree).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // Then
     devUbConnection.status = RmaConnStatus::CLOSE;
@@ -357,7 +357,10 @@ TEST_F(DevUbConnectionTest, rma_ub_connection_ready_import_jetty)
 
 TEST_F(DevUbConnectionTest, tp_import_test)
 {
-    MOCKER(HrtGetDevicePhyIdByUserDevId).defaults().will(returnValue(static_cast<s32>(0)));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .defaults()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(0)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     // construct DevUbConnection
     RdmaHandle rdmaHandle = (void*)0x1000000;
 

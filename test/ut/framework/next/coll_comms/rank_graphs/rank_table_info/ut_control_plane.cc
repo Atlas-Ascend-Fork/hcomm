@@ -38,7 +38,7 @@ protected:
 TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_Normal_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string controlPlaneString = R"(
         {
@@ -64,7 +64,7 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_Normal_Expect_Success)
 TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_EID_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string controlPlaneString = R"(
         {
@@ -98,7 +98,7 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_EID_Expect_Success)
 TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_IPV6_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string controlPlaneString = R"(
         {
@@ -124,7 +124,7 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_IPV6_Expect_Success)
 TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_InvalidAddrType_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string controlPlaneString = R"(
         {
@@ -141,7 +141,7 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_InvalidAddrType_Expect_Except
 TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_InvalidAddr_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string controlPlaneString = R"(
         {
@@ -158,7 +158,7 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_InvalidAddr_Expect_Exception)
 TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_InvalidListenPort_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string controlPlaneString = R"(
         {
@@ -175,7 +175,7 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_InvalidListenPort_Expect_Exce
 TEST_F(ControlPlaneParserTest, Ut_Deserialize_EidToAddr_Length_Expect_E_PARA)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string controlPlaneString = "000000000000002000100000df0010g70";
     ControlPlane controlPlane;
@@ -187,7 +187,7 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_EidToAddr_Length_Expect_E_PARA)
 TEST_F(ControlPlaneParserTest, Ut_Deserialize_EidToAddr_Format_Expect_E_PARA)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string controlPlaneString = "000000000000002000100000df0010g7";
     ControlPlane controlPlane;

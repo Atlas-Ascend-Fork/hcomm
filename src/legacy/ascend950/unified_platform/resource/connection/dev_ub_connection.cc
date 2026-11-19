@@ -14,6 +14,7 @@
 
 #include "hccp_ctx.h"
 #include "exception_util.h"
+#include "internal_exception.h"
 #include "rma_conn_exception.h"
 #include "rdma_handle_manager.h"
 #include "common/comm_engine_utils_pub.h"
@@ -56,7 +57,11 @@ DevUbConnection::DevUbConnection(
     HCCL_INFO(
         "[DevUbConnection::DevUbConnection] rmtEid=%s, engine=%s, jettyMode=%d", rmtEid.Describe().c_str(),
         GetEnumToString(GetCommEngineStatusStrMap(), engine_).c_str(), static_cast<s32>(jettyMode_));
-    devLogicId = HrtGetDevice();
+    s32 devLogicIdTmp = 0;
+    if (HrtGetDevice(devLogicIdTmp) != HCCL_SUCCESS) {
+        THROW<InternalException>("[DevUbConnection] HrtGetDevice failed");
+    }
+    devLogicId = devLogicIdTmp;
 
     auto dieIdAndFuncId = RdmaHandleManager::GetInstance().GetDieAndFuncId(rdmaHandle); // 获取dieId和FuncId
     dieId = dieIdAndFuncId.first;
@@ -260,7 +265,9 @@ HcclResult DevUbConnection::CalcTotalTimeout(uint32_t& outTotalTimeoutMs)
     TpHandle tpHandle = tpInfo.tpHandle;
     uint32_t attrBitmap = (1U << kTpAttrRetryTimesInitBit) | (1U << kTpAttrAtBit);
     struct TpAttr tpAttr = {};
-    u32 devicePhyId = HrtGetDevicePhyIdByUserDevId(devLogicId);
+    DevId devPhyIdOut = 0;
+    CHK_RET(HrtGetDevicePhyIdByUserDevId(devLogicId, devPhyIdOut));
+    u32 devicePhyId = static_cast<u32>(devPhyIdOut);
     CHK_RET(HrtRaGetTpAttrAsync(devicePhyId, rdmaHandle, tpHandle, attrBitmap, tpAttr, reqHandle));
     TpAttrInfo tpAttrInfo = TpAttrInfo(tpAttr);
     CHK_RET(TpManager::GetTpTotalTimeout(tpAttrInfo, outTotalTimeoutMs));
@@ -995,20 +1002,27 @@ HcclResult DevUbConnection::Describe(std::string& dfxMsg)
     if (tpProtocol == TpProtocol::TP) {
         struct TpAttr tpAttr {};
         uint32_t attrBitmap = 1 << 13; // 13对应dataUdpSrcport
-        TRY_CATCH_PRINT_ERROR(
-            u32 devicePhyId = HrtGetDevicePhyIdByUserDevId(devLogicId);
-            HcclResult ret
-            = HrtRaGetTpAttrAsync(devicePhyId, rdmaHandle, tpInfo.tpHandle, attrBitmap, tpAttr, reqHandle);
-            if (ret == HCCL_E_NOT_SUPPORT) {
-                HCCL_ERROR(
-                    "[DevUbConnection::%s] this package does not support RaGetTpAttrAsync for device,"
-                    " please change new package, devPhyId[%u]",
-                    __func__, devicePhyId);
-                return ret;
-            } else if (ret != HCCL_SUCCESS) {
-                HCCL_ERROR("[DevUbConnection::%s] failed, hccl result[%d]", __func__, ret);
-                return ret;
-            });
+        DevId devPhyIdOut = 0;
+        HcclResult phyRet = HrtGetDevicePhyIdByUserDevId(devLogicId, devPhyIdOut);
+        if (phyRet != HCCL_SUCCESS) {
+            HCCL_ERROR("[DevUbConnection::%s] get phyId failed, ret[%d]", __func__, phyRet);
+            return phyRet;
+        }
+        u32 devicePhyId = static_cast<u32>(devPhyIdOut);
+        HcclResult reqRet = HCCL_E_INTERNAL;
+        TRY_CATCH_PRINT_ERROR(HcclResult ret = HrtRaGetTpAttrAsync(
+                                  devicePhyId, rdmaHandle, tpInfo.tpHandle, attrBitmap, tpAttr, reqHandle);
+                              reqRet = ret;);
+        if (reqRet == HCCL_E_NOT_SUPPORT) {
+            HCCL_ERROR(
+                "[DevUbConnection::%s] this package does not support RaGetTpAttrAsync for device,"
+                " please change new package, devPhyId[%u]",
+                __func__, devicePhyId);
+            return reqRet;
+        } else if (reqRet != HCCL_SUCCESS) {
+            HCCL_ERROR("[DevUbConnection::%s] failed, hccl result[%d]", __func__, reqRet);
+            return reqRet;
+        }
         udpSport = tpAttr.dataUdpSrcport;
     }
     udpSport = udpSport & 0xFF;

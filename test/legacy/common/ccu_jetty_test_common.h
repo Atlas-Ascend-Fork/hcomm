@@ -49,8 +49,11 @@ protected:
 
 inline void MockCcuJetty()
 {
-    MOCKER(HrtGetDevice).stubs().will(returnValue(10));
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(10));
+    MOCKER(HrtGetDevice).stubs().with(outBound(10)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevicePhyIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<DevId>(10)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&RdmaHandleManager::GetByIp).stubs().will(returnValue((void*)0x12345678));
     MOCKER_CPP(&RdmaHandleManager::GetJfcHandle).stubs().will(returnValue((JfcHandle)0x12345678));
     const auto fakeTokenInfo = std::make_pair<TokenIdHandle, uint32_t>(0x1, 0x1);

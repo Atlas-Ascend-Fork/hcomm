@@ -10,6 +10,7 @@
 
 #include "coll_service_device_mode.h"
 #include "exception_util.h"
+#include "internal_exception.h"
 #include "communicator_impl.h"
 #include "ccu_dev_mgr.h"
 #include "types.h"
@@ -418,7 +419,8 @@ void CollServiceDeviceMode::Resume()
     ccuTransportMgr->Confirm();
     HCCL_INFO("[CollServiceDeviceMode][%s] resource confirm end.", __func__);
 
-    int32_t devLogicId = HrtGetDevice();
+    int32_t devLogicId = 0;
+    CHK_RET_THROW(InternalException, "[CollServiceDeviceMode::Resume] HrtGetDevice failed", HrtGetDevice(devLogicId));
     for (uint8_t dieId = 0; dieId < MAX_CCU_IODIE_NUM; ++dieId) {
         CHK_RET_THROW(
             InternalException,
@@ -481,9 +483,9 @@ HcclResult CollServiceDeviceMode::GenerateAivOpArgs(const AivInstruction& aivIns
                                          reinterpret_cast<void*>(comm->GetAivOffloadTagBuffer()->GetAddr());
     HCCL_INFO("%s AivTag[%u]", __func__, aivOpArgs.aivTag);
     aivOpArgs.buffersIn = buffersInAddr;
-    HrtMemcpy(
+    CHK_RET(HrtMemcpy(
         buffersInAddr, MAX_RANK_SIZE_ * sizeof(uint64_t), buffersIn, MAX_RANK_SIZE_ * sizeof(uint64_t),
-        RT_MEMCPY_HOST_TO_DEVICE);
+        RT_MEMCPY_HOST_TO_DEVICE));
     u64 buffersOut[MAX_RANK_SIZE_] = {};
     auto ubMemLink2TransportMap_ = aivOpArgs.isOpBase ?
                                        comm->GetUbMemoryTransportMgr()->GetAllRankId2AivTagBufAddrList() :
@@ -500,9 +502,9 @@ HcclResult CollServiceDeviceMode::GenerateAivOpArgs(const AivInstruction& aivIns
     buffersInAddr = aivOpArgs.isOpBase ?
                         reinterpret_cast<void*>(comm->GetAivTagBuffer()->GetAddr() + AIV_TAG_ADDR_OFFSET) :
                         reinterpret_cast<void*>(comm->GetAivOffloadTagBuffer()->GetAddr() + AIV_TAG_ADDR_OFFSET);
-    HrtMemcpy(
+    CHK_RET(HrtMemcpy(
         buffersInAddr, MAX_RANK_SIZE_ * sizeof(uint64_t), buffersOut, MAX_RANK_SIZE_ * sizeof(uint64_t),
-        RT_MEMCPY_HOST_TO_DEVICE);
+        RT_MEMCPY_HOST_TO_DEVICE));
 
     buffersInAddr = aivOpArgs.isOpBase ?
                         reinterpret_cast<void*>(comm->GetAivTagBuffer()->GetAddr() + AIV_FLAG_ADDR_OFFSET) :
@@ -513,7 +515,8 @@ HcclResult CollServiceDeviceMode::GenerateAivOpArgs(const AivInstruction& aivIns
     bool isAivClearEnable = comm->GetAivClearEnable();
     if (isAivClearEnable && (aivOpArgs.aivTag & AIV_LOW_16_BITS) == 1
         && (aivOpArgs.aivTag >> AIV_TAG_MOVE_LEFT_BITS) == 1) {
-        HrtMemcpy(buffersInAddr, AIV_FLAG_AREA_SIZE, buffersInAddrSrc, AIV_FLAG_AREA_SIZE, RT_MEMCPY_DEVICE_TO_DEVICE);
+        CHK_RET(HrtMemcpy(
+            buffersInAddr, AIV_FLAG_AREA_SIZE, buffersInAddrSrc, AIV_FLAG_AREA_SIZE, RT_MEMCPY_DEVICE_TO_DEVICE));
     }
     if (comm->GetCurrentCollOperator()->inputMem == nullptr) {
         HCCL_INFO("%s comm->GetCurrentCollOperator()->inputMem is nullptr", __func__);
@@ -598,14 +601,14 @@ HcclResult CollServiceDeviceMode::GetAlgExecParam(bool clearEnable, u32 numBlock
 
     void* sendAlgParamMemPtr = nullptr;
     // alloc device 地址
-    sendAlgParamMemPtr = HrtMalloc(sizeof(AivSuperKernelArgs), static_cast<int>(ACL_MEM_TYPE_HIGH_BAND_WIDTH));
+    CHK_RET(HrtMalloc(sizeof(AivSuperKernelArgs), static_cast<int>(ACL_MEM_TYPE_HIGH_BAND_WIDTH), sendAlgParamMemPtr));
     CHK_PTR_NULL(sendAlgParamMemPtr);
     HCCL_INFO("SPK sendalgparam %p.", sendAlgParamMemPtr);
 
     // 拷贝到Device
-    HrtMemcpy(
+    CHK_RET(HrtMemcpy(
         sendAlgParamMemPtr, sizeof(AivSuperKernelArgs), &aivSuperKernelArgs, sizeof(AivSuperKernelArgs),
-        RT_MEMCPY_HOST_TO_DEVICE);
+        RT_MEMCPY_HOST_TO_DEVICE));
     commContext = sendAlgParamMemPtr;
     len = sizeof(AivSuperKernelArgs);
     return HCCL_SUCCESS;

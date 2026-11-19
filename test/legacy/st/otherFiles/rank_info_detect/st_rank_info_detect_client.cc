@@ -158,8 +158,11 @@ std:
 
     // 取rankInfoMsg的data() （const char *）
     MOCKER(aclrtMallocHostWithCfg).stubs().will(returnValue(1));
-    MOCKER(HrtMallocHost).stubs().with(mockcpp::any()).will(returnValue((void*)rankInfoMsg.data()));
-    MOCKER(HrtFreeHost).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER(HrtMallocHost)
+        .stubs()
+        .with(mockcpp::any(), outBound((void*)rankInfoMsg.data()))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtFreeHost).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
     void* msg = rankInfoMsg.data();
     u64 msgLen = rankInfoMsg.size();
     u64& revMsgLen = msgLen;

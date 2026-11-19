@@ -184,7 +184,7 @@ TEST_F(SocketManagerTest, Ut_ServerInitAll_Skip_Init_When_Env_Config)
 
     string topoFilePath{HCOMM_CODE_ROOT_DIR "/test/legacy/ut/framework/communicator/topo2pclos.json"};
     MOCKER_CPP(&CommunicatorImpl::GetTopoFilePath).stubs().will(returnValue(topoFilePath));
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     RankGraphBuilder rankGraphBuilder;
     unique_ptr<RankGraph> graph = rankGraphBuilder.Build(RankTable2pClos, topoFilePath, 0);
     EXPECT_NE(nullptr, graph);

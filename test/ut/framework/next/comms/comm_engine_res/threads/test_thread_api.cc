@@ -1706,7 +1706,7 @@ TEST_F(TestHcclThread, Ut_HcclDedicatedThreadAcquire_When_DeviceOrderNotifyExcee
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HCCL_SUCCESS));
 
     void* commV2 = (void*)0x2000;
     RankGraphStub rankGraphStub;

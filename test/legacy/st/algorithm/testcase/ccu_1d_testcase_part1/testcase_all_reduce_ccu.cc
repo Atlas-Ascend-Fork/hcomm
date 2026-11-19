@@ -661,7 +661,10 @@ TEST_F(AllReduceCCUTest, allreduce_ccu_case_test_4rank_Mesh1DOneShot)
 
 TEST_F(AllReduceCCUTest, should_throw_exception_when_ccu_type_is_invalid)
 {
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_950));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound((DevType)DevType::DEV_TYPE_950))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     RankId myRank = 0;
     u32 rankSize = 4;
     DataType dataType = DataType::FP16;

@@ -341,8 +341,8 @@ HcclResult AicpuTsRoceHostLocChannel::Serialize(std::shared_ptr<hccl::DeviceMem>
     hccl::DeviceMem devMem;
     EXCEPTION_CATCH(devMem = hccl::DeviceMem::alloc(totalBytes), return HCCL_E_PTR);
 
-    Hccl::HrtMemcpy(
-        devMem.ptr(), totalBytes, hostBuffer.data(), totalBytes, Hccl::tagRtMemcpyKind::RT_MEMCPY_HOST_TO_DEVICE);
+    CHK_RET(Hccl::HrtMemcpy(
+        devMem.ptr(), totalBytes, hostBuffer.data(), totalBytes, Hccl::tagRtMemcpyKind::RT_MEMCPY_HOST_TO_DEVICE));
 
     out = std::make_shared<hccl::DeviceMem>(std::move(devMem));
 
@@ -352,16 +352,18 @@ HcclResult AicpuTsRoceHostLocChannel::Serialize(std::shared_ptr<hccl::DeviceMem>
 
 HcclResult AicpuTsRoceHostLocChannel::BuildNotifyValueBuffer()
 {
-    Hccl::DevCapability::GetInstance().Init(Hccl::HrtGetDeviceType());
+    Hccl::DevType devType = Hccl::DevType::INVALID;
+    CHK_RET(Hccl::HrtGetDeviceType(devType));
+    Hccl::DevCapability::GetInstance().Init(devType);
     u32 notifysize = Hccl::DevCapability::GetInstance().GetNotifySize();
     EXCEPTION_CATCH((notifyValueMem_ = std::make_shared<Hccl::DevBuffer>(notifysize)), return HCCL_E_PTR);
     HCCL_DEBUG(
         "[AicpuTsRoceHostLocChannel::%s] create notify value buffer[%p], size[%u]", __func__, notifyValueMem_.get(),
         notifyValueMem_->GetSize());
     u64 notifyValue = 1; // notify值写1表示record
-    Hccl::HrtMemcpy(
+    CHK_RET(Hccl::HrtMemcpy(
         ReinterpretAs<void*>(notifyValueMem_->GetAddr()), notifyValueMem_->GetSize(), &notifyValue, notifysize,
-        Hccl::tagRtMemcpyKind::RT_MEMCPY_HOST_TO_DEVICE);
+        Hccl::tagRtMemcpyKind::RT_MEMCPY_HOST_TO_DEVICE));
     EXCEPTION_CATCH(
         (notifyValueBuffer_ = std::make_unique<Hccl::LocalRdmaRmaBuffer>(notifyValueMem_, local_.rdmaHandle)),
         return HCCL_E_PTR);

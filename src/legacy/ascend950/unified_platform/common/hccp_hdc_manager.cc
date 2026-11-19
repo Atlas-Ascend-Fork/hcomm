@@ -9,6 +9,8 @@
  */
 
 #include "hccp_hdc_manager.h"
+#include "exception_util.h"
+#include "internal_exception.h"
 #include "orion_adapter_tsd.h"
 #include "orion_adapter_rts.h"
 
@@ -30,7 +32,11 @@ void HccpHdcManager::Init(u32 deviceLogicId)
     HrtOpenTsdProcess(deviceLogicId);
 
     HRaInitConfig cfg;
-    cfg.phyId = HrtGetDevicePhyIdByUserDevId(deviceLogicId);
+    DevId phyIdOut = 0;
+    CHK_RET_THROW(
+        InternalException, "[HccpHdcManager::Init] HrtGetDevicePhyIdByUserDevId failed",
+        HrtGetDevicePhyIdByUserDevId(static_cast<s32>(deviceLogicId), phyIdOut));
+    cfg.phyId = static_cast<u32>(phyIdOut);
     cfg.mode = HrtNetworkMode::HDC;
     HrtRaInit(cfg);
 
@@ -52,7 +58,11 @@ void HccpHdcManager::DeInit(u32 deviceLogicId)
     instances.erase(deviceLogicId);
 
     HRaInitConfig cfg;
-    cfg.phyId = HrtGetDevicePhyIdByUserDevId(deviceLogicId);
+    DevId phyIdOut = 0;
+    CHK_RET_THROW(
+        InternalException, "[HccpHdcManager::DeInit] HrtGetDevicePhyIdByUserDevId failed",
+        HrtGetDevicePhyIdByUserDevId(static_cast<s32>(deviceLogicId), phyIdOut));
+    cfg.phyId = static_cast<u32>(phyIdOut);
     cfg.mode = HrtNetworkMode::HDC;
     DECTOR_TRY_CATCH("HccpHdcManager", HrtRaDeInit(cfg));
     HCCL_INFO("[HccpHdcManager::%s] devLogicId [%u] ra deinit success.", __func__, deviceLogicId);
@@ -73,10 +83,19 @@ void HccpHdcManager::DestroyAll()
         HCCL_INFO("HccpHdcManager deinit");
 
         HRaInitConfig cfg;
-        cfg.phyId = HrtGetDevicePhyIdByUserDevId(deviceLogicId);
+        DevId phyIdOut = 0;
+        CHK_RET_THROW(
+            InternalException, "[HccpHdcManager::DestroyAll] HrtGetDevicePhyIdByUserDevId failed",
+            HrtGetDevicePhyIdByUserDevId(static_cast<s32>(deviceLogicId), phyIdOut));
+        cfg.phyId = static_cast<u32>(phyIdOut);
         cfg.mode = HrtNetworkMode::HDC;
         DECTOR_TRY_CATCH("HccpHdcManager", HrtRaDeInit(cfg));
-        DECTOR_TRY_CATCH("HccpHdcManager", HrtResetDevice(deviceLogicId));
+        HcclResult resetRet = HrtResetDevice(deviceLogicId);
+        if (resetRet != HCCL_SUCCESS) {
+            HCCL_ERROR(
+                "[HccpHdcManager] HrtResetDevice failed, deviceLogicId[%u], ret[%d].", static_cast<u32>(deviceLogicId),
+                resetRet);
+        }
     }
     instances.clear();
 }

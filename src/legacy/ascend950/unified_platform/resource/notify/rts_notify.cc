@@ -9,39 +9,76 @@
  */
 
 #include "common/cast_utils_pub.h"
+#include "internal_exception.h"
 #include "rts_notify_v2.h"
 #include "log.h"
 #include "dev_capability.h"
 #include "binary_stream.h"
 namespace Hccl {
 
-RtsNotify::RtsNotify(bool devUsed) : devPhyId(HrtGetDevicePhyIdByUserDevId(HrtGetDevice())), devUsed(devUsed)
+RtsNotify::RtsNotify(bool devUsed) : devPhyId(0), devUsed(devUsed)
 {
-    s32 deviceID = HrtGetDevice();
+    s32 deviceID = 0;
+    if (HrtGetDevice(deviceID) != HCCL_SUCCESS) {
+        THROW<InternalException>("[RtsNotify] HrtGetDevice failed");
+    }
+    DevId devPhyIdOut = 0;
+    if (HrtGetDevicePhyIdByUserDevId(deviceID, devPhyIdOut) != HCCL_SUCCESS) {
+        THROW<InternalException>("[RtsNotify] HrtGetDevicePhyIdByUserDevId failed");
+    }
+    devPhyId = static_cast<u32>(devPhyIdOut);
 
     if (devUsed) {
-        handle = HrtNotifyCreateWithFlag(deviceID, ACL_NOTIFY_DEVICE_USE_ONLY);
+        aclrtNotify notify = nullptr;
+        if (HrtNotifyCreateWithFlag(static_cast<u32>(deviceID), ACL_NOTIFY_DEVICE_USE_ONLY, notify) != HCCL_SUCCESS) {
+            THROW<InternalException>("[RtsNotify] HrtNotifyCreateWithFlag failed");
+        }
+        handle = notify;
     } else {
-        handle = HrtNotifyCreate(deviceID);
+        aclrtNotify notify = nullptr;
+        if (HrtNotifyCreate(deviceID, notify) != HCCL_SUCCESS) {
+            THROW<InternalException>("[RtsNotify] HrtNotifyCreate failed");
+        }
+        handle = notify;
     }
 
-    id = HrtGetNotifyID(handle);
+    if (HrtGetNotifyID(handle, id) != HCCL_SUCCESS) {
+        THROW<InternalException>("[RtsNotify] HrtGetNotifyID failed");
+    }
 }
 
-RtsNotify::~RtsNotify() { DECTOR_TRY_CATCH("RtsNotify", HrtNotifyDestroy(handle)); }
+RtsNotify::~RtsNotify()
+{
+    HcclResult ret = HrtNotifyDestroy(handle);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR("[RtsNotify] HrtNotifyDestroy failed, handle[%p], ret[%d].", handle, ret);
+    }
+}
 
 std::string RtsNotify::SetIpcName() const
 {
     char ipcName[RTS_IPC_MEM_NAME_LEN] = {0};
-    HrtIpcSetNotifyName(handle, ipcName, RTS_IPC_MEM_NAME_LEN);
+    CHK_RET_THROW(
+        InternalException, "[RtsNotify::SetIpcName] HrtIpcSetNotifyName failed",
+        HrtIpcSetNotifyName(handle, ipcName, RTS_IPC_MEM_NAME_LEN));
     return ipcName;
 }
 
-void RtsNotify::SetIpcPid(s32 pid) const { HrtSetIpcNotifyPid(handle, pid); }
+void RtsNotify::SetIpcPid(s32 pid) const
+{
+    CHK_RET_THROW(
+        InternalException, "[RtsNotify::SetIpcPid] HrtSetIpcNotifyPid failed", HrtSetIpcNotifyPid(handle, pid));
+}
 
 u32 RtsNotify::GetId() const { return id; }
 
-u64 RtsNotify::GetOffset() const { return HrtNotifyGetOffset(handle); }
+u64 RtsNotify::GetOffset() const
+{
+    u32 offset = 0;
+    CHK_RET_THROW(
+        InternalException, "[RtsNotify::GetOffset] HrtNotifyGetOffset failed", HrtNotifyGetOffset(handle, offset));
+    return static_cast<u64>(offset);
+}
 
 u64 RtsNotify::GetHandleAddr() const { return ReinterpretAs<u64>(handle); }
 
@@ -64,10 +101,16 @@ std::vector<char> RtsNotify::GetUniqueId() const
 
 void RtsNotify::Wait(const Stream& stream, u32 timeout) const
 {
-    HrtNotifyWaitWithTimeOut(handle, stream.GetPtr(), timeout);
+    CHK_RET_THROW(
+        InternalException, "[RtsNotify::Wait] HrtNotifyWaitWithTimeOut failed",
+        HrtNotifyWaitWithTimeOut(handle, stream.GetPtr(), timeout));
 }
 
-void RtsNotify::Post(const Stream& stream) const { HrtNotifyRecord(handle, stream.GetPtr()); }
+void RtsNotify::Post(const Stream& stream) const
+{
+    CHK_RET_THROW(
+        InternalException, "[RtsNotify::Post] HrtNotifyRecord failed", HrtNotifyRecord(handle, stream.GetPtr()));
+}
 
 string RtsNotify::Describe() const
 {

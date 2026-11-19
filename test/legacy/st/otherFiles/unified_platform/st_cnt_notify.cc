@@ -77,12 +77,18 @@ protected:
 TEST_F(ConnLocalCntNotifyManagerTest, applyfor_and_get_success)
 {
     int a = 0;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType(DevType::DEV_TYPE_910A2)));
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
-    MOCKER(HrtCntNotifyCreate).stubs().will(returnValue((void*)&a));
-    MOCKER(HrtGetCntNotifyId).stubs().will(returnValue(0));
+    MOCKER(HrtGetDeviceType)
+        .stubs()
+        .with(outBound(DevType(DevType::DEV_TYPE_910A2)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtCntNotifyCreate).stubs().with(outBound((void*)&a)).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtGetCntNotifyId).stubs().with(outBound(u32(0))).will(returnValue(HcclResult::HCCL_SUCCESS));
     HrtDevResAddrInfo resAddrInfo;
-    MOCKER(HrtGetDevResAddress).stubs().with(mockcpp::any()).will(returnValue(resAddrInfo));
+    MOCKER(HrtGetDevResAddress)
+        .stubs()
+        .with(mockcpp::any(), outBound(resAddrInfo))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     CommunicatorImpl comm;
     comm.devPhyId = 0;
     ConnLocalCntNotifyManager connLocalCntNotifyManager(&comm);

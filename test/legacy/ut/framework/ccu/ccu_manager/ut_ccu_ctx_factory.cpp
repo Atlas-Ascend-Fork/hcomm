@@ -109,7 +109,7 @@ TEST_F(CcuCtxFactoryTest, should_return_success_when_calling_register_create)
 {
     // when
     GlobalMockObject::verify();
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(CcuDeviceManager::ReleaseCke)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
@@ -163,7 +163,7 @@ TEST_F(CcuCtxFactoryTest, should_return_nullptr_when_transport_mgr_prepare_creat
 {
     // when
     GlobalMockObject::verify();
-    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(CcuDeviceManager::ReleaseCke)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())

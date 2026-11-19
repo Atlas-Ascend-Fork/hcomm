@@ -43,7 +43,8 @@ HcclResult HcomSetAttachedStream(const char* group, u32 graphId, const rtStream_
             return HCCL_SUCCESS;
         }
         void* attachedStream = stream[0];
-        s32 deviceLogicId = Hccl::HrtGetDevice();
+        s32 deviceLogicId = 0;
+        CHK_RET(Hccl::HrtGetDevice(deviceLogicId));
         auto& mgr = hccl::CollCommMgr::GetInstance().GetOrderLaunchThreadMgr(deviceLogicId);
         CHK_RET(mgr.SetAttachedStream(std::string(group), graphId, attachedStream));
         // len >= 2 时第二条流为通信域粒度 GE 提前展开流，注入到通信域 ThreadMgr（仅存流，首次获取时创建 thread）

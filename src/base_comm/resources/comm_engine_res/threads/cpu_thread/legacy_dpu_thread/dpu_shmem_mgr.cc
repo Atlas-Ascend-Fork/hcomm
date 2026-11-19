@@ -45,8 +45,7 @@ HcclResult DpuShmemMgr::Alloc(const std::string& tag, uint64_t size, int32_t dev
 
     HcclResult ret = HCCL_SUCCESS;
     if (shmem.connectType_ == HOST_DEVICE_CONNECT_TYPE_PCIE) {
-        // HrtMalloc 失败以异常上抛、不返回 nullptr，故本分支无判空（异常语义见头文件 Alloc 的 @note）
-        shmem.va_ = Hccl::HrtMalloc(size, ACL_MEM_TYPE_HIGH_BAND_WIDTH);
+        CHK_RET(Hccl::HrtMalloc(size, ACL_MEM_TYPE_HIGH_BAND_WIDTH, shmem.va_));
         ret = Hccl::HrtHalHostRegister(shmem.va_, size, DEV_SVM_MAP_HOST, deviceLogicId, &shmem.accessVA_);
     } else if (shmem.connectType_ == HOST_DEVICE_CONNECT_TYPE_UB) {
         shmem.originVa_ = malloc(size + ALIGN_4K); // 保证足够的对齐余量（最多偏移 ALIGN_4K-1）
@@ -65,7 +64,10 @@ HcclResult DpuShmemMgr::Alloc(const std::string& tag, uint64_t size, int32_t dev
             shmem.connectType_);
         if (shmem.va_ != nullptr) {
             if (shmem.connectType_ == HOST_DEVICE_CONNECT_TYPE_PCIE) {
-                Hccl::HrtFree(shmem.va_);
+                HcclResult freeRet = Hccl::HrtFree(shmem.va_);
+                if (freeRet != HCCL_SUCCESS) {
+                    HCCL_ERROR("[DpuShmemMgr][%s] HrtFree failed, ret[%d]", __func__, freeRet);
+                }
             } else if (shmem.connectType_ == HOST_DEVICE_CONNECT_TYPE_UB) {
                 free(shmem.originVa_);
                 shmem.originVa_ = nullptr;
@@ -110,8 +112,11 @@ void DpuShmemMgr::ReleaseShmem(Hccl::DpuShmem& shmem, int32_t deviceLogicId)
         HCCL_ERROR("[DpuShmemMgr][%s] HrtHalHostUnregister failed, ret[%d]", __func__, ret);
     }
     if (shmem.connectType_ == HOST_DEVICE_CONNECT_TYPE_PCIE) {
-        // HrtFree 失败经 MACRO_THROW 上抛，而本函数在析构路径上，异常穿出会直接 terminate，故就地捕获
-        DECTOR_TRY_CATCH("DpuShmemMgr", Hccl::HrtFree(shmem.va_));
+        // 回收路径：HrtFree 失败仅打印日志，不阻断后续资源释放
+        HcclResult freeRet = Hccl::HrtFree(shmem.va_);
+        if (freeRet != HCCL_SUCCESS) {
+            HCCL_ERROR("[DpuShmemMgr][%s] HrtFree failed, va[%p], ret[%d]", __func__, shmem.va_, freeRet);
+        }
     } else if (shmem.connectType_ == HOST_DEVICE_CONNECT_TYPE_UB) {
         free(shmem.originVa_);
     }

@@ -41,8 +41,17 @@ constexpr u64 HCCL_CCL_COMM_FIXED_CALC_BUFFER_SIZE = (1 * 1024 * 1024); // 指�
 
 u32 GetLocalDieId(IpAddress&& portAddr)
 {
-    auto devLogicId = HrtGetDevice();
-    uint32_t devPhyId = HrtGetDevicePhyIdByUserDevId(devLogicId);
+    s32 devLogicId = 0;
+    if (HrtGetDevice(devLogicId) != HCCL_SUCCESS) {
+        HCCL_WARNING("[GetLocalDieId] HrtGetDevice failed, use default devLogicId 0.");
+        devLogicId = 0;
+    }
+    DevId devPhyIdOut = 0;
+    if (HrtGetDevicePhyIdByUserDevId(devLogicId, devPhyIdOut) != HCCL_SUCCESS) {
+        HCCL_WARNING("[GetLocalDieId] HrtGetDevicePhyIdByUserDevId failed, use default devPhyId 0.");
+        devPhyIdOut = 0;
+    }
+    uint32_t devPhyId = static_cast<uint32_t>(devPhyIdOut);
 
     auto& rdmaHandleMgr = RdmaHandleManager::GetInstance();
     auto rdmaHandle = rdmaHandleMgr.GetByIp(devPhyId, portAddr);
@@ -320,8 +329,18 @@ void CommunicatorImpl::InitCommonData(const CommParams& commParams, const HcclCo
     rankSize = commParams.rankSize;
     devType = commParams.devType;
     isWorldGroup = commParams.isWorldGroup;
-    devLogicId = HrtGetDevice();
-    devPhyId = HrtGetDevicePhyIdByUserDevId(devLogicId);
+    s32 logicId = 0;
+    if (HrtGetDevice(logicId) != HCCL_SUCCESS) {
+        HCCL_WARNING("[CommunicatorImpl] HrtGetDevice failed, use default logicId 0.");
+        logicId = 0;
+    }
+    devLogicId = static_cast<DevId>(logicId);
+    DevId devPhyIdOut = 0;
+    if (HrtGetDevicePhyIdByUserDevId(logicId, devPhyIdOut) != HCCL_SUCCESS) {
+        HCCL_WARNING("[CommunicatorImpl] HrtGetDevicePhyIdByUserDevId failed, use default devPhyId 0.");
+        devPhyIdOut = 0;
+    }
+    devPhyId = devPhyIdOut;
     config = commConfig;
     cclBufferSize = config.hcclBufferSize;
     // 设定devType，初始化能力，算法及其他模块通过Get获取能力

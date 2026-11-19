@@ -154,13 +154,17 @@ static aclError StubAclrtFree(void* devPtr)
     return ACL_SUCCESS;
 }
 
-static void StubHrtMemcpyVoid(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind) {}
+static HcclResult StubHrtMemcpyVoid(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind)
+{
+    return HCCL_SUCCESS;
+}
 
-static void StubHrtMemcpyReal(void* dst, uint64_t dstMax, const void* src, uint64_t count, Hccl::tagRtMemcpyKind)
+static HcclResult StubHrtMemcpyReal(void* dst, uint64_t dstMax, const void* src, uint64_t count, Hccl::tagRtMemcpyKind)
 {
     if (dst != nullptr && src != nullptr && dstMax >= count) {
         (void)std::memcpy(dst, src, static_cast<size_t>(count));
     }
+    return HCCL_SUCCESS;
 }
 
 TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildAndGetLocNotifyInfo_Expect_Success)
@@ -287,7 +291,7 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildChannelEntityToDevice_Expect_Succ
 
     MOCKER(aclrtMallocWithCfg).stubs().will(invoke(StubAclrtMalloc));
     MOCKER(aclrtFree).stubs().will(invoke(StubAclrtFree));
-    using HrtMemcpyType = void (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
+    using HrtMemcpyType = HcclResult (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
     MOCKER((Hccl::HrtMemcpy)).stubs().will(invoke(static_cast<HrtMemcpyType>(StubHrtMemcpyReal)));
 
     void* devChannelEntityPtr = nullptr;
@@ -311,7 +315,7 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildSlab_Expect_Success)
 
     MOCKER(aclrtMallocWithCfg).stubs().will(invoke(StubAclrtMalloc));
     MOCKER(aclrtFree).stubs().will(invoke(StubAclrtFree));
-    using HrtMemcpyType = void (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
+    using HrtMemcpyType = HcclResult (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
     MOCKER((Hccl::HrtMemcpy)).stubs().will(invoke(static_cast<HrtMemcpyType>(StubHrtMemcpyReal)));
 
     g_slabAllocated = false;
@@ -345,7 +349,7 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildSlab_CachedReturn_Expect_SamePtr)
 
     MOCKER(aclrtMallocWithCfg).stubs().will(invoke(StubAclrtMalloc));
     MOCKER(aclrtFree).stubs().will(invoke(StubAclrtFree));
-    using HrtMemcpyType = void (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
+    using HrtMemcpyType = HcclResult (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
     MOCKER((Hccl::HrtMemcpy)).stubs().will(invoke(static_cast<HrtMemcpyType>(StubHrtMemcpyReal)));
 
     void* firstPtr = nullptr;
@@ -378,7 +382,7 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildSlab_AclrtMallocFail_Expect_Memor
 
     MOCKER(aclrtMallocWithCfg).stubs().will(invoke(StubAclrtMallocFail));
     MOCKER(aclrtFree).stubs().will(invoke(StubAclrtFree));
-    using HrtMemcpyType = void (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
+    using HrtMemcpyType = HcclResult (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
     MOCKER((Hccl::HrtMemcpy)).stubs().will(invoke(static_cast<HrtMemcpyType>(StubHrtMemcpyVoid)));
 
     void* devChannelEntityPtr = nullptr;
@@ -404,7 +408,7 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_Clean_FreesSlab_CanRebuild)
 
     MOCKER(aclrtMallocWithCfg).stubs().will(invoke(StubAclrtMalloc));
     MOCKER(aclrtFree).stubs().will(invoke(StubAclrtFree));
-    using HrtMemcpyType = void (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
+    using HrtMemcpyType = HcclResult (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
     MOCKER((Hccl::HrtMemcpy)).stubs().will(invoke(static_cast<HrtMemcpyType>(StubHrtMemcpyReal)));
 
     // First build
@@ -473,7 +477,7 @@ TEST_F(AivRoceHostLocChannelTest, Ut_PreAllocChannelEntityToDevice_When_Normal_R
 
     MOCKER(aclrtMallocWithCfg).stubs().will(invoke(StubAclrtMalloc));
     MOCKER(aclrtFree).stubs().will(invoke(StubAclrtFree));
-    using HrtMemcpyType = void (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
+    using HrtMemcpyType = HcclResult (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
     MOCKER((Hccl::HrtMemcpy)).stubs().will(invoke(static_cast<HrtMemcpyType>(StubHrtMemcpyReal)));
 
     void* devChannelEntityPtr = nullptr;
@@ -495,7 +499,7 @@ TEST_F(AivRoceHostLocChannelTest, Ut_PreAllocChannelEntityToDevice_When_AlreadyB
 
     MOCKER(aclrtMallocWithCfg).stubs().will(invoke(StubAclrtMalloc));
     MOCKER(aclrtFree).stubs().will(invoke(StubAclrtFree));
-    using HrtMemcpyType = void (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
+    using HrtMemcpyType = HcclResult (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
     MOCKER((Hccl::HrtMemcpy)).stubs().will(invoke(static_cast<HrtMemcpyType>(StubHrtMemcpyReal)));
 
     void* firstPtr = nullptr;
@@ -520,7 +524,7 @@ TEST_F(AivRoceHostLocChannelTest, Ut_FillChannelEntityToDevice_When_PreAllocated
 
     MOCKER(aclrtMallocWithCfg).stubs().will(invoke(StubAclrtMalloc));
     MOCKER(aclrtFree).stubs().will(invoke(StubAclrtFree));
-    using HrtMemcpyType = void (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
+    using HrtMemcpyType = HcclResult (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
     MOCKER((Hccl::HrtMemcpy)).stubs().will(invoke(static_cast<HrtMemcpyType>(StubHrtMemcpyReal)));
 
     void* devChannelEntityPtr = nullptr;

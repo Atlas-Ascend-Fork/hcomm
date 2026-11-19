@@ -22,7 +22,8 @@ P2PEnableManager& P2PEnableManager::GetInstance()
 
 HcclResult P2PEnableManager::EnableP2P(std::vector<uint32_t> remoteDevices)
 {
-    auto localDeviceLogicID = HrtGetDevice();
+    s32 localDeviceLogicID = 0;
+    CHK_RET(HrtGetDevice(localDeviceLogicID));
 
     for (auto remoteDevicePhysicID : remoteDevices) {
         CHK_RET(EnableP2P(localDeviceLogicID, remoteDevicePhysicID));
@@ -36,7 +37,9 @@ HcclResult P2PEnableManager::EnableP2P(uint32_t localDeviceLogicID, uint32_t rem
     auto& iterLocalDevice = connectionsInfo_[localDeviceLogicID];
     auto iterRemoteDevice = iterLocalDevice.find(remoteDevicePhysicID);
     if ((iterRemoteDevice == iterLocalDevice.end()) || (iterRemoteDevice->second.reference.load() == 0)) {
-        auto localDevicePhysicID = HrtGetDevicePhyIdByUserDevId(localDeviceLogicID);
+        DevId localDevicePhysicIDOut = 0;
+        CHK_RET(HrtGetDevicePhyIdByUserDevId(static_cast<s32>(localDeviceLogicID), localDevicePhysicIDOut));
+        auto localDevicePhysicID = static_cast<uint32_t>(localDevicePhysicIDOut);
         CHK_RET(HrtEnableP2P(localDeviceLogicID, remoteDevicePhysicID));
         HCCL_INFO(
             "[EnableP2P]enable p2p: local logic id:%u, local physic id:%u, remote physic id:%u.", localDeviceLogicID,
@@ -119,7 +122,9 @@ HcclResult P2PEnableManager::DisableP2P(uint32_t localDeviceLogicID, uint32_t re
 
     iterRemoteDevice->second.reference.fetch_sub(1);
     if (iterRemoteDevice->second.reference.load() == 0) {
-        auto localDevicePhysicID = HrtGetDevicePhyIdByUserDevId(localDeviceLogicID);
+        DevId localDevicePhysicIDOut = 0;
+        CHK_RET(HrtGetDevicePhyIdByUserDevId(static_cast<s32>(localDeviceLogicID), localDevicePhysicIDOut));
+        auto localDevicePhysicID = static_cast<uint32_t>(localDevicePhysicIDOut);
         HCCL_INFO(
             "disable p2p: local logic id:%u, local physic id:%u, remote physic id:%u.", localDeviceLogicID,
             localDevicePhysicID, remoteDevicePhysicID);

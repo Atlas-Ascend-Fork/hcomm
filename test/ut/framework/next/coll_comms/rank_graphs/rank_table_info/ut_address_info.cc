@@ -73,7 +73,7 @@ nlohmann::json BuildIpv4AddressInfoWithPortCount(std::size_t count)
 TEST_F(AddressInfoParserTest, Ut_Deserialize_When_Normal_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string addressInfoString = R"(
             {
@@ -103,7 +103,7 @@ TEST_F(AddressInfoParserTest, Ut_Deserialize_When_Normal_Expect_Success)
 TEST_F(AddressInfoParserTest, Ut_Deserialize_When_Ipv4BackupAddrValid_Expect_ParseBackupAddrs)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string addressInfoString = R"(
             {
@@ -171,7 +171,7 @@ TEST_F(AddressInfoParserTest, Ut_BinaryStream_When_BackupAddrCountExceedsLimit_E
 TEST_F(AddressInfoParserTest, Ut_Deserialize_When_Ipv6BackupAddrValid_Expect_ParseBackupAddrs)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string addressInfoString = R"(
             {
@@ -192,7 +192,7 @@ TEST_F(AddressInfoParserTest, Ut_Deserialize_When_Ipv6BackupAddrValid_Expect_Par
 TEST_F(AddressInfoParserTest, Ut_Deserialize_When_BackupAddrCountAtLimit_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
     AddressInfo addressInfo;
     const std::string addressInfoString = BuildIpv4AddressInfoWithBackupAddrCount(MAX_VALUE_BACKUP_ADDR_SIZE).dump();
 
@@ -203,7 +203,7 @@ TEST_F(AddressInfoParserTest, Ut_Deserialize_When_BackupAddrCountAtLimit_Expect_
 TEST_F(AddressInfoParserTest, Ut_Deserialize_When_BackupAddrCountExceedsLimit_Expect_Throw)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
     AddressInfo addressInfo;
     const std::string addressInfoString
         = BuildIpv4AddressInfoWithBackupAddrCount(MAX_VALUE_BACKUP_ADDR_SIZE + 1U).dump();
@@ -214,7 +214,7 @@ TEST_F(AddressInfoParserTest, Ut_Deserialize_When_BackupAddrCountExceedsLimit_Ex
 TEST_F(AddressInfoParserTest, Ut_Deserialize_When_PortsCountAtLimit_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
     AddressInfo addressInfo;
     const std::string addressInfoString = BuildIpv4AddressInfoWithPortCount(MAX_VALUE_PORT).dump();
 
@@ -225,7 +225,7 @@ TEST_F(AddressInfoParserTest, Ut_Deserialize_When_PortsCountAtLimit_Expect_Succe
 TEST_F(AddressInfoParserTest, Ut_Deserialize_When_PortsCountExceedsLimit_Expect_Throw)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
     AddressInfo addressInfo;
     const std::string addressInfoString = BuildIpv4AddressInfoWithPortCount(MAX_VALUE_PORT + 1U).dump();
 
@@ -235,7 +235,7 @@ TEST_F(AddressInfoParserTest, Ut_Deserialize_When_PortsCountExceedsLimit_Expect_
 TEST_F(AddressInfoParserTest, Ut_Deserialize_When_EID_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string addressInfoString = R"(
             {
@@ -274,7 +274,7 @@ TEST_F(AddressInfoParserTest, Ut_Deserialize_When_EID_Expect_Success)
 TEST_F(AddressInfoParserTest, Ut_Deserialize_When_IPV6_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string addressInfoString = R"(
             {
@@ -302,7 +302,7 @@ TEST_F(AddressInfoParserTest, Ut_Deserialize_When_IPV6_Expect_Success)
 TEST_F(AddressInfoParserTest, Ut_Deserialize_When_EmptyAddr_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
     MOCKER(RptInputErr).stubs().will(returnValue(HCCL_SUCCESS));
 
     std::string addressInfoString = R"(
@@ -334,7 +334,7 @@ class AddressInfoParserInvalidTest :
 TEST_P(AddressInfoParserInvalidTest, Ut_Deserialize_When_InvalidInput_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
     AddressInfo addressInfo;
 
     EXPECT_EQ(hccl::ParseJsonString(GetParam().addressInfoString, addressInfo), HCCL_E_PARA);

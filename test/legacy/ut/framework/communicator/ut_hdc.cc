@@ -33,6 +33,24 @@ static HcclResult HrtDrvMemCpyStub(void* dst, uint64_t destMax, const void* src,
     return HCCL_SUCCESS;
 }
 
+static void* g_hostMallocBufs[2] = {nullptr, nullptr};
+static uint32_t g_hostMallocIdx = 0;
+static HcclResult HrtMallocHostStub(u64 size, void*& hostPtr)
+{
+    hostPtr = g_hostMallocBufs[g_hostMallocIdx % 2U];
+    g_hostMallocIdx++;
+    return HCCL_SUCCESS;
+}
+
+static void* g_devMallocBufs[2] = {nullptr, nullptr};
+static uint32_t g_devMallocIdx = 0;
+static HcclResult HrtMallocStub(u64 size, aclrtMemType_t memType, void*& devPtr)
+{
+    devPtr = g_devMallocBufs[g_devMallocIdx % 2U];
+    g_devMallocIdx++;
+    return HCCL_SUCCESS;
+}
+
 class HdcTest : public testing::Test {
 protected:
     static void SetUpTestCase() { std::cout << "HdcTest SetUP" << std::endl; }
@@ -43,19 +61,17 @@ protected:
     {
         memset_s(hostBuf, sizeof(hostBuf), 0, sizeof(hostBuf));
         memset_s(hostCache, sizeof(hostCache), 0, sizeof(hostCache));
-        MOCKER(HrtMallocHost)
-            .stubs()
-            .with(mockcpp::any(), mockcpp::any())
-            .will(returnValue(static_cast<void*>(hostBuf)))
-            .then(returnValue(static_cast<void*>(hostCache)));
+        g_hostMallocBufs[0] = static_cast<void*>(hostBuf);
+        g_hostMallocBufs[1] = static_cast<void*>(hostCache);
+        g_hostMallocIdx = 0;
+        MOCKER(HrtMallocHost).stubs().with(mockcpp::any(), mockcpp::any()).will(invoke(HrtMallocHostStub));
 
         memset_s(devBuf, sizeof(devBuf), 0, sizeof(devBuf));
         memset_s(devCache, sizeof(devCache), 0, sizeof(devCache));
-        MOCKER(HrtMalloc)
-            .stubs()
-            .with(mockcpp::any(), mockcpp::any())
-            .will(returnValue(static_cast<void*>(devBuf)))
-            .then(returnValue(static_cast<void*>(devCache)));
+        g_devMallocBufs[0] = static_cast<void*>(devBuf);
+        g_devMallocBufs[1] = static_cast<void*>(devCache);
+        g_devMallocIdx = 0;
+        MOCKER(HrtMalloc).stubs().with(mockcpp::any(), mockcpp::any(), mockcpp::any()).will(invoke(HrtMallocStub));
 
         MOCKER(HrtDrvMemCpy).stubs().with().will(invoke(HrtDrvMemCpyStub));
         MOCKER(halHostRegister).expects(atMost(1)).will(invoke(fake_hrtHalHostRegister));

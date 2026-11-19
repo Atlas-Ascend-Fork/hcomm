@@ -96,7 +96,10 @@ RankInfoDetectScalable::RankInfoDetectScalable(s32 devLogicId, s32 userDevId, u3
       userDevId_(userDevId),
       devPhyId_(devPhyId)
 {
-    s32 deviceNum = HrtGetDeviceCount();
+    u32 deviceCount = 0;
+    CHK_RET_THROW(
+        InternalException, "[RankInfoDetectScalable] HrtGetDeviceCount failed", HrtGetDeviceCount(deviceCount));
+    s32 deviceNum = static_cast<s32>(deviceCount);
     CHK_PRT_THROW(
         userDevId_ >= deviceNum,
         HCCL_ERROR(
@@ -423,8 +426,7 @@ void RankInfoDetectScalable::ScalableServerWorker(ErrContextPub errorContext)
     const u32 serverPort = rootHandle_.listenPort;
     RankInfoDetectService::SetServerStatus(serverPort, RANKINFO_DETECT_SERVER_STATUS_RUNNING);
 
-    bool deviceSetFailed = false;
-    EXCEPTION_CATCH(HrtSetDevice(devLogicId_), deviceSetFailed = true);
+    bool deviceSetFailed = HrtSetDevice(devLogicId_) != HCCL_SUCCESS;
     if (deviceSetFailed) {
         HCCL_ERROR("[RankInfoDetectScalable::%s] set device failed, deviceLogicId[%d].", __func__, devLogicId_);
         RankInfoDetectService::SetServerStatus(serverPort, RANKINFO_DETECT_SERVER_STATUS_ERROR);
@@ -543,7 +545,10 @@ void RankInfoDetectScalable::ReleaseListenResources()
     }
     TRY_CATCH_PRINT_ERROR(HccpPeerManager::GetInstance().DeInit(devLogicId_););
     if (deviceSet_) {
-        TRY_CATCH_PRINT_ERROR(HrtResetDevice(devLogicId_););
+        HcclResult resetRet = HrtResetDevice(devLogicId_);
+        if (resetRet != HCCL_SUCCESS) {
+            HCCL_ERROR("[RankInfoDetectScalable::%s] HrtResetDevice failed, ret[%d].", __func__, resetRet);
+        }
     }
 }
 
@@ -804,10 +809,17 @@ HcclResult RankInfoDetectScalable::MeshConnectToLargerRoots(u32 timeoutSec)
 
 HcclResult RankInfoDetectScalable::MeshAcceptSmallerRoots(u32 timeoutSec)
 {
-    TRY_CATCH_RETURN(HrtSetDevice(devLogicId_););
+    HcclResult setRet = HrtSetDevice(devLogicId_);
+    if (setRet != HCCL_SUCCESS) {
+        HCCL_ERROR("[RankInfoDetectScalable::%s] HrtSetDevice failed, ret[%d].", __func__, setRet);
+        return setRet;
+    }
     HcclResult ret = HCCL_E_INTERNAL;
     TRY_CATCH_PRINT_ERROR(ret = MeshAcceptSmallerRootsCore(timeoutSec););
-    TRY_CATCH_PRINT_ERROR(HrtResetDevice(devLogicId_););
+    HcclResult resetRet = HrtResetDevice(devLogicId_);
+    if (resetRet != HCCL_SUCCESS) {
+        HCCL_ERROR("[RankInfoDetectScalable::%s] HrtResetDevice failed, ret[%d].", __func__, resetRet);
+    }
     return ret;
 }
 

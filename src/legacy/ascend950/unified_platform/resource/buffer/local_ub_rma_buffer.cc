@@ -12,6 +12,8 @@
 
 #include "null_ptr_exception.h"
 #include "invalid_params_exception.h"
+#include "exception_util.h"
+#include "internal_exception.h"
 #include "exchange_ub_buffer_dto.h"
 #include "rdma_handle_manager.h"
 
@@ -104,7 +106,9 @@ LocalUbRmaBuffer::LocalUbRmaBuffer(std::shared_ptr<Buffer> buf) : LocalRmaBuffer
     rtMemUbTokenInfo info;
     info.va = buf->GetAddr();
     info.size = buf->GetSize();
-    HrtUbDevQueryInfo(QUERY_PROCESS_TOKEN, &info);
+    CHK_RET_THROW(
+        InternalException, "[LocalUbRmaBuffer] HrtUbDevQueryInfo failed",
+        HrtUbDevQueryInfo(QUERY_PROCESS_TOKEN, &info));
     tokenId = info.tokenId;
     tokenValue = info.tokenValue; // 未处理tokenIdHandle
     HCCL_INFO("LocalUbRmaBuffer Construct: buf=[%s]", buf->Describe().c_str());
@@ -181,8 +185,13 @@ u32 GetUbToken()
 {
     std::lock_guard<std::mutex> lock(ubTokenMutex);
     if (!isInitialized) {
-        s32 userDevId = HrtGetDevice();
-        u32 devPhyId = HrtGetDevicePhyIdByUserDevId(userDevId);
+        s32 userDevId = 0;
+        CHK_RET_THROW(InternalException, "[GetUbToken] HrtGetDevice failed", HrtGetDevice(userDevId));
+        DevId devPhyIdOut = 0;
+        CHK_RET_THROW(
+            InternalException, "[GetUbToken] HrtGetDevicePhyIdByUserDevId failed",
+            HrtGetDevicePhyIdByUserDevId(userDevId, devPhyIdOut));
+        u32 devPhyId = static_cast<u32>(devPhyIdOut);
         HrtRaGetSecRandom(&token, devPhyId);
         isInitialized = true;
     }

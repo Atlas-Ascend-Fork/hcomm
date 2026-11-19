@@ -9,6 +9,7 @@
  */
 
 #include <thread>
+#include "internal_exception.h"
 #include <cstdlib>
 #include <fstream>
 #include <limits.h>
@@ -67,8 +68,13 @@ namespace {
     std::string QueryTopoFilePathByDevice()
     {
         const size_t bufSize = 1024;
-        auto userDevId = HrtGetDevice();
-        auto devPhyId = HrtGetDevicePhyIdByUserDevId(userDevId);
+        s32 userDevId = 0;
+        CHK_RET_THROW(InternalException, "[QueryTopoFilePathByDevice] HrtGetDevice failed", HrtGetDevice(userDevId));
+        DevId devPhyIdOut = 0;
+        CHK_RET_THROW(
+            InternalException, "[QueryTopoFilePathByDevice] HrtGetDevicePhyIdByUserDevId failed",
+            HrtGetDevicePhyIdByUserDevId(userDevId, devPhyIdOut));
+        auto devPhyId = static_cast<uint32_t>(devPhyIdOut);
         std::vector<char> buffer(bufSize, '\0');
         int result = TopoAddrInfoGetTopoFilePath(devPhyId, buffer.data(), buffer.size());
         CHK_PRT_THROW(
@@ -624,7 +630,8 @@ HcclResult RankInfoDetectClient::HostListenPortDetect(hccl::NewRankInfo& rankInf
         HCCL_ERROR("[%s] PhyTopoBuilder Build failed", __func__);
         return HCCL_E_INTERNAL;
     }
-    auto devLogicId = HrtGetDevice();
+    s32 devLogicId = 0;
+    CHK_RET(HrtGetDevice(devLogicId));
     u32 devPhyId = rankInfo.deviceId;
     for (auto& rankLevelInfo : rankInfo.rankLevelInfos) {
         shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> graph
@@ -729,7 +736,10 @@ void RankInfoDetectClient::SocketTearDown(u32 devPhyId)
         return;
     }
     const IpAddress& hostIp = hostSocket_->GetLocalIp();
-    auto devLogicId = HrtGetDevice();
+    s32 devLogicId = 0;
+    if (HrtGetDevice(devLogicId) != HCCL_SUCCESS) {
+        HCCL_WARNING("[RankInfoDetectClient::SocketTearDown] HrtGetDevice failed");
+    }
     if (hostSocketRegistered_) {
         // 已登记到 SocketManager::GetServerSocketMap()，所有权已转移给 map，
         // 由算子下发阶段 HostSocketStopListen refcount 归 0 时清理，此处跳过 Release/Destroy
@@ -775,9 +785,12 @@ HcclResult RankInfoDetectClient::TearDown()
     }
 
     // 同步释放 RA 引用：detach 线程无法保证在进程退出前完成，也会与 manager 静态析构产生竞态。
+    s32 devId = 0;
+    if (HrtGetDevice(devId) != HCCL_SUCCESS) {
+        HCCL_WARNING("[%s] HrtGetDevice failed", __func__);
+    }
     EXCEPTION_CATCH(
-        HccpPeerManager::GetInstance().DeInit(HrtGetDevice()),
-        HCCL_ERROR("[RankInfoDetectClient::TearDown] DeInit exception"));
+        HccpPeerManager::GetInstance().DeInit(devId), HCCL_ERROR("[RankInfoDetectClient::TearDown] DeInit exception"));
 
     HCCL_INFO("[RankInfoDetectClient::%s] end.", __func__);
     return HCCL_SUCCESS;

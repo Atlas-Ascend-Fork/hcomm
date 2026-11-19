@@ -9,6 +9,7 @@
  */
 
 #include "ccuTaskException.h"
+#include "internal_exception.h"
 #include "comm_engine/ccu/ccu_task_exception_pub.h"
 #include "ccu_dfx_schema.h"
 #include "common/cast_utils_pub.h"
@@ -2283,9 +2284,11 @@ void CcuTaskException::NotifyJettyErrorToControlPlane(
 {
     uint32_t devPhyId = 0;
     // 查询失败仅告警不阻断：保证控制面故障上报链路不被快照收尾的辅助查询阻断
-    EXCEPTION_CATCH(
-        devPhyId = Hccl::HrtGetDevicePhyIdByUserDevId(static_cast<s32>(deviceId)),
-        HCCL_ERROR("[%s]get devPhyId failed, deviceId[%u]", __func__, deviceId));
+    Hccl::DevId devPhyIdOut = 0;
+    if (Hccl::HrtGetDevicePhyIdByUserDevId(static_cast<s32>(deviceId), devPhyIdOut) != HCCL_SUCCESS) {
+        HCCL_ERROR("[%s]get devPhyId failed, deviceId[%u]", __func__, deviceId);
+    }
+    devPhyId = static_cast<uint32_t>(devPhyIdOut);
     for (u32 i = 0; i < ccuJettys.size(); ++i) {
         if (jettyStatusVec[i] != JettyStatus::ERROR && jettyStatusVec[i] != JettyStatus::SUSPENDED) {
             continue;
@@ -2341,7 +2344,12 @@ void CcuTaskException::NotifyControlPlaneOnUbError(
     const std::vector<CcuErrorInfo>& errorInfos, const Hccl::TaskInfo& taskInfo, u32 deviceId, uint8_t missionStatus)
 {
     uint32_t devPhyId = 0;
-    EXCEPTION_CATCH(devPhyId = Hccl::HrtGetDevicePhyIdByUserDevId(static_cast<s32>(deviceId)), return);
+    Hccl::DevId devPhyIdOut = 0;
+    if (Hccl::HrtGetDevicePhyIdByUserDevId(static_cast<s32>(deviceId), devPhyIdOut) != HCCL_SUCCESS) {
+        HCCL_ERROR("[%s]get devPhyId failed, deviceId[%u]", __func__, deviceId);
+        return;
+    }
+    devPhyId = static_cast<uint32_t>(devPhyIdOut);
     struct RaInfo raInfo = {};
     raInfo.mode = NETWORK_OFFLINE;
     raInfo.phyId = devPhyId;

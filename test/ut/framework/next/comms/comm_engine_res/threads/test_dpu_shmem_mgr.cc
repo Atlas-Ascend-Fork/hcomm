@@ -35,10 +35,11 @@ HcclResult g_registerRet = HCCL_SUCCESS;
 uint32_t g_hrtFreeCount = 0;
 uint32_t g_registerCount = 0; // 注册动作计数：用于断言「被拒绝的申请没有做任何申请动作」
 
-void StubHrtFree(void* devPtr)
+HcclResult StubHrtFree(void* devPtr)
 {
     (void)devPtr;
     ++g_hrtFreeCount;
+    return HCCL_SUCCESS;
 }
 
 HcclResult StubHostRegister(void* srcPtr, uint64_t size, uint32_t flag, int32_t deviceLogicId, void** dstPtr)
@@ -70,7 +71,10 @@ void MockShmemDeps(int64_t connectType)
         .will(returnValue(HCCL_SUCCESS));
     MOCKER(HrtHalHostRegister).stubs().will(invoke(StubHostRegister));
     MOCKER(HrtHalHostUnregister).stubs().will(invoke(StubHostUnregister));
-    MOCKER(HrtMalloc).stubs().will(returnValue(static_cast<void*>(g_pcieDevMem)));
+    MOCKER(HrtMalloc)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound(static_cast<void*>(g_pcieDevMem)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtFree).stubs().will(invoke(StubHrtFree));
 }
 } // namespace

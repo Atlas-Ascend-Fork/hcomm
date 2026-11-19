@@ -81,7 +81,10 @@ protected:
         char c = '1';
         MOCKER(realpath).stubs().with(mockcpp::any()).will(returnValue(&c));
 
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue(static_cast<Hccl::DevType>(Hccl::DevType::DEV_TYPE_910A)));
+        MOCKER(HrtGetDeviceType)
+            .stubs()
+            .with(outBound(Hccl::DevType(static_cast<Hccl::DevType>(Hccl::DevType::DEV_TYPE_910A))))
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
 
         // 代际谓词 hcomm::EqualToOrGreaterThan950 的真值源为全局 hrtGetDeviceType（UT 桩默认 950），
         // 需与 HrtGetDeviceType 桩保持一致返回 910 代，保证 910A 超时取整分支被覆盖
@@ -305,9 +308,7 @@ TEST_F(EnvConfigTest, parse_env_config_should_success2)
     .with(mockcpp::any())
     .will(returnValue(&c));
 
-    MOCKER(HrtGetDeviceType)
-    .stubs()
-    .will(returnValue((DevType)DevType::DEV_TYPE_910A3));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(Hccl::DevType((DevType)DevType::DEV_TYPE_910A3))).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     EnvConfigStub envCfg;
 

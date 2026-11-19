@@ -68,7 +68,7 @@ protected:
 TEST_F(TopoParserTest, Ut_Deserialize_When_Normal_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string topoString = R"({
 	    "version": "2.0",
@@ -253,7 +253,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_Normal_Expect_Success)
 TEST_F(TopoParserTest, Ut_Deserialize_When_NeededFieldMissing_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string topoString = R"({
 	    "hardware_type" : "950-2D-Fullmsh_64_plus_1"
@@ -266,7 +266,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_NeededFieldMissing_Expect_Exception)
 TEST_F(TopoParserTest, Ut_Deserialize_When_InvalidVersion_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string topoString = R"({
 	    "version": "1.0",
@@ -301,7 +301,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_InvalidVersion_Expect_Exception)
 TEST_F(TopoParserTest, Ut_Deserialize_When_ZeroEdge_Expect_Warning)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string topoString = R"({
 	    "version": "2.0",
@@ -346,7 +346,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_ZeroEdge_Expect_Warning)
 TEST_F(TopoParserTest, Ut_Deserialize_When_PeersSizeUnequalToPeerCount_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string topoString = R"({
 	    "version": "2.0",
@@ -366,7 +366,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_PeersSizeUnequalToPeerCount_Expect_Ex
 TEST_F(TopoParserTest, Ut_Deserialize_When_PeerIdGreaterThanPeerCount_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string topoString = R"({
 	    "version": "2.0",
@@ -392,7 +392,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_PeerIdGreaterThanPeerCount_Expect_Suc
 TEST_F(TopoParserTest, Ut_Deserialize_When_DuplicatePeer_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string topoString = R"({
 	    "version": "2.0",
@@ -412,7 +412,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_DuplicatePeer_Expect_Exception)
 TEST_F(TopoParserTest, Ut_Deserialize_When_EdgesSizeUnequalToEdgeCount_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string topoString = R"({
 	    "version": "2.0",
@@ -459,7 +459,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_EdgesSizeUnequalToEdgeCount_Expect_Ex
 TEST_F(TopoParserTest, Ut_Deserialize_When_DuplicateEdge_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string topoString = R"({
 	    "version": "2.0",
@@ -506,7 +506,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_DuplicateEdge_Expect_Exception)
 TEST_F(TopoParserTest, Ut_Deserialize_When_InvalidEndpointLocalId_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string topoString = R"({
 	    "version": "2.0",
@@ -553,7 +553,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_InvalidEndpointLocalId_Expect_Excepti
 TEST_F(TopoParserTest, Ut_Deserialize_When_InvalidTopoType_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string topoString = R"({
 	    "version": "2.0",
@@ -600,7 +600,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_InvalidTopoType_Expect_Exception)
 TEST_F(TopoParserTest, Ut_Deserialize_When_InvalidJson_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string topoString = R"({
 	    "net_layer": 0,
@@ -619,7 +619,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_InvalidJson_Expect_Exception)
 TEST_F(TopoParserTest, Ut_Deserialize_When_InvalidTopoInstId_Expect_Exception)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string topoString = R"({
 	    "version": "2.0",
@@ -653,7 +653,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_InvalidTopoInstId_Expect_Exception)
 TEST_F(TopoParserTest, Ut_BinaryStream_When_GetBinStreamToReBuild_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     hccl::TopoInfo expectTopoInfo;
     expectTopoInfo.version = "2.0";
@@ -772,7 +772,7 @@ TEST_F(TopoParserTest, Ut_BinaryStream_When_GetBinStreamToReBuild_Expect_Success
 TEST_F(TopoParserTest, Ut_DeserializeBinaryStream_When_Normal_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
     hccl::TopoInfo topoInfo;
     EXPECT_EQ(hccl::ParseJsonString(BuildLargeTopoString(), topoInfo), HCCL_SUCCESS);
     BinaryStream binaryStream;

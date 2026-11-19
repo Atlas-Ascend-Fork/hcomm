@@ -9,6 +9,7 @@
  */
 
 #include "ccu_ins.h"
+#include "internal_exception.h"
 #include "ccu_ctx_mgr.h"
 #include "orion_adapter_rts.h"
 
@@ -16,7 +17,8 @@ namespace Hccl {
 
 void CcuInstruction::Translate(std::vector<std::vector<CcuTaskParam>>& taskParam) const
 {
-    s32 deviceLogicId = HrtGetDevice();
+    s32 deviceLogicId = 0;
+    CHK_RET_THROW(InternalException, "[Translate] HrtGetDevice failed", HrtGetDevice(deviceLogicId));
     std::unique_ptr<CcuTaskArg> ccuTaskArg = GetTaskArg();
     if (ccuTaskArg == nullptr) {
         HCCL_ERROR("[CcuInstruction][Translate]ccuTaskArg is null");

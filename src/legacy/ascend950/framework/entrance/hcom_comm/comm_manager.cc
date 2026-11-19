@@ -84,7 +84,11 @@ HcclResult CallSingletons()
 {
     s32 deviceLogicId = 0;
     try {
-        deviceLogicId = HrtGetDevice();
+        HcclResult devRet = HrtGetDevice(deviceLogicId);
+        if (devRet != HCCL_SUCCESS) {
+            HCCL_WARNING("[CallSingletons] HrtGetDevice failed, ret[%d]", devRet);
+            return devRet;
+        }
         // 避免设备粒度单例访问错误设备
         if (deviceLogicId < 0 || static_cast<uint32_t>(deviceLogicId) >= ::MAX_MODULE_DEVICE_NUM) {
             HCCL_WARNING("[CallSingletons] deviceLogicId[%d] may not have device, passed.", deviceLogicId);
@@ -138,7 +142,10 @@ void CommManager::PrintChannelInfo()
 {
     std::lock_guard<std::mutex> lock(commInfoV2.groupParamsLock);
     u32 channelNum = 0;
-    s32 logicDevId = HrtGetDevice();
+    s32 logicDevId = 0;
+    if (HrtGetDevice(logicDevId) != HCCL_SUCCESS) {
+        HCCL_WARNING("[CommManager::PrintChannelInfo] HrtGetDevice failed");
+    }
     HCCL_INFO("[CommManager][PrintChannelInfo]devId[%d].", logicDevId);
     for (u32 dieId = 0; dieId < MAX_CCU_IODIE_NUM; dieId++) {
         auto ret = CcuGetChannelSpecNum(logicDevId, dieId, channelNum);
@@ -332,7 +339,8 @@ HcclResult HcomCreateGroupImplV2(const std::string& group, u32 rankNum, const st
 
     CHK_SMART_PTR_NULL(groupParamsV2Tem.pComm);
     groupParamsV2Tem.pComm->RegisterAcceStateCallBack(CommunicatorCallback());
-    s32 logicDevId = HrtGetDevice();
+    s32 logicDevId = 0;
+    CHK_RET(HrtGetDevice(logicDevId));
     CHK_RET(CommManager::GetInstance(logicDevId)
                 .SetCommAcceleratorV2(groupParamsV2Tem.pComm.get(), 0)); // 子通信域创建，设置默认accelerator
 
@@ -543,7 +551,7 @@ HcclResult HcomDestroyV2(void)
             aclError ret = aclrtGetDevice(&logicDevId);
             if (ret == ACL_ERROR_RT_CONTEXT_NULL) {
                 // 若当前线程获取不到context，则由hccl进行setDevice，并在通信域析构完成后resetDevice
-                HrtSetDevice(hcomCommInfoV2.devId);
+                CHK_RET(HrtSetDevice(hcomCommInfoV2.devId));
                 isSetDeviceByHcomm = true;
             } else if (ret != ACL_SUCCESS) {
                 HCCL_ERROR("[HcomDestroyV2] get device failed, ret[%d]", ret);
@@ -560,7 +568,7 @@ HcclResult HcomDestroyV2(void)
         }
         hcomCommInfoV2.hcclGroupMap.clear();
         if (isSetDeviceByHcomm) {
-            HrtResetDevice(hcomCommInfoV2.devId);
+            CHK_RET(HrtResetDevice(hcomCommInfoV2.devId));
         }
     }
     return HCCL_SUCCESS;
@@ -634,13 +642,11 @@ HcclResult HcomInitByFileV2(const char* rankTablePath, const char* identify)
     bool devUsed = false;
     bool isWorldGroup = true;
     // 临时修改这个为4，后边要改掉这个，在初始流程中，解析完虚拟拓扑后，添加ranksize
-    Hccl::CommParams commParams{commId,
-                                static_cast<Hccl::RankId>(myRank),
-                                0,
-                                static_cast<Hccl::RankId>(myRank),
-                                Hccl::HrtGetDeviceType(),
-                                devUsed,
-                                isWorldGroup};
+    Hccl::DevType devType = Hccl::DevType::INVALID;
+    CHK_RET(Hccl::HrtGetDeviceType(devType));
+    Hccl::CommParams commParams{
+        commId,      static_cast<Hccl::RankId>(myRank), 0, static_cast<Hccl::RankId>(myRank), devType, devUsed,
+        isWorldGroup};
     hcomCommInfoV2.pComm.reset(new (std::nothrow) Hccl::HcclCommunicator(commParams));
     CHK_PTR_NULL(hcomCommInfoV2.pComm);
     auto res = hcomCommInfoV2.pComm->Init(ranktableInfo);
@@ -649,7 +655,8 @@ HcclResult HcomInitByFileV2(const char* rankTablePath, const char* identify)
         HCCL_E_INTERNAL);
 
     hcomCommInfoV2.pComm->RegisterAcceStateCallBack(CommunicatorCallback());
-    s32 logicDevId = HrtGetDevice();
+    s32 logicDevId = 0;
+    CHK_RET(HrtGetDevice(logicDevId));
     CHK_RET(CommManager::GetInstance(logicDevId)
                 .SetCommAcceleratorV2(hcomCommInfoV2.pComm.get(), 0)); // 全局通信域创建，设置默认accelerator
 
@@ -704,13 +711,11 @@ HcclResult HcomInitByStringV2(const char* rankTableM, const char* identify)
     bool devUsed = false;
     bool isWorldGroup = true;
     // 临时修改这个为4，后边要改掉这个，在初始流程中，解析完虚拟拓扑后，添加ranksize
-    Hccl::CommParams commParams{commId,
-                                static_cast<Hccl::RankId>(myRank),
-                                0,
-                                static_cast<Hccl::RankId>(myRank),
-                                Hccl::HrtGetDeviceType(),
-                                devUsed,
-                                isWorldGroup};
+    Hccl::DevType devType = Hccl::DevType::INVALID;
+    CHK_RET(Hccl::HrtGetDeviceType(devType));
+    Hccl::CommParams commParams{
+        commId,      static_cast<Hccl::RankId>(myRank), 0, static_cast<Hccl::RankId>(myRank), devType, devUsed,
+        isWorldGroup};
     hcomCommInfoV2.pComm.reset(new (std::nothrow) Hccl::HcclCommunicator(commParams));
     CHK_PTR_NULL(hcomCommInfoV2.pComm);
     auto res = hcomCommInfoV2.pComm->Init(rankTableM);
@@ -719,7 +724,8 @@ HcclResult HcomInitByStringV2(const char* rankTableM, const char* identify)
         HCCL_E_INTERNAL);
 
     hcomCommInfoV2.pComm->RegisterAcceStateCallBack(CommunicatorCallback());
-    s32 logicDevId = HrtGetDevice();
+    s32 logicDevId = 0;
+    CHK_RET(HrtGetDevice(logicDevId));
     hcomCommInfoV2.devId = logicDevId;
     CHK_RET(CommManager::GetInstance(logicDevId)
                 .SetCommAcceleratorV2(hcomCommInfoV2.pComm.get(), 0)); // 全局通信域创建，设置默认accelerator

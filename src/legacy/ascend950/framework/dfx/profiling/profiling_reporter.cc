@@ -37,7 +37,9 @@ HcclResult ProfilingReporter::Init()
     mirrorTaskMgr_->RegFullyCallBack([this]() {
         ReportCallBackAllTasks();
     });
-    deviceLogicId_ = HrtGetDevice();
+    s32 devId = 0;
+    CHK_RET(HrtGetDevice(devId));
+    deviceLogicId_ = devId;
     if (deviceLogicId_ >= static_cast<s32>(MAX_MODULE_DEVICE_NUM) || deviceLogicId_ < 0) {
         HCCL_ERROR("[ProfilingReporter][Init] deviceLogicId_[%d] out of range", deviceLogicId_);
         return HCCL_E_INTERNAL;

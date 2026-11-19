@@ -74,8 +74,7 @@ HcclResult RankInfoDetect::TriggerGrowCollect(u32 newRankCount, RankTableInfo& m
                  hrtErrMSetErrorContextPub(errorContext);
                  HCCL_INFO("[RankInfoDetect] grow loop thread start, listenPort[%u].", listenPort);
 
-                 HcclResult ret = HCCL_SUCCESS;
-                 EXCEPTION_CATCH(HrtSetDevice(devLogicIdCopy), ret = HCCL_E_INTERNAL);
+                 HcclResult ret = HrtSetDevice(devLogicIdCopy);
                  if (ret != HCCL_SUCCESS) {
                      service->MarkGrowThreadExited(ret);
                      HCCL_ERROR("[RankInfoDetect] grow loop thread set device failed, ret[%d].", ret);
@@ -83,8 +82,10 @@ HcclResult RankInfoDetect::TriggerGrowCollect(u32 newRankCount, RankTableInfo& m
                  }
 
                  EXCEPTION_CATCH(ret = service->SetupGrowLoop(), ret = HCCL_E_INTERNAL);
-                 HcclResult resetRet = HCCL_SUCCESS;
-                 EXCEPTION_CATCH(HrtResetDevice(devLogicIdCopy), resetRet = HCCL_E_INTERNAL);
+                 HcclResult resetRet = HrtResetDevice(devLogicIdCopy);
+                 if (resetRet != HCCL_SUCCESS) {
+                     HCCL_ERROR("[RankInfoDetect] grow loop thread reset device failed, ret[%d].", resetRet);
+                 }
                  if (ret == HCCL_SUCCESS) {
                      ret = resetRet;
                  }
@@ -162,7 +163,7 @@ HcclResult RankInfoDetect::Shutdown()
         // SetupAgent 失败路径兜底：SetupAgent 已调 HccpPeerManager::Init，但 client 未创建成功，此处显式 DeInit 释放。
         if (!persistentStarted_) {
             EXCEPTION_CATCH(
-                HccpPeerManager::GetInstance().DeInit(HrtGetDevice()),
+                HccpPeerManager::GetInstance().DeInit(devLogicId_),
                 HCCL_ERROR("[RankInfoDetect::%s] HccpPeerManager DeInit exception (agent fallback)", __func__));
         }
     }
@@ -175,7 +176,7 @@ HcclResult RankInfoDetect::Shutdown()
 
 RankInfoDetect::RankInfoDetect()
 {
-    userDevId_ = HrtGetDevice();
+    CHK_RET_THROW(InternalException, "[RankInfoDetect] HrtGetDevice failed", HrtGetDevice(userDevId_));
     aclError aclRet = aclrtGetLogicDevIdByUserDevId(userDevId_, &devLogicId_); // userDevId 转 logicDevId
     CHK_PRT_THROW(
         aclRet != ACL_SUCCESS,
@@ -183,7 +184,9 @@ RankInfoDetect::RankInfoDetect()
             "[RankInfoDetect::%s] aclrtGetLogicDevIdByUserDevId failed, userDevId[%d], ret[%d]", __func__, userDevId_,
             aclRet),
         InternalException, "get logicDevId fail");
-    s32 deviceNum = HrtGetDeviceCount();
+    u32 deviceCount = 0;
+    CHK_RET_THROW(InternalException, "[RankInfoDetect] HrtGetDeviceCount failed", HrtGetDeviceCount(deviceCount));
+    s32 deviceNum = static_cast<s32>(deviceCount);
     CHK_PRT_THROW(
         userDevId_ >= deviceNum,
         HCCL_ERROR("[RankInfoDetect::%s] userDevId[%d] is invalid, deviceNum[%d].", __func__, userDevId_, deviceNum),
@@ -401,7 +404,7 @@ HcclResult RankInfoDetect::ReleaseServerResource(shared_ptr<Socket>& serverSocke
         wlistInfo_.clear();
     }
     // 释放已抢占的端口
-    s32 devLogicId = HrtGetDevice();
+    s32 devLogicId = devLogicId_;
     if (EnvConfig::GetInstance().GetHostNicConfig().GetHostSocketPortRange().size() > 0
         || EnvConfig::GetInstance().GetHostNicConfig().GetIfBasePort() == HCCL_INVALID_PORT) {
         PreemptPortManager::GetInstance(devLogicId).Release(serverSocket);
@@ -487,7 +490,10 @@ HcclResult RankInfoDetect::SetupRankInfoDetectService(
 
     bool hasException = false;
     HcclResult setupRet = HCCL_SUCCESS;
-    EXCEPTION_CATCH(HrtSetDevice(devLogicId), hasException = true);
+    if (HrtSetDevice(devLogicId) != HCCL_SUCCESS) {
+        HCCL_ERROR("[RankInfoDetect] persistent service set device failed.");
+        hasException = true;
+    }
     if (!hasException) {
         // Setup 只负责收集；完成状态由线程包装层统一发布。
         EXCEPTION_CATCH(setupRet = rankInfoDetectService_->Setup(), setupRet = HCCL_E_INTERNAL);
@@ -496,8 +502,10 @@ HcclResult RankInfoDetect::SetupRankInfoDetectService(
             hasException = true;
         }
 
-        HcclResult resetRet = HCCL_SUCCESS;
-        EXCEPTION_CATCH(HrtResetDevice(devLogicId), resetRet = HCCL_E_INTERNAL);
+        HcclResult resetRet = HrtResetDevice(devLogicId);
+        if (resetRet != HCCL_SUCCESS) {
+            HCCL_ERROR("[RankInfoDetect] persistent service reset device failed, ret[%d].", resetRet);
+        }
         if (setupRet == HCCL_SUCCESS) {
             setupRet = resetRet;
         }
