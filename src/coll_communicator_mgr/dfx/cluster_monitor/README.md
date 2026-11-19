@@ -397,7 +397,7 @@ ClusterMonitorCallBackInit() {
 | **FROZEN 语义** | 当前与 910 一致：`head == tail` 且当前采样与上一轮均不推进时进入 `FROZEN`；`head != tail` 的在途卡死不会进入 `FROZEN`。因此空闲通信域可能被误判，在途卡死可能漏报，使用前需确认该限制。 |
 | **STUCK 恢复** | 恢复时仅本地置 `CLUSTER_MONITOR_OK`（`needBroadcast=false`），不向对端广播；对端可能继续保留本节点的 STUCK 状态。 |
 | **单 rank** | `rankSize == 1` 时 `RegisterToClusterMonitor` 直接返回，纯单 rank 进程不会启动 `MonitorThread`，卡住检测不生效。若同设备已有其他多 rank 通信域启动线程，单 rank 通信域懒分配的计数可能被该线程采样，但不保证。对外 C API 仍可能返回有效地址，不能据此认为检测已开启。 |
-| **设备范围** | 仅按device维护单例；多device场景下每个device独立心跳，互不影响。 |
+| **设备范围** | 仅按device维护单例；多device场景下每个device独立心跳，互不影响；PCIe（PCI Express）链路不参与心跳监控。 |
 | **平台依赖** | 依赖 `HcclCommunicator`（v2）、`RankGraph`、Socket抽象层（`SocketCreate/SendNb/RecvNb/GetStatus/Destroy`）；v1 communicator路径不受支持。 |
 | **环境开关** | `clusterHeartBeatEnable = false` 时，注册阶段不发起新socket（保留commIdMap_标记），CQE错误回调直接 `return`；不会建立心跳链路，但监控线程仍可能启动或复用，并执行本地卡住检测。 |
 | **错误传播路径** | 异常帧通过Ring链路逐步扩散，传播延迟 ≈ `BROADCAST_INTERVAL` × Ring跳数；非即时同步。 |
