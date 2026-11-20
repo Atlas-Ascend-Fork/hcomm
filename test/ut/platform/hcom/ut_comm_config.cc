@@ -226,7 +226,7 @@ TEST_F(CommConfigTest, utCommConfig_version_compatibility_net_layer_v13)
     userConfig.hcclChannelSqDepth = 128U;
     userConfig.hcclChannelScqDepth = 256U;
     // legacy只读取原配置项，不解析或启用选层字段。
-    std::fill(std::begin(userConfig.hccl_use_net_layer), std::end(userConfig.hccl_use_net_layer), 'x');
+    std::fill(std::begin(userConfig.hcclUseNetLayer), std::end(userConfig.hcclUseNetLayer), 'x');
     CommConfig commConfig("comm_ID");
     EXPECT_EQ(commConfig.Load(&userConfig), HCCL_SUCCESS);
     EXPECT_EQ(commConfig.GetConfigSqDepth(), 128U);

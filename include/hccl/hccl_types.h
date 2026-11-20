@@ -180,7 +180,7 @@ typedef struct HcclCommConfigDef {
     uint32_t hcclChannelSqDepth;
     uint32_t hcclChannelScqDepth;
     // 独立域空串使用环境配置，子域空串继承父域；支持0~7列表或not(列表)，初始化时生效。
-    char hccl_use_net_layer[HCCL_COMM_NET_LAYER_MAX_LENGTH];
+    char hcclUseNetLayer[HCCL_COMM_NET_LAYER_MAX_LENGTH];
 } HcclCommConfig;
 
 typedef enum {

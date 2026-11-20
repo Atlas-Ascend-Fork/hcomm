@@ -43,24 +43,23 @@ HcclResult CopyNetLayerConfig(const HcclCommConfig& input, HcclCommConfig& outpu
     CommConfigInfo header{};
     CHK_RET(ReadConfigHeader(input, header));
     if (!HasNetLayerConfig(header)) {
-        output.hccl_use_net_layer[0] = '\0';
+        output.hcclUseNetLayer[0] = '\0';
         return HCCL_SUCCESS;
     }
-    const size_t requiredSize = offsetof(HcclCommConfig, hccl_use_net_layer) + HCCL_COMM_NET_LAYER_MAX_LENGTH;
+    const size_t requiredSize = offsetof(HcclCommConfig, hcclUseNetLayer) + HCCL_COMM_NET_LAYER_MAX_LENGTH;
     if (header.configSize < requiredSize) {
         HCCL_ERROR(
-            "[%s] config is too short for hccl_use_net_layer: version[%u], size[%zu], requiredSize[%zu]", __func__,
+            "[%s] config is too short for hcclUseNetLayer: version[%u], size[%zu], requiredSize[%zu]", __func__,
             header.version, header.configSize, requiredSize);
         return HCCL_E_PARA;
     }
-    if (std::memchr(input.hccl_use_net_layer, '\0', HCCL_COMM_NET_LAYER_MAX_LENGTH) == nullptr) {
+    if (std::memchr(input.hcclUseNetLayer, '\0', HCCL_COMM_NET_LAYER_MAX_LENGTH) == nullptr) {
         HCCL_ERROR(
-            "[%s] hccl_use_net_layer has no terminator within capacity[%u]", __func__, HCCL_COMM_NET_LAYER_MAX_LENGTH);
+            "[%s] hcclUseNetLayer has no terminator within capacity[%u]", __func__, HCCL_COMM_NET_LAYER_MAX_LENGTH);
         return HCCL_E_PARA;
     }
     CHK_SAFETY_FUNC_RET(memcpy_s(
-        output.hccl_use_net_layer, sizeof(output.hccl_use_net_layer), input.hccl_use_net_layer,
-        HCCL_COMM_NET_LAYER_MAX_LENGTH));
+        output.hcclUseNetLayer, sizeof(output.hcclUseNetLayer), input.hcclUseNetLayer, HCCL_COMM_NET_LAYER_MAX_LENGTH));
     return HCCL_SUCCESS;
 }
 } // namespace
@@ -383,14 +382,14 @@ HcclResult SnapShotParser::SerializeNetLayerConfig(const HcclCommConfig& config,
     CHK_RET(CopyNetLayerConfig(config, copy));
     // 固定长度快照只保存有效字符串，避免带出调用方未初始化的尾部字节。
     char expression[HCCL_COMM_NET_LAYER_MAX_LENGTH]{};
-    CHK_SAFETY_FUNC_RET(strcpy_s(expression, sizeof(expression), copy.hccl_use_net_layer));
+    CHK_SAFETY_FUNC_RET(strcpy_s(expression, sizeof(expression), copy.hcclUseNetLayer));
     stream << expression << NET_LAYER_SNAPSHOT_MAGIC;
     return HCCL_SUCCESS;
 }
 
 HcclResult SnapShotParser::DeserializeNetLayerConfig(BinaryStream& stream, HcclCommConfig& config) const
 {
-    config.hccl_use_net_layer[0] = '\0';
+    config.hcclUseNetLayer[0] = '\0';
     CommConfigInfo header{};
     CHK_RET(ReadConfigHeader(config, header));
     if (!HasNetLayerConfig(header)) {
@@ -399,7 +398,7 @@ HcclResult SnapShotParser::DeserializeNetLayerConfig(BinaryStream& stream, HcclC
     HcclCommConfig copy{};
     CHK_SAFETY_FUNC_RET(memcpy_s(copy.reserved, sizeof(copy.reserved), config.reserved, sizeof(copy.reserved)));
     uint32_t magic = 0;
-    stream >> copy.hccl_use_net_layer >> magic;
+    stream >> copy.hcclUseNetLayer >> magic;
     if (magic != NET_LAYER_SNAPSHOT_MAGIC) {
         HCCL_ERROR(
             "[%s] invalid or truncated netLayer snapshot: magic[0x%x], expected[0x%x]", __func__, magic,

@@ -227,8 +227,7 @@ HcclCommConfig MakeSelectionConfig(const std::string& expression)
     HcclCommConfigInit(&config);
     // 复制完整输入；32字节用例刻意不补终止符，不能截断成合法参数。
     EXPECT_EQ(
-        EOK,
-        memcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), expression.data(), expression.size()));
+        EOK, memcpy_s(config.hcclUseNetLayer, sizeof(config.hcclUseNetLayer), expression.data(), expression.size()));
     return config;
 }
 
@@ -341,8 +340,7 @@ TEST_F(NetLayerSelectionLoadTest, Ut_LoadAndSubComm_When_LengthBoundary_Expect_N
             if (!fromEnvironment) {
                 uint32_t effective = UNCHANGED_OUTPUT;
                 ASSERT_EQ(
-                    NetLayerSelection::ResolveForSubComm(
-                        parameter->hccl_use_net_layer, ALL_LAYERS, ALL_LAYERS, effective),
+                    NetLayerSelection::ResolveForSubComm(parameter->hcclUseNetLayer, ALL_LAYERS, ALL_LAYERS, effective),
                     length == 31U ? HCCL_SUCCESS : HCCL_E_PARA);
                 EXPECT_EQ(effective, length == 31U ? 0x80U : UNCHANGED_OUTPUT);
             }
@@ -368,8 +366,7 @@ TEST_F(NetLayerSelectionLoadTest, Ut_LoadAndSubComm_When_GarbageAfterFirstTermin
         ExpectSelection(selection, Mode::INCLUDE, expected, std::string(1U, layer));
         uint32_t effective = UNCHANGED_OUTPUT;
         ASSERT_EQ(
-            NetLayerSelection::ResolveForSubComm(config.hccl_use_net_layer, 0x05U, ALL_LAYERS, effective),
-            HCCL_SUCCESS);
+            NetLayerSelection::ResolveForSubComm(config.hcclUseNetLayer, 0x05U, ALL_LAYERS, effective), HCCL_SUCCESS);
         EXPECT_EQ(effective, expected);
     }
 }
@@ -424,7 +421,7 @@ TEST(NetLayerSelectionSubCommTest, Ut_Resolve_When_ParentAndChildVary_Expect_Str
         uint32_t effectiveLayers = UNCHANGED_OUTPUT;
         ASSERT_EQ(
             NetLayerSelection::ResolveForSubComm(
-                item.expression ? config.hccl_use_net_layer : nullptr, item.parent, item.available, effectiveLayers),
+                item.expression ? config.hcclUseNetLayer : nullptr, item.parent, item.available, effectiveLayers),
             item.expected == UNCHANGED_OUTPUT ? HCCL_E_PARA : HCCL_SUCCESS);
         EXPECT_EQ(effectiveLayers, item.expected);
     }
@@ -436,7 +433,7 @@ TEST(NetLayerSelectionSubCommTest, Ut_Resolve_When_SyntaxInvalid_Expect_ErrorAnd
     for (const auto& expression : expressions) {
         SCOPED_TRACE(expression);
         const auto config = MakeSelectionConfig(expression);
-        ExpectSubCommFailurePreserves(config.hccl_use_net_layer, ALL_LAYERS, ALL_LAYERS);
+        ExpectSubCommFailurePreserves(config.hcclUseNetLayer, ALL_LAYERS, ALL_LAYERS);
     }
 }
 
@@ -446,9 +443,9 @@ TEST(NetLayerSelectionSubCommTest, Ut_Resolve_When_ParentOrChildMaskHasHighBits_
     for (uint32_t invalid : {0x100U, 0x1FFU, 0x80000001U, 0xFFFFFFFFU}) {
         SCOPED_TRACE(::testing::Message() << "invalid mask=" << invalid);
         ExpectSubCommFailurePreserves(nullptr, invalid, 0U);
-        ExpectSubCommFailurePreserves(config.hccl_use_net_layer, invalid, ALL_LAYERS);
+        ExpectSubCommFailurePreserves(config.hcclUseNetLayer, invalid, ALL_LAYERS);
         ExpectSubCommFailurePreserves(nullptr, 0U, invalid);
-        ExpectSubCommFailurePreserves(config.hccl_use_net_layer, ALL_LAYERS, invalid);
+        ExpectSubCommFailurePreserves(config.hcclUseNetLayer, ALL_LAYERS, invalid);
     }
 }
 
@@ -465,14 +462,14 @@ TEST_F(NetLayerSelectionLoadTest, Ut_SubComm_When_EnvironmentSet_Expect_IgnoreFo
         ASSERT_EQ(NetLayerSelection::ResolveForSubComm(nullptr, 0x81U, ALL_LAYERS, effectiveLayers), HCCL_SUCCESS);
         EXPECT_EQ(effectiveLayers, 0x81U);
         ASSERT_EQ(
-            NetLayerSelection::ResolveForSubComm(emptyConfig.hccl_use_net_layer, 0x81U, ALL_LAYERS, effectiveLayers),
+            NetLayerSelection::ResolveForSubComm(emptyConfig.hcclUseNetLayer, 0x81U, ALL_LAYERS, effectiveLayers),
             HCCL_SUCCESS);
         EXPECT_EQ(effectiveLayers, 0x81U);
         ASSERT_EQ(
-            NetLayerSelection::ResolveForSubComm(selectedConfig.hccl_use_net_layer, 0x81U, ALL_LAYERS, effectiveLayers),
+            NetLayerSelection::ResolveForSubComm(selectedConfig.hcclUseNetLayer, 0x81U, ALL_LAYERS, effectiveLayers),
             HCCL_SUCCESS);
         EXPECT_EQ(effectiveLayers, 0x01U);
-        ExpectSubCommFailurePreserves(invalidConfig.hccl_use_net_layer, 0x81U, ALL_LAYERS);
+        ExpectSubCommFailurePreserves(invalidConfig.hcclUseNetLayer, 0x81U, ALL_LAYERS);
     }
 }
 

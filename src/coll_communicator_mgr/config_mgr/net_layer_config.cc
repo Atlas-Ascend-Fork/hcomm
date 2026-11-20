@@ -27,7 +27,7 @@ namespace {
         if (value == nullptr) {
             return HCCL_SUCCESS;
         }
-        constexpr size_t READ_LIMIT = sizeof(HcclCommConfig::hccl_use_net_layer);
+        constexpr size_t READ_LIMIT = sizeof(HcclCommConfig::hcclUseNetLayer);
         const size_t length = strnlen(value, READ_LIMIT);
         if (length == READ_LIMIT) {
             HCCL_ERROR(
@@ -84,7 +84,7 @@ HcclResult PrepareIndependentCommConfig(const HcclCommConfig* input, HcclCommCon
     CHK_RET(NetLayerSelection::LoadForIndependentComm(&preparedConfig, selection));
     // 只冻结新增选层字段，其他参数及输入版本沿用原配置流程。
     auto ret = strcpy_s(
-        preparedConfig.hccl_use_net_layer, sizeof(preparedConfig.hccl_use_net_layer),
+        preparedConfig.hcclUseNetLayer, sizeof(preparedConfig.hcclUseNetLayer),
         selection.GetNormalizedExpression().c_str());
     CHK_PRT_RET(ret != EOK, HCCL_ERROR("[PrepareIndependentCommConfig] copy selection failed[%d]", ret), HCCL_E_MEMORY);
     output = preparedConfig;
@@ -94,15 +94,14 @@ HcclResult PrepareIndependentCommConfig(const HcclCommConfig* input, HcclCommCon
 HcclResult NetLayerSelection::LoadForIndependentComm(const HcclCommConfig* commConfig, NetLayerSelection& selection)
 {
     std::string expression;
-    CHK_RET(CopyNetLayerExpression(commConfig == nullptr ? nullptr : commConfig->hccl_use_net_layer, expression));
+    CHK_RET(CopyNetLayerExpression(commConfig == nullptr ? nullptr : commConfig->hcclUseNetLayer, expression));
     if (expression.empty()) {
         // 仅参数未配置时读取环境；非法参数不能回退到环境默认值。
         return EnvNetLayerConfig::GetInstance().GetSelection(selection);
     }
     CHK_RET(Parse(expression, selection));
     HCCL_RUN_INFO(
-        "[NetLayerSelection] hccl_use_net_layer set by comm config to [%s]",
-        selection.GetNormalizedExpression().c_str());
+        "[NetLayerSelection] hcclUseNetLayer set by comm config to [%s]", selection.GetNormalizedExpression().c_str());
     return HCCL_SUCCESS;
 }
 

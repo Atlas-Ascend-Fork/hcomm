@@ -2940,7 +2940,7 @@ TEST_F(OpbaseTestV2, Ut_RootInfoConfig_ForwardsNetLayerSelectionBeforeCommunicat
     // 探测阶段失败必须原样返回，不能继续创建通信域。
     for (const auto* expression : {"", "not(0)"}) {
         SCOPED_TRACE(expression);
-        ASSERT_EQ(strcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), expression), EOK);
+        ASSERT_EQ(strcpy_s(config.hcclUseNetLayer, sizeof(config.hcclUseNetLayer), expression), EOK);
         EXPECT_EQ(HcclCommInitRootInfoConfigV2(2, &rootInfo, 0, &config, &comm), HCCL_E_PARA);
         EXPECT_TRUE(g_detectHasSelection);
         EXPECT_EQ(g_detectNetLayerExpression, expression);
@@ -2994,7 +2994,7 @@ TEST_F(OpbaseTestV2, Ut_CreateCommConfig_When_OldFrozenSelection_Expect_Preserve
         // 模拟共享入口已冻结环境选层的完整快照；旧业务版本必须保留。
         const uint32_t version = 11;
         std::memcpy(config.reserved + sizeof(size_t) + sizeof(uint32_t), &version, sizeof(version));
-        ASSERT_EQ(strcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), "not(0)"), EOK);
+        ASSERT_EQ(strcpy_s(config.hcclUseNetLayer, sizeof(config.hcclUseNetLayer), "not(0)"), EOK);
         HcclComm comm = nullptr;
         std::string ranktable;
         ASSERT_EQ(
@@ -3003,7 +3003,7 @@ TEST_F(OpbaseTestV2, Ut_CreateCommConfig_When_OldFrozenSelection_Expect_Preserve
             HCCL_SUCCESS);
         ASSERT_NE(comm, nullptr);
         const auto& copied = static_cast<HcclCommunicator*>(comm)->config;
-        EXPECT_STREQ(copied.hccl_use_net_layer, "not(0)");
+        EXPECT_STREQ(copied.hcclUseNetLayer, "not(0)");
         EXPECT_EQ(std::memcmp(copied.reserved, config.reserved, sizeof(config.reserved)), 0);
         commInfo.hcclGroupMap.clear();
         commInfo.pComm = nullptr;

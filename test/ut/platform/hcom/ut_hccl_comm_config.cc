@@ -70,7 +70,7 @@ bool SetConsumedCommConfigFields(HcclCommConfig& config)
     return strcpy_s(config.hcclCommName, sizeof(config.hcclCommName), "input_comm") == EOK
            && strcpy_s(config.hcclUdi, sizeof(config.hcclUdi), "input_udi") == EOK
            && strcpy_s(config.hcclAlgo, sizeof(config.hcclAlgo), "input_algo") == EOK
-           && strcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), "not(0)") == EOK;
+           && strcpy_s(config.hcclUseNetLayer, sizeof(config.hcclUseNetLayer), "not(0)") == EOK;
 }
 
 void ExpectConfigReadFailurePreserves(const HcclCommConfig* input, HcclResult expected = HCCL_E_PARA)
@@ -86,9 +86,9 @@ void ExpectConfigReadFailurePreserves(const HcclCommConfig* input, HcclResult ex
 TEST(HcclCommConfigReadTest, Ut_InitDefault_When_SelectionContainsData_Expect_Cleared)
 {
     HcclCommConfig config{};
-    std::fill(std::begin(config.hccl_use_net_layer), std::end(config.hccl_use_net_layer), '7');
+    std::fill(std::begin(config.hcclUseNetLayer), std::end(config.hcclUseNetLayer), '7');
     HcclCommConfigInit(&config);
-    for (char value : config.hccl_use_net_layer) {
+    for (char value : config.hcclUseNetLayer) {
         EXPECT_EQ('\0', value);
     }
 }
@@ -102,7 +102,7 @@ TEST(HcclCommConfigReadTest, Ut_Read_When_BoundedInput_Expect_PreserveVersionAnd
         {0U, sizeof(CommConfigInfo)},
         {1U, offsetof(HcclCommConfig, hcclDeterministic) + sizeof(uint32_t)},
         {10U, offsetof(HcclCommConfig, hcclQos) + sizeof(uint32_t)},
-        {12U, offsetof(HcclCommConfig, hccl_use_net_layer)},
+        {12U, offsetof(HcclCommConfig, hcclUseNetLayer)},
         {HCCL_COMM_CONFIG_VERSION, sizeof(HcclCommConfig)},
     };
     for (const auto& item : cases) {
@@ -118,13 +118,13 @@ TEST(HcclCommConfigReadTest, Ut_Read_When_BoundedInput_Expect_PreserveVersionAnd
         EXPECT_EQ(info.configSize, sizeof(HcclCommConfig));
         EXPECT_EQ(info.version, item.version);
         EXPECT_EQ(info.reserved[0], 'R');
-        const size_t copiedEnd = std::min(item.size, offsetof(HcclCommConfig, hccl_use_net_layer));
+        const size_t copiedEnd = std::min(item.size, offsetof(HcclCommConfig, hcclUseNetLayer));
         EXPECT_EQ(
             std::memcmp(
                 reinterpret_cast<const unsigned char*>(&output) + sizeof(size_t), input.data() + sizeof(size_t),
                 copiedEnd - sizeof(size_t)),
             0);
-        EXPECT_STREQ(output.hccl_use_net_layer, item.version >= HCCL_COMM_CONFIG_NET_LAYER_VERSION ? "not(0)" : "");
+        EXPECT_STREQ(output.hcclUseNetLayer, item.version >= HCCL_COMM_CONFIG_NET_LAYER_VERSION ? "not(0)" : "");
         if (item.size == sizeof(CommConfigInfo)) {
             EXPECT_EQ(output.hcclBufferSize, HCCL_COMM_BUFFSIZE_CONFIG_NOT_SET);
         }
@@ -151,12 +151,12 @@ TEST(HcclCommConfigReadTest, Ut_Read_When_InvalidHeaderOrSelectionField_Expect_U
     ExpectConfigReadFailurePreserves(&input);
     for (uint32_t version : {HCCL_COMM_CONFIG_VERSION, HCCL_COMM_CONFIG_VERSION + 1U}) {
         SCOPED_TRACE(version);
-        const size_t shortSize = offsetof(HcclCommConfig, hccl_use_net_layer) + HCCL_COMM_NET_LAYER_MAX_LENGTH - 1U;
+        const size_t shortSize = offsetof(HcclCommConfig, hcclUseNetLayer) + HCCL_COMM_NET_LAYER_MAX_LENGTH - 1U;
         input = MakeVersionedCommConfig(version, shortSize);
         const auto bytes = CopyCommConfigPrefix(input, shortSize);
         ExpectConfigReadFailurePreserves(reinterpret_cast<const HcclCommConfig*>(bytes.data()));
         input = MakeVersionedCommConfig(version, sizeof(HcclCommConfig));
-        std::fill(std::begin(input.hccl_use_net_layer), std::end(input.hccl_use_net_layer), '0');
+        std::fill(std::begin(input.hcclUseNetLayer), std::end(input.hcclUseNetLayer), '0');
         ExpectConfigReadFailurePreserves(&input);
     }
 }
@@ -178,7 +178,7 @@ TEST(HcclCommConfigReadTest, Ut_Read_When_FutureVersion_Expect_BoundedReusableCo
         EXPECT_EQ(info.version, version);
         EXPECT_EQ(info.configSize, sizeof(HcclCommConfig));
         EXPECT_EQ(output.hcclChannelScqDepth, 256U);
-        EXPECT_STREQ(output.hccl_use_net_layer, "not(0)");
+        EXPECT_STREQ(output.hcclUseNetLayer, "not(0)");
     }
 }
 
@@ -186,13 +186,13 @@ TEST(HcclCommConfigReadTest, Ut_Read_When_OldVersionAliasesOutput_Expect_OnlyNew
 {
     auto config = MakeVersionedCommConfig(1U, sizeof(HcclCommConfig));
     ASSERT_TRUE(SetConsumedCommConfigFields(config));
-    std::fill(std::begin(config.hccl_use_net_layer), std::end(config.hccl_use_net_layer), '9');
+    std::fill(std::begin(config.hcclUseNetLayer), std::end(config.hcclUseNetLayer), '9');
     ASSERT_EQ(ReadHcclCommConfig(&config, config), HCCL_SUCCESS);
     // 业务字段的版本语义交给原解析流程，不在安全复制时重写。
     EXPECT_EQ(config.hcclDeterministic, 1U);
     EXPECT_EQ(config.hcclOpExpansionMode, 3U);
     EXPECT_EQ(config.hcclQos, 3U);
-    EXPECT_STREQ(config.hccl_use_net_layer, "");
+    EXPECT_STREQ(config.hcclUseNetLayer, "");
 }
 
 class HcclCommConfigApplyTest : public testing::Test {
@@ -262,10 +262,10 @@ TEST_F(NetLayerSelectionLoadTest, Ut_Prepare_When_OldVersions_Expect_PreserveVer
         EXPECT_EQ(originalInfo.version, version);
         EXPECT_EQ(originalInfo.configSize, sizeof(HcclCommConfig));
         EXPECT_EQ(originalInfo.reserved[0], 'R');
-        EXPECT_EQ(std::memcmp(&input, &snapshot, offsetof(HcclCommConfig, hccl_use_net_layer)), 0);
+        EXPECT_EQ(std::memcmp(&input, &snapshot, offsetof(HcclCommConfig, hcclUseNetLayer)), 0);
         EXPECT_EQ(snapshot.hcclQos, 3U);
         EXPECT_EQ(snapshot.hcclChannelScqDepth, 256U);
-        EXPECT_STREQ(snapshot.hccl_use_net_layer, "not(0)");
+        EXPECT_STREQ(snapshot.hcclUseNetLayer, "not(0)");
         if (version == 11U) {
             CommConfig target("old_version_snapshot");
             uint32_t opMode = 0;
@@ -273,7 +273,7 @@ TEST_F(NetLayerSelectionLoadTest, Ut_Prepare_When_OldVersions_Expect_PreserveVer
             EXPECT_EQ(target.GetConfigScqDepth(), HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET);
         }
         NetLayerSelection selection;
-        ASSERT_EQ(ReadNetLayerSelection(snapshot.hccl_use_net_layer, selection), HCCL_SUCCESS);
+        ASSERT_EQ(ReadNetLayerSelection(snapshot.hcclUseNetLayer, selection), HCCL_SUCCESS);
         EXPECT_EQ(selection.GetRequestedLayers(), 1U);
     }
 }
@@ -283,14 +283,14 @@ TEST_F(NetLayerSelectionLoadTest, Ut_Prepare_When_ParameterSet_Expect_PriorityAn
     ASSERT_EQ(setenv(NET_LAYER_ENV_NAME, "invalid", 1), 0);
     HcclCommConfig input{};
     HcclCommConfigInit(&input);
-    ASSERT_EQ(strcpy_s(input.hccl_use_net_layer, sizeof(input.hccl_use_net_layer), "2,0,2"), EOK);
+    ASSERT_EQ(strcpy_s(input.hcclUseNetLayer, sizeof(input.hcclUseNetLayer), "2,0,2"), EOK);
     HcclCommConfig snapshot{};
     ASSERT_EQ(PrepareIndependentCommConfig(&input, snapshot), HCCL_SUCCESS);
-    input.hccl_use_net_layer[0] = '7';
+    input.hcclUseNetLayer[0] = '7';
     ASSERT_EQ(setenv(NET_LAYER_ENV_NAME, "7", 1), 0);
-    EXPECT_STREQ(snapshot.hccl_use_net_layer, "0,2");
+    EXPECT_STREQ(snapshot.hcclUseNetLayer, "0,2");
     NetLayerSelection selection;
-    ASSERT_EQ(ReadNetLayerSelection(snapshot.hccl_use_net_layer, selection), HCCL_SUCCESS);
+    ASSERT_EQ(ReadNetLayerSelection(snapshot.hcclUseNetLayer, selection), HCCL_SUCCESS);
     EXPECT_EQ(selection.GetNormalizedExpression(), "0,2");
     EXPECT_EQ(selection.GetRequestedLayers(), 5U);
 }
@@ -307,7 +307,7 @@ TEST_F(NetLayerSelectionLoadTest, Ut_Prepare_When_DefaultOrEnvironment_Expect_No
         ASSERT_EQ(PrepareIndependentCommConfig(&input, snapshot), HCCL_SUCCESS);
         ASSERT_EQ(setenv(NET_LAYER_ENV_NAME, "invalid", 1), 0);
         NetLayerSelection selection;
-        ASSERT_EQ(ReadNetLayerSelection(snapshot.hccl_use_net_layer, selection), HCCL_SUCCESS);
+        ASSERT_EQ(ReadNetLayerSelection(snapshot.hcclUseNetLayer, selection), HCCL_SUCCESS);
         EXPECT_EQ(selection.GetMode(), expression[0] == '\0' ? Mode::DEFAULT : Mode::INCLUDE);
         EXPECT_EQ(selection.GetRequestedLayers(), expression[0] == '\0' ? 0U : 4U);
     }
@@ -320,10 +320,9 @@ TEST_F(NetLayerSelectionLoadTest, Ut_Prepare_When_Invalid_Expect_AtomicFailure)
     HcclCommConfigInit(&input);
     for (const auto& expression : {"8", " ", "0,", "00000000000000000000000000000000"}) {
         ASSERT_EQ(
-            memset_s(input.hccl_use_net_layer, sizeof(input.hccl_use_net_layer), 0, sizeof(input.hccl_use_net_layer)),
-            EOK);
+            memset_s(input.hcclUseNetLayer, sizeof(input.hcclUseNetLayer), 0, sizeof(input.hcclUseNetLayer)), EOK);
         const size_t length = std::strlen(expression);
-        ASSERT_EQ(memcpy_s(input.hccl_use_net_layer, sizeof(input.hccl_use_net_layer), expression, length), EOK);
+        ASSERT_EQ(memcpy_s(input.hcclUseNetLayer, sizeof(input.hcclUseNetLayer), expression, length), EOK);
         const auto before = CopyCommConfigPrefix(input, sizeof(input));
         EXPECT_EQ(PrepareIndependentCommConfig(&input, input), HCCL_E_PARA);
         EXPECT_EQ(CopyCommConfigPrefix(input, sizeof(input)), before);
@@ -333,19 +332,19 @@ TEST_F(NetLayerSelectionLoadTest, Ut_Prepare_When_Invalid_Expect_AtomicFailure)
 TEST_F(NetLayerSelectionLoadTest, Ut_Prepare_When_OldShortConfig_Expect_NoTailReadAndFrozenEnvironment)
 {
     ASSERT_EQ(setenv(NET_LAYER_ENV_NAME, "2", 1), 0);
-    for (size_t size : {sizeof(CommConfigInfo), offsetof(HcclCommConfig, hccl_use_net_layer), sizeof(HcclCommConfig)}) {
+    for (size_t size : {sizeof(CommConfigInfo), offsetof(HcclCommConfig, hcclUseNetLayer), sizeof(HcclCommConfig)}) {
         SCOPED_TRACE(size);
         auto input = MakeVersionedCommConfig(12U, size);
-        std::fill(std::begin(input.hccl_use_net_layer), std::end(input.hccl_use_net_layer), '9');
+        std::fill(std::begin(input.hcclUseNetLayer), std::end(input.hcclUseNetLayer), '9');
         const auto bytes = CopyCommConfigPrefix(input, size);
         HcclCommConfig snapshot{};
         ASSERT_EQ(
             PrepareIndependentCommConfig(reinterpret_cast<const HcclCommConfig*>(bytes.data()), snapshot),
             HCCL_SUCCESS);
         NetLayerSelection selection;
-        ASSERT_EQ(ReadNetLayerSelection(snapshot.hccl_use_net_layer, selection), HCCL_SUCCESS);
+        ASSERT_EQ(ReadNetLayerSelection(snapshot.hcclUseNetLayer, selection), HCCL_SUCCESS);
         EXPECT_EQ(selection.GetRequestedLayers(), 4U);
-        EXPECT_STREQ(snapshot.hccl_use_net_layer, "2");
+        EXPECT_STREQ(snapshot.hcclUseNetLayer, "2");
     }
 }
 

@@ -636,10 +636,9 @@ TEST_F(RankGraphBuilderTest, Ut_SelectedChild_When_ExcludeExpression_Expect_UseP
         std::unique_ptr<RankGraph> child;
         HcclCommConfig config{};
         HcclCommConfigInit(&config);
-        ASSERT_EQ(EOK, strcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), expression));
+        ASSERT_EQ(EOK, strcpy_s(config.hcclUseNetLayer, sizeof(config.hcclUseNetLayer), expression));
         u32 selected = 0;
-        ASSERT_EQ(
-            HCCL_SUCCESS, hccl::NetLayerSelection::ResolveForSubComm(config.hccl_use_net_layer, 6U, 6U, selected));
+        ASSERT_EQ(HCCL_SUCCESS, hccl::NetLayerSelection::ResolveForSubComm(config.hcclUseNetLayer, 6U, 6U, selected));
         ASSERT_EQ(4U, selected);
         ASSERT_EQ(HCCL_SUCCESS, parent->CreateSubRankGraph({0, 1}, child, selected));
         EXPECT_TRUE(child->IsLevel0PcieFallback());
@@ -783,14 +782,14 @@ TEST_F(RankGraphBuilderTest, Ut_BuilderBridge_When_SubConfigured_Expect_NarrowWi
     HcclCommConfig config;
     HcclCommConfigInit(&config);
     std::unique_ptr<RankGraph> child;
-    ASSERT_EQ(HCCL_SUCCESS, bridge->createSubGraph(*parent, {0, 1}, config.hccl_use_net_layer, child));
+    ASSERT_EQ(HCCL_SUCCESS, bridge->createSubGraph(*parent, {0, 1}, config.hcclUseNetLayer, child));
     EXPECT_EQ((std::set<u32>{1, 2}), child->GetLevels(0));
-    ASSERT_EQ(EOK, strcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), "not(1)"));
-    ASSERT_EQ(HCCL_SUCCESS, bridge->createSubGraph(*parent, {0, 1}, config.hccl_use_net_layer, child));
+    ASSERT_EQ(EOK, strcpy_s(config.hcclUseNetLayer, sizeof(config.hcclUseNetLayer), "not(1)"));
+    ASSERT_EQ(HCCL_SUCCESS, bridge->createSubGraph(*parent, {0, 1}, config.hcclUseNetLayer, child));
     EXPECT_EQ((std::set<u32>{2}), child->GetLevels(0));
     auto* beforeFailure = child.get();
-    ASSERT_EQ(EOK, strcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), "0"));
-    EXPECT_EQ(HCCL_E_PARA, bridge->createSubGraph(*parent, {0, 1}, config.hccl_use_net_layer, child));
+    ASSERT_EQ(EOK, strcpy_s(config.hcclUseNetLayer, sizeof(config.hcclUseNetLayer), "0"));
+    EXPECT_EQ(HCCL_E_PARA, bridge->createSubGraph(*parent, {0, 1}, config.hcclUseNetLayer, child));
     EXPECT_EQ(beforeFailure, child.get());
     EXPECT_EQ(HCCL_E_PTR, bridge->createSubGraph(*parent, {0, 1}, nullptr, child));
     EXPECT_EQ(beforeFailure, child.get());
@@ -969,11 +968,11 @@ TEST_F(RankGraphBuilderTest, Ut_Build_When_ConfigSnapshot_Expect_OnlySelectedLay
         SCOPED_TRACE(item.expression);
         HcclCommConfig config{};
         HcclCommConfigInit(&config);
-        ASSERT_EQ(strcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), item.expression), EOK);
+        ASSERT_EQ(strcpy_s(config.hcclUseNetLayer, sizeof(config.hcclUseNetLayer), item.expression), EOK);
         HcclCommConfig snapshot{};
         ASSERT_EQ(hccl::PrepareIndependentCommConfig(&config, snapshot), HCCL_SUCCESS);
         hccl::NetLayerSelection selection;
-        ASSERT_EQ(hccl::ReadNetLayerSelection(snapshot.hccl_use_net_layer, selection), HCCL_SUCCESS);
+        ASSERT_EQ(hccl::ReadNetLayerSelection(snapshot.hcclUseNetLayer, selection), HCCL_SUCCESS);
         const auto rankTable = test::MakeRankTable4pForBuilder();
         RankGraphBuilder builder([selection](u32 available, u32& effective) {
             return selection.Resolve(available, effective);
@@ -1026,25 +1025,21 @@ TEST_F(RankGraphBuilderTest, Ut_BuilderBridge_When_ZeroHeaderDefault_Expect_Buil
     ASSERT_NO_FATAL_FAILURE(PrepareMockedTopoFile(topo));
     HcclCommConfig config{};
     HcclCommConfigInit(&config);
-    ASSERT_EQ(EOK, strcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), "not(0)"));
+    ASSERT_EQ(EOK, strcpy_s(config.hcclUseNetLayer, sizeof(config.hcclUseNetLayer), "not(0)"));
     RankGraphBuildResult selectedResult{};
-    ASSERT_EQ(
-        HCCL_SUCCESS, bridge->buildFromRankTable(rankTable, "unused", 0, config.hccl_use_net_layer, selectedResult));
+    ASSERT_EQ(HCCL_SUCCESS, bridge->buildFromRankTable(rankTable, "unused", 0, config.hcclUseNetLayer, selectedResult));
     // 内部无配置构造保留零头，默认建图与子域继承不能因统一入口而失败。
     HcclCommConfig legacyDefault{};
     RankGraphBuildResult defaultResult{};
     ASSERT_EQ(
-        HCCL_SUCCESS,
-        bridge->buildFromRankTable(rankTable, "unused", 0, legacyDefault.hccl_use_net_layer, defaultResult));
+        HCCL_SUCCESS, bridge->buildFromRankTable(rankTable, "unused", 0, legacyDefault.hcclUseNetLayer, defaultResult));
     ASSERT_NO_FATAL_FAILURE(CheckSelectedGraph(defaultResult.rankGraph.get(), {0, 1, 2}));
     ASSERT_EQ(
-        HCCL_SUCCESS,
-        bridge->recoverBuild(rankTable, *topo, 0, false, legacyDefault.hccl_use_net_layer, defaultResult));
+        HCCL_SUCCESS, bridge->recoverBuild(rankTable, *topo, 0, false, legacyDefault.hcclUseNetLayer, defaultResult));
     ASSERT_NO_FATAL_FAILURE(CheckSelectedGraph(defaultResult.rankGraph.get(), {0, 1, 2}));
     std::unique_ptr<RankGraph> child;
     ASSERT_EQ(
-        HCCL_SUCCESS,
-        bridge->createSubGraph(*selectedResult.rankGraph, {0, 1}, legacyDefault.hccl_use_net_layer, child));
+        HCCL_SUCCESS, bridge->createSubGraph(*selectedResult.rankGraph, {0, 1}, legacyDefault.hcclUseNetLayer, child));
     EXPECT_EQ((std::set<u32>{1, 2}), child->GetLevels(0));
     GlobalMockObject::verify();
     GlobalMockObject::reset();
@@ -1062,20 +1057,20 @@ TEST_F(RankGraphBuilderTest, Ut_BuilderBridge_When_InvalidConfig_Expect_KeepPrev
     const auto topo = test::MakeFourPeerBuilderTopo();
     HcclCommConfig config{};
     HcclCommConfigInit(&config);
-    ASSERT_EQ(EOK, strcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), "2"));
+    ASSERT_EQ(EOK, strcpy_s(config.hcclUseNetLayer, sizeof(config.hcclUseNetLayer), "2"));
     RankGraphBuildResult result{};
-    ASSERT_EQ(HCCL_SUCCESS, bridge->recoverBuild(rankTable, topo, 0, false, config.hccl_use_net_layer, result));
+    ASSERT_EQ(HCCL_SUCCESS, bridge->recoverBuild(rankTable, topo, 0, false, config.hcclUseNetLayer, result));
     const auto previous = result.rankGraph;
     EXPECT_EQ(HCCL_E_PTR, bridge->buildFromString("", "", 0, nullptr, result));
     EXPECT_EQ(HCCL_E_PTR, bridge->buildFromRankTable(rankTable, "", 0, nullptr, result));
     EXPECT_EQ(HCCL_E_PTR, bridge->recoverBuild(rankTable, topo, 0, false, nullptr, result));
-    ASSERT_EQ(EOK, strcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), "bad"));
-    EXPECT_EQ(HCCL_E_PARA, bridge->buildFromString("", "", 0, config.hccl_use_net_layer, result));
-    EXPECT_EQ(HCCL_E_PARA, bridge->buildFromRankTable(rankTable, "", 0, config.hccl_use_net_layer, result));
-    EXPECT_EQ(HCCL_E_PARA, bridge->recoverBuild(rankTable, topo, 0, false, config.hccl_use_net_layer, result));
+    ASSERT_EQ(EOK, strcpy_s(config.hcclUseNetLayer, sizeof(config.hcclUseNetLayer), "bad"));
+    EXPECT_EQ(HCCL_E_PARA, bridge->buildFromString("", "", 0, config.hcclUseNetLayer, result));
+    EXPECT_EQ(HCCL_E_PARA, bridge->buildFromRankTable(rankTable, "", 0, config.hcclUseNetLayer, result));
+    EXPECT_EQ(HCCL_E_PARA, bridge->recoverBuild(rankTable, topo, 0, false, config.hcclUseNetLayer, result));
     for (const auto* expression : {"3", "not(0,1,2)"}) {
-        ASSERT_EQ(EOK, strcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), expression));
-        EXPECT_EQ(HCCL_E_PARA, bridge->recoverBuild(rankTable, topo, 0, false, config.hccl_use_net_layer, result));
+        ASSERT_EQ(EOK, strcpy_s(config.hcclUseNetLayer, sizeof(config.hcclUseNetLayer), expression));
+        EXPECT_EQ(HCCL_E_PARA, bridge->recoverBuild(rankTable, topo, 0, false, config.hcclUseNetLayer, result));
     }
     EXPECT_EQ(previous, result.rankGraph);
     EXPECT_EQ(rankTable.rankCount, result.rankTableInfo.rankCount);
@@ -1091,7 +1086,7 @@ TEST_F(RankGraphBuilderTest, Ut_BuilderBridge_When_AllocationFails_Expect_Memory
     ASSERT_NE(nullptr, parent);
     HcclCommConfig config{};
     HcclCommConfigInit(&config);
-    ASSERT_EQ(EOK, strcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), "0"));
+    ASSERT_EQ(EOK, strcpy_s(config.hcclUseNetLayer, sizeof(config.hcclUseNetLayer), "0"));
     const auto throwBadAlloc = +[](const char*, hccl::NetLayerSelection&) -> HcclResult {
         throw std::bad_alloc();
     };
@@ -1099,14 +1094,14 @@ TEST_F(RankGraphBuilderTest, Ut_BuilderBridge_When_AllocationFails_Expect_Memory
     mockcpp::ApiHook readSelectionHook(
         reinterpret_cast<void*>(hccl::ReadNetLayerSelection), reinterpret_cast<void*>(throwBadAlloc));
     RankGraphBuildResult result{};
-    EXPECT_EQ(HCCL_E_MEMORY, bridge->buildFromString("", "", 0, config.hccl_use_net_layer, result));
+    EXPECT_EQ(HCCL_E_MEMORY, bridge->buildFromString("", "", 0, config.hcclUseNetLayer, result));
     EXPECT_EQ(
         HCCL_E_MEMORY,
-        bridge->buildFromRankTable(test::MakeRankTable4pForBuilder(), "", 0, config.hccl_use_net_layer, result));
+        bridge->buildFromRankTable(test::MakeRankTable4pForBuilder(), "", 0, config.hcclUseNetLayer, result));
     EXPECT_EQ(
         HCCL_E_MEMORY, bridge->recoverBuild(
                            test::MakeRankTable4pForBuilder(), test::MakeFourPeerBuilderTopo(), 0, false,
-                           config.hccl_use_net_layer, result));
+                           config.hcclUseNetLayer, result));
     EXPECT_EQ(nullptr, result.rankGraph);
     const auto throwSubBadAlloc = +[](const char*, uint32_t, uint32_t, uint32_t&) -> HcclResult {
         throw std::bad_alloc();
@@ -1114,7 +1109,7 @@ TEST_F(RankGraphBuilderTest, Ut_BuilderBridge_When_AllocationFails_Expect_Memory
     mockcpp::ApiHook subSelectionHook(
         reinterpret_cast<void*>(hccl::NetLayerSelection::ResolveForSubComm), reinterpret_cast<void*>(throwSubBadAlloc));
     std::unique_ptr<RankGraph> child;
-    EXPECT_EQ(HCCL_E_MEMORY, bridge->createSubGraph(*parent, {0, 1}, config.hccl_use_net_layer, child));
+    EXPECT_EQ(HCCL_E_MEMORY, bridge->createSubGraph(*parent, {0, 1}, config.hcclUseNetLayer, child));
     EXPECT_EQ(nullptr, child);
 }
 
@@ -1135,15 +1130,15 @@ TEST_F(RankGraphBuilderTest, Ut_BuilderBridge_When_ConfiguredBuildAndRecovery_Ex
     } cases[] = {{"", {0, 1, 2}}, {"0", {0}}, {"2", {2}}, {"not(0)", {1, 2}}, {"0,2", {0, 2}}};
     for (const auto& item : cases) {
         SCOPED_TRACE(item.expression);
-        ASSERT_EQ(EOK, strcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), item.expression));
+        ASSERT_EQ(EOK, strcpy_s(config.hcclUseNetLayer, sizeof(config.hcclUseNetLayer), item.expression));
         RankGraphBuildResult built{}, recovered{};
-        ASSERT_EQ(HCCL_SUCCESS, bridge->buildFromRankTable(ranks, "unused", 0, config.hccl_use_net_layer, built));
+        ASSERT_EQ(HCCL_SUCCESS, bridge->buildFromRankTable(ranks, "unused", 0, config.hcclUseNetLayer, built));
         ASSERT_NO_FATAL_FAILURE(CheckSelectedGraph(built.rankGraph.get(), item.expected));
         for (bool enableVirtualGroups : {false, true}) {
             SCOPED_TRACE(enableVirtualGroups);
             ASSERT_EQ(
                 HCCL_SUCCESS,
-                bridge->recoverBuild(ranks, *topo, 0, enableVirtualGroups, config.hccl_use_net_layer, recovered));
+                bridge->recoverBuild(ranks, *topo, 0, enableVirtualGroups, config.hcclUseNetLayer, recovered));
             CheckSelectedGraph(recovered.rankGraph.get(), item.expected);
             EXPECT_EQ(enableVirtualGroups, recovered.rankGraph->IsVirtualGroupsEnabled());
             EXPECT_EQ(ranks.rankCount, recovered.rankTableInfo.rankCount);

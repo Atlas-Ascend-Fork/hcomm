@@ -1744,10 +1744,10 @@ HcclResult HcclCommInitRootInfoScalable(
     if (isSupportV2) {
         CHK_RET(PrepareIndependentCommConfig(config, preparedConfig));
         CHK_PRT_RET(
-            preparedConfig.hccl_use_net_layer[0] != '\0',
+            preparedConfig.hcclUseNetLayer[0] != '\0',
             HCCL_ERROR(
-                "[%s] scalable creation does not support hccl_use_net_layer/HCCL_USE_NET_LAYER[%s]", __func__,
-                preparedConfig.hccl_use_net_layer),
+                "[%s] scalable creation does not support hcclUseNetLayer/HCCL_USE_NET_LAYER[%s]", __func__,
+                preparedConfig.hcclUseNetLayer),
             HCCL_E_NOT_SUPPORT);
         config = &preparedConfig;
     }

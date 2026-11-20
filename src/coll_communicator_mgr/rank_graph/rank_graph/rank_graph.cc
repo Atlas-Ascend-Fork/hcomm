@@ -989,7 +989,7 @@ HcclResult AddGroupLinks(
 }
 
 namespace {
-    // 子域收窄 hccl_use_net_layer 时，只保留允许层的地址/协议到接口映射。
+    // 子域收窄 hcclUseNetLayer 时，只保留允许层的地址/协议到接口映射。
     HcclResult CopySelectedEndpointMap(const NetInstance::Peer& source, NetInstance::Peer& target, u32 selectedLayers)
     {
         for (u32 layer : source.GetLevels()) {

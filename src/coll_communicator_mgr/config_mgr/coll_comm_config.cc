@@ -55,7 +55,7 @@ void InitDefaultHcclCommConfig(HcclCommConfig& config)
     config.hcclSymWinMaxMemSizePerRank = HCCL_DEFAULT_SYMMETRIC_MEMORY_STRIDE;
     config.hcclChannelSqDepth = HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET;
     config.hcclChannelScqDepth = HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET;
-    for (auto& value : config.hccl_use_net_layer) {
+    for (auto& value : config.hcclUseNetLayer) {
         value = '\0';
     }
 }
@@ -80,8 +80,7 @@ HcclResult ReadHcclCommConfig(const HcclCommConfig* input, HcclCommConfig& outpu
     CHK_PRT_RET(
         info.magicWord != HCCL_COMM_CONFIG_MAGIC_WORD,
         HCCL_ERROR("[ReadHcclCommConfig] invalid magic word[0x%x]", info.magicWord), HCCL_E_PARA);
-    const size_t netLayerEnd
-        = offsetof(HcclCommConfig, hccl_use_net_layer) + sizeof(HcclCommConfig::hccl_use_net_layer);
+    const size_t netLayerEnd = offsetof(HcclCommConfig, hcclUseNetLayer) + sizeof(HcclCommConfig::hcclUseNetLayer);
     CHK_PRT_RET(
         info.version >= HCCL_COMM_CONFIG_NET_LAYER_VERSION && info.configSize < netLayerEnd,
         HCCL_ERROR(
@@ -97,15 +96,14 @@ HcclResult ReadHcclCommConfig(const HcclCommConfig* input, HcclCommConfig& outpu
     CHK_PRT_RET(ret != EOK, HCCL_ERROR("[ReadHcclCommConfig] copy config failed[%d]", ret), HCCL_E_MEMORY);
     if (info.version < HCCL_COMM_CONFIG_NET_LAYER_VERSION) {
         // 即使旧版调用方提供了更大的缓冲区，也不能把尾部内容当成选层参数。
-        for (auto& value : normalizedConfig.hccl_use_net_layer) {
+        for (auto& value : normalizedConfig.hcclUseNetLayer) {
             value = '\0';
         }
     } else if (
-        std::memchr(normalizedConfig.hccl_use_net_layer, '\0', sizeof(normalizedConfig.hccl_use_net_layer))
-        == nullptr) {
+        std::memchr(normalizedConfig.hcclUseNetLayer, '\0', sizeof(normalizedConfig.hcclUseNetLayer)) == nullptr) {
         HCCL_ERROR(
-            "[ReadHcclCommConfig] hccl_use_net_layer has no terminator within capacity[%zu]",
-            sizeof(normalizedConfig.hccl_use_net_layer));
+            "[ReadHcclCommConfig] hcclUseNetLayer has no terminator within capacity[%zu]",
+            sizeof(normalizedConfig.hcclUseNetLayer));
         return HCCL_E_PARA;
     }
     info.configSize = sizeof(normalizedConfig);

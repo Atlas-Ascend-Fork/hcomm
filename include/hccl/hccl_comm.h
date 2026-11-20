@@ -275,8 +275,8 @@ static inline void HcclCommConfigInit(HcclCommConfig* config)
     config->hcclSymWinMaxMemSizePerRank = HCCL_DEFAULT_SYMMETRIC_MEMORY_STRIDE;
     config->hcclChannelSqDepth = HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET;
     config->hcclChannelScqDepth = HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET;
-    for (uint32_t i = 0; i < sizeof(config->hccl_use_net_layer); ++i) {
-        config->hccl_use_net_layer[i] = '\0';
+    for (uint32_t i = 0; i < sizeof(config->hcclUseNetLayer); ++i) {
+        config->hcclUseNetLayer[i] = '\0';
     }
 }
 

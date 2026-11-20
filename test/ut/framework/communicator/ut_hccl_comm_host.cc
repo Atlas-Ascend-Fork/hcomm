@@ -119,7 +119,7 @@ TEST_F(HcclCommHostTest, Ut_SimpleModeIgnoresNetLayerSelection)
     HcclCommConfig config{};
     HcclCommConfigInit(&config);
     config.hcclDeterministic = 0;
-    ASSERT_EQ(strcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), "invalid"), EOK);
+    ASSERT_EQ(strcpy_s(config.hcclUseNetLayer, sizeof(config.hcclUseNetLayer), "invalid"), EOK);
     hcclComm comm(1, 1, "a3_unchanged");
     HcclMem buffer{};
     EXPECT_EQ(

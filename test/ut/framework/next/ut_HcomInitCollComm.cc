@@ -71,7 +71,7 @@ HcclResult ObserveRootConfig(uint32_t, const HcclRootInfo*, uint32_t, const Hccl
     EXPECT_EQ(config->hcclDeterministic, HCCL_COMM_DETERMINISTIC_CONFIG_NOT_SET);
     EXPECT_EQ(config->hcclOpExpansionMode, 0U);
     EXPECT_EQ(config->hcclUdi[0], '\0');
-    EXPECT_STREQ(config->hccl_use_net_layer, g_expectedNetLayers.c_str());
+    EXPECT_STREQ(config->hcclUseNetLayer, g_expectedNetLayers.c_str());
     *comm = reinterpret_cast<HcclComm>(0x1);
     return HCCL_SUCCESS;
 }
@@ -262,14 +262,14 @@ TEST_F(VersionedConfigForwardingTest, ConfiguredEntriesForwardEnvironmentAndHono
     for (bool useParameter : {false, true}) {
         ASSERT_EQ(setenv("HCCL_USE_NET_LAYER", useParameter ? "invalid" : "not(0,0)", 1), 0);
         if (useParameter) {
-            ASSERT_EQ(strcpy_s(config_.hccl_use_net_layer, sizeof(config_.hccl_use_net_layer), "2,1,2"), EOK);
+            ASSERT_EQ(strcpy_s(config_.hcclUseNetLayer, sizeof(config_.hcclUseNetLayer), "2,1,2"), EOK);
         }
         g_expectedNetLayers = useParameter ? "1,2" : "not(0)";
         for (Entry entry : {Entry::ROOT_INFO, Entry::RANK_TABLE, Entry::MEMORY}) {
             SCOPED_TRACE(testing::Message() << useParameter << ":" << static_cast<int>(entry));
             EXPECT_EQ(Init(entry, &config_), HCCL_SUCCESS);
         }
-        EXPECT_STREQ(config_.hccl_use_net_layer, useParameter ? "2,1,2" : "");
+        EXPECT_STREQ(config_.hcclUseNetLayer, useParameter ? "2,1,2" : "");
     }
 }
 
@@ -312,7 +312,7 @@ TEST_F(VersionedConfigForwardingTest, InvalidOrUnsupportedSelectionRejectedBefor
     for (bool invalidParameter : {false, true}) {
         ASSERT_EQ(setenv("HCCL_USE_NET_LAYER", invalidParameter ? "2" : "invalid", 1), 0);
         if (invalidParameter) {
-            ASSERT_EQ(strcpy_s(config_.hccl_use_net_layer, sizeof(config_.hccl_use_net_layer), "invalid"), EOK);
+            ASSERT_EQ(strcpy_s(config_.hcclUseNetLayer, sizeof(config_.hcclUseNetLayer), "invalid"), EOK);
         }
         for (s32 depth : {0, 1}) {
             hcclGroupDepth = depth;
@@ -328,7 +328,7 @@ TEST_F(VersionedConfigForwardingTest, InvalidOrUnsupportedSelectionRejectedBefor
         HcclCommConfigInit(&config_);
         ASSERT_EQ(setenv("HCCL_USE_NET_LAYER", useParameter ? "invalid" : "2", 1), 0);
         if (useParameter) {
-            ASSERT_EQ(strcpy_s(config_.hccl_use_net_layer, sizeof(config_.hccl_use_net_layer), "2"), EOK);
+            ASSERT_EQ(strcpy_s(config_.hcclUseNetLayer, sizeof(config_.hcclUseNetLayer), "2"), EOK);
         }
         for (s32 depth : {0, 1}) {
             hcclGroupDepth = depth;
@@ -383,7 +383,7 @@ TEST_F(VersionedConfigForwardingTest, NonV2IgnoresSelectionAndPreservesLegacyIni
     MOCKER(InitExternalInput).expects(exactly(9)).will(returnValue(HCCL_E_INTERNAL));
     MOCKER(HcclGetCommAll).expects(once()).will(returnValue(HCCL_SUCCESS));
     ASSERT_EQ(setenv("HCCL_USE_NET_LAYER", "invalid", 1), 0);
-    ASSERT_EQ(strcpy_s(config_.hccl_use_net_layer, sizeof(config_.hccl_use_net_layer), "invalid"), EOK);
+    ASSERT_EQ(strcpy_s(config_.hcclUseNetLayer, sizeof(config_.hcclUseNetLayer), "invalid"), EOK);
     for (Entry entry : {Entry::ROOT_INFO, Entry::RANK_TABLE, Entry::MEMORY, Entry::SCALABLE}) {
         SCOPED_TRACE(static_cast<int>(entry));
         EXPECT_EQ(Init(entry, &config_), HCCL_E_PARA);

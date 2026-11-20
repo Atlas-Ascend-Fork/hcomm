@@ -327,7 +327,7 @@ HcclResult CommunicatorImpl::CreateSubComm(
             CHK_PRT_RET(
                 bridge == nullptr, HCCL_ERROR("[%s] RankGraphBuilder bridge is not registered.", __func__),
                 HCCL_E_INTERNAL);
-            CHK_RET(bridge->createSubGraph(*rankGraph, rankIds, subConfig.hccl_use_net_layer, subRankGraph));
+            CHK_RET(bridge->createSubGraph(*rankGraph, rankIds, subConfig.hcclUseNetLayer, subRankGraph));
             subCommImpl->rankIdsVec = rankIds;
             HCCL_INFO(
                 "[%s]rankIds size[%u], rankIdsVec size[%u]", __func__, rankIds.size(), subCommImpl->rankIdsVec.size());
@@ -1409,7 +1409,7 @@ HcclResult CommunicatorImpl::InitRankGraph(const string& ranktableM)
         HCCL_ERROR("[%s] RankGraphBuilder bridge is not registered.", __func__), HCCL_E_INTERNAL);
 
     RankGraphBuildResult buildResult{};
-    HcclResult ret = bridge->buildFromString(ranktableM, topoPath, myRank, config.hccl_use_net_layer, buildResult);
+    HcclResult ret = bridge->buildFromString(ranktableM, topoPath, myRank, config.hcclUseNetLayer, buildResult);
     // 参数类错误（如ranktable语法错误）原样上抛，保持与历史 HCCL_E_PARA 接口契约一致
     CHK_PRT_RET(
         ret == HCCL_E_PARA,
@@ -1477,7 +1477,7 @@ HcclResult CommunicatorImpl::InitRankGraph(const RankTableInfo& ranktable)
         HCCL_ERROR("[%s] RankGraphBuilder bridge is not registered.", __func__), HCCL_E_INTERNAL);
 
     RankGraphBuildResult buildResult{};
-    HcclResult ret = bridge->buildFromRankTable(ranktable, topoPath, myRank, config.hccl_use_net_layer, buildResult);
+    HcclResult ret = bridge->buildFromRankTable(ranktable, topoPath, myRank, config.hcclUseNetLayer, buildResult);
     // 参数类错误原样上抛，保持与历史 HCCL_E_PARA 接口契约一致
     CHK_PRT_RET(
         ret == HCCL_E_PARA,
@@ -1514,7 +1514,7 @@ static HcclResult SaveBuiltNetLayerConfig(const RankGraph& graph, HcclCommConfig
             expression += static_cast<char>('0' + layer);
         }
     }
-    CHK_SAFETY_FUNC_RET(strcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), expression.c_str()));
+    CHK_SAFETY_FUNC_RET(strcpy_s(config.hcclUseNetLayer, sizeof(config.hcclUseNetLayer), expression.c_str()));
     CommConfigInfo header{sizeof(HcclCommConfig), HCCL_COMM_CONFIG_MAGIC_WORD, HCCL_COMM_CONFIG_VERSION, {0}};
     // 保持原写入范围，不覆盖配置头中的8字节保留区。
     CHK_SAFETY_FUNC_RET(
@@ -2525,8 +2525,7 @@ CommunicatorImpl::RecoverSubComm(const SnapShotSubComm& snapShotSubComm, Communi
             if (bridge == nullptr) {
                 HCCL_ERROR("[%s] RankGraphBuilder bridge is not registered.", __func__);
             } else {
-                ret = bridge->createSubGraph(
-                    *rankGraph, rankIds, snapShotSubComm.config.hccl_use_net_layer, subRankGraph);
+                ret = bridge->createSubGraph(*rankGraph, rankIds, snapShotSubComm.config.hcclUseNetLayer, subRankGraph);
             }
             if (ret != HcclResult::HCCL_SUCCESS) {
                 SetCommStatus(CommStatus::COMM_IDLE);
@@ -2585,7 +2584,7 @@ HcclResult CommunicatorImpl::RecoverRankGraphData(SnapShotComm& snapShotComm, co
     // 恢复构建也由 hcomm 完成，并返回同一版本的 graph、rank table 和 topo 快照。
     ret = bridge->recoverBuild(
         snapShotComm.rankTableInfo, snapShotComm.topoInfo, myRank, snapShotComm.enableVirtualGroups,
-        config.hccl_use_net_layer, buildResult);
+        config.hcclUseNetLayer, buildResult);
     CHK_PRT_RET(
         ret != HCCL_SUCCESS,
         HCCL_ERROR("[%s] recover rank graph failed, errNo[0x%016llx].", __func__, HCCL_ERROR_CODE(ret)), ret);

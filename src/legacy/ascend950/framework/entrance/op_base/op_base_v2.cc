@@ -174,8 +174,8 @@ HcclResult CreateCommConfig(uint32_t rank, HcclCommConfig* config, HcclComm* com
     CHK_RET(GetEffectiveHcclDeterministic(config->hcclDeterministic, hcclConf->hcclDeterministic));
     // 入口已冻结完整配置；旧版本通过环境选层时也直接传递，不再按版本清空。
     CHK_SAFETY_FUNC_RET(memcpy_s(
-        hcclConf->hccl_use_net_layer, sizeof(hcclConf->hccl_use_net_layer), config->hccl_use_net_layer,
-        sizeof(config->hccl_use_net_layer)));
+        hcclConf->hcclUseNetLayer, sizeof(hcclConf->hcclUseNetLayer), config->hcclUseNetLayer,
+        sizeof(config->hcclUseNetLayer)));
 
     CHK_SAFETY_FUNC_RET(memcpy_s(
         hcclConf->hcclCommName, sizeof(hcclConf->hcclCommName), config->hcclCommName, sizeof(config->hcclCommName)));
@@ -292,8 +292,8 @@ HcclResult CreateCommConfigRootInfo(
     CHK_RET(GetEffectiveHcclDeterministic(config->hcclDeterministic, hcclConf->hcclDeterministic));
     // 复用 RootInfo 探测使用的冻结配置，保持探测与构图选层一致。
     CHK_SAFETY_FUNC_RET(memcpy_s(
-        hcclConf->hccl_use_net_layer, sizeof(hcclConf->hccl_use_net_layer), config->hccl_use_net_layer,
-        sizeof(config->hccl_use_net_layer)));
+        hcclConf->hcclUseNetLayer, sizeof(hcclConf->hcclUseNetLayer), config->hcclUseNetLayer,
+        sizeof(config->hcclUseNetLayer)));
 
     CHK_SAFETY_FUNC_RET(memcpy_s(
         hcclConf->hcclCommName, sizeof(hcclConf->hcclCommName), config->hcclCommName, sizeof(config->hcclCommName)));
@@ -2110,7 +2110,7 @@ HcclResult HcclCommInitRootInfoConfigV2(
     }
     // 兼容入口只转发已冻结的选层字段，一致性由 HCOMM 初始化控制面完成。
     HcclResult ret
-        = RootInfoDetect(nRanks, rank, rootHandle, rankTable, rootInfoDetectContext, config->hccl_use_net_layer);
+        = RootInfoDetect(nRanks, rank, rootHandle, rankTable, rootInfoDetectContext, config->hcclUseNetLayer);
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR(
             "[%s] errNo[0x%016llx] RootInfoDetect failed, identifier[%s].", __func__, HCCL_ERROR_CODE(ret),

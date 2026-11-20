@@ -30,7 +30,7 @@ TEST_F(HcclCommConfigInitTest, Ut_HcclCommConfigInit_When_Normal_Expect_Normal)
     const char* rankTableFile = rankTableFileName;
     u32 rankId = 0;
     HcclCommConfig commConfig;
-    for (auto& byte : commConfig.hccl_use_net_layer) {
+    for (auto& byte : commConfig.hcclUseNetLayer) {
         byte = '7';
     }
     HcclCommConfigInit(&commConfig);
@@ -39,8 +39,8 @@ TEST_F(HcclCommConfigInitTest, Ut_HcclCommConfigInit_When_Normal_Expect_Normal)
     EXPECT_EQ(configInfo->configSize, sizeof(HcclCommConfig));
     EXPECT_EQ(commConfig.hcclChannelSqDepth, HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET);
     EXPECT_EQ(commConfig.hcclChannelScqDepth, HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET);
-    EXPECT_STREQ(commConfig.hccl_use_net_layer, "");
-    for (const auto byte : commConfig.hccl_use_net_layer) {
+    EXPECT_STREQ(commConfig.hcclUseNetLayer, "");
+    for (const auto byte : commConfig.hcclUseNetLayer) {
         EXPECT_EQ(byte, '\0');
     }
     commConfig.hcclBufferSize = 400;
