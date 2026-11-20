@@ -231,6 +231,7 @@ TEST_M(RS, TcRsUbCtxJfcCreateFail);
 TEST_M(RS, TcRsUbCtxInitJettyCb);
 TEST_M(RS, TcRsUbCtxJettyCreateFail);
 TEST_M(RS, TcRsUbCtxJettyImportFail);
+TEST_M(RS, TcRsUbCtxInitRjettyCb);
 TEST_M(RS, TcRsUbGetEidByIp);
 TEST_M(RS, TcRsUbGetIpByEid);
 TEST_M(RS, TcRsCtxGetAuxInfo);

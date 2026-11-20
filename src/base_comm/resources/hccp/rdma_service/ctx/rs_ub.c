@@ -1988,7 +1988,7 @@ STATIC int RsUbCtxInitRjettyCb(struct RsUbDevCb *devCb, struct RsJettyImportAttr
         -ESAFEFUNC);
     ret = RsUbGetRemJettyCb(devCb, &remJettyId, &tmpRjettyCb);
     CHK_PRT_RETURN(ret == 0,
-        hccp_err("devIndex:0x%x remJettyId:%u not support to import again", ret, devCb->index, remJettyId.id), -EEXIST);
+        hccp_err("devIndex:0x%x remJettyId:%u not support to import again", devCb->index, remJettyId.id), -EEXIST);
 
     tmpRjettyCb = calloc(1, sizeof(struct RsCtxRemJettyCb));
     CHK_PRT_RETURN(tmpRjettyCb == NULL, hccp_err("calloc tmpRjettyCb failed, errno:%d", errno), -ENOMEM);

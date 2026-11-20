@@ -1211,6 +1211,48 @@ void TcRsUbCtxJettyImportFail()
     mocker_clean();
 }
 
+void TcRsUbCtxInitRjettyCb()
+{
+    struct RsUbDevCb devCb = {0};
+    struct RsCtxRemJettyCb rjettyCb = {0};
+    struct RsJettyImportAttr importAttr = {0};
+    urma_target_jetty_t tjetty = {0};
+    urma_jetty_id_t remJettyId = {0};
+    struct RsCtxRemJettyCb* outRjettyCb = NULL;
+    int ret = 0;
+
+    RS_INIT_LIST_HEAD(&devCb.rjettyList);
+
+    mocker(memcpy_s, 10, -1);
+    ret = RsUbCtxInitRjettyCb(&devCb, &importAttr, &outRjettyCb);
+    EXPECT_INT_EQ(-ESAFEFUNC, ret);
+    mocker_clean();
+
+    mocker(calloc, 1, NULL);
+    ret = RsUbCtxInitRjettyCb(&devCb, &importAttr, &outRjettyCb);
+    EXPECT_INT_EQ(-ENOMEM, ret);
+    mocker_clean();
+
+    remJettyId.id = 0x1000;
+    (void)memcpy_s(importAttr.key.value, sizeof(importAttr.key.value), &remJettyId, REM_JETTY_ID_SIZE);
+    tjetty.id = remJettyId;
+    rjettyCb.tjetty = &tjetty;
+    RsListAddTail(&rjettyCb.list, &devCb.rjettyList);
+
+    ret = RsUbCtxInitRjettyCb(&devCb, &importAttr, &outRjettyCb);
+    EXPECT_INT_EQ(-EEXIST, ret);
+
+    RsListDel(&rjettyCb.list);
+    ret = RsUbCtxInitRjettyCb(&devCb, &importAttr, &outRjettyCb);
+    EXPECT_INT_EQ(0, ret);
+    EXPECT_ADDR_NE(outRjettyCb, NULL);
+    if (outRjettyCb != NULL) {
+        EXPECT_ADDR_EQ(outRjettyCb->devCb, &devCb);
+        free(outRjettyCb);
+        outRjettyCb = NULL;
+    }
+}
+
 void TcRsUbCtxJettyDestroyBatch()
 {
     struct JettyDestroyBatchInfo batchInfo = {0};

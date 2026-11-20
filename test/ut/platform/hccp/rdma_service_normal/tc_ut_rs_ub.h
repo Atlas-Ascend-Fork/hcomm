@@ -55,6 +55,7 @@ void TcRsUbCtxJfcCreateFail();
 void TcRsUbCtxInitJettyCb();
 void TcRsUbCtxJettyCreateFail();
 void TcRsUbCtxJettyImportFail();
+void TcRsUbCtxInitRjettyCb();
 void TcRsUbCtxJettyDestroyBatch();
 void TcRsUbCtxQueryJettyBatch();
 void TcRsGetEidByIp();
