@@ -1615,6 +1615,7 @@ namespace CcuRep {
             case CcuRepType::BUF_READ:
                 return PrepareBufReadConstValue(repPtr, dep, ccuKernel);
             case CcuRepType::LOCAL_CPY:
+            case CcuRepType::LOCAL_REDUCE:
                 return PrepareLocCpyConstValue(repPtr, dep, ccuKernel);
             case CcuRepType::RECORD_SHARED_NOTIFY:
                 return PrepareRecordSharedNotifyConstValue(repPtr, dep, ccuKernel);

@@ -17,6 +17,7 @@
 #include "ccu_rep_load_var_v1.h"
 #include "ccu_rep_store_v1.h"
 #include "ccu_rep_store_var_v1.h"
+#include "ccu_rep_loccpy_v1.h"
 #include "src/base_comm/resources/ccu/ccu_kernel/ccu_kernel.h"
 #include "src/base_comm/resources/ccu/ccu_microcode/ccu_microcode_v1.h"
 #include "src/base_comm/resources/ccu/ccu_representation/reps/sync/ccu_rep_record_shared_notify.h"
@@ -358,6 +359,46 @@ namespace CcuRep {
                 CcuRepRecordSharedNotify rep(&insGen, notify, 0xF);
                 EXPECT_EQ(insGen.PrepareConstValue(&rep, dep, &kernel), HcclResult::HCCL_SUCCESS);
                 EXPECT_TRUE(kernel.IsSecConstValue(tokenValue));
+            }
+            // LOCAL_CPY: 登记 {reserveChannalId}, 不含敏感 token
+            {
+                CcuKernel kernel;
+                kernel.SetDieId(0);
+                CcuRepContext context;
+                Variable len{&context};
+                CompletedEvent sem{&context};
+                Address dstAddr;
+                Variable dstToken;
+                Address srcAddr;
+                Variable srcToken;
+                LocalAddr dst{dstAddr, dstToken};
+                LocalAddr src{srcAddr, srcToken};
+                CcuRepLocCpy rep(&insGen, dst, src, len, sem, 0xF);
+                dep.reserveChannalId[0] = 0x1234;
+                EXPECT_EQ(insGen.PrepareConstValue(&rep, dep, &kernel), HcclResult::HCCL_SUCCESS);
+                EXPECT_EQ(kernel.GetConstValue2VarMap().size(), 1u);
+                EXPECT_EQ(kernel.GetConstValue2VarMap().count(0x1234), 1u);
+                EXPECT_FALSE(kernel.IsSecConstValue(tokenValue));
+            }
+            // LOCAL_REDUCE: 与 LOCAL_CPY 同路径, 登记 {reserveChannalId}, 不含敏感 token
+            {
+                CcuKernel kernel;
+                kernel.SetDieId(0);
+                CcuRepContext context;
+                Variable len{&context};
+                CompletedEvent sem{&context};
+                Address dstAddr;
+                Variable dstToken;
+                Address srcAddr;
+                Variable srcToken;
+                LocalAddr dst{dstAddr, dstToken};
+                LocalAddr src{srcAddr, srcToken};
+                CcuRepLocCpy rep(&insGen, dst, src, len, 1, 2, sem, 0xF);
+                dep.reserveChannalId[0] = 0x5678;
+                EXPECT_EQ(insGen.PrepareConstValue(&rep, dep, &kernel), HcclResult::HCCL_SUCCESS);
+                EXPECT_EQ(kernel.GetConstValue2VarMap().size(), 1u);
+                EXPECT_EQ(kernel.GetConstValue2VarMap().count(0x5678), 1u);
+                EXPECT_FALSE(kernel.IsSecConstValue(tokenValue));
             }
         }
 
