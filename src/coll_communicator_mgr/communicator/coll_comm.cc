@@ -1129,12 +1129,6 @@ HcclResult CollComm::ShutdownRankInfoDetect()
     if (rankInfoDetect_ != nullptr) {
         CHK_RET(rankInfoDetect_->Shutdown());
     }
-    // 防御性兜底：清除 CommunicatorImpl 侧的 shared_ptr 副本，避免 detect 空壳对象残留到进程退出。
-    // Shutdown 幂等，即使后续 ~RankInfoDetect 再调也不会重复清理
-    Hccl::HcclCommunicator* comV2 = static_cast<Hccl::HcclCommunicator*>(comm_);
-    if (comV2 != nullptr && comV2->GetRankInfoDetect() != nullptr) {
-        comV2->SetRankInfoDetect(nullptr);
-    }
     rankInfoDetect_.reset();
     return HCCL_SUCCESS;
 }
