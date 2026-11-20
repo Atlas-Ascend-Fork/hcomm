@@ -61,6 +61,7 @@ jobs:
           ut_type: hcomm
           target_branch: ${{ env.TARGET_BRANCH }}
           git_token: ${{ secrets.GIT_TOKEN }}
+          UT_SOFT_FAIL_REPOS: ${{ vars.UT_SOFT_FAIL_REPOS }}
       -
         name: upload
         uses: obs-upload
