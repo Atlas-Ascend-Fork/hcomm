@@ -12,6 +12,7 @@
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>
 #include <cstdlib>
+#include <limits>
 #include <set>
 #include <utility>
 #include "json/common/json_parse_util.h"
@@ -45,6 +46,66 @@ protected:
         std::cout << "A Test case in RankTableInfoParserTest TearDown" << std::endl;
     }
 };
+
+TEST_F(RankTableInfoParserTest, Ut_BuildLogicSuperPodNetInstId_When_EmptyOrRawId_Expect_KeepOriginalText)
+{
+    const std::string originNetInstId = "sp_0_idx_0";
+    std::string newNetInstId = "old_value";
+
+    ASSERT_EQ(RankTableInfo::BuildLogicSuperPodNetInstId(originNetInstId, "", newNetInstId), HCCL_SUCCESS);
+    EXPECT_EQ(newNetInstId, originNetInstId);
+
+    ASSERT_EQ(RankTableInfo::BuildLogicSuperPodNetInstId(originNetInstId, " group_A ", newNetInstId), HCCL_SUCCESS);
+    EXPECT_EQ(newNetInstId, "sp_0_idx_0_ group_A ");
+    EXPECT_EQ(originNetInstId, "sp_0_idx_0");
+}
+
+TEST_F(RankTableInfoParserTest, Ut_BuildLogicSuperPodNetInstId_When_LengthBoundary_Expect_CheckBeforeWriting)
+{
+    const std::string originNetInstId(MAX_VALUE_NETID - 2, 'a');
+    std::string newNetInstId;
+
+    ASSERT_EQ(RankTableInfo::BuildLogicSuperPodNetInstId(originNetInstId, "A", newNetInstId), HCCL_SUCCESS);
+    EXPECT_EQ(newNetInstId, originNetInstId + "_A");
+    EXPECT_EQ(newNetInstId.size(), MAX_VALUE_NETID);
+
+    newNetInstId = "unchanged";
+    EXPECT_EQ(RankTableInfo::BuildLogicSuperPodNetInstId(originNetInstId, "AB", newNetInstId), HCCL_E_PARA);
+    EXPECT_EQ(newNetInstId, "unchanged");
+
+    const std::string maxLengthOrigin(MAX_VALUE_NETID, 'a');
+    EXPECT_EQ(RankTableInfo::BuildLogicSuperPodNetInstId(maxLengthOrigin, "A", newNetInstId), HCCL_E_PARA);
+    EXPECT_EQ(newNetInstId, "unchanged");
+
+    ASSERT_EQ(RankTableInfo::BuildLogicSuperPodNetInstId(maxLengthOrigin, "", newNetInstId), HCCL_SUCCESS);
+    EXPECT_EQ(newNetInstId, maxLengthOrigin);
+}
+
+TEST_F(RankTableInfoParserTest, Ut_LogicSuperPod_When_JsonReparsed_Expect_ResetSplitStateAndSource)
+{
+    const auto json = nlohmann::json::parse(R"({
+        "version": "2.0", "rank_count": 1,
+        "rank_list": [{"rank_id": 0, "device_id": 0, "local_id": 0,
+            "level_list": [{"net_layer": 0, "net_instance_id": "server_0",
+                "net_type": "TOPO_FILE_DESC", "rank_addr_list": []}]}]
+    })");
+    RankTableInfo table;
+    table.logicSuperPodSplitLayer = 1;
+    table.logicSuperPodGroupIds[0] = "A";
+
+    hccl::RankTableReader reader(RankTableSource::ROOTINFO);
+    ASSERT_EQ(reader.ReadJson(json, table), HCCL_SUCCESS);
+    EXPECT_EQ(table.logicSuperPodSplitLayer, MAX_VALUE_NETLAYER + 1);
+    EXPECT_TRUE(table.logicSuperPodGroupIds.empty());
+    EXPECT_EQ(table.GetSource(), RankTableSource::ROOTINFO);
+
+    table.logicSuperPodSplitLayer = 1;
+    table.logicSuperPodGroupIds[0] = "A";
+    ASSERT_EQ(hccl::RankTableReader::ReadStringFast(json.dump(), table), HCCL_SUCCESS);
+    EXPECT_EQ(table.logicSuperPodSplitLayer, MAX_VALUE_NETLAYER + 1);
+    EXPECT_TRUE(table.logicSuperPodGroupIds.empty());
+    EXPECT_EQ(table.GetSource(), RankTableSource::RANKTABLE);
+}
 
 TEST_F(RankTableInfoParserTest, Ut_GetBinStream_When_Normal_Expect_Success)
 {
@@ -639,6 +700,87 @@ TEST_F(RankTableInfoParserTest, Ut_RankTableInfo_When_StreamTruncated_Expect_Thr
     const size_t ranksSize = 1;
     stream << ranksSize;
     EXPECT_THROW(RankTableInfo info(stream), InvalidParamsException);
+}
+
+TEST_F(RankTableInfoParserTest, Ut_LogicSuperPod_When_StreamGroupCountOverLimit_Expect_ThrowInvalidParams)
+{
+    RankTableInfo info;
+    ASSERT_EQ(hccl::ParseRankTableStringFast(FAST_RANK_TABLE_FULL, info), HCCL_SUCCESS);
+    const size_t invalidCounts[] = {info.ranks.size() + 1, MAX_RANKCOUNT + 1, std::numeric_limits<size_t>::max()};
+    for (size_t count : invalidCounts) {
+        SCOPED_TRACE(count);
+        BinaryStream stream;
+        stream << info.version << info.rankCount << info.ranks.size();
+        for (const auto& rank : info.ranks) {
+            ASSERT_EQ(rank.GetBinStream(true, stream), HCCL_SUCCESS);
+        }
+        stream << info.detour << info.logicSuperPodSplitLayer << count;
+        EXPECT_THROW(RankTableInfo restored(stream), InvalidParamsException);
+    }
+}
+
+TEST_F(RankTableInfoParserTest, Ut_LogicSuperPod_When_StreamMappingTruncated_Expect_ThrowInvalidParams)
+{
+    RankTableInfo info;
+    ASSERT_EQ(hccl::ParseRankTableStringFast(FAST_RANK_TABLE_FULL, info), HCCL_SUCCESS);
+    info.logicSuperPodSplitLayer = 1;
+    info.logicSuperPodGroupIds = {{0, "A"}, {1, "B"}};
+    BinaryStream stream;
+    ASSERT_EQ(info.GetBinStream(true, stream), HCCL_SUCCESS);
+    std::vector<char> bytes;
+    stream.Dump(bytes);
+    const size_t mappingSize = sizeof(info.detour) + sizeof(info.logicSuperPodSplitLayer) + sizeof(size_t)
+                               + 2 * (sizeof(RankId) + sizeof(size_t) + 1);
+    ASSERT_GE(bytes.size(), mappingSize);
+    for (size_t size = bytes.size() - mappingSize; size < bytes.size(); ++size) {
+        SCOPED_TRACE(size);
+        const std::vector<char> truncated(bytes.begin(), bytes.begin() + size);
+        BinaryStream input(truncated);
+        EXPECT_THROW(RankTableInfo restored(input), InvalidParamsException);
+    }
+}
+
+TEST_F(RankTableInfoParserTest, Ut_LogicSuperPod_When_StreamGroupIdTooLong_Expect_ThrowInvalidParams)
+{
+    RankTableInfo info;
+    ASSERT_EQ(hccl::ParseRankTableStringFast(FAST_RANK_TABLE_FULL, info), HCCL_SUCCESS);
+    const size_t invalidLengths[] = {129, std::numeric_limits<size_t>::max()};
+    for (size_t length : invalidLengths) {
+        SCOPED_TRACE(length);
+        BinaryStream stream;
+        stream << info.version << info.rankCount << info.ranks.size();
+        for (const auto& rank : info.ranks) {
+            ASSERT_EQ(rank.GetBinStream(true, stream), HCCL_SUCCESS);
+        }
+        stream << info.detour << info.logicSuperPodSplitLayer << size_t{1} << RankId{0} << length;
+        // 129字节正文完整，仍应因超过配置上限被拒绝。
+        if (length == 129) {
+            for (size_t i = 0; i < length; ++i) {
+                stream << 'A';
+            }
+        }
+        EXPECT_THROW(RankTableInfo restored(stream), InvalidParamsException);
+    }
+}
+
+TEST_F(RankTableInfoParserTest, Ut_LogicSuperPod_When_StreamGroupIdAtBoundary_Expect_RoundTrip)
+{
+    RankTableInfo info;
+    ASSERT_EQ(hccl::ParseRankTableStringFast(FAST_RANK_TABLE_FULL, info), HCCL_SUCCESS);
+    info.logicSuperPodSplitLayer = 1;
+    info.logicSuperPodGroupIds = {{0, ""}, {1, std::string(128, 'A')}};
+    BinaryStream stream;
+    ASSERT_EQ(info.GetBinStream(true, stream), HCCL_SUCCESS);
+    const u32 marker = 0x12345678;
+    stream << marker;
+
+    RankTableInfo restored(stream);
+    EXPECT_EQ(restored.logicSuperPodSplitLayer, info.logicSuperPodSplitLayer);
+    EXPECT_EQ(restored.logicSuperPodGroupIds, info.logicSuperPodGroupIds);
+    u32 next = 0;
+    stream >> next;
+    EXPECT_EQ(next, marker);
+    EXPECT_EQ(stream.GetRemainingSize(), 0);
 }
 
 TEST_F(RankTableInfoParserTest, Ut_ParseChangedRankInfoJson_When_ViaPublicApi_Expect_SameAsDirect)

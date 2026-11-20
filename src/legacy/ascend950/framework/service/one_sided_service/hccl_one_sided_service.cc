@@ -56,15 +56,22 @@ HcclOneSidedService::~HcclOneSidedService()
     }
 }
 
-LinkData HcclOneSidedService::GetLinkData(RankId remoteRankId)
+HcclResult HcclOneSidedService::GetLinkData(RankId remoteRankId, LinkData& linkData)
 {
     if (linkDataMap_.find(remoteRankId) == linkDataMap_.end()) {
         // 组建linkData
-        LinkData linkData = MakeLinkData(comm_->GetRankGraph()->GetPaths(0, comm_->GetMyRank(), remoteRankId)[0]);
-        linkDataMap_.emplace(remoteRankId, linkData);
+        const auto paths = comm_->GetRankGraph()->GetPaths(0, comm_->GetMyRank(), remoteRankId);
+        if (paths.empty()) {
+            HCCL_WARNING(
+                "[HcclOneSidedService][GetLinkData] no available L0 path, localRank[%u] remoteRank[%u]",
+                comm_->GetMyRank(), remoteRankId);
+            return HCCL_E_NOT_SUPPORT;
+        }
+        linkDataMap_.emplace(remoteRankId, MakeLinkData(paths.front()));
     }
     HCCL_INFO("[HcclOneSidedService][GetLinkData] linkData[%s]", linkDataMap_.at(remoteRankId).Describe().c_str());
-    return linkDataMap_.at(remoteRankId);
+    linkData = linkDataMap_.at(remoteRankId);
+    return HCCL_SUCCESS;
 }
 
 HcclResult HcclOneSidedService::CheckLink(LinkData linkData) const
@@ -89,7 +96,11 @@ HcclOneSidedService::RegMem(void* addr, u64 size, HcclMemType type, RankId remot
     HCCL_INFO(
         "[HcclOneSidedService][RegMem]addr[%p], size[%llu], type[%d], remoteRankId[%u]", addr, size, type,
         remoteRankId);
-    LinkData linkData = GetLinkData(remoteRankId);
+    LinkData linkData = BuildInvalidLinkData(LinkDirection::BOTH);
+    const HcclResult linkRet = GetLinkData(remoteRankId, linkData);
+    if (linkRet != HCCL_SUCCESS) {
+        return linkRet;
+    }
     RmaMemDesc* localRmaMemDesc = static_cast<RmaMemDesc*>(static_cast<void*>(localMemDesc.desc));
     CHK_PTR_NULL(localRmaMemDesc);
     CHK_PRT_RET(
@@ -191,7 +202,11 @@ HcclResult HcclOneSidedService::ExchangeMemDesc(
     }
     comm_->SetOpExecuteConfig(comm_->GetCommExecuteConfig());
     // 组装linkData
-    LinkData linkData = GetLinkData(remoteRankId);
+    LinkData linkData = BuildInvalidLinkData(LinkDirection::BOTH);
+    const HcclResult linkRet = GetLinkData(remoteRankId, linkData);
+    if (linkRet != HCCL_SUCCESS) {
+        return linkRet;
+    }
 
     HCCL_INFO("[HcclOneSidedService][ExchangeMemDesc] Find HcclOneSidedConn");
     shared_ptr<HcclOneSidedConn> tempConn;

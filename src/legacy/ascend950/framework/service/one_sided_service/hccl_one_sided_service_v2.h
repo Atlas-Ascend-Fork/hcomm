@@ -41,7 +41,7 @@ public:
 
     HcclResult BatchPut(RankId remoteRankId, const HcclOneSideOpDesc* desc, u32 descNum, const rtStream_t stream);
     HcclResult BatchGet(RankId remoteRankId, const HcclOneSideOpDesc* desc, u32 descNum, const rtStream_t stream);
-    LinkData GetLinkData(RankId remoteRankId);
+    HcclResult GetLinkData(RankId remoteRankId, LinkData& linkData);
 
     void AddOpCounterMems();
     DevBuffer* GetOpCounterBuf();

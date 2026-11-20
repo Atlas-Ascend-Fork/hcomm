@@ -22,11 +22,16 @@
 #include "types.h"
 #include "hccl_res.h"
 
+namespace hccl {
+class TopoInfo;
+} // namespace hccl
+
 namespace Hccl {
 
 using Level2Id2NetInst = std::vector<std::unordered_map<std::string, std::shared_ptr<NetInstance>>>;
 using RankId2PeerMap = std::unordered_map<RankId, std::shared_ptr<NetInstance::Peer>>;
 constexpr u32 MAX_NET_LAYER = 8;
+static_assert(MAX_NET_LAYER == MAX_VALUE_NETLAYER + 1, "RankGraph layer count must match RankTable layer range");
 
 class RankGraph {
 public:
@@ -102,6 +107,14 @@ public:
     std::vector<char> GetPackedData(const std::vector<std::pair<u32, RankId>>& netLayerRankPairs) const;
     void Dump() const;
 
+    // 逻辑超节点拆分标记：建图入口在改写成功后调用，记录拆分层号与各rank的逻辑ID分组映射。
+    void SetLogicSuperPodSplit(u32 logicSuperPodSplitLayer, const std::map<RankId, std::string>& logicSuperPodGroupIds)
+    {
+        logicSuperPodSplitLayer_ = logicSuperPodSplitLayer;
+        logicSuperPodGroupIds_ = logicSuperPodGroupIds;
+        logicSuperPodSplitEnabled_ = true;
+    }
+
 private:
     struct LayerVirtualGroups {
         std::vector<std::vector<u32>> groups;
@@ -116,8 +129,11 @@ private:
     std::set<RankId> innerRanks_;
     RankId myRank_;
     bool initFlag_{false};
-    bool enableVirtualGroups_{false}; // Inherited by subgraphs and persisted for recovery.
-    bool level0PcieFallback_{false};  // 本rank的level0是否为无UB兜底层
+    bool enableVirtualGroups_{false};            // Inherited by subgraphs and persisted for recovery.
+    bool level0PcieFallback_{false};             // 本rank的level0是否为无UB兜底层
+    u32 logicSuperPodSplitLayer_{MAX_NET_LAYER}; // 逻辑超节点拆分生效的目标层，MAX_NET_LAYER表示未生效
+    bool logicSuperPodSplitEnabled_{false};      // 是否已启用逻辑超节点拆分
+    std::map<RankId, std::string> logicSuperPodGroupIds_; // rankId→逻辑ID，SetLogicSuperPodSplit时拷入
     std::unordered_map<RankId, std::map<IpAddress, uint32_t>>
         ipIndexMap_; // ipIndex 映射表，由 RankGraphBuilder 统一设置
 
@@ -131,6 +147,16 @@ private:
 };
 
 CommProtocol LinkProtocolToCommProtocol(const LinkProtocol& linkProtocol);
+
+// 物理超节点层取首个跨超协议匹配层的前一个已注册层；未匹配时取最高已注册层。
+HcclResult
+FindSuperPodLayer(const RankTableInfo& rankTable, const hccl::TopoInfo& topoInfo, u32& physicalSuperPodLayer);
+
+// 在目标层实例ID后追加"_<逻辑ID>"，全部校验通过后统一写入。
+HcclResult RewriteSuperPodNetInstId(RankTableInfo& rankTable, u32 physicalSuperPodLayer);
+
+// 建图前查找物理超节点层，并按逻辑ID改写该层实例ID。
+HcclResult ApplyLogicSuperPodId(RankTableInfo& rankTable, const std::string& topoPath);
 
 std::shared_ptr<NetInstance> GetOrCreateNetInstance(
     u32 netLayer, const string& netInstId, NetType type, Level2Id2NetInst& netInsts, RankGraph* rankGraph);

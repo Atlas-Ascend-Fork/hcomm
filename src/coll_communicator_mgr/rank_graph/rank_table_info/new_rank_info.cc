@@ -42,6 +42,7 @@ NewRankInfo::NewRankInfo(Hccl::BinaryStream& binStream)
     controlPlane = controlPlanes;
     binStream >> tlsStatus;
     binStream >> hostDpuTlsStatus;
+    binStream >> logicSuperPodId;
 }
 
 HcclResult NewRankInfo::GetBinStream(bool isContainLoaId, Hccl::BinaryStream& binStream) const
@@ -68,6 +69,7 @@ HcclResult NewRankInfo::GetBinStream(bool isContainLoaId, Hccl::BinaryStream& bi
     TRY_CATCH_RETURN(controlPlane.GetBinStream(binStream););
     binStream << tlsStatus;
     binStream << hostDpuTlsStatus;
+    binStream << logicSuperPodId;
     return HCCL_SUCCESS;
 }
 

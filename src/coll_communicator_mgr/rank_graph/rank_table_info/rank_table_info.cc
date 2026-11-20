@@ -238,7 +238,40 @@ RankTableInfo::RankTableInfo(Hccl::BinaryStream& binaryStream)
             true, HCCL_ERROR("[%s] ranks reserve[%zu] bad_alloc.", __func__, reserveSize), Hccl::InvalidParamsException,
             "ranktable reserve bad alloc");
     }
+    CHK_PRT_THROW(
+        binaryStream.GetRemainingSize()
+            < static_cast<std::int64_t>(sizeof(detour) + sizeof(logicSuperPodSplitLayer) + sizeof(size_t)),
+        HCCL_ERROR("[%s] logic group metadata is truncated.", __func__), InvalidParamsException,
+        "logic group metadata truncated");
     binaryStream >> detour;
+    binaryStream >> logicSuperPodSplitLayer;
+    // 反序列化逻辑分组映射（快照恢复路径）。
+    size_t groupCount = 0;
+    binaryStream >> groupCount;
+    CHK_PRT_THROW(
+        groupCount > ranks.size(),
+        HCCL_ERROR("[%s] logic group count[%zu] exceeds ranks size[%zu].", __func__, groupCount, ranks.size()),
+        InvalidParamsException, "logic group count exceeds ranks size");
+    for (size_t i = 0; i < groupCount; ++i) {
+        CHK_PRT_THROW(
+            binaryStream.GetRemainingSize() < static_cast<std::int64_t>(sizeof(RankId) + sizeof(size_t)),
+            HCCL_ERROR("[%s] logic group[%zu] header is truncated.", __func__, i), InvalidParamsException,
+            "logic group header truncated");
+        RankId rankId = 0;
+        size_t groupIdSize = 0;
+        binaryStream >> rankId >> groupIdSize;
+        CHK_PRT_THROW(
+            groupIdSize > MAX_LEN_OF_LOGIC_SUPERPOD_ID
+                || groupIdSize > static_cast<size_t>(binaryStream.GetRemainingSize()),
+            HCCL_ERROR("[%s] logic group[%zu] has invalid ID length[%zu].", __func__, i, groupIdSize),
+            InvalidParamsException, "logic group ID length invalid");
+        // 先校验再分配，避免BinaryStream的字符串读取按未校验长度分配内存。
+        std::string groupId(groupIdSize, '\0');
+        for (char& byte : groupId) {
+            binaryStream >> byte;
+        }
+        logicSuperPodGroupIds.emplace(rankId, std::move(groupId));
+    }
 }
 
 HcclResult RankTableInfo::GetBinStream(bool isContainLocId, Hccl::BinaryStream& binaryStream) const
@@ -260,6 +293,11 @@ HcclResult RankTableInfo::GetBinStream(bool isContainLocId, Hccl::BinaryStream& 
         CHK_RET(it.GetBinStream(isContainLocId, binaryStream));
     }
     binaryStream << detour;
+    binaryStream << logicSuperPodSplitLayer;
+    binaryStream << logicSuperPodGroupIds.size();
+    for (const auto& [rankId, groupId] : logicSuperPodGroupIds) {
+        binaryStream << rankId << groupId;
+    }
     return HCCL_SUCCESS;
 }
 
@@ -347,6 +385,23 @@ std::unordered_map<u32, std::unordered_map<IpAddress, u32>> RankTableInfo::GetRa
         ranklListenPortMap.insert(std::make_pair(rankinfo.rankId, listenPortMap));
     }
     return ranklListenPortMap;
+}
+
+HcclResult RankTableInfo::BuildLogicSuperPodNetInstId(
+    const std::string& originNetInstId, const std::string& logicId, std::string& newNetInstId)
+{
+    if (logicId.empty()) {
+        newNetInstId = originNetInstId;
+        return HCCL_SUCCESS;
+    }
+    if (originNetInstId.size() >= MAX_VALUE_NETID || logicId.size() > MAX_VALUE_NETID - originNetInstId.size() - 1) {
+        HCCL_ERROR(
+            "[%s] appended netInstId exceeds limit, originIdLen[%zu] logicIdLen[%zu] limit[%u]", __func__,
+            originNetInstId.size(), logicId.size(), MAX_VALUE_NETID);
+        return HCCL_E_PARA;
+    }
+    newNetInstId = originNetInstId + "_" + logicId;
+    return HCCL_SUCCESS;
 }
 
 } // namespace Hccl

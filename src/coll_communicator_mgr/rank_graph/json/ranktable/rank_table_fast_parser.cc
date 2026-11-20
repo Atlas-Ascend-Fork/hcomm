@@ -2151,6 +2151,9 @@ namespace {
         info.ranks.clear();
         if constexpr (kIsRankTable) {
             info.detour = false;
+            info.logicSuperPodSplitLayer = Hccl::MAX_VALUE_NETLAYER + 1;
+            info.logicSuperPodGroupIds.clear();
+            info.SetSource(Hccl::RankTableSource::RANKTABLE);
         }
         const size_t threadNum = ResolveParseThreadNum(jsonString.size());
         // 只有分块数足够(>= 2*线程)才尝试并行, 避免小文件白付一次结构扫描

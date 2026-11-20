@@ -30,6 +30,7 @@
 #include "common/hccl_log_keywords_pub.h"
 #include "orion_adapter_rts.h"
 #include "coll_comm_config.h"
+#include "env_logic_superpod_config.h"
 #include "hccl/hccl_comm.h"
 #include "securec.h"
 #include <cstring>
@@ -306,6 +307,7 @@ HcclResult
 CollComm::InitFullMode(void* rankGraph, aclrtBinHandle binHandle, HcclMem cclBuffer, uint32_t opExpansionMode)
 {
     CHK_PTR_NULL(rankGraph);
+    CHK_RET(EnvLogicSuperPodConfig::GetInstance().Parse());
     CHK_RET(Hccl::GetEnvPlfDebugConfig().Parse());
 
     EXCEPTION_HANDLE_BEGIN

@@ -17,6 +17,7 @@
 #include "rank_info_detect_client.h"
 #include "ip_address.h"
 #include "bootstrap_ip.h"
+#include "env_logic_superpod_config.h"
 #include "root_handle_v2.h"
 #include "env_config/env_config_v2.h"
 #include "host_buffer.h"
@@ -288,6 +289,11 @@ HcclResult RankInfoDetectClient::ConstructRankTable(RankTableInfo& localRankTabl
 {
     HCCL_INFO("[RankInfoDetectClient::%s] start.", __func__);
 
+    // 探测及单rank构造前获取进程配置，后续建域复用首次成功解析的值。
+    auto& logicSuperPodConfig = hccl::EnvLogicSuperPodConfig::GetInstance();
+    CHK_RET(logicSuperPodConfig.Parse());
+    const std::string& logicSuperPodId = logicSuperPodConfig.GetLogicSuperPodId();
+
     // 单P场景处理
     CHK_PRT_RET((rankSize_ == 1), ConstructSingleRank(localRankTable), HCCL_SUCCESS);
 
@@ -368,6 +374,10 @@ HcclResult RankInfoDetectClient::ConstructRankTable(RankTableInfo& localRankTabl
             "[%s][%s] errNo[0x%016llx] local rank table has no rank", LOG_KEYWORDS_INIT_GROUP.c_str(),
             LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA)),
         HCCL_E_PARA);
+    // 逻辑超节点ID非空时随本地表上报，供建图入口在Build前做表侧改写；单rank不走本分支。
+    if (!logicSuperPodId.empty()) {
+        localRankTable.ranks[0].logicSuperPodId = logicSuperPodId;
+    }
     CHK_PRT_CONT(
         GetLocalTlsStatus(localRankTable.ranks[0].tlsStatus),
         HCCL_WARNING("[GetLocalTlsStatus] Can not get TlsStatus"));
@@ -428,6 +438,9 @@ void RankInfoDetectClient::ParseRankTable(vector<char>& rankInfoMsg)
 
     // 解析localRankInfo
     rankTable_ = RankTableInfo(binStream);
+    // source_不随二进制序列化，重建后回落默认RANKTABLE；本表来自RootInfo探测交换，
+    // 补回标记，供建图入口按来源决定是否应用HCCL_LOGIC_SUPERPOD_ID改写
+    rankTable_.SetSource(RankTableSource::ROOTINFO);
     rankTable_.Dump();
 
     // 解析step

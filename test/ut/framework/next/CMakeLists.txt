@@ -146,6 +146,8 @@ set(src_to_test_list
     coll_comms/rank_graphs/rank_graph/ut_rank_graph_get_net_layers.cc
     coll_comms/rank_graphs/rank_graph_builder/ut_detour_service.cc
     coll_comms/rank_graphs/rank_graph_builder/ut_rank_graph_builder.cc
+    # 本目标使用真实建图实现，保留共享桩库对其他测试的行为。
+    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/rank_graph_builder/rank_graph_builder.cc
     coll_comms/rank_graphs/rank_graph_builder/ut_updater_for_64_plus_1.cc
     coll_comms/rank_graphs/rank_table_info/ut_address_info.cc
     coll_comms/rank_graphs/rank_table_info/ut_control_plane.cc

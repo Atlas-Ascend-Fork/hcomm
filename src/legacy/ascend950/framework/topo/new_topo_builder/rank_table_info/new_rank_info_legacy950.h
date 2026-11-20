@@ -48,6 +48,8 @@ public:
     Hccl::ControlPlane controlPlane{};
     Hccl::TlsStatus tlsStatus{Hccl::TlsStatus::UNKNOWN};
     Hccl::TlsStatus hostDpuTlsStatus{Hccl::TlsStatus::UNKNOWN};
+    // 保留logicSuperPodId字段以保持与hccl::NewRankInfo的内存布局一致。
+    std::string logicSuperPodId{};
     std::string Describe() const;
     explicit NewRankInfo(Hccl::BinaryStream& binStream);
     HcclResult GetBinStream(bool isContainLoaId, Hccl::BinaryStream& binStream) const;

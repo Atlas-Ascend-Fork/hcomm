@@ -11,6 +11,7 @@
 #include "../../ut_hcomm_base.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <memory>
@@ -26,6 +27,9 @@
 #include "rank_table_info.h"
 #include "ubmem_symmetric_memory.h"
 #include "coll_comm_config.h"
+#include "env_logic_superpod_config.h"
+#include "dlhal_function.h"
+#include "rank_gph.h"
 #include "hcom_common.h"
 
 #include "hccl_team_mgr.h"
@@ -80,6 +84,120 @@ TEST_F(TestCollComm, Ut_TestCollCommInit_When_RankGraphNullptr_Return_HCCL_E_PTR
     HcclMem cclBuffer = {};
     HcclResult ret = collComm.Init(nullptr, nullptr, cclBuffer, 0);
     EXPECT_EQ(ret, HCCL_E_PTR);
+}
+
+TEST_F(TestCollComm, Ut_LogicSuperPod_When_FullModeConfigTooLong_Expect_ParaBeforeResources)
+{
+    ::testing::FLAGS_gtest_death_test_style = "threadsafe";
+    EXPECT_EXIT(
+        {
+            setenv("HCCL_LOGIC_SUPERPOD_ID", std::string(129, 'A').c_str(), 1);
+            MOCKER_CPP(&hccl::DlHalFunction::DlHalFunctionInit).expects(mockcpp::never());
+            Hccl::RankGraph graph(0);
+            HcclResult ret;
+            {
+                hccl::CollComm coll(nullptr, 0, "logic_superpod_invalid", hccl::ManagerCallbacks{});
+                ret = coll.Init(&graph, nullptr, HcclMem{}, 0);
+            }
+            mockcpp::GlobalMockObject::verify();
+            std::exit(ret == HCCL_E_PARA ? 0 : 1);
+        },
+        ::testing::ExitedWithCode(0), "");
+}
+
+// 保留真实InitFullMode；HAL返回E_UNAVAIL表示配置解析已通过，不初始化设备资源。
+TEST_F(TestCollComm, Ut_LogicSuperPod_When_FullModeParsedThenEnvChanges_Expect_UseCache)
+{
+    ::testing::FLAGS_gtest_death_test_style = "threadsafe";
+    EXPECT_EXIT(
+        {
+            setenv("HCCL_LOGIC_SUPERPOD_ID", "group_A", 1);
+            MOCKER_CPP(&hccl::DlHalFunction::DlHalFunctionInit).stubs().will(returnValue(HCCL_E_UNAVAIL));
+            Hccl::RankGraph graph(0);
+            HcclResult firstRet;
+            {
+                hccl::CollComm first(nullptr, 0, "logic_superpod_first", hccl::ManagerCallbacks{});
+                firstRet = first.Init(&graph, nullptr, HcclMem{}, 0);
+            }
+            setenv("HCCL_LOGIC_SUPERPOD_ID", std::string(129, 'B').c_str(), 1);
+            HcclResult secondRet;
+            {
+                hccl::CollComm second(nullptr, 0, "logic_superpod_second", hccl::ManagerCallbacks{});
+                secondRet = second.Init(&graph, nullptr, HcclMem{}, 0);
+            }
+            Hccl::RankInfoDetectClient client(0, 1, 0, nullptr);
+            Hccl::RankTableInfo table;
+            const HcclResult rootInfoRet = client.ConstructRankTable(table);
+            std::exit(
+                firstRet == HCCL_E_UNAVAIL && secondRet == HCCL_E_UNAVAIL && rootInfoRet == HCCL_SUCCESS
+                        && hccl::EnvLogicSuperPodConfig::GetInstance().GetLogicSuperPodId() == "group_A" ?
+                    0 :
+                    1);
+        },
+        ::testing::ExitedWithCode(0), "");
+}
+
+TEST_F(TestCollComm, Ut_LogicSuperPod_When_FirstFullModeParseFails_Expect_CorrectedValueCanRetry)
+{
+    ::testing::FLAGS_gtest_death_test_style = "threadsafe";
+    EXPECT_EXIT(
+        {
+            setenv("HCCL_LOGIC_SUPERPOD_ID", std::string(129, 'A').c_str(), 1);
+            MOCKER_CPP(&hccl::DlHalFunction::DlHalFunctionInit).stubs().will(returnValue(HCCL_E_UNAVAIL));
+            Hccl::RankGraph graph(0);
+            hccl::CollComm first(nullptr, 0, "logic_superpod_invalid", hccl::ManagerCallbacks{});
+            const HcclResult firstRet = first.Init(&graph, nullptr, HcclMem{}, 0);
+            setenv("HCCL_LOGIC_SUPERPOD_ID", "group_A", 1);
+            hccl::CollComm second(nullptr, 0, "logic_superpod_retry", hccl::ManagerCallbacks{});
+            const HcclResult secondRet = second.Init(&graph, nullptr, HcclMem{}, 0);
+            std::exit(
+                firstRet == HCCL_E_PARA && secondRet == HCCL_E_UNAVAIL
+                        && hccl::EnvLogicSuperPodConfig::GetInstance().GetLogicSuperPodId() == "group_A" ?
+                    0 :
+                    1);
+        },
+        ::testing::ExitedWithCode(0), "");
+}
+
+TEST_F(TestCollComm, Ut_LogicSuperPod_When_FirstFullModeConfigUnset_Expect_RootInfoUsesEmptyCache)
+{
+    ::testing::FLAGS_gtest_death_test_style = "threadsafe";
+    EXPECT_EXIT(
+        {
+            unsetenv("HCCL_LOGIC_SUPERPOD_ID");
+            MOCKER_CPP(&hccl::DlHalFunction::DlHalFunctionInit).stubs().will(returnValue(HCCL_E_UNAVAIL));
+            Hccl::RankGraph graph(0);
+            hccl::CollComm coll(nullptr, 0, "logic_superpod_empty", hccl::ManagerCallbacks{});
+            const HcclResult ret = coll.Init(&graph, nullptr, HcclMem{}, 0);
+            setenv("HCCL_LOGIC_SUPERPOD_ID", "group_A", 1);
+            Hccl::RankInfoDetectClient client(0, 1, 0, nullptr);
+            Hccl::RankTableInfo table;
+            const HcclResult rootInfoRet = client.ConstructRankTable(table);
+            std::exit(
+                ret == HCCL_E_UNAVAIL && rootInfoRet == HCCL_SUCCESS
+                        && hccl::EnvLogicSuperPodConfig::GetInstance().GetLogicSuperPodId().empty() ?
+                    0 :
+                    1);
+        },
+        ::testing::ExitedWithCode(0), "");
+}
+
+TEST_F(TestCollComm, Ut_LogicSuperPod_When_SimpleModeConfigTooLong_Expect_ExistingFlow)
+{
+    ::testing::FLAGS_gtest_death_test_style = "threadsafe";
+    EXPECT_EXIT(
+        {
+            setenv("HCCL_LOGIC_SUPERPOD_ID", std::string(129, 'A').c_str(), 1);
+            MOCKER_CPP(&hccl::CollComm::InitSimpleMode).stubs().will(returnValue(HCCL_SUCCESS));
+            HcclResult ret;
+            {
+                hccl::CollComm coll(
+                    nullptr, 0, "logic_superpod_simple", hccl::ManagerCallbacks{}, hccl::CollCommInitMode::simpleMode);
+                ret = coll.Init(nullptr, nullptr, HcclMem{}, 0);
+            }
+            std::exit(ret == HCCL_SUCCESS ? 0 : 1);
+        },
+        ::testing::ExitedWithCode(0), "");
 }
 
 TEST_F(TestCollComm, Ut_PrintCommKeyInfo_When_Called_Expect_A5Keywords)

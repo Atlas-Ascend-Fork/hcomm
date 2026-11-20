@@ -679,6 +679,8 @@ HcclResult RankInfoDetectService::ParseRankTable(vector<char>& rankInfoMsg, bool
 
     // 添加到rankTable_
     CHK_RET(rankTable_.UpdateRankTable(localRankInfo));
+    // RootInfo探测聚合表，grow root直接取表时也能正确识别来源。
+    rankTable_.SetSource(RankTableSource::ROOTINFO);
 
     HCCL_INFO("[RankInfoDetectService::%s] end.", __func__);
     return HCCL_SUCCESS;

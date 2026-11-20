@@ -10,11 +10,14 @@
 
 #include <cstdlib>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include "gtest/gtest.h"
 #include "mockcpp/mockcpp.hpp"
 #include "config/base_config_pub.h"
 #include "coll_comm_config_mgr.h"
+#include "env_logic_superpod_config.h"
 #include "base_comm_node_accessors.h"
 #include "env_ub_config.h"
 
@@ -331,6 +334,158 @@ TEST_F(CollCommConfigMgrTest, Ut_Init_When_UbConfigInvalid_Expect_SkipHostMultiQ
     hccl::CollCommConfigMgr configMgr;
 
     EXPECT_EQ(configMgr.Init(), HCCL_E_PARA);
+}
+
+// ==================== HCCL_LOGIC_SUPERPOD_ID ====================
+
+TEST(ConfigMgrTest, Ut_LogicSuperPodId_When_ParseSucceeds_Expect_LogEffectiveValueOnce)
+{
+    EnvGuard guard("HCCL_LOGIC_SUPERPOD_ID");
+    for (const char* value : {"group_A", static_cast<const char*>(nullptr), "", "EmptyString"}) {
+        SCOPED_TRACE(value == nullptr ? "<unset>" : value);
+        if (value == nullptr) {
+            guard.Unset();
+        } else {
+            guard.Set(value);
+        }
+        hccl::EnvLogicSuperPodConfig config;
+        extern s32 log_level_get_stub();
+        extern void log_level_set_stub(s32 logLevel);
+        const s32 originalLogLevel = log_level_get_stub();
+        log_level_set_stub(DLOG_INFO);
+        testing::internal::CaptureStdout();
+        const HcclResult firstRet = config.Parse();
+        guard.Set("group_B");
+        const HcclResult cachedRet = config.Parse();
+        const std::string output = testing::internal::GetCapturedStdout();
+        log_level_set_stub(originalLogLevel);
+
+        EXPECT_EQ(firstRet, HCCL_SUCCESS);
+        EXPECT_EQ(cachedRet, HCCL_SUCCESS);
+        const std::string expectedId = value != nullptr && std::string(value) != "EmptyString" ? value : "";
+        EXPECT_EQ(config.GetLogicSuperPodId(), expectedId);
+        const std::string prefix = "[HCCL_ENV] HCCL_LOGIC_SUPERPOD_ID ";
+        const std::string message = expectedId.empty() ? prefix + "is not set, default value[]" :
+                                                         prefix + "set by environment to [" + expectedId + "]";
+        EXPECT_NE(output.find(message), std::string::npos);
+        const size_t first = output.find(prefix);
+        if (first != std::string::npos) {
+            EXPECT_EQ(output.find(prefix, first + prefix.size()), std::string::npos);
+        }
+    }
+}
+
+TEST(ConfigMgrTest, Ut_LogicSuperPodId_When_Unconfigured_Expect_SuccessAndEmptyId)
+{
+    EnvGuard guard("HCCL_LOGIC_SUPERPOD_ID");
+    for (const char* value : {static_cast<const char*>(nullptr), "", "EmptyString"}) {
+        hccl::EnvLogicSuperPodConfig config;
+        if (value == nullptr) {
+            guard.Unset();
+        } else {
+            guard.Set(value);
+        }
+        ASSERT_EQ(config.Parse(), HCCL_SUCCESS);
+        EXPECT_TRUE(config.GetLogicSuperPodId().empty());
+    }
+}
+
+// 字节边界：127、128字节有效，129字节返回HCCL_E_PARA
+TEST(ConfigMgrTest, Ut_LogicSuperPodId_When_LengthBoundary_Expect_128Ok129Para)
+{
+    EnvGuard guard("HCCL_LOGIC_SUPERPOD_ID");
+    for (size_t length : {127U, 128U, 129U}) {
+        SCOPED_TRACE(length);
+        hccl::EnvLogicSuperPodConfig config;
+        const std::string value(length, 'a');
+        guard.Set(value.c_str());
+        EXPECT_EQ(config.Parse(), length <= 128 ? HCCL_SUCCESS : HCCL_E_PARA);
+        EXPECT_EQ(config.GetLogicSuperPodId(), length <= 128 ? value : std::string{});
+    }
+}
+
+TEST(ConfigMgrTest, Ut_LogicSuperPodId_When_EnvChanged_Expect_ParseKeepsFirstSuccessfulValue)
+{
+    EnvGuard guard("HCCL_LOGIC_SUPERPOD_ID");
+    hccl::EnvLogicSuperPodConfig config;
+    const std::string logicId = " group_A ";
+
+    guard.Set(logicId.c_str());
+    ASSERT_EQ(config.Parse(), HCCL_SUCCESS);
+    EXPECT_EQ(config.GetLogicSuperPodId(), logicId);
+
+    guard.Set("group_B");
+    ASSERT_EQ(config.Parse(), HCCL_SUCCESS);
+    EXPECT_EQ(config.GetLogicSuperPodId(), logicId);
+
+    guard.Set(std::string(129, 'a').c_str());
+    EXPECT_EQ(config.Parse(), HCCL_SUCCESS);
+    EXPECT_EQ(config.GetLogicSuperPodId(), logicId);
+}
+
+TEST(ConfigMgrTest, Ut_LogicSuperPodId_When_InitiallyEmpty_Expect_EmptyValueCached)
+{
+    EnvGuard guard("HCCL_LOGIC_SUPERPOD_ID");
+    for (const char* value : {static_cast<const char*>(nullptr), "", "EmptyString"}) {
+        hccl::EnvLogicSuperPodConfig config;
+        if (value == nullptr) {
+            guard.Unset();
+        } else {
+            guard.Set(value);
+        }
+        ASSERT_EQ(config.Parse(), HCCL_SUCCESS);
+        guard.Set("group_A");
+        EXPECT_EQ(config.Parse(), HCCL_SUCCESS);
+        EXPECT_TRUE(config.GetLogicSuperPodId().empty());
+    }
+}
+
+TEST(ConfigMgrTest, Ut_LogicSuperPodId_When_FirstParseFailed_Expect_CorrectedValueCanRetry)
+{
+    EnvGuard guard("HCCL_LOGIC_SUPERPOD_ID");
+    guard.Set(std::string(129, 'a').c_str());
+    hccl::EnvLogicSuperPodConfig config;
+    extern s32 log_level_get_stub();
+    extern void log_level_set_stub(s32 logLevel);
+    const s32 originalLogLevel = log_level_get_stub();
+    log_level_set_stub(DLOG_INFO);
+    testing::internal::CaptureStdout();
+    const HcclResult ret = config.Parse();
+    const std::string output = testing::internal::GetCapturedStdout();
+    log_level_set_stub(originalLogLevel);
+
+    ASSERT_EQ(ret, HCCL_E_PARA);
+    EXPECT_NE(
+        output.find("[Parse][LogicSuperPodId]Invalid HCCL_LOGIC_SUPERPOD_ID env len, len is bigger than [128]."),
+        std::string::npos);
+    EXPECT_EQ(output.find("[HCCL_ENV] HCCL_LOGIC_SUPERPOD_ID "), std::string::npos);
+    guard.Set("group_A");
+    EXPECT_EQ(config.Parse(), HCCL_SUCCESS);
+    EXPECT_EQ(config.GetLogicSuperPodId(), "group_A");
+}
+
+TEST(ConfigMgrTest, Ut_LogicSuperPodId_When_ConcurrentParse_Expect_SameCachedValue)
+{
+    EnvGuard guard("HCCL_LOGIC_SUPERPOD_ID");
+    guard.Set("group_A");
+    hccl::EnvLogicSuperPodConfig config;
+    std::vector<HcclResult> results(8, HCCL_E_INTERNAL);
+    std::vector<std::thread> threads;
+    for (size_t i = 0; i < results.size(); ++i) {
+        threads.emplace_back([&config, &results, i]() {
+            results[i] = config.Parse();
+        });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    for (HcclResult result : results) {
+        EXPECT_EQ(result, HCCL_SUCCESS);
+    }
+    EXPECT_EQ(config.GetLogicSuperPodId(), "group_A");
+    guard.Set("group_B");
+    EXPECT_EQ(config.Parse(), HCCL_SUCCESS);
+    EXPECT_EQ(config.GetLogicSuperPodId(), "group_A");
 }
 
 // ==================== EnvField 无 parser 函数 ====================

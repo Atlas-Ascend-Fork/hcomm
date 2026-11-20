@@ -25,6 +25,7 @@
 #include "socket.h"
 #include <chrono>
 #include <cstddef>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <thread>
@@ -46,6 +47,7 @@
 #undef private
 #include "orion_adapter_rts.h"
 #include "env_config/env_config_v2.h"
+#include "env_logic_superpod_config.h"
 #include "base_config_legacy.h"
 #include "phy_topo.h"
 #include "phy_topo_builder.h"
@@ -78,6 +80,29 @@ HcclResult SelectLocalHostBackupAddrForTest(Hccl::RankInfoDetectClient& client, 
 } // namespace
 
 using namespace Hccl;
+
+TEST(LogicSuperPodRootInfoTest, Ut_LogicSuperPod_When_NewClientAfterEnvChanges_Expect_ProcessCache)
+{
+    ::testing::FLAGS_gtest_death_test_style = "threadsafe";
+    EXPECT_EXIT(
+        {
+            setenv("HCCL_LOGIC_SUPERPOD_ID", "group_A", 1);
+            RankInfoDetectClient first(0, 1, 0, nullptr);
+            RankTableInfo firstTable;
+            if (first.ConstructRankTable(firstTable) != HCCL_SUCCESS) {
+                std::exit(1);
+            }
+            setenv("HCCL_LOGIC_SUPERPOD_ID", std::string(129, 'B').c_str(), 1);
+            RankInfoDetectClient second(0, 1, 0, nullptr);
+            RankTableInfo secondTable;
+            std::exit(
+                second.ConstructRankTable(secondTable) == HCCL_SUCCESS
+                        && hccl::EnvLogicSuperPodConfig::GetInstance().GetLogicSuperPodId() == "group_A" ?
+                    0 :
+                    1);
+        },
+        ::testing::ExitedWithCode(0), "");
+}
 
 class RankInfoDetectClientTest : public testing::Test {
 protected:
@@ -455,6 +480,50 @@ TEST_F(RankInfoDetectClientTest, Ut_ConstructRankTable_When_Normal_Expect_Succes
 
     EXPECT_EQ(localRankTable.version, "2.0");
     EXPECT_EQ(localRankTable.rankCount, 2);
+}
+
+TEST_F(RankInfoDetectClientTest, Ut_LogicSuperPod_When_MultiRankConfiguredOrUnset_Expect_IdCopiedToLocalTable)
+{
+    ::testing::FLAGS_gtest_death_test_style = "threadsafe";
+    // 独立进程隔离首次解析缓存，分别验证非空配置和未配置。
+    for (const char* logicId : {"group_A", static_cast<const char*>(nullptr)}) {
+        EXPECT_EXIT(
+            {
+                if (logicId == nullptr) {
+                    EXPECT_EQ(unsetenv("HCCL_LOGIC_SUPERPOD_ID"), 0);
+                } else {
+                    EXPECT_EQ(setenv("HCCL_LOGIC_SUPERPOD_ID", logicId, 1), 0);
+                }
+                rankInfoDetectClient_->rankSize_ = 2;
+                std::string testJsonPath{"/tmp"};
+                MOCKER(realpath)
+                    .stubs()
+                    .with(mockcpp::any(), outBoundP(const_cast<char*>(testJsonPath.c_str()), testJsonPath.size() + 1))
+                    .will(returnValue(const_cast<char*>(testJsonPath.c_str())));
+                std::string testJsonContent = BuildRootInfoJsonString();
+                size_t expectedSize = testJsonContent.size();
+                MOCKER(TopoAddrInfoGetSize)
+                    .stubs()
+                    .with(0, outBoundP(&expectedSize, sizeof(size_t)))
+                    .will(returnValue(0));
+                MOCKER(TopoAddrInfoGet)
+                    .stubs()
+                    .with(
+                        0, outBoundP(const_cast<char*>(testJsonContent.c_str()), testJsonContent.size()),
+                        outBoundP(&expectedSize, sizeof(size_t)))
+                    .will(returnValue(0));
+
+                RankTableInfo localRankTable;
+                EXPECT_EQ(rankInfoDetectClient_->ConstructRankTable(localRankTable), HCCL_SUCCESS);
+                EXPECT_EQ(localRankTable.rankCount, 2U);
+                EXPECT_EQ(localRankTable.ranks.size(), 1U);
+                if (localRankTable.ranks.size() == 1U) {
+                    EXPECT_EQ(localRankTable.ranks[0].logicSuperPodId, logicId == nullptr ? "" : logicId);
+                }
+                std::exit(::testing::Test::HasFailure() ? 1 : 0);
+            },
+            ::testing::ExitedWithCode(0), "");
+    }
 }
 
 TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_BackupAddrAvailable_Expect_SelectBackup)

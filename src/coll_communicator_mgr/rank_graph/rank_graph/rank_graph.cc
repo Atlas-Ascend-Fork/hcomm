@@ -290,6 +290,18 @@ const shared_ptr<NetInstance::Peer> RankGraph::GetPeer(RankId rankId) const
 
 vector<NetInstance::Path> RankGraph::GetPaths(u32 netLayer, RankId sRankId, RankId dRankId) const
 {
+    // 跨逻辑组的rank对在拆分层及其下层不得返回超内链路。
+    if (logicSuperPodSplitEnabled_ && netLayer <= logicSuperPodSplitLayer_) {
+        auto sGroup = logicSuperPodGroupIds_.find(sRankId);
+        auto dGroup = logicSuperPodGroupIds_.find(dRankId);
+        if (sGroup != logicSuperPodGroupIds_.end() && dGroup != logicSuperPodGroupIds_.end()
+            && sGroup->second != dGroup->second) {
+            HCCL_DEBUG(
+                "[RankGraph][GetPaths] cross logic superpod, netLayer[%u] sRankId[%d] dRankId[%d]", netLayer, sRankId,
+                dRankId);
+            return {};
+        }
+    }
     // 若sRank和dRank均不在innerGroup里，则返回空
     if (innerRanks_.count(sRankId) == 0 && innerRanks_.count(dRankId) == 0) {
         HCCL_WARNING("[RankGraph][GetPaths] sRankId[%d] and dRankId[%d] are not in innerRanks", sRankId, dRankId);
@@ -970,6 +982,17 @@ RankGraph::CreateSubRankGraph(const std::vector<u32>& rankIds, std::unique_ptr<R
     TRY_CATCH_RETURN(subMyRankId = GetSubRankId(subRankIds, myRank_););
     subRankGraph = make_unique<RankGraph>(subMyRankId, enableVirtualGroups_);
     subRankGraph->SetLevel0PcieFallback(level0PcieFallback_); // 无UB兜底标记随子图继承
+    if (logicSuperPodSplitEnabled_) {
+        // 子图rankId是rankIds数组下标，需按父图映射重编
+        std::map<RankId, std::string> subLogicSuperPodGroupIds;
+        for (RankId subId = 0; subId < static_cast<RankId>(subRankIds.size()); ++subId) {
+            auto it = logicSuperPodGroupIds_.find(subRankIds[subId]);
+            if (it != logicSuperPodGroupIds_.end()) {
+                subLogicSuperPodGroupIds[subId] = it->second;
+            }
+        }
+        subRankGraph->SetLogicSuperPodSplit(logicSuperPodSplitLayer_, subLogicSuperPodGroupIds);
+    }
 
     // 继承父图 ipIndexMap_，子图 rankId 是 rankIds 数组下标，需做映射
     std::unordered_map<RankId, std::map<IpAddress, uint32_t>> subIpIndexMap;

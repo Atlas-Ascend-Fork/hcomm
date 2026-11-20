@@ -45,6 +45,7 @@ public:
     Hccl::ControlPlane controlPlane{};
     Hccl::TlsStatus tlsStatus{Hccl::TlsStatus::UNKNOWN};
     Hccl::TlsStatus hostDpuTlsStatus{Hccl::TlsStatus::UNKNOWN};
+    std::string logicSuperPodId{};
     std::string Describe() const;
     explicit NewRankInfo(Hccl::BinaryStream& binStream);
     HcclResult GetBinStream(bool isContainLoaId, Hccl::BinaryStream& binStream) const;

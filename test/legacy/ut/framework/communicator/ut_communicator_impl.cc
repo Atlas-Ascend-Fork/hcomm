@@ -10,6 +10,10 @@
 
 #include "gtest/gtest.h"
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <fstream>
+#include <unistd.h>
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>
 #include "test_mock_setup.h"
@@ -39,6 +43,9 @@
 #include "net_instance.h"
 #include "rank_graph_builder.h"
 #include "phy_topo_builder.h"
+#include "diff_rank_updater.h"
+#include "rank_graph_builder_bridge.h"
+#include "json/json_api.h"
 #include "detour_service.h"
 #include "rank_table.h"
 #include "sal.h"
@@ -4013,4 +4020,166 @@ TEST_F(CommunicatorImplTest, Ut_NotifyAicpuDestroyComm_When_KfcControlNull_Expec
 
     HcclResult ret = comm.NotifyAicpuDestroyComm();
     EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
+class LogicSuperPodRecoveryTest : public testing::Test {
+protected:
+    void SetUp() override
+    {
+        PhyTopo::GetInstance()->Clear();
+        char path[] = "/tmp/hcomm_logic_recovery_XXXXXX";
+        const int fd = mkstemp(path);
+        ASSERT_GE(fd, 0);
+        close(fd);
+        changePath_ = path;
+        original_ = {{"version", "2.0"}, {"rank_count", 6}, {"rank_list", nlohmann::json::array()}};
+        for (u32 rank = 0; rank < 6; ++rank) {
+            nlohmann::json levels = nlohmann::json::array();
+            for (u32 layer = 0; layer < 3; ++layer) {
+                const std::string id = layer == 0 ? "srv_" + std::to_string(rank / 2) :
+                                       layer == 1 ? "sp_0_idx_0" :
+                                                    "cluster";
+                levels.push_back({
+                    {"net_layer", layer},
+                    {"net_instance_id", id},
+                    {"net_type", layer == 0 ? "TOPO_FILE_DESC" : "CLOS"},
+                    {"rank_addr_list",
+                     {{{"addr_type", "IPV4"},
+                       {"addr", "192.0.2." + std::to_string(10 + rank)},
+                       {"ports", {std::to_string(layer) + "/0"}}}}},
+                });
+            }
+            original_["rank_list"].push_back({
+                {"rank_id", rank},
+                {"local_id", rank % 2},
+                {"device_id", rank % 2},
+                {"level_list", levels},
+            });
+        }
+        ASSERT_EQ(hccl::ParseRankTableInfoJson(original_.dump(), table_), HCCL_SUCCESS);
+        change_ = original_;
+        change_["rank_count"] = 2;
+        change_["rank_list"] = {original_["rank_list"][0], original_["rank_list"][1]};
+        for (auto& rank : change_["rank_list"]) {
+            rank["device_port"] = 17777;
+        }
+    }
+
+    void TearDown() override
+    {
+        if (!changePath_.empty()) {
+            std::remove(changePath_.c_str());
+        }
+        PhyTopo::GetInstance()->Clear();
+        GlobalMockObject::verify();
+    }
+
+    void SetSplitLayer(u32 layer)
+    {
+        table_.logicSuperPodSplitLayer = layer;
+        for (auto& rank : table_.ranks) {
+            const std::string group = rank.rankId < 4 ? "A" : "B";
+            table_.logicSuperPodGroupIds[rank.rankId] = group;
+            rank.rankLevelInfos[layer].netInstId += "_" + group;
+        }
+    }
+
+    bool WriteChange()
+    {
+        std::ofstream file(changePath_);
+        file << change_.dump();
+        file.close();
+        return file.good();
+    }
+
+    RankTableInfo table_;
+    nlohmann::json original_;
+    nlohmann::json change_;
+    std::string changePath_;
+};
+
+TEST_F(LogicSuperPodRecoveryTest, Ut_LogicSuperPod_When_ServerReplaced_Expect_RestoreInstanceAndPaths)
+{
+    const auto* bridge = GetRankGraphBuilderBridge();
+    ASSERT_NE(bridge, nullptr);
+    ASSERT_NE(bridge->recoverBuild, nullptr);
+    ASSERT_TRUE(WriteChange());
+    const auto originalTable = table_;
+    for (u32 layer : {0u, 1u}) {
+        SCOPED_TRACE(layer);
+        table_ = originalTable;
+        SetSplitLayer(layer);
+        BinaryStream snapshot;
+        ASSERT_EQ(table_.GetBinStream(true, snapshot), HCCL_SUCCESS);
+        RankTableInfo restored(snapshot);
+        const auto groups = restored.logicSuperPodGroupIds;
+
+        ASSERT_EQ(DiffRankUpdater(changePath_.c_str(), restored), HCCL_SUCCESS);
+        EXPECT_EQ(restored.ranks[0].devicePort, 17777u);
+        EXPECT_EQ(restored.ranks[1].devicePort, 17777u);
+        EXPECT_EQ(restored.ranks[2].devicePort, originalTable.ranks[2].devicePort);
+        EXPECT_EQ(restored.logicSuperPodGroupIds, groups);
+        for (size_t rank = 0; rank < restored.ranks.size(); ++rank) {
+            EXPECT_EQ(
+                restored.ranks[rank].rankLevelInfos[layer].netInstId,
+                table_.ranks[rank].rankLevelInfos[layer].netInstId);
+        }
+        ASSERT_EQ(DiffRankUpdater(changePath_.c_str(), restored), HCCL_SUCCESS);
+        EXPECT_EQ(restored.ranks[0].rankLevelInfos[layer].netInstId, table_.ranks[0].rankLevelInfos[layer].netInstId);
+
+        hccl::TopoInfo topo;
+        ASSERT_EQ(
+            ParseTopoInfoJson(
+                R"({
+            "version":"2.0", "peer_count":2, "peer_list":[{"local_id":0},{"local_id":1}],
+            "edge_count":5, "edge_list":[
+                {"net_layer":0,"link_type":"PEER2PEER","protocols":["UB_CTP"],"topo_type":"1DMESH",
+                 "local_a":0,"local_a_ports":["0/0"],"local_b":1,"local_b_ports":["0/0"]},
+                {"net_layer":1,"link_type":"PEER2NET","protocols":["UB_CTP"],
+                 "local_a":0,"local_a_ports":["1/0"]},
+                {"net_layer":1,"link_type":"PEER2NET","protocols":["UB_CTP"],
+                 "local_a":1,"local_a_ports":["1/0"]},
+                {"net_layer":2,"link_type":"PEER2NET","protocols":["ROCE"],
+                 "local_a":0,"local_a_ports":["2/0"]},
+                {"net_layer":2,"link_type":"PEER2NET","protocols":["ROCE"],
+                 "local_a":1,"local_a_ports":["2/0"]}
+            ]})",
+                topo),
+            HCCL_SUCCESS);
+        if (layer == 0) {
+            for (auto& edge : topo.edges[1]) {
+                edge.protocols = {LinkProtocol::ROCE};
+            }
+        }
+        RankGraphBuildResult recovered;
+        ASSERT_EQ(bridge->recoverBuild(restored, topo, 0, false, recovered), HCCL_SUCCESS);
+        ASSERT_NE(recovered.rankGraph, nullptr);
+        const auto* instance = recovered.rankGraph->GetNetInstanceByRankId(layer, 0);
+        ASSERT_NE(instance, nullptr);
+        EXPECT_EQ(instance->GetRankSize(), layer == 0 ? 2u : 4u);
+        EXPECT_FALSE(recovered.rankGraph->GetPaths(layer, 0, layer == 0 ? 1 : 2).empty());
+        EXPECT_TRUE(recovered.rankGraph->GetPaths(layer, 0, 4).empty());
+        EXPECT_FALSE(recovered.rankGraph->GetPaths(2, 0, 4).empty());
+        PhyTopo::GetInstance()->Clear();
+    }
+}
+
+TEST_F(LogicSuperPodRecoveryTest, Ut_LogicSuperPod_When_NotEnabled_Expect_KeepOriginalReplacement)
+{
+    ASSERT_TRUE(WriteChange());
+    ASSERT_EQ(DiffRankUpdater(changePath_.c_str(), table_), HCCL_SUCCESS);
+    EXPECT_EQ(table_.ranks[0].devicePort, 17777u);
+    EXPECT_EQ(table_.ranks[0].rankLevelInfos[0].netInstId, "srv_0");
+    EXPECT_EQ(table_.ranks[0].rankLevelInfos[1].netInstId, "sp_0_idx_0");
+    EXPECT_TRUE(table_.logicSuperPodGroupIds.empty());
+}
+
+TEST_F(LogicSuperPodRecoveryTest, Ut_LogicSuperPod_When_ReplacementIdTooLong_Expect_RejectWithoutUpdatingSnapshot)
+{
+    SetSplitLayer(1);
+    change_["rank_list"][0]["level_list"][1]["net_instance_id"] = std::string(MAX_VALUE_NETID, 'x');
+    ASSERT_TRUE(WriteChange());
+    EXPECT_EQ(DiffRankUpdater(changePath_.c_str(), table_), HCCL_E_PARA);
+    EXPECT_EQ(table_.ranks[0].devicePort, hccl::DEFAULT_VALUE_TCPPORT);
+    EXPECT_EQ(table_.ranks[0].rankLevelInfos[1].netInstId, "sp_0_idx_0_A");
 }

@@ -416,6 +416,53 @@ TEST_F(RankInfoDetectServiceTest, Ut_ParseRankTable_When_Normal_Expect_Success)
 
     // 6. 执行测试
     EXPECT_EQ(rankInfoDetectService_->ParseRankTable(rankInfoMsg, false), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(rankInfoDetectService_->rankTable_.GetSource(), RankTableSource::ROOTINFO);
+}
+
+TEST_F(RankInfoDetectServiceTest, Ut_LogicSuperPod_When_GrowCollect_Expect_RootInfoSourceInMergedTable)
+{
+    RankTableInfo localRankTable;
+    localRankTable.version = "2.0";
+    localRankTable.rankCount = 1;
+    hccl::NewRankInfo rankInfo;
+    rankInfo.rankId = 1;
+    rankInfo.localId = 1;
+    rankInfo.replacedLocalId = 1;
+    rankInfo.deviceId = 1;
+    rankInfo.logicSuperPodId = "B";
+    RankLevelInfo level;
+    level.netInstId = "server_1";
+    rankInfo.rankLevelInfos.push_back(level);
+    localRankTable.ranks.push_back(rankInfo);
+
+    rankInfoDetectService_->rankTable_ = localRankTable;
+    auto& oldRank = rankInfoDetectService_->rankTable_.ranks[0];
+    oldRank.rankId = 0;
+    oldRank.localId = 0;
+    oldRank.replacedLocalId = 0;
+    oldRank.deviceId = 0;
+    oldRank.logicSuperPodId = "A";
+    oldRank.rankLevelInfos[0].netInstId = "server_0";
+    ASSERT_EQ(rankInfoDetectService_->rankTable_.GetSource(), RankTableSource::RANKTABLE);
+    rankInfoDetectService_->currentStep_ = 3;
+
+    BinaryStream binaryStream;
+    ASSERT_EQ(localRankTable.GetBinStream(true, binaryStream), HCCL_SUCCESS);
+    binaryStream << u32{0}; // grow新rank从step0接入。
+    vector<char> rankInfoMsg;
+    binaryStream.Dump(rankInfoMsg);
+
+    ASSERT_EQ(rankInfoDetectService_->ParseRankTable(rankInfoMsg, true), HCCL_SUCCESS);
+    ASSERT_EQ(rankInfoDetectService_->MarkGrowLoopReady(), HCCL_SUCCESS);
+    RankTableInfo mergedRankTable;
+    ASSERT_EQ(rankInfoDetectService_->WaitForCollectComplete(mergedRankTable), HCCL_SUCCESS);
+    EXPECT_EQ(mergedRankTable.GetSource(), RankTableSource::ROOTINFO);
+    EXPECT_EQ(mergedRankTable.rankCount, 2u);
+    ASSERT_EQ(mergedRankTable.ranks.size(), 2u);
+    EXPECT_EQ(mergedRankTable.ranks[0].logicSuperPodId, "A");
+    EXPECT_EQ(mergedRankTable.ranks[1].logicSuperPodId, "B");
+    EXPECT_EQ(mergedRankTable.ranks[0].rankLevelInfos[0].netInstId, "server_0");
+    EXPECT_EQ(mergedRankTable.ranks[1].rankLevelInfos[0].netInstId, "server_1");
 }
 
 bool RecvRemoteAgentIdStub(RankInfoDetectService* thisPtr, SocketAgent& connSocketAgent, std::string& agentId)

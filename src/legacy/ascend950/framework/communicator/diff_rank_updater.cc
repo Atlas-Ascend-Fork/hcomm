@@ -13,6 +13,7 @@
 #include <sstream>
 #include <vector>
 #include <string>
+#include <utility>
 #include <linux/limits.h>
 #include "changed_rank_info.h"
 #include "rank_table_info.h"
@@ -165,6 +166,31 @@ HcclResult Hccl::DiffRankUpdater(const char* changeInfo, RankTableInfo& rankTabl
 
     hccl::ChangedRankInfo changeTable;
     CHK_RET(ParseChangeInfo(changeInfo, changeTable));
+
+    // 根据快照保存的拆分层号和逻辑ID，为替换rank在该层的实例ID追加逻辑ID后缀。
+    if (rankTableInfo.logicSuperPodSplitLayer <= MAX_VALUE_NETLAYER) {
+        for (auto& rank : changeTable.ranks) {
+            const auto group = rankTableInfo.logicSuperPodGroupIds.find(rank.rankId);
+            if (group == rankTableInfo.logicSuperPodGroupIds.end() || group->second.empty()) {
+                continue;
+            }
+            for (auto& level : rank.rankLevelInfos) {
+                if (level.netLayer != rankTableInfo.logicSuperPodSplitLayer) {
+                    continue;
+                }
+                std::string newNetInstId;
+                const HcclResult ret
+                    = RankTableInfo::BuildLogicSuperPodNetInstId(level.netInstId, group->second, newNetInstId);
+                CHK_PRT_RET(
+                    ret != HCCL_SUCCESS,
+                    HCCL_ERROR(
+                        "[%s] build logical netInstId failed, rankId[%u] netLayer[%u] ret[%d]", __func__, rank.rankId,
+                        level.netLayer, ret),
+                    ret);
+                level.netInstId = std::move(newNetInstId);
+            }
+        }
+    }
 
     // 将changeTable和rankTable按R0 id分组
     unordered_map<string, vector<u32>> changedRankMap;
