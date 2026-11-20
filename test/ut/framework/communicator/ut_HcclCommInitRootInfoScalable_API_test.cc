@@ -14,8 +14,8 @@ extern thread_local s32 g_hcclDeviceId;
 
 // 内部函数（未在头文件中声明），为 UT 直接验证做前向声明
 HcclResult ValidateRootInfoScalableParams(
-    uint32_t nRanks, uint32_t nRoot, uint32_t rank, uint32_t nExtRoot, const HcclCommConfig* config, HcclComm* comm,
-    const HcclRootInfo* rootInfoList);
+    uint32_t nRanks, uint32_t nRoot, uint32_t rank, uint32_t nExtRoot, const HcclCommConfig* config,
+    const HcclComm* comm, const HcclRootInfo* rootInfoList);
 HcclResult
 ParseScalableRootHandles(const HcclRootInfo* rootInfoList, u32 nRoot, std::vector<HcclScalableRootHandle>& rootHandles);
 HcclResult BuildScalableMeshInfo(

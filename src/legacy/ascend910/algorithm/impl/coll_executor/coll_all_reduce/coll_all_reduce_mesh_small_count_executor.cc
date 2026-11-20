@@ -27,7 +27,7 @@ void CollAllReduceMeshSmallCountExecutor::ParseParam(const OpParam& param)
     aicpuUnfoldMode_ = param.aicpuUnfoldMode;
 }
 
-bool CollAllReduceMeshSmallCountExecutor::CalcScratchMemFlag(const u64 totalSize, const u8 deterministic)
+bool CollAllReduceMeshSmallCountExecutor::CalcScratchMemFlag(const u64 totalSize, const u8 deterministic) const
 {
     bool isDeter910B = workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB
                        && topoAttr_.deviceType == DevType::DEV_TYPE_910B && deterministic != DETERMINISTIC_DISABLE

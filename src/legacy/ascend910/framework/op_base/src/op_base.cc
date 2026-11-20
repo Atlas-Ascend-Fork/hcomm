@@ -1452,8 +1452,8 @@ HcclResult HcclCommInitRootInfoConfig(
 
 // 参数校验
 HcclResult ValidateRootInfoScalableParams(
-    uint32_t nRanks, uint32_t nRoot, uint32_t rank, uint32_t nExtRoot, const HcclCommConfig* config, HcclComm* comm,
-    const HcclRootInfo* rootInfoList)
+    uint32_t nRanks, uint32_t nRoot, uint32_t rank, uint32_t nExtRoot, const HcclCommConfig* config,
+    const HcclComm* comm, const HcclRootInfo* rootInfoList)
 {
     CHK_PRT_RET(
         (nRanks == 0),

@@ -338,7 +338,6 @@ HcclResult AicpuZeroCopyExchanger::BatchSetLocalAddrToRemote(void* in, void* out
             needStop_(), HCCL_ERROR("AicpuZeroCopyExchanger][BatchSetLocalAddrToRemote] we need stop now"),
             HCCL_E_SUSPENDING);
         auto currTime = std::chrono::steady_clock::now();
-
         // 每隔30秒打印一次维测日志，便于定位地址交换阻塞问题
         if ((currTime - lastLogTime) >= logInterval) {
             lastLogTime = currTime;

@@ -137,7 +137,6 @@ typedef struct {
     uint32_t remoteEventIds[16];   // 远端 CKE id 槽
     uint32_t localEventMasks[16];  // 本端 CKE 掩码槽（预留，填 0）
     uint32_t remoteEventMasks[16]; // 远端 CKE 掩码槽（预留，填 0）
-
 } HcommCcuChannelEntity;
 
 /**
