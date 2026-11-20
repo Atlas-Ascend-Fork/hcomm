@@ -1386,7 +1386,7 @@ void MyRank::StartDcaDetectByFailedRanks(
     std::string localNetInstId;
     GetNetInstId(rankId_, localNetInstId);
 
-    HCCL_INFO(
+    HCCL_WARNING(
         "[%s] start detect, localDevPhyId[%u], localNetInstId[%s], localIps[%zu], failed peers[%zu]", __func__,
         localDevPhyId, localNetInstId.c_str(), localIps.size(), peers.size());
 

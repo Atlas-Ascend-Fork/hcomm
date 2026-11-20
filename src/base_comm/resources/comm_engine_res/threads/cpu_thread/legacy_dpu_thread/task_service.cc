@@ -319,7 +319,7 @@ HcclResult TaskService::ExecuteTask(uint8_t* ctrlHdr, uint8_t* srcPtr, std::stri
             auto [tid, sid] = getDpuTaskInfoCb();
             taskId = tid;
             streamId = sid;
-            HCCL_INFO(
+            HCCL_WARNING(
                 "[%s] dpu task failed, callbackRet[%d], taskId[%u], streamId[%u], beginTime[%llu].", __func__,
                 callbackRet, taskId, streamId, beginTime);
         }

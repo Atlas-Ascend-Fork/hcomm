@@ -179,7 +179,7 @@ HcclResult DpuCommDfx::EnqueueWNotifyFailed(
         cachedTaskParam->reportStreamId = GetReportStreamId(failedStreamId);
         u32 taskId = GetTaskId(dpuStreamId_);
         dpuTaskInfo_ = {taskId, failedStreamId};
-        HCCL_INFO(
+        HCCL_WARNING(
             "[%s] flush cached W+Notify before failed enqueue, handle[0x%llx], taskId[%u].", __func__, handle, taskId);
         (void)enqueueTaskFunc_(failedStreamId, taskId, *cachedTaskParam, handle, dpuOpInfo);
     }
@@ -187,7 +187,7 @@ HcclResult DpuCommDfx::EnqueueWNotifyFailed(
         u32 taskId = GetTaskId(dpuStreamId_);
         dpuTaskInfo_ = {taskId, failedStreamId};
         failedTaskParam->reportStreamId = GetReportStreamId(failedStreamId);
-        HCCL_INFO("[%s] W+Notify failed, direct enqueue, handle[0x%llx], taskId[%u].", __func__, handle, taskId);
+        HCCL_WARNING("[%s] W+Notify failed, direct enqueue, handle[0x%llx], taskId[%u].", __func__, handle, taskId);
         return enqueueTaskFunc_(failedStreamId, taskId, *failedTaskParam, handle, dpuOpInfo);
     }
     return HCCL_SUCCESS;

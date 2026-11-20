@@ -224,7 +224,7 @@ HcclResult CollCommAicpu::Clean()
         }
     }
     HCCL_INFO(
-        "[NsRecovery][%s]group[%s], clean transport num[%zu], skipped num[%u], failed num[%u]", __func__,
+        "[NsRecovery][%s]group[%s], clean transport num[%zu], skipped num[%u], unfinished num[%u]", __func__,
         identifier_.c_str(), channelHandleList_.size(), skippedNum, failedNum);
     return HCCL_SUCCESS;
 }

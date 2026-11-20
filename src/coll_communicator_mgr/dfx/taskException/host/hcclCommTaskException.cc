@@ -450,7 +450,7 @@ void TaskExceptionHost::NotifyControlPlaneOnUbError(
 
 void TaskExceptionHost::ProcessException(rtExceptionInfo_t* exceptionInfo, const Hccl::TaskInfo& taskInfo)
 {
-    HCCL_RUN_INFO("[TaskExceptionHost][%s]begin to execute hccl task exception callback function.", __func__);
+    HCCL_RUN_WARNING("[TaskExceptionHost][%s]begin to execute hccl task exception callback function.", __func__);
     Hccl::ErrorMessageReport errorMessage;
     if (!hasAicpuReport_) { // 防止aicpu task exception重复上报
         hccl::CollComm* communicator = static_cast<hccl::CollComm*>(taskInfo.dfxOpInfo_->comm_);
@@ -459,7 +459,7 @@ void TaskExceptionHost::ProcessException(rtExceptionInfo_t* exceptionInfo, const
 
     if (strlen(errorMessage.tag) > 0) {
         hasAicpuReport_ = true;
-        HCCL_RUN_INFO("[TaskExceptionHost]ErrorMessageReport: %s", errorMessage.Describe().c_str());
+        HCCL_RUN_WARNING("[TaskExceptionHost]ErrorMessageReport: %s", errorMessage.Describe().c_str());
         HandleAicpuErrorReport(exceptionInfo, errorMessage, taskInfo);
     } else {
         HandleHostErrorReport(exceptionInfo, taskInfo);

@@ -170,7 +170,7 @@ void DetectConnectionAnomalies::AddIpQueue(
         localNetInstId_ = localNetInstId;
         deviceLogicId_ = localDevLogicId;
     });
-    HCCL_INFO(
+    HCCL_WARNING(
         "[%s] localDevPhyId[%u], localNetInstId[%s], failedPeers size[%zu], localIps size[%zu]", __func__,
         localDevPhyId, localNetInstId.c_str(), failedPeers.size(), localIps.size());
 
@@ -477,7 +477,7 @@ HcclResult DetectConnectionAnomalies::ClientDetectThread(const DcaPeerInfo& peer
             ret = ConstructErrorInfo(peer, detectInfo);
             CHK_PRT_BREAK(ret != HCCL_SUCCESS, HCCL_ERROR("[%s] ConstructErrorInfo failed", __func__), );
             // 探测结果日志：探测对端失败，记录根因（本端机器→对端机器）
-            HCCL_INFO(
+            HCCL_WARNING(
                 "[ClientDetect] DETECT FAIL, localNetInstId[%s] -> remoteNetInstId[%s], remoteRankId[%u], "
                 "localDevId[%d] remoteDevId[%d]",
                 detectInfo.localNetInstId, detectInfo.remoteNetInstId, peer.remoteRankId, detectInfo.localDeviceId,
@@ -568,7 +568,7 @@ HcclResult DetectConnectionAnomalies::CreateClientSocketAndConnected(
         connectStartTime = GetStartTime();
         std::this_thread::sleep_for(std::chrono::milliseconds(POLL_INTERVAL_100MS));
     }
-    HCCL_INFO("[Detect][ConnectionAnomalies]GetStatus timeout, remoteIp[%s]", remoteIpStr.c_str());
+    HCCL_WARNING("[Detect][ConnectionAnomalies]GetStatus timeout, remoteIp[%s]", remoteIpStr.c_str());
     return HCCL_SUCCESS;
 }
 

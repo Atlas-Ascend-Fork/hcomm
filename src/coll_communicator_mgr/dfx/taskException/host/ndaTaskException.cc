@@ -47,7 +47,7 @@ HcclResult NdaTaskException::ProcessNdaException(const rtExceptionInfo_t* except
     // 后续同设备异常不再重复读取/上报这条不会更新的旧报文
     host.hasAicpuReport_ = true;
 
-    HCCL_RUN_INFO(
+    HCCL_RUN_WARNING(
         "[NdaTaskException][%s] NDA exception captured, commId[%s], taskType[%s], linkType[%s].", __func__,
         commId.c_str(), errMsg.taskType.Describe().c_str(), errMsg.linkType.Describe().c_str());
 

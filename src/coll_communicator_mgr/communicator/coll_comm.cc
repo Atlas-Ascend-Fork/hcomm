@@ -1386,9 +1386,8 @@ HcclResult CollComm::Suspend()
     if (addrRet != HCCL_SUCCESS || addr == nullptr) {
         // 通知失败不阻断挂起流程，AICPU侧仍会按自身超时退出等待
         HCCL_RUN_INFO(
-            "[CollComm][NsRecovery][%s] get dpu share mem failed, skip write terminate flag, commId[%s], "
-            "addr[%p], ret[%d]",
-            __func__, commId_.c_str(), addr, addrRet);
+            "[CollComm][NsRecovery][%s] skip write terminate flag, commId[%s], addr[%p], ret[%d]", __func__,
+            commId_.c_str(), addr, addrRet);
         return myRank_->StopLaunch();
     }
     void* dpu2npuFlag = static_cast<uint8_t*>(addr) + DPU_SHARE_HBM_MEMORY_HALF;
