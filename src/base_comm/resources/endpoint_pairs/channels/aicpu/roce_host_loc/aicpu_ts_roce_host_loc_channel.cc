@@ -374,6 +374,7 @@ HcclResult AicpuTsRoceHostLocChannel::BuildNotifyValueBuffer()
 HcclResult AicpuTsRoceHostLocChannel::CheckSocketStatus()
 {
     CHK_PTR_NULL(local_.socket);
+    EXCEPTION_HANDLE_BEGIN
     Hccl::SocketStatus socketStatus = local_.socket->GetStatus(); // socket状态机
     HCCL_DEBUG("[%s::%s] socket status = %s", channelClassName_, __func__, socketStatus.Describe().c_str());
     if (socketStatus == Hccl::SocketStatus::OK) {
@@ -382,6 +383,7 @@ HcclResult AicpuTsRoceHostLocChannel::CheckSocketStatus()
     } else if (socketStatus == Hccl::SocketStatus::TIMEOUT) {
         channelStatus_ = ChannelStatus::SOCKET_TIMEOUT;
     }
+    EXCEPTION_HANDLE_END
     return HCCL_SUCCESS;
 }
 

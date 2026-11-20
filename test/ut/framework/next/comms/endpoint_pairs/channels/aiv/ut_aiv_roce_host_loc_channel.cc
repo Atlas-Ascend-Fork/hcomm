@@ -15,6 +15,7 @@
 #include <iostream>
 #include <cstring>
 #include "aiv_roce_host_loc_channel.h"
+#include "network_api_exception.h"
 #include "socket.h"
 #include "orion_adapter_hccp.h"
 #include "hccp.h"
@@ -531,4 +532,20 @@ TEST_F(AivRoceHostLocChannelTest, Ut_FillChannelEntityToDevice_When_PreAllocated
     ASSERT_EQ(channel->GetChannelEntity()->PreAllocChannelEntityToDevice(&devChannelEntityPtr), HCCL_SUCCESS);
     EXPECT_EQ(channel->GetChannelEntity()->FillChannelEntityToDevice(), HCCL_SUCCESS);
     channel->FreeDeviceMemories();
+}
+
+// 阻塞 socket 超时抛异常时应收敛为 FAILED，异常不外泄
+TEST_F(AivRoceHostLocChannelTest, Ut_When_SocketThrowsNetworkApiException_Expect_FAILED)
+{
+    void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
+    channelDesc.memHandles = &memHandle;
+    channelDesc.memHandleNum = 1;
+    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AIV);
+    EXPECT_EQ(channel->Init(), HCCL_SUCCESS);
+
+    // 清理 SetUp 阶段的 socket 正常桩后注入超时异常；GetStatus 应收敛为 FAILED，异常不外泄
+    GlobalMockObject::verify();
+    MOCKER_CPP(&Hccl::Socket::GetStatus).stubs().will(throws(Hccl::NetworkApiException("mock socket timeout")));
+    EXPECT_EQ(channel->GetStatus(), ChannelStatus::FAILED);
+    EXPECT_EQ(channel->rdmaStatus_, AivRoceHostLocChannel::RdmaStatus::INIT);
 }

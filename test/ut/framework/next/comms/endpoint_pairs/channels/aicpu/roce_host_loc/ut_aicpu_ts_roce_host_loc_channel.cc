@@ -15,6 +15,7 @@
 #include <iostream>
 #include <cstring>
 #include "aicpu_ts_roce_host_loc_channel.h"
+#include "network_api_exception.h"
 #include "../sockets/socket_mgr.h"
 #include "roce_host_loc_connection.h"
 #include "socket.h"
@@ -195,6 +196,22 @@ TEST_F(AicpuTsRoceHostLocChannelTest, Ut_When_Normal_Init_Expect_HCCL_SUCCESS)
     EXPECT_EQ(status, ChannelStatus::READY);
 
     std::cout << "End Ut_When_Normal_Init_Expect_HCCL_SUCCESS" << std::endl;
+}
+
+TEST_F(AicpuTsRoceHostLocChannelTest, Ut_When_SocketThrowsNetworkApiException_Expect_FAILED)
+{
+    void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
+    channelDesc.memHandles = &memHandle;
+    channelDesc.memHandleNum = 1;
+    auto channel
+        = std::make_unique<AicpuTsRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AICPU);
+    EXPECT_EQ(channel->Init(), HCCL_SUCCESS);
+
+    // 清理 SetUp 阶段的 socket 正常桩后注入超时异常；GetStatus 应收敛为 FAILED，异常不外泄
+    GlobalMockObject::verify();
+    MOCKER_CPP(&Hccl::Socket::GetStatus).stubs().will(throws(Hccl::NetworkApiException("mock socket timeout")));
+    EXPECT_EQ(channel->GetStatus(), ChannelStatus::FAILED);
+    EXPECT_EQ(channel->rdmaStatus_, AicpuTsRoceHostLocChannel::RdmaStatus::INIT);
 }
 
 TEST_F(AicpuTsRoceHostLocChannelTest, Ut_When_GetNotifyNum_Expect_Correct)

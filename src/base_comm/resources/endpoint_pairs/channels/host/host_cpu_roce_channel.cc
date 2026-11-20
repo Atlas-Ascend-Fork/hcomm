@@ -995,6 +995,7 @@ HcclResult HostCpuRoceChannel::GetHcclBuffer(void*& addr, uint64_t& size)
 HcclResult HostCpuRoceChannel::CheckSocketStatus()
 {
     CHK_PTR_NULL(local_.socket);
+    EXCEPTION_HANDLE_BEGIN
     HCCL_DEBUG("[%s::%s] socket GetStatus start", channelClassName_, __func__);
     Hccl::SocketStatus socketStatus = local_.socket->GetStatus(); // socket状态机
     HCCL_DEBUG("[%s::%s] socket status = %s", channelClassName_, __func__, socketStatus.Describe().c_str());
@@ -1004,6 +1005,7 @@ HcclResult HostCpuRoceChannel::CheckSocketStatus()
     } else if (socketStatus == Hccl::SocketStatus::TIMEOUT) {
         channelStatus_ = ChannelStatus::SOCKET_TIMEOUT;
     }
+    EXCEPTION_HANDLE_END
     return HCCL_SUCCESS;
 }
 

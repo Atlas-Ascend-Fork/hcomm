@@ -20,6 +20,7 @@
 #include "cpu_roce_endpoint.h"
 #include "buffer/local_rdma_rma_buffer_v2.h"
 #include "host/host_cpu_roce_channel.h"
+#include "network_api_exception.h"
 #include "sockets/socket_mgr.h"
 #include "host/host_rdma_connection.h"
 #include "topo_common_types.h"
@@ -593,6 +594,25 @@ TEST_F(HostCpuRoceChannelTest, Ut_When_SocketTimeout_Expect_FAILED)
     status = impl_->GetStatus();
     EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::INIT);
     EXPECT_EQ(status, ChannelStatus::FAILED);
+}
+
+TEST_F(HostCpuRoceChannelTest, Ut_When_SocketThrowsNetworkApiException_Expect_FAILED)
+{
+    DevType devType = DevType::DEV_TYPE_950;
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&Hccl::Socket::GetStatus).stubs().will(returnValue((Hccl::SocketStatus)Hccl::SocketStatus::OK));
+    // construct
+    void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
+    channelDesc.memHandles = &memHandle;
+    channelDesc.memHandleNum = 1;
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
+    // Init
+    EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
+    // connect: 清理 Init 阶段的桩后注入 socket 异常，验证 GetStatus 收敛为 FAILED，异常不外泄
+    GlobalMockObject::verify();
+    MOCKER_CPP(&Hccl::Socket::GetStatus).stubs().will(throws(Hccl::NetworkApiException("mock socket timeout")));
+    EXPECT_EQ(impl_->GetStatus(), ChannelStatus::FAILED);
+    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::INIT);
 }
 
 TEST_F(HostCpuRoceChannelTest, Ut_When_CreateQp_Failed_Expect_FAILED)

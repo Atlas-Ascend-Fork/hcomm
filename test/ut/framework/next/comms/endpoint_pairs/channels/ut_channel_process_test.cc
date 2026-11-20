@@ -1102,6 +1102,21 @@ TEST_F(TestChannelProcess, Ut_GetChannelsInfo_When_NotFound_Return_Error)
     EXPECT_NE(hcomm::ChannelProcess::GetChannelsInfo(&handle, 1, engines, descs, status), HCCL_SUCCESS);
 }
 
+// --- GetChannelsInfo 单通道失败时仍继续采集其余通道，保证错误表能覆盖到所有通道 ---
+TEST_F(TestChannelProcess, Ut_GetChannelsInfo_When_OneChannelFailed_ContinueCollecting)
+{
+    auto failed = std::make_shared<FakeChannel>(COMM_ENGINE_CPU, hcomm::ChannelStatus::FAILED);
+    auto ready = std::make_shared<FakeChannel>(COMM_ENGINE_CPU, hcomm::ChannelStatus::READY);
+    ChannelHandle handles[2] = {RegisterFakeChannel(failed), RegisterFakeChannel(ready)};
+
+    std::vector<CommEngine> engines;
+    std::vector<HcommChannelDesc> descs;
+    std::vector<hcomm::ChannelStatus> status;
+    EXPECT_EQ(hcomm::ChannelProcess::GetChannelsInfo(handles, 2, engines, descs, status), HCCL_SUCCESS);
+    EXPECT_EQ(status[0], hcomm::ChannelStatus::FAILED);
+    EXPECT_EQ(status[1], hcomm::ChannelStatus::READY);
+}
+
 // --- LaunchAicpuKernel: 全部已 ready 则跳过 ---
 TEST_F(TestChannelProcess, Ut_LaunchAicpuKernel_When_AllReady_Skip)
 {
