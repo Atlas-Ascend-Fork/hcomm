@@ -73,6 +73,20 @@ std::shared_ptr<NetInstance::Peer> createPeer(int rankId = 0, int localId = 0, D
     return std::make_shared<NetInstance::Peer>(rankId, localId, localId, deviceId);
 }
 
+TEST_F(RankGraphTest, Ut_SetInnerRanks_When_InvalidOrFrozen_Expect_KeepMembers)
+{
+    RankGraph graph(0);
+    ASSERT_EQ(HCCL_SUCCESS, graph.AddPeer(createPeer(0)));
+    ASSERT_EQ(HCCL_SUCCESS, graph.AddPeer(createPeer(1)));
+    ASSERT_EQ(HCCL_SUCCESS, graph.SetInnerRanks({0, 1}));
+    EXPECT_EQ(HCCL_E_PARA, graph.SetInnerRanks({1}));
+    EXPECT_EQ(HCCL_E_PARA, graph.SetInnerRanks({0, 2}));
+    EXPECT_EQ(2U, graph.GetInnerRankSize());
+    graph.InitFinish();
+    EXPECT_EQ(HCCL_E_NOT_SUPPORT, graph.SetInnerRanks({0}));
+    EXPECT_EQ(2U, graph.GetInnerRankSize());
+}
+
 TEST_F(RankGraphTest, ut_AddPeer_When_Normal_Expect_SUCCESS)
 {
     RankGraph rankGraph(myRank);
@@ -165,6 +179,7 @@ TEST_F(RankGraphTest, ut_Dump_When_LinkHasLongDescription_Expect_LogComplete)
     const std::string output = testing::internal::GetCapturedStdout();
     log_level_set_stub(originalLogLevel);
 
+    EXPECT_NE(output.find("netLayer selection: mode[DEFAULT], no layer filtering"), std::string::npos);
     EXPECT_NE(output.find("NetInstance::Link[srcId=0, dstId=4294967296, type=LinkType::PEER2NET"), std::string::npos);
     EXPECT_NE(output.find("srcIface=Iface"), std::string::npos);
     EXPECT_NE(output.find("localDieId=111"), std::string::npos);
@@ -172,6 +187,26 @@ TEST_F(RankGraphTest, ut_Dump_When_LinkHasLongDescription_Expect_LogComplete)
     EXPECT_NE(output.find("dstIface=Iface"), std::string::npos);
     EXPECT_NE(output.find("localDieId=222"), std::string::npos);
 }
+
+TEST_F(RankGraphTest, Ut_Dump_When_SelectedLayers_Expect_ReadableLayerLists)
+{
+    RankGraph rankGraph(myRank);
+    rankGraph.buildLayerSelection_ = RankGraph::BuildLayerSelection{0x89U, 0x88U};
+    extern s32 log_level_get_stub();
+    extern void log_level_set_stub(s32 logLevel);
+    const s32 originalLogLevel = log_level_get_stub();
+    log_level_set_stub(DLOG_DEBUG);
+    testing::internal::CaptureStdout();
+    rankGraph.Dump();
+    const std::string output = testing::internal::GetCapturedStdout();
+    log_level_set_stub(originalLogLevel);
+
+    EXPECT_NE(
+        output.find("netLayer selection: mode[SELECTED], selectedLayers[3,7], availableLayers[0,3,7]"),
+        std::string::npos);
+    EXPECT_EQ(output.find("Mask[0x"), std::string::npos);
+}
+
 TEST_F(RankGraphTest, ut_InitInnerRanks_When_NullPeer_Expect_E_PTR)
 {
     RankGraph rankGraph(myRank);

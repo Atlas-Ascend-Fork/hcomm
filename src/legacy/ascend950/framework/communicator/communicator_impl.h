@@ -382,7 +382,7 @@ private:
     DevType devType;
     DevId devPhyId;
     DevId devLogicId;
-    HcclCommConfig config;
+    HcclCommConfig config{};
     std::string udi_;
     std::string cclBufferName_;
     std::shared_ptr<RankGraph> rankGraph;

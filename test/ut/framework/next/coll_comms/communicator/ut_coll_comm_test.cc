@@ -43,6 +43,23 @@
 #include "coll_comm_mgr.h"
 
 namespace {
+HcclResult PrepareSelectedGraphForCollComm(std::unique_ptr<Hccl::RankGraph>& selected, uint32_t layers = 1U << 2)
+{
+    Hccl::RankGraph parent(0);
+    auto peer = std::make_shared<Hccl::NetInstance::Peer>(0, 0, 0, 0);
+    CHK_RET(parent.AddPeer(peer));
+    for (uint32_t layer : {0U, 2U}) {
+        auto instance = std::make_shared<Hccl::ClosNetInstance>(layer, std::to_string(layer));
+        instance->AddRankId(0);
+        CHK_RET(instance->AddNode(peer));
+        CHK_RET(peer->AddNetInstance(instance));
+        CHK_RET(parent.AddNetInstance(instance));
+    }
+    CHK_RET(parent.SetInnerRanks({0}));
+    parent.InitFinish();
+    return parent.CreateSubRankGraph({0}, selected, layers);
+}
+
 std::unique_ptr<CollComm> PrepareSuspendingCollCommForResetNotify(HcclResult resetNotifyRet)
 {
     auto coll = std::make_unique<CollComm>(nullptr, 0u, std::string("ut_test"), hccl::ManagerCallbacks{});
@@ -67,6 +84,42 @@ public:
     void SetUp() override { TestHcommCAdptBase::SetUp(); }
     void TearDown() override { TestHcommCAdptBase::TearDown(); }
 };
+
+TEST_F(TestCollComm, InitRankGraphPublishesActuallySelectedGraph)
+{
+    std::unique_ptr<Hccl::RankGraph> layer0Graph;
+    ASSERT_EQ(PrepareSelectedGraphForCollComm(layer0Graph, 1U), HCCL_SUCCESS);
+    CollComm layer0Comm(nullptr, 0, "selection_layer0", ManagerCallbacks{});
+    ASSERT_EQ(layer0Comm.InitRankGraph(layer0Graph.get()), HCCL_SUCCESS);
+    std::unique_ptr<Hccl::RankGraph> original;
+    ASSERT_EQ(PrepareSelectedGraphForCollComm(original), HCCL_SUCCESS);
+    CollComm coll(nullptr, 0, "selection_graph", ManagerCallbacks{});
+    ASSERT_EQ(coll.InitRankGraph(original.get()), HCCL_SUCCESS);
+    // 仅由各自的建图结果确定查询权限，不能补回未选层。
+    ASSERT_NE(coll.GetRankGraph(), nullptr);
+    uint32_t* layers = nullptr;
+    uint32_t count = 0;
+    ASSERT_EQ(coll.GetRankGraph()->GetNetLayers(&layers, &count), HCCL_SUCCESS);
+    ASSERT_EQ(count, 1U);
+    EXPECT_EQ(layers[0], 2U);
+    EXPECT_EQ(coll.GetRankGraph()->GetInstSizeByNetLayer(0, &count), HCCL_SUCCESS);
+    EXPECT_EQ(count, 1U);
+    ASSERT_EQ(layer0Comm.GetRankGraph()->GetNetLayers(&layers, &count), HCCL_SUCCESS);
+    ASSERT_EQ(count, 1U);
+    EXPECT_EQ(layers[0], 0U);
+}
+
+TEST_F(TestCollComm, OutOfSelectionGraphIsNotPublished)
+{
+    std::unique_ptr<Hccl::RankGraph> original;
+    ASSERT_EQ(PrepareSelectedGraphForCollComm(original), HCCL_SUCCESS);
+    CollComm coll(nullptr, 0, "selection_invalid", ManagerCallbacks{});
+    // 构图结果只允许 layer 2，但实际图意外包含 layer 0 时仍拒绝发布。
+    MOCKER_CPP(&Hccl::RankGraph::GetLevels).stubs().will(returnValue(std::set<u32>{0, 2}));
+    EXPECT_EQ(coll.InitRankGraph(original.get()), HCCL_E_INTERNAL);
+    EXPECT_EQ(coll.GetRankGraph(), nullptr);
+    EXPECT_EQ(coll.rankGraphOwner_, nullptr);
+}
 
 HcclResult StubCollCommUrmaHrtMalloc(void** devPtr, u64 size, bool Level2Address)
 {
@@ -773,8 +826,7 @@ TEST_F(TestCollComm, Ut_ApplyHcclCommConfig_When_LowVersionQos_Expect_QosNotSet)
     config.hcclQos = 5U;
     config.hcclRdmaTrafficClass = 0xFFFFFFFFu;
     config.hcclRdmaServiceLevel = 0xFFFFFFFFu;
-    CommConfigInfo info{};
-    info.version = 5U;
+    CommConfigInfo info{sizeof(config), HCCL_COMM_CONFIG_MAGIC_WORD, 5U, {0}};
     errno_t sRet = memcpy_s(config.reserved, sizeof(config.reserved), &info, sizeof(info));
     ASSERT_EQ(sRet, EOK);
     uint32_t opExpansionMode = 0U;

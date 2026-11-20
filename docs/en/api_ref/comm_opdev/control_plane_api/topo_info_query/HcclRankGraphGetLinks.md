@@ -73,6 +73,7 @@ HcclResult HcclRankGraphGetLinks(HcclComm comm, uint32_t netLayer, uint32_t srcR
 
 ## Constraints
 
+- On Ascend 950PR&950DT products with layer 0 disabled, querying `netLayer=0` returns `HCCL_SUCCESS` with `links=NULL` and `linkNum=0` if local group identity information is retained and the source and destination ranks are valid and different. No layer 0 communication links are provided. Without that identity information, the query returns `HCCL_E_PARA`.
 - The returned memory is managed by the library. The caller must not release it.
 - Copy the returned data in a timely manner. Repeated calls in the same communicator may invalidate the previous result.
 

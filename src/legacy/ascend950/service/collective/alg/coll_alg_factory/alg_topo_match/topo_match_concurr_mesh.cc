@@ -28,7 +28,16 @@ HcclResult TopoMatchConcurrMesh::MatchTopo(
         (levelSet.size() == COMM_LEVEL_SIZE_0),
         HCCL_ERROR("[CollAlgFactory] [TopoMatchConcurrMesh] Rank [%d], Invalid virtual topo.", myRank_),
         HcclResult::HCCL_E_PARA);
+    CHK_PRT_RET(
+        levelSet.count(0) == 0,
+        HCCL_ERROR(
+            "[TopoMatchConcurrMesh] rank[%d] topology does not support layer 0 required by concurrent mesh", myRank_),
+        HcclResult::HCCL_E_NOT_SUPPORT);
     const NetInstance* netInstance = rankGraph_->GetNetInstanceByRankId(0, myRank_);
+    CHK_PRT_RET(
+        netInstance == nullptr,
+        HCCL_ERROR("[TopoMatchConcurrMesh] rank[%d] requires an available layer 0 instance", myRank_),
+        HcclResult::HCCL_E_PTR);
     std::set<RankId> rankSet = netInstance->GetRankIds();
     for (RankId rankId : rankSet) {
         rankIds_.push_back(rankId);

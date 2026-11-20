@@ -31,6 +31,7 @@
 #include "adapter_error_manager_pub.h"
 #include "common/hccl_log_keywords_pub.h"
 #include "network_api_exception.h"
+#include "not_support_exception.h"
 #include "phy_topo_builder.h"
 #include "preempt_port_manager_v2.h"
 #include "json/json_api.h"
@@ -133,6 +134,9 @@ HcclResult RankInfoDetectClient::Setup(RankTableInfo& rankTable)
         ret != HCCL_SUCCESS,
         HCCL_ERROR("[RankInfoDetectClient::%s] ConstructRankTable failed, ret[%d].", __func__, ret), ret);
 
+    // 有效层解析失败也参与控制面汇总，使其他 rank 能收到同一失败结果。
+    PrepareNetLayerCheck(localRankTable.ranks.front());
+
     // 若启用单卡多进程抢占端口则执行
     TRY_CATCH_RETURN(SocketManager::ServerInitAll(localRankTable.ranks[0]););
     ret = HostListenPortDetect(localRankTable.ranks[0]);
@@ -163,7 +167,14 @@ HcclResult RankInfoDetectClient::WaitForNextBroadcast(RankTableInfo& rankTable, 
     CHK_PRT_RET(
         ret != HCCL_SUCCESS, HCCL_ERROR("[RankInfoDetectClient::%s] RecvRankTableMsg failed, ret[%d].", __func__, ret),
         ret);
-    ParseRankTable(rankInfoMsg);
+    TRY_CATCH_RETURN(CHK_RET(ParseRankTable(rankInfoMsg)););
+    // Grow 只接收本轮汇总失败，不使用初始建域的本地选层状态重新比较。
+    CHK_PRT_RET(
+        remoteNetLayerCheck_.result != HCCL_SUCCESS,
+        HCCL_ERROR(
+            "[NetLayerConsistency] grow rejected, rank[%u], expectedRankCount[%u], result[%u]", rankId_,
+            expectedRankCount, remoteNetLayerCheck_.result),
+        static_cast<HcclResult>(remoteNetLayerCheck_.result));
     // 校验 rankTable 有效性，防止空表/0 rankCount 被当合法结果使用
     CHK_PRT_RET(
         rankTable_.rankCount == 0,
@@ -247,10 +258,11 @@ HcclResult RankInfoDetectClient::SendLocalRankTable(const RankTableInfo& localRa
 {
     HCCL_DEBUG("[RankInfoDetectClient::%s] start.", __func__);
 
-    // 消息格式: [ranktable数据(n字节)][step(4字节)]
+    // 消息体: [RankTable序列化数据][step(u32)][NetLayerCheckInfo]；旧版客户端不带尾帧。
     BinaryStream binaryStream;
     CHK_RET(localRankTable.GetBinStream(true, binaryStream));
     binaryStream << currentStep_;
+    localNetLayerCheck_.Serialize(binaryStream);
 
     // 字节流转换为vector<char>格式
     vector<char> sendMsg;
@@ -294,8 +306,10 @@ HcclResult RankInfoDetectClient::ConstructRankTable(RankTableInfo& localRankTabl
     CHK_RET(logicSuperPodConfig.Parse());
     const std::string& logicSuperPodId = logicSuperPodConfig.GetLogicSuperPodId();
 
-    // 单P场景处理
-    CHK_PRT_RET((rankSize_ == 1), ConstructSingleRank(localRankTable), HCCL_SUCCESS);
+    // 单卡默认配置沿用快速路径；显式选层须读取实际层，不能用 layer 0 占位信息校验。
+    CHK_PRT_RET(
+        rankSize_ == 1 && netLayerSelection_.GetMode() == hccl::NetLayerSelectionMode::DEFAULT,
+        ConstructSingleRank(localRankTable), HCCL_SUCCESS);
 
     // 1. 解析文件topoInfo.json
     std::string filePath = "/etc/hccl_rootinfo.json";
@@ -429,11 +443,11 @@ HcclResult RankInfoDetectClient::RecvRankTableMsg(vector<char>& rankInfoMsg)
 }
 
 // 解析接收到的rank table信息
-void RankInfoDetectClient::ParseRankTable(vector<char>& rankInfoMsg)
+HcclResult RankInfoDetectClient::ParseRankTable(vector<char>& rankInfoMsg)
 {
     HCCL_INFO("[RankInfoDetectClient::%s] start.", __func__);
 
-    // 消息格式: [ranktable大小(u32, 4字节)][ranktable数据(n字节)][step(4字节)][failedAgentIdList]
+    // 消息体: [RankTable序列化数据][step(u32)][failedAgentIdList(string)][可选NetLayerCheckInfo]
     BinaryStream binStream(rankInfoMsg);
 
     // 解析localRankInfo
@@ -456,8 +470,24 @@ void RankInfoDetectClient::ParseRankTable(vector<char>& rankInfoMsg)
             "[%s][%s] Failed to connect agent, failedRankIdList[%s]", LOG_KEYWORDS_INIT_GROUP.c_str(),
             LOG_KEYWORDS_RANKTABLE_DETECT.c_str(), failedAgentIdList.c_str());
     }
+    const HcclResult checkRet = remoteNetLayerCheck_.Deserialize(binStream);
+    CHK_PRT_RET(
+        checkRet == HCCL_E_NOT_SUPPORT,
+        HCCL_ERROR(
+            "[RankInfoDetectClient::%s] Unsupported netLayer consistency response version, rank[%u], rankSize[%u], "
+            "reportedRankCount[%u], supportedVersion[%u]",
+            __func__, rankId_, rankSize_, rankTable_.rankCount, NetLayerCheckInfo::VERSION),
+        checkRet);
+    CHK_PRT_RET(
+        checkRet != HCCL_SUCCESS,
+        HCCL_ERROR(
+            "[RankInfoDetectClient::%s] Invalid netLayer consistency response, rank[%u], rankSize[%u], "
+            "reportedRankCount[%u], result[%d]",
+            __func__, rankId_, rankSize_, rankTable_.rankCount, checkRet),
+        checkRet);
 
     HCCL_INFO("[RankInfoDetectClient::%s] end.", __func__);
+    return HCCL_SUCCESS;
 }
 
 HcclResult RankInfoDetectClient::RecvRankTable()
@@ -467,7 +497,9 @@ HcclResult RankInfoDetectClient::RecvRankTable()
     CHK_RET(RecvRankTableMsg(rankInfoMsg));
 
     // 解析rankTable
-    TRY_CATCH_RETURN(ParseRankTable(rankInfoMsg););
+    TRY_CATCH_RETURN(CHK_RET(ParseRankTable(rankInfoMsg)););
+
+    CHK_RET(VerifyNetLayerConsistency());
 
     // 校验
     CHK_RET(VerifyRankTable());
@@ -505,6 +537,75 @@ HcclResult RankInfoDetectClient::VerifyRankTable()
         HCCL_E_PARA);
 
     HCCL_INFO("[RankInfoDetectClient::%s] end.", __func__);
+    return HCCL_SUCCESS;
+}
+
+void RankInfoDetectClient::PrepareNetLayerCheck(const hccl::NewRankInfo& rankInfo)
+{
+    localNetLayerCheck_ = {};
+    localNetLayerCheck_.version = NetLayerCheckInfo::VERSION;
+    localNetLayerCheck_.explicitSelection = netLayerSelection_.GetMode() != hccl::NetLayerSelectionMode::DEFAULT;
+    u32 availableLayers = 0;
+    for (const auto& level : rankInfo.rankLevelInfos) {
+        if (level.netLayer > MAX_VALUE_NETLAYER) {
+            HCCL_ERROR(
+                "[NetLayerConsistency] invalid netLayer[%u], rank[%u], maximum[%u]", level.netLayer, rankId_,
+                MAX_VALUE_NETLAYER);
+            localNetLayerCheck_.result = HCCL_E_PARA;
+            return;
+        }
+        availableLayers |= 1U << level.netLayer;
+    }
+    localNetLayerCheck_.result = netLayerSelection_.Resolve(availableLayers, localNetLayerCheck_.layers);
+    if (localNetLayerCheck_.result != HCCL_SUCCESS) {
+        HCCL_ERROR(
+            "[NetLayerConsistency] cannot resolve selection, rank[%u], expression[%s], availableLayers[%s], result[%u]",
+            rankId_, netLayerSelection_.GetNormalizedExpression().c_str(),
+            hccl::NetLayerSelection::FormatLayers(availableLayers).c_str(), localNetLayerCheck_.result);
+    }
+}
+
+HcclResult RankInfoDetectClient::VerifyNetLayerConsistency() const
+{
+    if (remoteNetLayerCheck_.version == 0) {
+        CHK_PRT_RET(
+            localNetLayerCheck_.explicitSelection != 0,
+            HCCL_ERROR(
+                "[NetLayerConsistency] root did not return a selected-layer verification result, rank[%u], "
+                "rankSize[%u], "
+                "effectiveLayers[%s]",
+                rankId_, rankSize_, hccl::NetLayerSelection::FormatLayers(localNetLayerCheck_.layers).c_str()),
+            HCCL_E_NOT_SUPPORT);
+        CHK_PRT_RET(
+            localNetLayerCheck_.result != HCCL_SUCCESS,
+            HCCL_ERROR(
+                "[NetLayerConsistency] local verification failed without a root verification result, "
+                "rank[%u], rankSize[%u], result[%u]",
+                rankId_, rankSize_, localNetLayerCheck_.result),
+            static_cast<HcclResult>(localNetLayerCheck_.result));
+        return HCCL_SUCCESS;
+    }
+    CHK_PRT_RET(
+        remoteNetLayerCheck_.result != HCCL_SUCCESS,
+        HCCL_ERROR(
+            "[NetLayerConsistency] initialization rejected, rank[%u], rankSize[%u], result[%u], "
+            "rootVersion[%u], localExplicit[%u], localLayers[%s], rootLayers[%s]",
+            rankId_, rankSize_, remoteNetLayerCheck_.result, remoteNetLayerCheck_.version,
+            localNetLayerCheck_.explicitSelection,
+            hccl::NetLayerSelection::FormatLayers(localNetLayerCheck_.layers).c_str(),
+            hccl::NetLayerSelection::FormatLayers(remoteNetLayerCheck_.layers).c_str()),
+        static_cast<HcclResult>(remoteNetLayerCheck_.result));
+    CHK_PRT_RET(
+        (localNetLayerCheck_.explicitSelection != 0 && remoteNetLayerCheck_.explicitSelection == 0)
+            || (remoteNetLayerCheck_.explicitSelection != 0
+                && localNetLayerCheck_.layers != remoteNetLayerCheck_.layers),
+        HCCL_ERROR(
+            "[NetLayerConsistency] result mismatch, rank[%u], rankSize[%u], localLayers[%s], rootLayers[%s], "
+            "localExplicit[%u], rootExplicit[%u]",
+            rankId_, rankSize_, hccl::NetLayerSelection::FormatLayers(localNetLayerCheck_.layers).c_str(),
+            hccl::NetLayerSelection::FormatLayers(remoteNetLayerCheck_.layers).c_str(),
+            localNetLayerCheck_.explicitSelection, remoteNetLayerCheck_.explicitSelection),
+        HCCL_E_PARA);
     return HCCL_SUCCESS;
 }
 

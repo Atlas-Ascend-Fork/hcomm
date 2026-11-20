@@ -114,6 +114,13 @@ HcclResult RankInfoDispatcher::PrepareResource(
     CHK_RET(clusterInfo.GetBinStream(true, binaryStream));
     binaryStream << step;
     binaryStream << failedAgentIdList;
+    if (rankInfoDetectServer_ != nullptr) {
+        const auto checkResult = rankInfoDetectServer_->GetNetLayerCheckResult();
+        // 按全部 rank 的汇总结果判断；全默认成功不附加尾帧，显式选层或失败仍需广播。
+        if (checkResult.explicitSelection != 0 || checkResult.result != HCCL_SUCCESS) {
+            checkResult.Serialize(binaryStream);
+        }
+    }
     binaryStream.Dump(rankTableMsg_);
 
     for (auto& it : connectSockets) {

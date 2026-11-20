@@ -108,7 +108,7 @@ public:
         uint32_t childRootRank{UINT32_MAX};  // root 在新域中的编号（root 存活时有效）
     };
 
-    // 初始化通信域
+    // 初始化通信域；FullMode 直接使用图中选层结果，不重新解析配置或读取环境。
     HcclResult Init(void* rankGraph, aclrtBinHandle binHandle, HcclMem cclBuffer, uint32_t opExpansionMode = 0);
 
     inline CommConfig& GetCommConfig() { return config_; }
@@ -290,6 +290,8 @@ public:
     OpGroupQueueMgr groupQueueMgr{};                                   // for group enqueue
 
 private:
+    // 校验实际图未超出建图选层范围后发布查询视图；失败不替换当前图。
+    HcclResult InitRankGraph(void* rankGraph);
     using ProtocolRankMap = std::unordered_map<CommProtocol, std::vector<uint32_t>>;
 
     static std::string BuildIdentifierFromRootHandle(const Hccl::HcclRootHandleV2& rootHandle);

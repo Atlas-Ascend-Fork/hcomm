@@ -284,20 +284,11 @@ u32 GetUbToken() { return 0; }
 
 void SaluSleep(uint32_t usec) { return; }
 
-std::shared_ptr<hccl::TopoInfo> RankGraphBuilder::GetTopoInfo() { return nullptr; }
-
 // const EnvTopoFilePathConfig &EnvConfig::GetTopoFilePathConfig()
 // {
 //     // return topoFilePathCfg;
 //     return *((EnvTopoFilePathConfig *)0x12345678);
 // }
-
-unique_ptr<RankGraph> RankGraphBuilder::Build(const string& ranktableM, const string& topoPath, RankId myRank)
-{
-    return nullptr;
-}
-
-std::unique_ptr<RankTableInfo> RankGraphBuilder::GetRankTableInfo() { return nullptr; }
 
 HcclResult HrtGetDevice(s32& userDevId)
 {

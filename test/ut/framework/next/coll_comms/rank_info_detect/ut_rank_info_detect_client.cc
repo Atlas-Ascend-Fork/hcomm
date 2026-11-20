@@ -104,6 +104,80 @@ TEST(LogicSuperPodRootInfoTest, Ut_LogicSuperPod_When_NewClientAfterEnvChanges_E
         ::testing::ExitedWithCode(0), "");
 }
 
+TEST(NetLayerCheckInfoTest, ConsistencyUsesEffectiveLayersAndPeerCapability)
+{
+    NetLayerCheckInfo local;
+    local.version = NetLayerCheckInfo::VERSION;
+    local.layers = 6;
+    NetLayerCheckInfo peer = local;
+    peer.layers = 3;
+    EXPECT_EQ(local.CheckConsistency(peer), HCCL_SUCCESS); // 全默认不限制候选层。
+    local.explicitSelection = 1;
+    EXPECT_EQ(local.CheckConsistency(peer), HCCL_E_PARA);
+    peer.layers = 6;
+    EXPECT_EQ(local.CheckConsistency(peer), HCCL_SUCCESS); // 默认端与显式端的有效集合相同。
+    EXPECT_EQ(peer.CheckConsistency(local), HCCL_SUCCESS);
+    peer.version = 0;
+    EXPECT_EQ(local.CheckConsistency(peer), HCCL_E_NOT_SUPPORT);
+    peer = local;
+    peer.result = HCCL_E_PARA;
+    EXPECT_EQ(local.CheckConsistency(peer), HCCL_E_PARA);
+    EXPECT_EQ(peer.CheckConsistency(local), HCCL_E_PARA);
+    peer = local;
+    local.layers = peer.layers = 0;
+    EXPECT_EQ(local.CheckConsistency(peer), HCCL_E_PARA);
+    local.layers = peer.layers = 256;
+    EXPECT_EQ(local.CheckConsistency(peer), HCCL_E_PARA);
+}
+
+TEST(NetLayerCheckInfoTest, BoundedOptionalTrailer)
+{
+    NetLayerCheckInfo input;
+    input.version = NetLayerCheckInfo::VERSION;
+    input.explicitSelection = 1;
+    input.layers = 6;
+    BinaryStream stream;
+    input.Serialize(stream);
+    std::vector<char> bytes;
+    stream.Dump(bytes);
+    BinaryStream valid(bytes);
+    NetLayerCheckInfo output;
+    ASSERT_EQ(output.Deserialize(valid), HCCL_SUCCESS);
+    EXPECT_EQ(output.layers, 6U);
+    EXPECT_EQ(output.explicitSelection, 1U);
+
+    auto extendedBytes = bytes;
+    extendedBytes.push_back('\0');
+    BinaryStream extended(extendedBytes);
+    EXPECT_EQ(output.Deserialize(extended), HCCL_E_PARA);
+    EXPECT_EQ(output.layers, 6U);
+    EXPECT_EQ(output.explicitSelection, 1U);
+
+    bytes.pop_back();
+    BinaryStream truncated(bytes);
+    EXPECT_EQ(output.Deserialize(truncated), HCCL_E_PARA);
+    EXPECT_EQ(output.version, static_cast<u32>(NetLayerCheckInfo::VERSION));
+    BinaryStream legacy;
+    EXPECT_EQ(output.Deserialize(legacy), HCCL_SUCCESS);
+    EXPECT_EQ(output.version, 0U);
+    input.layers = 256;
+    BinaryStream invalidMask;
+    input.Serialize(invalidMask);
+    EXPECT_EQ(output.Deserialize(invalidMask), HCCL_E_PARA);
+    input.layers = 6;
+    input.version = 2;
+    BinaryStream future;
+    input.Serialize(future);
+    EXPECT_EQ(output.Deserialize(future), HCCL_E_NOT_SUPPORT);
+    EXPECT_EQ(output.version, 0U);
+    // 新版本即使扩展帧长，也应识别为版本不支持；失败不改写旧结果。
+    BinaryStream futureExtended;
+    input.Serialize(futureExtended);
+    futureExtended << 0U;
+    EXPECT_EQ(output.Deserialize(futureExtended), HCCL_E_NOT_SUPPORT);
+    EXPECT_EQ(output.version, 0U);
+}
+
 class RankInfoDetectClientTest : public testing::Test {
 protected:
     static void SetUpTestCase() { std::cout << "RankInfoDetectClientTest SetUP" << std::endl; }
@@ -455,17 +529,26 @@ TEST_F(RankInfoDetectClientTest, Ut_GetLocalHostDpuTlsStatus_When_QueryFails_Exp
     EXPECT_EQ(tlsStatus, TlsStatus::DISABLE);
 }
 
-TEST_F(RankInfoDetectClientTest, Ut_ConstructRankTable_When_Normal_Expect_Success)
+TEST_F(RankInfoDetectClientTest, Ut_ConstructRankTable_When_SelectedSingleRank_Expect_UseActualLayers)
 {
-    rankInfoDetectClient_->rankSize_ = 2;
-    RankTableInfo localRankTable;
     std::string testJsonPath{"/tmp"};
 
     MOCKER(realpath)
         .stubs()
         .with(mockcpp::any(), outBoundP(const_cast<char*>(testJsonPath.c_str()), testJsonPath.size() + 1))
         .will(returnValue(const_cast<char*>(testJsonPath.c_str())));
-    std::string testJsonContent = BuildRootInfoJsonString();
+    auto rootInfoJson = nlohmann::json::parse(BuildRootInfoJsonString());
+    for (auto& rank : rootInfoJson["rank_list"]) {
+        auto level3 = rank["level_list"][0];
+        level3["net_layer"] = 3;
+        level3["net_type"] = "CLOS";
+        rank["level_list"].push_back(level3);
+    }
+    std::string testJsonContent = rootInfoJson.dump();
+    MOCKER(hccl::ParseRootInfoConfigFile)
+        .stubs()
+        .with(mockcpp::any(), outBound(testJsonContent))
+        .will(returnValue(HCCL_SUCCESS));
     size_t expectedSize = testJsonContent.size();
     MOCKER(TopoAddrInfoGetSize).stubs().with(0, outBoundP(&expectedSize, sizeof(size_t))).will(returnValue(0));
     const char* rootInfoCtx = testJsonContent.c_str();
@@ -476,10 +559,57 @@ TEST_F(RankInfoDetectClientTest, Ut_ConstructRankTable_When_Normal_Expect_Succes
             outBoundP(&expectedSize, sizeof(size_t)))
         .will(returnValue(0));
 
-    EXPECT_EQ(rankInfoDetectClient_->ConstructRankTable(localRankTable), HCCL_SUCCESS);
+    struct Case {
+        u32 rankSize;
+        const char* expression;
+        u32 selectedMask;
+    };
+    const Case cases[] = {{1, "", 1},       {2, "", 9},    {1, "0", 1}, {1, "3", 8},
+                          {1, "not(0)", 8}, {1, "0,3", 9}, {1, "2", 0}, {1, "not(0,3)", 0}};
+    for (const auto& item : cases) {
+        SCOPED_TRACE(item.expression);
+        rankInfoDetectClient_->rankSize_ = item.rankSize;
+        hccl::NetLayerSelection selection;
+        ASSERT_EQ(hccl::NetLayerSelection::Parse(item.expression, selection), HCCL_SUCCESS);
+        rankInfoDetectClient_->SetNetLayerSelection(selection);
+        RankTableInfo localRankTable;
+        ASSERT_EQ(rankInfoDetectClient_->ConstructRankTable(localRankTable), HCCL_SUCCESS);
+        EXPECT_EQ(localRankTable.version, "2.0");
+        EXPECT_EQ(localRankTable.rankCount, item.rankSize);
+        ASSERT_EQ(localRankTable.ranks.size(), 1U);
+        const auto& levels = localRankTable.ranks[0].rankLevelInfos;
+        const bool defaultSingleRank = item.rankSize == 1 && item.expression[0] == '\0';
+        ASSERT_EQ(levels.size(), defaultSingleRank ? 1U : 2U);
+        EXPECT_EQ(levels.front().netLayer, 0U);
+        if (!defaultSingleRank) {
+            EXPECT_EQ(levels.back().netLayer, 3U);
+        }
+        rankInfoDetectClient_->PrepareNetLayerCheck(localRankTable.ranks.front());
+        EXPECT_EQ(rankInfoDetectClient_->localNetLayerCheck_.layers, item.selectedMask);
+        EXPECT_EQ(
+            rankInfoDetectClient_->localNetLayerCheck_.result, item.selectedMask == 0 ? HCCL_E_PARA : HCCL_SUCCESS);
+    }
+}
 
-    EXPECT_EQ(localRankTable.version, "2.0");
-    EXPECT_EQ(localRankTable.rankCount, 2);
+TEST_F(RankInfoDetectClientTest, Ut_ConstructRankTable_When_SingleRankDiscoveryFails_Expect_NoSelectionFallback)
+{
+    MOCKER(hccl::ParseRootInfoConfigFile).stubs().will(returnValue(HCCL_E_PARA));
+    MOCKER(TopoAddrInfoGetSize).stubs().will(returnValue(-1));
+    MOCKER(TopoAddrInfoGet).expects(never());
+    hccl::NetLayerSelection selection;
+    ASSERT_EQ(hccl::NetLayerSelection::Parse("not(0)", selection), HCCL_SUCCESS);
+    rankInfoDetectClient_->SetNetLayerSelection(selection);
+    RankTableInfo selectedTable;
+    EXPECT_EQ(rankInfoDetectClient_->ConstructRankTable(selectedTable), HCCL_E_PARA);
+    EXPECT_TRUE(selectedTable.ranks.empty());
+
+    // 默认单卡不依赖拓扑发现，仍保持原快速路径。
+    rankInfoDetectClient_->SetNetLayerSelection(hccl::NetLayerSelection{});
+    RankTableInfo defaultTable;
+    ASSERT_EQ(rankInfoDetectClient_->ConstructRankTable(defaultTable), HCCL_SUCCESS);
+    ASSERT_EQ(defaultTable.ranks.size(), 1U);
+    ASSERT_EQ(defaultTable.ranks[0].rankLevelInfos.size(), 1U);
+    EXPECT_EQ(defaultTable.ranks[0].rankLevelInfos[0].netLayer, 0U);
 }
 
 TEST_F(RankInfoDetectClientTest, Ut_LogicSuperPod_When_MultiRankConfiguredOrUnset_Expect_IdCopiedToLocalTable)
@@ -857,6 +987,105 @@ TEST_F(RankInfoDetectClientTest, Ut_ProbeHostRoceAddr_When_OtherError_Expect_Ret
     EXPECT_EQ(ret, -EOPNOTSUPP);
 }
 
+TEST_F(RankInfoDetectClientTest, NetLayerCheckUsesEffectiveLayers)
+{
+    hccl::NewRankInfo rank;
+    rank.rankId = 0;
+    for (u32 layer : {0U, 1U, 2U}) {
+        RankLevelInfo level;
+        level.netLayer = layer;
+        rank.rankLevelInfos.push_back(level);
+    }
+    for (const auto& expression : {"not(0)", "1,2", "2,1,1"}) {
+        hccl::NetLayerSelection selection;
+        ASSERT_EQ(hccl::NetLayerSelection::Parse(expression, selection), HCCL_SUCCESS);
+        rankInfoDetectClient_->SetNetLayerSelection(selection);
+        rankInfoDetectClient_->PrepareNetLayerCheck(rank);
+        EXPECT_EQ(rankInfoDetectClient_->localNetLayerCheck_.layers, 6U);
+        EXPECT_EQ(rankInfoDetectClient_->localNetLayerCheck_.result, HCCL_SUCCESS);
+    }
+    hccl::NetLayerSelection missing;
+    ASSERT_EQ(hccl::NetLayerSelection::Parse("7", missing), HCCL_SUCCESS);
+    rankInfoDetectClient_->SetNetLayerSelection(missing);
+    rankInfoDetectClient_->PrepareNetLayerCheck(rank);
+    EXPECT_EQ(rankInfoDetectClient_->localNetLayerCheck_.result, HCCL_E_PARA);
+    rankInfoDetectClient_->SetNetLayerSelection(hccl::NetLayerSelection{});
+    rank.rankLevelInfos.back().netLayer = MAX_VALUE_NETLAYER + 1;
+    rankInfoDetectClient_->PrepareNetLayerCheck(rank);
+    EXPECT_EQ(rankInfoDetectClient_->localNetLayerCheck_.result, HCCL_E_PARA);
+}
+
+TEST_F(RankInfoDetectClientTest, NetLayerCheckRejectsMismatchAndLegacyRoot)
+{
+    auto& local = rankInfoDetectClient_->localNetLayerCheck_;
+    auto& remote = rankInfoDetectClient_->remoteNetLayerCheck_;
+    local.version = NetLayerCheckInfo::VERSION;
+    local.explicitSelection = 1;
+    local.layers = 6;
+    EXPECT_EQ(rankInfoDetectClient_->VerifyNetLayerConsistency(), HCCL_E_NOT_SUPPORT);
+    remote = local;
+    EXPECT_EQ(rankInfoDetectClient_->VerifyNetLayerConsistency(), HCCL_SUCCESS);
+    remote.layers = 3;
+    EXPECT_EQ(rankInfoDetectClient_->VerifyNetLayerConsistency(), HCCL_E_PARA);
+    remote.result = HCCL_E_NOT_SUPPORT;
+    EXPECT_EQ(rankInfoDetectClient_->VerifyNetLayerConsistency(), HCCL_E_NOT_SUPPORT);
+    local.explicitSelection = 0;
+    remote = local;
+    remote.explicitSelection = 1; // 默认端也必须与显式端的有效层一致。
+    EXPECT_EQ(rankInfoDetectClient_->VerifyNetLayerConsistency(), HCCL_SUCCESS);
+    remote.layers = 3;
+    EXPECT_EQ(rankInfoDetectClient_->VerifyNetLayerConsistency(), HCCL_E_PARA);
+    remote = {};
+    EXPECT_EQ(rankInfoDetectClient_->VerifyNetLayerConsistency(), HCCL_SUCCESS);
+    local.result = HCCL_E_PARA;
+    EXPECT_EQ(rankInfoDetectClient_->VerifyNetLayerConsistency(), HCCL_E_PARA);
+}
+
+TEST_F(RankInfoDetectClientTest, NetLayerCheckParsesRootBroadcastResult)
+{
+    auto bytes = BuildMockRankInfoMsg("");
+    NetLayerCheckInfo result;
+    result.version = NetLayerCheckInfo::VERSION;
+    result.explicitSelection = 1;
+    result.result = HCCL_E_PARA;
+    BinaryStream tail;
+    result.Serialize(tail);
+    tail.Dump(bytes);
+    MOCKER_CPP(&RankInfoDetectClient::RecvRankTableMsg).stubs().with(outBound(bytes)).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankInfoDetectClient::VerifyRankTable).expects(never());
+    // 接收入口先拒绝 Root 广播的选层错误，不再进入普通拓扑校验。
+    EXPECT_EQ(rankInfoDetectClient_->RecvRankTable(), HCCL_E_PARA);
+    EXPECT_EQ(rankInfoDetectClient_->remoteNetLayerCheck_.result, HCCL_E_PARA);
+    const auto originalRankSize = rankInfoDetectClient_->rankSize_;
+    RankTableInfo nextRankTable;
+    nextRankTable.rankCount = 99;
+    EXPECT_EQ(rankInfoDetectClient_->WaitForNextBroadcast(nextRankTable, 2), HCCL_E_PARA);
+    EXPECT_EQ(rankInfoDetectClient_->rankSize_, originalRankSize);
+    EXPECT_EQ(nextRankTable.rankCount, 99U);
+}
+
+TEST_F(RankInfoDetectClientTest, NetLayerCheckRejectsUnknownRootVersionAtReceiveEntry)
+{
+    auto bytes = BuildMockRankInfoMsg("");
+    NetLayerCheckInfo result;
+    result.version = NetLayerCheckInfo::VERSION + 1;
+    BinaryStream tail;
+    result.Serialize(tail);
+    tail << 0U; // 新版扩展尾帧应报不支持，不得转成参数错误。
+    tail.Dump(bytes);
+    MOCKER_CPP(&RankInfoDetectClient::RecvRankTableMsg).stubs().with(outBound(bytes)).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankInfoDetectClient::VerifyRankTable).expects(never());
+    EXPECT_EQ(rankInfoDetectClient_->RecvRankTable(), HCCL_E_NOT_SUPPORT);
+    RankTableInfo nextRankTable;
+    EXPECT_EQ(rankInfoDetectClient_->WaitForNextBroadcast(nextRankTable, 2), HCCL_E_NOT_SUPPORT);
+    EXPECT_EQ(rankInfoDetectClient_->remoteNetLayerCheck_.version, 0U);
+
+    // 损坏的选层尾帧同样直接返回参数错误，不再抛异常。
+    auto malformedBytes = BuildMockRankInfoMsg("");
+    malformedBytes.push_back(0);
+    EXPECT_EQ(rankInfoDetectClient_->ParseRankTable(malformedBytes), HCCL_E_PARA);
+}
+
 TEST_F(RankInfoDetectClientTest, Ut_ParseRankTable_When_FailedAgentIdListNotEmpty_Expect_NoEI0015Report)
 {
     // 非空 failedAgentIdList 表示建链失败
@@ -865,7 +1094,7 @@ TEST_F(RankInfoDetectClientTest, Ut_ParseRankTable_When_FailedAgentIdListNotEmpt
     g_clientCapturedErrorCode.clear();
     MOCKER(RptInputErr).stubs().will(invoke(StubClientRptInputErr));
 
-    EXPECT_NO_THROW(rankInfoDetectClient_->ParseRankTable(rankInfoMsg));
+    EXPECT_EQ(HCCL_SUCCESS, rankInfoDetectClient_->ParseRankTable(rankInfoMsg));
     // failedAgentIdList 分支已收敛为不再单独上报 EI0015，避免与 root 节点上报重复
     EXPECT_NE(g_clientCapturedErrorCode, "EI0015");
 }
@@ -891,6 +1120,9 @@ TEST_F(RankInfoDetectClientTest, Ut_RecvRankTable_When_Normal_Expect_Success)
     MOCKER_CPP(&RankInfoDetectClient::VerifyRankTable).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
     EXPECT_EQ(rankInfoDetectClient_->RecvRankTable(), HcclResult::HCCL_SUCCESS);
+    RankTableInfo nextRankTable;
+    EXPECT_EQ(rankInfoDetectClient_->WaitForNextBroadcast(nextRankTable, 1), HCCL_SUCCESS);
+    EXPECT_EQ(nextRankTable.rankCount, 1U);
 }
 
 TEST_F(RankInfoDetectClientTest, Ut_VerifyTlsConsistency_When_AllRanksEnable_Expect_ReturnSuccess)

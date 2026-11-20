@@ -9,6 +9,14 @@
 # -----------------------------------------------------------------------------------------------------------
 
 ## 源代码路径加入到该文件中
+# provider 选层依赖真实配置解析；按函数裁剪未使用的旧配置消费逻辑，避免引入整套旧通信域依赖。
+set(net_layer_config_source ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/config_mgr/coll_comm_config.cc)
+target_sources(hccl_v2_utest PRIVATE ${net_layer_config_source})
+target_sources(hccl_v2_utest PRIVATE ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/config_mgr/env_net_layer_config.cc)
+target_sources(hccl_v2_utest PRIVATE ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/config_mgr/net_layer_config.cc)
+target_include_directories(hccl_v2_utest PRIVATE ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/config_mgr)
+target_link_options(hccl_v2_utest PRIVATE "-Wl,--gc-sections")
+
 target_sources(hccl_v2_utest
         PUBLIC
         ${HCCL_V2_CODE_ROOT}/unified_platform/external_system/orion_adapter_rts.cc

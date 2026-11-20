@@ -12,6 +12,7 @@
 #define RANK_GRAPH_BUILDER_H
 
 #include <memory>
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -29,6 +30,10 @@ namespace Hccl {
 
 class RankGraphBuilder {
 public:
+    using LayerSelector = std::function<HcclResult(u32 availableLayers, u32& effectiveLayers)>;
+    // 默认保留 RankTable 实际提供的层；显式策略在读取候选层后解析，共用同一构图流程。
+    explicit RankGraphBuilder(const LayerSelector& selector = {}) : layerSelector_(selector) {}
+
     // External ranktable input retains the physical grouping view.
     std::unique_ptr<RankGraph> Build(const std::string& ranktableM, const std::string& topoPath, RankId myRank);
     // RootInfoDetect input enables continuous virtual groups.
@@ -54,7 +59,16 @@ private:
     // 维持"level0纯mesh"视图; 对称形态在RestoreSymmetricLevel0View中已还原单层, 无需过滤
     bool filterClosInLevel0_{false};
     UpdaterFor64Plus1 updaterFor64Plus1_{};
+    std::optional<u32> selectedLayers_;
+    u32 availableLayers_{0};
+    LayerSelector layerSelector_;
 
+    // 判断该真实层号是否需要建图；未配置选层时沿用默认构图。
+    bool IsLayerSelected(u32 netLayer) const;
+    // 根据拓扑还原后本 rank 的候选层解析策略并保存掩码；不检查算子可达性。
+    HcclResult CheckSelectedLayers();
+    // 从保留的本地归属初始化 innerRanks，不补回被禁用的 layer 0 通信边。
+    HcclResult InitInnerRanksFromLocalGroups();
     HcclResult CheckMyRankInRankTable() const;
     HcclResult CheckNetLayerFromPhyTopo(const u32 netLayer) const;
     HcclResult BuildRankGraph(bool enableVirtualGroups);

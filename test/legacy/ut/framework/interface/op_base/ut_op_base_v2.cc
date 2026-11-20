@@ -58,6 +58,8 @@ HcclResult g_detectRankTableResult = HCCL_SUCCESS;
 bool g_keepDetectContextForUt = false;
 RootInfoDetectBridge::DetectContext g_detectContextFromRankTableForUt;
 RootInfoDetectBridge::DetectContext g_detectContextAtInitForUt;
+std::string g_detectNetLayerExpression;
+bool g_detectHasSelection = false;
 
 HcclResult GetRootInfoForUt(HcclRootInfo* rootInfo, RootInfoDetectBridge::DetectContext& detectContext)
 {
@@ -74,7 +76,7 @@ HcclResult GetRootInfoForUt(HcclRootInfo* rootInfo, RootInfoDetectBridge::Detect
 
 HcclResult DetectRankTableForUt(
     u32 nRanks, u32 rank, const HcclRootHandleV2& rootHandle, RankTableInfo& rankTable,
-    RootInfoDetectBridge::DetectContext& detectContext)
+    RootInfoDetectBridge::DetectContext& detectContext, const char* netLayerExpression)
 {
     (void)nRanks;
     (void)rank;
@@ -83,6 +85,13 @@ HcclResult DetectRankTableForUt(
     g_detectContextFromRankTableForUt = detectContext;
     if (!g_keepDetectContextForUt) {
         detectContext.reset();
+    }
+    g_detectHasSelection = netLayerExpression != nullptr;
+    g_detectNetLayerExpression.clear();
+    if (netLayerExpression != nullptr) {
+        g_detectNetLayerExpression.assign(
+            netLayerExpression,
+            std::find(netLayerExpression, netLayerExpression + HCCL_COMM_NET_LAYER_MAX_LENGTH, '\0'));
     }
     return g_detectRankTableResult;
 }
@@ -109,7 +118,7 @@ protected:
         bridge.getRootInfo = GetRootInfoForUt;
         bridge.detectRankTable = DetectRankTableForUt;
         bridge.getRootInfoWithDerivation = GetRootInfoWithDerivationForUt;
-        ASSERT_EQ(RegisterRootInfoDetectBridge(bridge), HCCL_SUCCESS);
+        ASSERT_EQ(RegisterRootInfoDetectBridge(bridge, ROOT_INFO_DETECT_BRIDGE_VERSION, sizeof(bridge)), HCCL_SUCCESS);
     }
 
     static void TearDownTestCase() { std::cout << "OpbaseTestV2 tests tear down." << std::endl; }
@@ -122,6 +131,8 @@ protected:
         g_keepDetectContextForUt = false;
         g_detectContextFromRankTableForUt.reset();
         g_detectContextAtInitForUt.reset();
+        g_detectNetLayerExpression.clear();
+        g_detectHasSelection = false;
         unsetenv("HCCL_DETERMINISTIC");
         SetDeterministicState(HCCL_DETERMINISTIC_ENABLE, false);
     }
@@ -205,6 +216,38 @@ TEST_F(OpbaseTestV2, Ut_HcclGetConfigV2_WhenConfigTypeUnsupported_ExpectParamete
 {
     HcclConfigValue output{};
     EXPECT_EQ(HcclGetConfigV2(HCCL_CONFIG_RESERVED, &output), HCCL_E_PARA);
+}
+
+TEST_F(OpbaseTestV2, Ut_RootInfoDetectBridge_WhenRegistrationRejected_ExpectExistingCallbacksUnchanged)
+{
+    const auto* registered = GetRootInfoDetectBridge();
+    ASSERT_NE(nullptr, registered);
+    const auto original = *registered;
+    auto replacement = original;
+    replacement.getRootInfo = [](HcclRootInfo*, RootInfoDetectBridge::DetectContext&) {
+        return HCCL_E_PARA;
+    };
+    constexpr auto version = ROOT_INFO_DETECT_BRIDGE_VERSION;
+    constexpr uint32_t size = sizeof(RootInfoDetectBridge);
+    const struct {
+        uint32_t version;
+        uint32_t size;
+        RootInfoDetectBridge bridge;
+        HcclResult expected;
+    } cases[] = {
+        {0, size, replacement, HCCL_E_NOT_SUPPORT},
+        {version, size - 1, replacement, HCCL_E_NOT_SUPPORT},
+        {version, size, {nullptr, original.detectRankTable}, HCCL_E_PTR},
+        {version, size, {replacement.getRootInfo, nullptr}, HCCL_E_PTR},
+        {version, size, replacement, HCCL_E_INTERNAL},
+    };
+    for (const auto& item : cases) {
+        SCOPED_TRACE(::testing::Message() << "version=" << item.version << ", size=" << item.size);
+        EXPECT_EQ(item.expected, RegisterRootInfoDetectBridge(item.bridge, item.version, item.size));
+        ASSERT_EQ(registered, GetRootInfoDetectBridge());
+        EXPECT_EQ(original.getRootInfo, registered->getRootInfo);
+        EXPECT_EQ(original.detectRankTable, registered->detectRankTable);
+    }
 }
 
 TEST_F(OpbaseTestV2, Ut_RankGraphBuilderBridgeAdoptRankGraph_WhenValid_ExpectSuccess)
@@ -2689,7 +2732,10 @@ TEST_F(OpbaseTestV2, Ut_HcclCommInitRootInfoV2_When_InputValue_Expect_Return_HCC
     uint32_t rank = 0;
     HcclComm comm{};
     std::string identifier{};
+    g_detectHasSelection = true;
     EXPECT_EQ(HcclCommInitRootInfoV2(nRanks, &rootInfo, rank, &comm, identifier), HCCL_SUCCESS);
+    EXPECT_FALSE(g_detectHasSelection);
+    EXPECT_TRUE(g_detectNetLayerExpression.empty());
 }
 
 TEST_F(OpbaseTestV2, Ut_HcclCommInitRootInfoV2_When_RankSizeInvalid_Expect_Return_HCCL_E_PARA)
@@ -2743,6 +2789,8 @@ TEST_F(OpbaseTestV2, Ut_HcclCommInitRootInfoConfigV2_When_InputValue_Expect_Retu
 
     config.hcclDeterministic = 2U;
     EXPECT_EQ(HcclCommInitRootInfoConfigV2(nRanks, &rootInfo, rank, &config, &comm), HCCL_SUCCESS);
+    EXPECT_TRUE(g_detectHasSelection);
+    EXPECT_TRUE(g_detectNetLayerExpression.empty());
     ASSERT_NE(comm, nullptr);
     EXPECT_EQ(static_cast<HcclCommunicator*>(comm)->config.hcclDeterministic, 2U);
 }
@@ -2875,6 +2923,31 @@ TEST_F(OpbaseTestV2, Ut_HcclCommInitRootInfoConfigV2_When_ProviderFails_Expect_R
     EXPECT_EQ(HcclCommInitRootInfoConfigV2(nRanks, &rootInfo, rank, &config, &comm), HCCL_E_INTERNAL);
 }
 
+TEST_F(OpbaseTestV2, Ut_RootInfoConfig_ForwardsNetLayerSelectionBeforeCommunicatorInit)
+{
+    g_detectRankTableResult = HCCL_E_PARA;
+    const Hccl::DevType devType = Hccl::DevType::DEV_TYPE_950;
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceCount).stubs().with(outBound(u32(1))).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&HcclCommunicator::Init, HcclResult(HcclCommunicator::*)(const RankTableInfo&)).expects(never());
+    CommManager::GetInstance(0).GetCommInfoV2().hcclGroupMap.clear();
+    CommManager::GetInstance(0).GetCommInfoV2().pComm = nullptr;
+
+    HcclRootInfo rootInfo{};
+    HcclComm comm{};
+    HcclCommConfig config{};
+    HcclCommConfigInit(&config);
+    // 探测阶段失败必须原样返回，不能继续创建通信域。
+    for (const auto* expression : {"", "not(0)"}) {
+        SCOPED_TRACE(expression);
+        ASSERT_EQ(strcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), expression), EOK);
+        EXPECT_EQ(HcclCommInitRootInfoConfigV2(2, &rootInfo, 0, &config, &comm), HCCL_E_PARA);
+        EXPECT_TRUE(g_detectHasSelection);
+        EXPECT_EQ(g_detectNetLayerExpression, expression);
+        EXPECT_EQ(comm, nullptr);
+    }
+}
+
 namespace {
 // 捕获 RptInputErr 上报内容, 用于断言通信域重复创建时触发 EI0003 规范报错
 std::string g_dupRptErrorCode;
@@ -2894,6 +2967,48 @@ void stub_RptInputErr_capture(std::string error_code, std::vector<std::string> k
 HcclResult CreateCommConfigRootInfo(
     uint32_t rank, const HcclCommConfig* config, const std::string& identifier, const RankTableInfo& ranktable,
     HcclComm* comm);
+HcclResult CreateCommConfig(uint32_t rank, HcclCommConfig* config, HcclComm* comm, std::string& ranktable);
+
+TEST_F(OpbaseTestV2, Ut_CreateCommConfig_When_OldFrozenSelection_Expect_PreservePolicyAndVersion)
+{
+    const Hccl::DevType devType = Hccl::DevType::DEV_TYPE_950;
+    MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
+    MOCKER(HrtGetDevice).stubs().with(outBound(s32(0))).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&HcclCommunicator::Init, HcclResult(HcclCommunicator::*)(const std::string&))
+        .stubs()
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&HcclCommunicator::Init, HcclResult(HcclCommunicator::*)(const RankTableInfo&))
+        .stubs()
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&CommunicatorImpl::SetCommExecuteConfig).stubs().will(ignoreReturnValue());
+    auto& commInfo = ::GetCommInfoV2();
+    for (bool rootInfo : {false, true}) {
+        SCOPED_TRACE(rootInfo);
+        commInfo.hcclGroupMap.clear();
+        commInfo.pComm = nullptr;
+        HcclCommConfig config{};
+        HcclCommConfigInit(&config);
+        config.hcclBufferSize = 200;
+        config.hcclDeterministic = 1;
+        ASSERT_EQ(strcpy_s(config.hcclCommName, sizeof(config.hcclCommName), "old_frozen_selection"), EOK);
+        // 模拟共享入口已冻结环境选层的完整快照；旧业务版本必须保留。
+        const uint32_t version = 11;
+        std::memcpy(config.reserved + sizeof(size_t) + sizeof(uint32_t), &version, sizeof(version));
+        ASSERT_EQ(strcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), "not(0)"), EOK);
+        HcclComm comm = nullptr;
+        std::string ranktable;
+        ASSERT_EQ(
+            rootInfo ? CreateCommConfigRootInfo(0, &config, config.hcclCommName, RankTableInfo{}, &comm) :
+                       CreateCommConfig(0, &config, &comm, ranktable),
+            HCCL_SUCCESS);
+        ASSERT_NE(comm, nullptr);
+        const auto& copied = static_cast<HcclCommunicator*>(comm)->config;
+        EXPECT_STREQ(copied.hccl_use_net_layer, "not(0)");
+        EXPECT_EQ(std::memcmp(copied.reserved, config.reserved, sizeof(config.reserved)), 0);
+        commInfo.hcclGroupMap.clear();
+        commInfo.pComm = nullptr;
+    }
+}
 
 // 相同 identifier 重复创建通信域: CommInitRootInfo 查重命中, 上报 EI0003 并返回 HCCL_E_PARA
 TEST_F(OpbaseTestV2, Ut_HcclCommInitRootInfoV2_When_DuplicateCreation_Expect_Return_HCCL_E_PARA)

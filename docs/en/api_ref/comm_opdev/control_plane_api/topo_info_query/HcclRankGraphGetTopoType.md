@@ -45,7 +45,7 @@ HcclResult HcclRankGraphGetTopoType(HcclComm comm, uint32_t netLayer, uint32_t t
 
 ## Constraints
 
-None
+- On Ascend 950PR&950DT products with layer selection configured, querying a disabled layer, including `netLayer=0`, returns `HCCL_E_PARA`. Retained local grouping information does not make that layer's topology instances or their types available.
 
 ## Example
 

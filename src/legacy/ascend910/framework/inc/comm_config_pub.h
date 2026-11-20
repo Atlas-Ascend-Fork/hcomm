@@ -31,8 +31,9 @@ enum CommConfigVersion {
     COMM_CONFIG_VERSION_EIGHT = 8,
     COMM_CONFIG_VERSION_NINE = 9,
     COMM_CONFIG_VERSION_TEN = 10,
-    COMM_CONFIG_VERSION_ELEVEN = 11, // 版本11，支持配置通信域级别的sqDepth
-    COMM_CONFIG_VERSION_TWELVE = 12 // 版本12，支持配置通信域级别的scqDepth（当前支持的最高版本）
+    COMM_CONFIG_VERSION_ELEVEN = 11,  // 版本11，支持配置通信域级别的sqDepth
+    COMM_CONFIG_VERSION_TWELVE = 12,  // 版本12，支持配置通信域级别的scqDepth
+    COMM_CONFIG_VERSION_THIRTEEN = 13 // 版本13，配置载体支持netLayer字段，选层仅由950处理
 };
 
 enum CommConfigOpExpansion {
@@ -73,6 +74,7 @@ using CommConfigHandle = struct CommConfigHandleDef {
     uint64_t symmetricMemoryStride; // 对称内存预留VA大小
     u32 sqDepth = HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET;
     u32 scqDepth = HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET;
+    char netLayer[HCCL_COMM_NET_LAYER_MAX_LENGTH]{};
 };
 
 namespace hccl {

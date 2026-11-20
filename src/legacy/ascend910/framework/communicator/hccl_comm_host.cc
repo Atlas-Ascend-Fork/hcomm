@@ -332,8 +332,7 @@ HcclResult hcclComm::InitCollComm(
     void* commV2, void* rankGraph, uint32_t userRank, HcclMem cclBuffer, const std::string& commName,
     const HcclCommConfig* config, CollCommInitMode initMode)
 {
-    // 不校验config，为空时配置默认加速模式
-
+    // fullMode的非空配置已由受理入口补齐，直接沿用；simpleMode保持原行为。
     // aicpu侧初始化状态的回调函数
     ManagerCallbacks callbacks;
     callbacks.getAicpuCommState = [this]() {
@@ -386,6 +385,7 @@ HcclResult hcclComm::InitCollComm(
     // ClusterInfo 等无 root detect 路径先用 commName；RootInfo 路径随后按 rootHandle.identifier 覆盖。
     collComm_->SetTopParentIdentifier(commName);
 
+    // 选层已在 V2 构图时生效，直接接管图中的结果，不再从业务配置重复解析。
     CHK_RET(collComm_->Init(rankGraph, binHandle_, cclBuffer, configOpExpansionMode));
 
     // 从 HcclCommunicator 取走 detect 所有权（借鉴 rankGraph 模式），固化为 CollComm 成员。

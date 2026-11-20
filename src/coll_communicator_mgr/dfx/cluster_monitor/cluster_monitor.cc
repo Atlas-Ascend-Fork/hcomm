@@ -57,11 +57,10 @@ void ClusterMonitor::GetRemEndpointDescsPerLayer(
             continue; // rankSet维护了所有的ranks，如果已经加到Set说明该rank已经在更低的netLayer层级加入
         }
         rankIdsSet.insert(rankId);
-        auto* netInstance = rankGraph->GetNetInstanceByRankId(0, rankId); // 查询对应rankId在netLayer=0的netInsId
-        if (netInstance == nullptr) {
-            continue; // 如果没有查询到netInstance，不报错，不把该rank加入needConnectRank，直接跳过该rank
+        std::string netInstanceId;
+        if (rankGraph->GetLayer0NetInstanceId(rankId, netInstanceId) != HCCL_SUCCESS) {
+            continue;
         }
-        auto netInstanceId = netInstance->GetNetInstId();
         auto localId = rankGraph->GetLocalId(rankId); // 根据rank查localId
         ClusterUIDCxt uidcxt(netInstanceId, localId);
         ClusterUIDType uid = FormatUID(uidcxt);

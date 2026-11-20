@@ -53,7 +53,7 @@ HcclResult HcclRankGraphGetRankSizeByLayer(HcclComm comm, uint32_t netLayer, uin
 
 ## Constraints
 
-None
+- On Ascend 950PR&950DT products with layer 0 disabled, querying `netLayer=0` still returns the current rank's group member count if local group identity information is retained; a sub-communicator counts only its own members. This does not enable layer 0 communication. Without that identity information, the query returns `HCCL_E_PARA`.
 
 ## Example
 

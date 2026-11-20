@@ -22,6 +22,7 @@
 #define private public
 #define protected public
 #include "communicator_impl.h"
+#include "comm_topo_desc_v2.h"
 #include "internal_exception.h"
 #include "null_ptr_exception.h"
 #include "invalid_params_exception.h"
@@ -300,6 +301,82 @@ protected:
 
 void CommImplSendStub1() { THROW<InternalException>("HcclException &e"); }
 
+TEST_F(CommunicatorImplTest, Ut_GetNetLayers_When_GlobalLayersDiffer_Expect_LocalArraySize)
+{
+    auto localInstance = std::make_shared<ClosNetInstance>(2, "local_layer2");
+    auto remoteInstance = std::make_shared<InnerNetInstance>(0, "remote_layer0");
+    auto remotePeer = std::make_shared<NetInstance::Peer>(1, 0, 0, 0);
+    ASSERT_EQ(HCCL_SUCCESS, fakeComm.rankGraph->GetPeer(0)->AddNetInstance(localInstance));
+    ASSERT_EQ(HCCL_SUCCESS, remotePeer->AddNetInstance(remoteInstance));
+    ASSERT_EQ(HCCL_SUCCESS, fakeComm.rankGraph->AddPeer(remotePeer));
+    ASSERT_EQ(HCCL_SUCCESS, fakeComm.rankGraph->AddNetInstance(localInstance));
+    ASSERT_EQ(HCCL_SUCCESS, fakeComm.rankGraph->AddNetInstance(remoteInstance));
+    ASSERT_EQ(2U, fakeComm.rankGraph->GetLevelNum());
+
+    uint32_t* layers = nullptr;
+    uint32_t count = 0;
+    ASSERT_EQ(HCCL_SUCCESS, fakeComm.GetNetLayers(&layers, &count));
+    ASSERT_NE(nullptr, layers);
+    EXPECT_EQ(1U, count);
+    EXPECT_EQ(2U, layers[0]);
+    EXPECT_EQ(HCCL_E_PTR, fakeComm.GetNetLayers(nullptr, &count));
+    EXPECT_EQ(HCCL_E_PTR, fakeComm.GetNetLayers(&layers, nullptr));
+}
+
+TEST_F(CommunicatorImplTest, Ut_GetNeighboorRanks_When_NoLayerZero_Expect_LocalMembersOnly)
+{
+    ASSERT_EQ(HCCL_SUCCESS, fakeComm.rankGraph->AddPeer(std::make_shared<NetInstance::Peer>(1, 1, 1, 1)));
+    ASSERT_EQ(HCCL_SUCCESS, fakeComm.rankGraph->AddPeer(std::make_shared<NetInstance::Peer>(2, 0, 0, 0)));
+    ASSERT_EQ(HCCL_SUCCESS, fakeComm.rankGraph->SetInnerRanks({0, 1}));
+    fakeComm.rankGraph->buildLayerSelection_ = RankGraph::BuildLayerSelection{7, 4};
+    fakeComm.rankGraph->InitFinish();
+
+    EXPECT_EQ(0U, fakeComm.rankGraph->GetLevels(0).count(0));
+    EXPECT_EQ((std::set<RankId>{0, 1}), fakeComm.GetNeighboorRanks());
+    EXPECT_EQ(0U, fakeComm.GetNeighboorRanks().count(2));
+    EXPECT_TRUE(fakeComm.rankGraph->GetPaths(0, 0, 1).empty());
+}
+
+TEST_F(CommunicatorImplTest, Ut_SaveTopoDesc_When_NoLayerZero_Expect_ReplaceStaleType)
+{
+    std::string identifier = "ut_selected_without_layer0";
+    auto& desc = CommTopoDesc::GetInstance();
+    desc.SaveL0TopoType(identifier, COMM_TOPO_1DMESH);
+    fakeComm.rankSize = 3;
+    fakeComm.rankGraph->buildLayerSelection_ = RankGraph::BuildLayerSelection{7, 4};
+    MOCKER_CPP(&CommunicatorImpl::GetInstTopoTypeByNetLayer).expects(never());
+
+    EXPECT_EQ(HCCL_SUCCESS, fakeComm.SaveTopoDesc(identifier));
+    uint32_t rankSize = 0;
+    CommTopo topoType = COMM_TOPO_1DMESH;
+    EXPECT_EQ(HCCL_SUCCESS, desc.GetRankSize(identifier, &rankSize));
+    EXPECT_EQ(3U, rankSize);
+    EXPECT_EQ(HCCL_SUCCESS, desc.GetL0TopoType(identifier, &topoType));
+    EXPECT_EQ(COMM_TOPO_RESERVED, topoType);
+    desc.rankSizeMap_.erase(identifier);
+    desc.l0TopoTypeMap_.erase(identifier);
+}
+
+TEST_F(CommunicatorImplTest, Ut_SaveTopoDesc_When_LayerZeroEnabled_Expect_KeepExistingQuery)
+{
+    std::string identifier = "ut_selected_with_layer0";
+    auto& desc = CommTopoDesc::GetInstance();
+    uint32_t expected = static_cast<uint32_t>(COMM_TOPO_1DMESH);
+    MOCKER_CPP(&CommunicatorImpl::GetInstTopoTypeByNetLayer)
+        .expects(exactly(2))
+        .with(eq(0U), outBoundP(&expected))
+        .will(returnValue(HCCL_SUCCESS));
+    fakeComm.rankSize = 2;
+    EXPECT_EQ(HCCL_SUCCESS, fakeComm.SaveTopoDesc(identifier));
+    fakeComm.rankGraph->buildLayerSelection_ = RankGraph::BuildLayerSelection{7, 5};
+    EXPECT_EQ(HCCL_SUCCESS, fakeComm.SaveTopoDesc(identifier));
+    CommTopo topoType = COMM_TOPO_RESERVED;
+    EXPECT_EQ(HCCL_SUCCESS, desc.GetL0TopoType(identifier, &topoType));
+    EXPECT_EQ(COMM_TOPO_1DMESH, topoType);
+    desc.rankSizeMap_.erase(identifier);
+    desc.l0TopoTypeMap_.erase(identifier);
+}
+
 void MockCommunicatorImpl()
 {
     SETUP_COMM_INIT_MOCKS();
@@ -369,11 +446,7 @@ TEST_F(CommunicatorImplTest, Ut_CreateSubComm_When_SubConfigUdiEmptyAndParentUdi
     comm.rankGraph = make_unique<RankGraph>(0);
     comm.socketManager = make_unique<SocketManager>(0, 0, 0, "testTag");
 
-    MOCKER_CPP(
-        &RankGraph::CreateSubRankGraph,
-        HcclResult(RankGraph::*)(const std::vector<u32>&, std::unique_ptr<RankGraph>&) const)
-        .stubs()
-        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&RankGraph::CreateSubRankGraph).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(
         &CommunicatorImpl::Init,
         HcclResult(CommunicatorImpl::*)(const CommParams&, std::unique_ptr<RankGraph>&, HcclCommConfig&, DevId))
@@ -412,11 +485,7 @@ TEST_F(CommunicatorImplTest, Ut_CreateSubComm_When_SubConfigUdiNotEmpty_Expect_K
     comm.rankGraph = make_unique<RankGraph>(0);
     comm.socketManager = make_unique<SocketManager>(0, 0, 0, "testTag");
 
-    MOCKER_CPP(
-        &RankGraph::CreateSubRankGraph,
-        HcclResult(RankGraph::*)(const std::vector<u32>&, std::unique_ptr<RankGraph>&) const)
-        .stubs()
-        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&RankGraph::CreateSubRankGraph).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(
         &CommunicatorImpl::Init,
         HcclResult(CommunicatorImpl::*)(const CommParams&, std::unique_ptr<RankGraph>&, HcclCommConfig&, DevId))
@@ -456,11 +525,7 @@ TEST_F(CommunicatorImplTest, Ut_CreateSubComm_When_ParentUdiReachesLimit_Expect_
     comm.rankGraph = make_unique<RankGraph>(0);
     comm.socketManager = make_unique<SocketManager>(0, 0, 0, "testTag");
 
-    MOCKER_CPP(
-        &RankGraph::CreateSubRankGraph,
-        HcclResult(RankGraph::*)(const std::vector<u32>&, std::unique_ptr<RankGraph>&) const)
-        .stubs()
-        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&RankGraph::CreateSubRankGraph).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(
         &CommunicatorImpl::Init,
         HcclResult(CommunicatorImpl::*)(const CommParams&, std::unique_ptr<RankGraph>&, HcclCommConfig&, DevId))
@@ -4152,7 +4217,7 @@ TEST_F(LogicSuperPodRecoveryTest, Ut_LogicSuperPod_When_ServerReplaced_Expect_Re
             }
         }
         RankGraphBuildResult recovered;
-        ASSERT_EQ(bridge->recoverBuild(restored, topo, 0, false, recovered), HCCL_SUCCESS);
+        ASSERT_EQ(bridge->recoverBuild(restored, topo, 0, false, "", recovered), HCCL_SUCCESS);
         ASSERT_NE(recovered.rankGraph, nullptr);
         const auto* instance = recovered.rankGraph->GetNetInstanceByRankId(layer, 0);
         ASSERT_NE(instance, nullptr);

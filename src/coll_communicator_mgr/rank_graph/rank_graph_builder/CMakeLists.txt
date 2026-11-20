@@ -16,6 +16,7 @@ set(src_list
 )
 
 set(rank_graph_builder_include_dirs
+    ${HCOMM_DIR}/src/coll_communicator_mgr/config_mgr
     ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph
     ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/common
     ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/phy_topo
@@ -40,4 +41,5 @@ if(TARGET hccl_v2)
         ${CMAKE_CURRENT_SOURCE_DIR}/rank_graph_builder_bridge.cc
     )
     target_include_directories(hccl_v2 BEFORE PRIVATE ${rank_graph_builder_include_dirs})
+    target_include_directories(hccl_v2 PRIVATE ${HCOMM_DIR}/src/legacy/ascend910/framework/inc)
 endif()

@@ -398,24 +398,28 @@ TEST_F(RankInfoDetectServiceTest, Ut_ParseRankTable_When_Normal_Expect_Success)
     rankInfo.rankLevelInfos.emplace_back(RankLevelInfo{});
     localRankTable.ranks.emplace_back(rankInfo);
 
-    // 把构造好的ranktableinfo转为vector<char> rankInfoMsg
-    // 消息格式: [ranktable数据(n字节)][step(4字节)]
-    BinaryStream binaryStream;
-    EXPECT_EQ(localRankTable.GetBinStream(true, binaryStream), HCCL_SUCCESS);
-    binaryStream << rankInfoDetectService_->currentStep_;
-
-    // 字节流转换为vector<char>格式
-    vector<char> rankInfoMsg;
-    binaryStream.Dump(rankInfoMsg);
-
-    // Mock UpdateRankTable方法
-    MOCKER_CPP(&RankTableInfo::UpdateRankTable)
-        .expects(exactly(1))
-        .with(mockcpp::any())
-        .will(returnValue(HCCL_SUCCESS));
-
-    // 6. 执行测试
-    EXPECT_EQ(rankInfoDetectService_->ParseRankTable(rankInfoMsg, false), HcclResult::HCCL_SUCCESS);
+    // 使用真实 UpdateRankTable，验证空表仍由原有校验拒绝，正常上报继续处理。
+    for (u32 reportedCount : {0U, 1U}) {
+        SCOPED_TRACE(reportedCount);
+        localRankTable.ranks.assign(reportedCount, rankInfo);
+        localRankTable.rankCount = reportedCount;
+        BinaryStream binaryStream;
+        if (reportedCount == 0) {
+            // 正常序列化入口拒绝空表，按真实布局构造异常报文以覆盖接收边界。
+            binaryStream << localRankTable.version << localRankTable.rankCount << size_t{0} << localRankTable.detour;
+            binaryStream << localRankTable.logicSuperPodSplitLayer << localRankTable.logicSuperPodGroupIds.size();
+        } else {
+            ASSERT_EQ(localRankTable.GetBinStream(true, binaryStream), HCCL_SUCCESS);
+        }
+        binaryStream << rankInfoDetectService_->currentStep_;
+        vector<char> rankInfoMsg;
+        binaryStream.Dump(rankInfoMsg);
+        ASSERT_EQ(
+            rankInfoDetectService_->ParseRankTable(rankInfoMsg, false),
+            reportedCount == 1 ? HCCL_SUCCESS : HCCL_E_PARA);
+        EXPECT_EQ(rankInfoDetectService_->rankTable_.ranks.size(), reportedCount);
+        EXPECT_EQ(rankInfoDetectService_->netLayerCheckInfos_.size(), reportedCount);
+    }
     EXPECT_EQ(rankInfoDetectService_->rankTable_.GetSource(), RankTableSource::ROOTINFO);
 }
 
@@ -463,6 +467,74 @@ TEST_F(RankInfoDetectServiceTest, Ut_LogicSuperPod_When_GrowCollect_Expect_RootI
     EXPECT_EQ(mergedRankTable.ranks[1].logicSuperPodId, "B");
     EXPECT_EQ(mergedRankTable.ranks[0].rankLevelInfos[0].netInstId, "server_0");
     EXPECT_EQ(mergedRankTable.ranks[1].rankLevelInfos[0].netInstId, "server_1");
+}
+
+TEST_F(RankInfoDetectServiceTest, NetLayerCheckComparesAllRanksBeforeBroadcast)
+{
+    auto& checks = rankInfoDetectService_->netLayerCheckInfos_;
+    rankInfoDetectService_->rankTable_.rankCount = 2;
+    NetLayerCheckInfo selected;
+    selected.version = NetLayerCheckInfo::VERSION;
+    selected.explicitSelection = 1;
+    selected.layers = 6;
+    checks[0] = selected;
+    checks[1] = selected;
+    EXPECT_EQ(rankInfoDetectService_->GetNetLayerCheckResult().result, HCCL_SUCCESS);
+    checks[1].layers = 3; // not(0) 与 0,1 的有效层不同
+    EXPECT_EQ(rankInfoDetectService_->GetNetLayerCheckResult().result, HCCL_E_PARA);
+    checks[1].layers = 6;
+    checks[1].explicitSelection = 0; // 默认选层与显式选层结果相同可以通过
+    EXPECT_EQ(rankInfoDetectService_->GetNetLayerCheckResult().result, HCCL_SUCCESS);
+    checks[1] = {}; // 有显式选层时不接受旧端缺少校验信息
+    EXPECT_EQ(rankInfoDetectService_->GetNetLayerCheckResult().result, HCCL_E_NOT_SUPPORT);
+    checks[0].explicitSelection = 0;
+    EXPECT_EQ(rankInfoDetectService_->GetNetLayerCheckResult().result, HCCL_SUCCESS);
+    checks[0] = selected;
+    checks.erase(1);
+    EXPECT_EQ(rankInfoDetectService_->GetNetLayerCheckResult().result, HCCL_E_PARA);
+}
+
+TEST_F(RankInfoDetectServiceTest, NetLayerCheckCollectsLocalFailureForBroadcast)
+{
+    RankTableInfo local;
+    local.version = "1.0";
+    local.rankCount = 1;
+    hccl::NewRankInfo rank;
+    rank.rankLevelInfos.emplace_back(RankLevelInfo{});
+    local.ranks.push_back(rank);
+    const struct {
+        u32 version;
+        HcclResult reported;
+        bool truncated;
+        HcclResult expected;
+    } cases[] = {
+        {NetLayerCheckInfo::VERSION, HCCL_E_PARA, false, HCCL_E_PARA},
+        {NetLayerCheckInfo::VERSION, HCCL_E_NOT_SUPPORT, false, HCCL_E_NOT_SUPPORT},
+        {NetLayerCheckInfo::VERSION + 1, HCCL_SUCCESS, false, HCCL_E_NOT_SUPPORT},
+        {NetLayerCheckInfo::VERSION, HCCL_E_PARA, true, HCCL_E_PARA},
+    };
+    for (const auto& item : cases) {
+        SCOPED_TRACE(item.version);
+        BinaryStream stream;
+        ASSERT_EQ(local.GetBinStream(true, stream), HCCL_SUCCESS);
+        stream << rankInfoDetectService_->currentStep_;
+        NetLayerCheckInfo failed;
+        failed.version = item.version;
+        failed.explicitSelection = 1;
+        failed.result = item.reported;
+        failed.Serialize(stream);
+        std::vector<char> bytes;
+        stream.Dump(bytes);
+        if (item.truncated) {
+            bytes.pop_back();
+        }
+        // 非法或不支持的尾帧均须记录失败，不能中断对其他 rank 的收集。
+        rankInfoDetectService_->rankTable_ = {};
+        rankInfoDetectService_->netLayerCheckInfos_.clear();
+        ASSERT_EQ(rankInfoDetectService_->ParseRankTable(bytes, false), HCCL_SUCCESS);
+        EXPECT_EQ(rankInfoDetectService_->GetNetLayerCheckResult().result, item.expected);
+        EXPECT_EQ(rankInfoDetectService_->rankTable_.rankCount, 1U);
+    }
 }
 
 bool RecvRemoteAgentIdStub(RankInfoDetectService* thisPtr, SocketAgent& connSocketAgent, std::string& agentId)
@@ -903,6 +975,47 @@ TEST_F(RankInfoDetectServiceTest, Ut_GrowCollect_When_Fail_Expect_ErrorTerminal)
     EXPECT_EQ(HCCL_E_INTERNAL, rankInfoDetectService_->TriggerGrowCollect(1));
     EXPECT_EQ(RankInfoDetectService::GrowState::ERROR, rankInfoDetectService_->GetGrowState());
     EXPECT_FALSE(rankInfoDetectService_->IsSupportGrowLoop());
+}
+
+TEST_F(RankInfoDetectServiceTest, Ut_GrowCollect_When_NetLayerCheckFails_Expect_BroadcastThenReject)
+{
+    MOCKER_CPP(&RankInfoDetectService::GetConnections).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankInfoDetectService::GetRankTableForGrow).stubs().will(invoke(+[](RankInfoDetectService* service) {
+        service->rankTable_.rankCount = 2;
+        return HCCL_SUCCESS;
+    }));
+    MOCKER_CPP(&RankInfoDetectService::BroadcastRankTableForGrow)
+        .expects(exactly(2))
+        .will(invoke(+[](RankInfoDetectService* service) {
+            EXPECT_EQ(RankInfoDetectService::GrowState::RUNNING, service->GetGrowState());
+            EXPECT_EQ(2U, service->rankTable_.rankCount);
+            service->currentStep_ = 1;
+            return HCCL_SUCCESS;
+        }));
+    MOCKER_CPP(&RankInfoDetectService::RollbackNewConnections)
+        .expects(exactly(2))
+        .will(invoke(+[](RankInfoDetectService* service) {
+            EXPECT_EQ(1U, service->currentStep_); // 不能在错误广播前回滚连接。
+            return HCCL_SUCCESS;
+        }));
+    for (HcclResult result : {HCCL_E_PARA, HCCL_E_NOT_SUPPORT}) {
+        SCOPED_TRACE(result);
+        rankInfoDetectService_->growState_ = RankInfoDetectService::GrowState::RUNNING;
+        rankInfoDetectService_->rankTable_.rankCount = 1;
+        rankInfoDetectService_->currentStep_ = 0;
+        NetLayerCheckInfo report;
+        report.version = NetLayerCheckInfo::VERSION;
+        report.explicitSelection = 1;
+        report.result = result;
+        rankInfoDetectService_->netLayerCheckInfos_[0] = report;
+        EXPECT_EQ(result, rankInfoDetectService_->SetupGrowLoop());
+        EXPECT_EQ(1U, rankInfoDetectService_->rankTable_.rankCount);
+        EXPECT_EQ(RankInfoDetectService::GrowState::ERROR, rankInfoDetectService_->GetGrowState());
+        RankTableInfo rankTable;
+        rankTable.rankCount = 99;
+        EXPECT_EQ(result, rankInfoDetectService_->WaitForCollectComplete(rankTable));
+        EXPECT_EQ(99U, rankTable.rankCount);
+    }
 }
 
 // 验证 Shutdown 后 TriggerGrowCollect 返回 HCCL_E_INTERNAL

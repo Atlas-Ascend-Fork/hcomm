@@ -12,6 +12,8 @@ set(hccl_utest_platform_hcom_list
     main.cc
     ut_hcom_common.cc
     ut_comm_config.cc
+    ut_net_layer_selection.cc
+    ut_hccl_comm_config.cc
     ut_hccl_error_manager.cc
     ut_detect_connect_anomalies.cc
 )

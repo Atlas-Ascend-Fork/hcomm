@@ -45,7 +45,7 @@ HcclResult HcclRankGraphGetEndpointNum(HcclComm comm, uint32_t layer, uint32_t t
 
 ## Constraints
 
-None
+- On Ascend 950PR&950DT products with layer selection configured, querying a disabled layer, including `netLayer=0`, returns `HCCL_E_PARA`. Retained local grouping information does not provide an endpoint count for that layer.
 
 ## Example
 

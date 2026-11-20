@@ -11,8 +11,14 @@
 #include "gtest/gtest.h"
 #include <mockcpp/mockcpp.hpp>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <cstdint>
+#include <cstddef>
+#include <iterator>
+#include <string>
+#include <vector>
 
 #include <hccl/hccl_comm.h>
 #include <hccl/hccl_inner.h>
@@ -204,6 +210,27 @@ TEST_F(CommConfigTest, utCommConfig_version_compatibility_scq_depth_v11)
     EXPECT_EQ(commConfig.GetConfigSqDepth(), 128U);
     EXPECT_EQ(commConfig.GetConfigScqDepth(), HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET);
     GlobalMockObject::verify();
+}
+
+TEST_F(CommConfigTest, utCommConfig_version_compatibility_net_layer_v13)
+{
+    CommConfigHandle configHandle{};
+    for (char value : configHandle.netLayer) {
+        EXPECT_EQ(value, '\0');
+    }
+
+    HcclCommConfig userConfig{};
+    HcclCommConfigInit(&userConfig);
+    userConfig.hcclBufferSize = 300;
+    userConfig.hcclDeterministic = 0;
+    userConfig.hcclChannelSqDepth = 128U;
+    userConfig.hcclChannelScqDepth = 256U;
+    // legacy只读取原配置项，不解析或启用选层字段。
+    std::fill(std::begin(userConfig.hccl_use_net_layer), std::end(userConfig.hccl_use_net_layer), 'x');
+    CommConfig commConfig("comm_ID");
+    EXPECT_EQ(commConfig.Load(&userConfig), HCCL_SUCCESS);
+    EXPECT_EQ(commConfig.GetConfigSqDepth(), 128U);
+    EXPECT_EQ(commConfig.GetConfigScqDepth(), 256U);
 }
 
 TEST_F(CommConfigTest, utCommConfig_default_env_config)

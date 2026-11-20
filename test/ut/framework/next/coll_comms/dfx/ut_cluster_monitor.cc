@@ -9,6 +9,7 @@
  */
 
 #include <gtest/gtest.h>
+#include "hccl/hccl_comm.h"
 #include "mockcpp/mokc.h"
 #include <mockcpp/mockcpp.hpp>
 
@@ -23,6 +24,8 @@
 #include "hccl_comm_pub.h"
 #include "rank_graph_v2.h"
 #include "new_rank_info.h"
+#include "hcclCommTaskException.h"
+#include "ccuTaskException.h"
 #undef private
 #include "endpoint_pair/hccl_comm_socket_c_adpt_pub.h"
 #include "base_config_legacy.h"
@@ -781,14 +784,18 @@ TEST_F(ClusterMonitorTest, Ut_RegisterToClusterMonitor_When_Normal_Expect_Succes
     cclBuffer.addr = (void*)0x1000;
     char commName[128] = {};
     std::shared_ptr<hccl::hcclComm> hcclCommPtr = std::make_shared<hccl::hcclComm>(1, 1, commName);
-    HcclCommConfig config;
+    HcclCommConfig config{};
+    HcclCommConfigInit(&config);
+    config.hcclDeterministic = 0;
     config.hcclOpExpansionMode = 1;           // 非CCU模式，避免拉起CCU平台层
     config.hcclRdmaTrafficClass = 0xFFFFFFFF; // 不配置RDMA Traffic Class
     config.hcclRdmaServiceLevel = 0xFFFFFFFF; // 不配置RDMA Service Level
     config.hcclQos = 0xFFFFFFFF;
     unsetenv("HCCL_DFS_CONFIG");
     HcclResult ret = hcclCommPtr->InitCollComm(commV2, rankGraphV2.get(), rank, cclBuffer, commName, &config);
+    ASSERT_EQ(ret, HCCL_SUCCESS);
     hccl::CollComm* collComm = hcclCommPtr->GetCollComm();
+    ASSERT_NE(collComm, nullptr);
     HcclComm comm = static_cast<HcclComm>(hcclCommPtr.get());
 
     ret = g_monitor.RegisterToClusterMonitor(comm);
@@ -810,13 +817,17 @@ TEST_F(ClusterMonitorTest, Ut_UnRegisterToClusterMonitor_When_Normal_Expect_Succ
     cclBuffer.addr = (void*)0x1000;
     char commName[128] = {"comm1"};
     std::shared_ptr<hccl::hcclComm> hcclCommPtr = std::make_shared<hccl::hcclComm>(1, 1, commName);
-    HcclCommConfig config;
+    HcclCommConfig config{};
+    HcclCommConfigInit(&config);
+    config.hcclDeterministic = 0;
     config.hcclOpExpansionMode = 1;           // 非CCU模式，避免拉起CCU平台层
     config.hcclRdmaTrafficClass = 0xFFFFFFFF; // 不配置RDMA Traffic Class
     config.hcclRdmaServiceLevel = 0xFFFFFFFF; // 不配置RDMA Service Level
     config.hcclQos = 0xFFFFFFFF;
     HcclResult ret = hcclCommPtr->InitCollComm(commV2, rankGraphV2.get(), rank, cclBuffer, commName, &config);
+    ASSERT_EQ(ret, HCCL_SUCCESS);
     hccl::CollComm* collComm = hcclCommPtr->GetCollComm();
+    ASSERT_NE(collComm, nullptr);
     HcclComm comm = static_cast<HcclComm>(hcclCommPtr.get());
 
     std::string commKey(commName);
@@ -929,13 +940,15 @@ TEST_F(ClusterMonitorTest, Ut_GetRemEndpointDescs_When_Normal_Expect_Success)
     cclBuffer.type = HcclMemType::HCCL_MEM_TYPE_HOST;
     cclBuffer.addr = (void*)0x1000;
     char commName[128] = {};
-    HcclCommConfig config;
+    HcclCommConfig config{};
+    HcclCommConfigInit(&config);
+    config.hcclDeterministic = 0;
     config.hcclOpExpansionMode = 1;
     config.hcclRdmaTrafficClass = 0xFFFFFFFF;
     config.hcclRdmaServiceLevel = 0xFFFFFFFF;
     config.hcclQos = 0xFFFFFFFF;
     unsetenv("HCCL_DFS_CONFIG");
-    hcclCommPtr->InitCollComm(commV2, rankGraphV2.get(), rank, cclBuffer, commName, &config);
+    ASSERT_EQ(hcclCommPtr->InitCollComm(commV2, rankGraphV2.get(), rank, cclBuffer, commName, &config), HCCL_SUCCESS);
 
     HcclComm comm = static_cast<HcclComm>(hcclCommPtr.get());
     std::map<uint32_t, std::vector<UIDContext>> uidCtxs;
@@ -945,6 +958,100 @@ TEST_F(ClusterMonitorTest, Ut_GetRemEndpointDescs_When_Normal_Expect_Success)
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(netLayersVector.size(), 1);
     EXPECT_EQ(netLayersVector[0], 0);
+}
+
+TEST_F(ClusterMonitorTest, Ut_GetRemEndpointDescs_When_NoLayerZero_Expect_DistinctDeviceIdentities)
+{
+    Hccl::RankGraph graph(0);
+    for (Hccl::RankId rank : {0, 1}) {
+        // 两台服务器的 localId 相同，不能使用共享的 layer 2 实例标识设备。
+        ASSERT_EQ(HCCL_SUCCESS, graph.AddPeer(std::make_shared<Hccl::NetInstance::Peer>(rank, 0, 0, 0)));
+    }
+    graph.layer0NetInstIds_ = {{0, "server0"}, {1, "server1"}};
+    hccl::CollComm comm(nullptr, 0, "selected-dfx", {}, hccl::CollCommInitMode::simpleMode);
+    ClusterMonitor monitor;
+    uint32_t ranks[] = {0, 1};
+    uint32_t* rankPtr = ranks;
+    uint32_t count = 2;
+    MOCKER(HcclRankGraphGetRanksByLayer)
+        .stubs()
+        .with(any(), eq(2U), outBoundP(&rankPtr, sizeof(rankPtr)), outBoundP(&count, sizeof(count)))
+        .will(returnValue(HCCL_SUCCESS));
+    std::map<uint32_t, std::vector<UIDContext>> contexts;
+    std::set<uint32_t> seen;
+    monitor.GetRemEndpointDescsPerLayer(2, nullptr, &graph, &comm, contexts, seen);
+    ASSERT_EQ(2U, contexts[2].size());
+    EXPECT_EQ("server0/0", monitor.GetUID(contexts[2][0].uid));
+    EXPECT_EQ("server1/0", monitor.GetUID(contexts[2][1].uid));
+    EXPECT_EQ("server0/0", monitor.GetUID(monitor.myRankUID_));
+    EXPECT_EQ(2U, monitor.commIdMap_[comm.GetCommId()].size());
+    monitor.GetRemEndpointDescsPerLayer(2, nullptr, &graph, &comm, contexts, seen);
+    EXPECT_EQ(2U, contexts[2].size());
+    EXPECT_EQ(0U, graph.GetLevelNum()); // 读取身份不会补建任何通信层。
+}
+
+TEST_F(ClusterMonitorTest, Ut_CqeIdentity_When_NoLayerZero_Expect_OriginalIdentityAndSafeFailure)
+{
+    Hccl::RankGraph graph(0);
+    ASSERT_EQ(HCCL_SUCCESS, graph.AddPeer(std::make_shared<Hccl::NetInstance::Peer>(0, 0, 0, 0)));
+    graph.layer0NetInstIds_.emplace(0, "server0");
+    void* graphPtr = &graph;
+    MOCKER_CPP(&Hccl::HcclCommunicator::GetRankGraphV2)
+        .stubs()
+        .with(outBound(graphPtr))
+        .will(returnValue(HCCL_SUCCESS));
+    hccl::CollComm comm(reinterpret_cast<void*>(0x2000), 0, "selected-cqe", {}, hccl::CollCommInitMode::simpleMode);
+    TaskExceptionHost handler;
+    std::string instanceId;
+    handler.GetAicpuCqeErrNetInstanceByRankId(&comm, 0, instanceId);
+    EXPECT_EQ("server0", instanceId);
+    for (auto* input : {&comm, static_cast<hccl::CollComm*>(nullptr)}) {
+        instanceId = "stale";
+        handler.GetAicpuCqeErrNetInstanceByRankId(input, 99, instanceId);
+        EXPECT_TRUE(instanceId.empty());
+    }
+}
+
+TEST_F(ClusterMonitorTest, Ut_CcuIdentityCallback_When_NoLayerZero_Expect_OriginalIdentity)
+{
+    Hccl::RankGraph graph(0);
+    ASSERT_EQ(HCCL_SUCCESS, graph.AddPeer(std::make_shared<Hccl::NetInstance::Peer>(0, 0, 0, 0)));
+    graph.layer0NetInstIds_.emplace(0, "server0");
+    void* graphPtr = &graph;
+    hccl::CollComm comm(reinterpret_cast<void*>(0x2000), 0, "selected-ccu", {}, hccl::CollCommInitMode::simpleMode);
+    Hccl::TaskParam taskParam{};
+    Hccl::TaskInfo taskInfo(1, 2, 3, taskParam, nullptr, false);
+    taskInfo.dfxOpInfo_ = std::make_shared<Hccl::DfxOpInfo>();
+    taskInfo.dfxOpInfo_->comm_ = &comm;
+    CcuErrorInfo errorInfo{};
+    std::pair<Hccl::IpAddress, Hccl::IpAddress> addresses;
+    const auto checkOriginalIdentity
+        = +[](u32 remoteLocalId, u32, uint16_t, std::string, std::string, std::string instanceId) {
+              EXPECT_EQ(0U, remoteLocalId);
+              EXPECT_EQ("server0", instanceId);
+          };
+    const auto checkInvalidIdentity
+        = +[](u32 remoteLocalId, u32, uint16_t, std::string, std::string, std::string instanceId) {
+              EXPECT_EQ(Hccl::DFX_INVALID_RANKID, remoteLocalId);
+              EXPECT_TRUE(instanceId.empty());
+          };
+    // 每个场景独立设桩，避免 invoke 顺序桩提前切换到下一回调。
+    for (u32 rankId : {0U, 99U}) {
+        SCOPED_TRACE(rankId);
+        MOCKER_CPP(&Hccl::HcclCommunicator::GetRankGraphV2)
+            .stubs()
+            .with(outBound(graphPtr))
+            .will(returnValue(HCCL_SUCCESS));
+        MOCKER(CcuTaskException::GetChannleIdByCcuErrorInfo).stubs().will(returnValue(uint16_t{1}));
+        MOCKER(CcuTaskException::GetAddrPairByChannelId).stubs().will(returnValue(addresses));
+        MOCKER(CcuTaskException::GetRankIdByChannelId).stubs().will(returnValue(rankId));
+        MOCKER(CcuTaskException::ClusterMoniterGetCcuCqeErrInfo)
+            .expects(once())
+            .will(invoke(rankId == 0 ? checkOriginalIdentity : checkInvalidIdentity));
+        // 走真实 L2 回调；无效 rank 保持解码器设置的默认输出。
+        CcuTaskException::GetCcuCqeErrorInfo(errorInfo, taskInfo, 0, 1);
+        GlobalMockObject::verify();
+    }
 }
 
 TEST_F(ClusterMonitorTest, Ut_GetSamePlaneRank_When_Size2_Expect_InsertClusterMonitorCtx)

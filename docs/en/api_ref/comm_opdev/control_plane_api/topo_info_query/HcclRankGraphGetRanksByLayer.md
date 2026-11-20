@@ -54,6 +54,7 @@ HcclResult HcclRankGraphGetRanksByLayer(HcclComm comm, uint32_t netLayer, uint32
 
 ## Constraints
 
+- On Ascend 950PR&950DT products with layer 0 disabled, querying `netLayer=0` still returns the current rank's group members and member count if local group identity information is retained; a sub-communicator includes only its own members. This does not enable layer 0 communication. Without that identity information, the query returns `HCCL_E_PARA`.
 - The returned memory is managed by the library. The caller must not release it.
 - Copy the returned data in a timely manner. Repeated calls in the same communicator may invalidate the previous result.
 

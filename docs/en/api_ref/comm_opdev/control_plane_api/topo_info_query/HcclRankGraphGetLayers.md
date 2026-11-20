@@ -48,6 +48,7 @@ HcclResult HcclRankGraphGetLayers(HcclComm comm, uint32_t **netLayers, uint32_t 
 
 ## Constraints
 
+- On Ascend 950PR&950DT products with layer selection configured, this API returns only the allowed layers actually built for the current rank. Disabled layers, including layer 0, are excluded, and layer IDs are not renumbered.
 - The returned memory is managed by the library. The caller must not release it.
 - Copy the returned data in a timely manner. Repeated calls in the same communicator may invalidate the previous result.
 

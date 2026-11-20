@@ -13,8 +13,57 @@
 #include "checkcrc.h"
 #include "ip_address.h"
 #include "comm_manager.h"
+#include <cstddef>
+#include <cstring>
+#include "coll_comm_config.h"
+#include "comm_config_pub.h"
 
 using namespace Hccl;
+
+namespace {
+// 选层快照尾部校验魔数；重命名不改变已保存快照的字节格式。
+constexpr uint32_t NET_LAYER_SNAPSHOT_MAGIC = 0x4E4C0001;
+
+HcclResult ReadConfigHeader(const HcclCommConfig& config, CommConfigInfo& header)
+{
+    // 仅读取原配置头的有效字段，不扩大到保留区。
+    CHK_SAFETY_FUNC_RET(memcpy_s(&header, sizeof(header), config.reserved, offsetof(CommConfigInfo, reserved)));
+    return HCCL_SUCCESS;
+}
+
+bool HasNetLayerConfig(const CommConfigInfo& header)
+{
+    return header.magicWord == HCCL_COMM_CONFIG_MAGIC_WORD
+           && header.version >= hccl::HCCL_COMM_CONFIG_NET_LAYER_VERSION;
+}
+
+// 快照私有辅助：仅校验和复制选层字段，不读取环境或重新解析策略。
+HcclResult CopyNetLayerConfig(const HcclCommConfig& input, HcclCommConfig& output)
+{
+    CommConfigInfo header{};
+    CHK_RET(ReadConfigHeader(input, header));
+    if (!HasNetLayerConfig(header)) {
+        output.hccl_use_net_layer[0] = '\0';
+        return HCCL_SUCCESS;
+    }
+    const size_t requiredSize = offsetof(HcclCommConfig, hccl_use_net_layer) + HCCL_COMM_NET_LAYER_MAX_LENGTH;
+    if (header.configSize < requiredSize) {
+        HCCL_ERROR(
+            "[%s] config is too short for hccl_use_net_layer: version[%u], size[%zu], requiredSize[%zu]", __func__,
+            header.version, header.configSize, requiredSize);
+        return HCCL_E_PARA;
+    }
+    if (std::memchr(input.hccl_use_net_layer, '\0', HCCL_COMM_NET_LAYER_MAX_LENGTH) == nullptr) {
+        HCCL_ERROR(
+            "[%s] hccl_use_net_layer has no terminator within capacity[%u]", __func__, HCCL_COMM_NET_LAYER_MAX_LENGTH);
+        return HCCL_E_PARA;
+    }
+    CHK_SAFETY_FUNC_RET(memcpy_s(
+        output.hccl_use_net_layer, sizeof(output.hccl_use_net_layer), input.hccl_use_net_layer,
+        HCCL_COMM_NET_LAYER_MAX_LENGTH));
+    return HCCL_SUCCESS;
+}
+} // namespace
 
 SnapShotParser& SnapShotParser::GetInstance()
 {
@@ -82,7 +131,7 @@ HcclResult SnapShotParser::DeAllSnapShotStaticBuf(BinaryStream& buf, SnapShotBuf
     string tmpGroupName;
     buf >> tmpGroupName;
     const bool hasGroupingPolicy
-        = std::memcmp(localBuff.snapShotPub.snapshotVersion, SNAPSHOT_VERSION, SNAPSHOT_VERSION_SIZE) == 0;
+        = std::memcmp(localBuff.snapShotPub.snapshotVersion, LEGACY_SNAPSHOT_VERSION, SNAPSHOT_VERSION_SIZE) != 0;
     CHK_RET(DeserializeCommInfo(buf, localBuff.snapshot, hasGroupingPolicy));
     s32 ret = memcpy_s(
         localBuff.snapshot.groupName, sizeof(localBuff.snapshot.groupName), tmpGroupName.c_str(), tmpGroupName.size());
@@ -103,7 +152,7 @@ HcclResult SnapShotParser::DeAllSnapShotStaticBuf(BinaryStream& buf, SnapShotBuf
             // 解析  子通信域
             string subComGroupName;
             buf >> subComGroupName;
-            DeserializeSubCommInfo(buf, subSnapshot);
+            CHK_RET(DeserializeSubCommInfo(buf, subSnapshot));
             s32 tmpRet = memcpy_s(
                 subSnapshot.groupName, sizeof(subSnapshot.groupName), subComGroupName.c_str(), subComGroupName.size());
             if (tmpRet != 0) {
@@ -323,12 +372,51 @@ void SnapShotParser::SerializeCommVersionInfo(BinaryStream& binStream) const
     binStream << snapshotVersion << cannVersion << hcclVersion;
 }
 
+HcclResult SnapShotParser::SerializeNetLayerConfig(const HcclCommConfig& config, BinaryStream& stream) const
+{
+    CommConfigInfo header{};
+    CHK_RET(ReadConfigHeader(config, header));
+    if (!HasNetLayerConfig(header)) {
+        return HCCL_SUCCESS; // 旧版本快照不增加字节，保持后续字段位置。
+    }
+    HcclCommConfig copy{};
+    CHK_RET(CopyNetLayerConfig(config, copy));
+    // 固定长度快照只保存有效字符串，避免带出调用方未初始化的尾部字节。
+    char expression[HCCL_COMM_NET_LAYER_MAX_LENGTH]{};
+    CHK_SAFETY_FUNC_RET(strcpy_s(expression, sizeof(expression), copy.hccl_use_net_layer));
+    stream << expression << NET_LAYER_SNAPSHOT_MAGIC;
+    return HCCL_SUCCESS;
+}
+
+HcclResult SnapShotParser::DeserializeNetLayerConfig(BinaryStream& stream, HcclCommConfig& config) const
+{
+    config.hccl_use_net_layer[0] = '\0';
+    CommConfigInfo header{};
+    CHK_RET(ReadConfigHeader(config, header));
+    if (!HasNetLayerConfig(header)) {
+        return HCCL_SUCCESS;
+    }
+    HcclCommConfig copy{};
+    CHK_SAFETY_FUNC_RET(memcpy_s(copy.reserved, sizeof(copy.reserved), config.reserved, sizeof(copy.reserved)));
+    uint32_t magic = 0;
+    stream >> copy.hccl_use_net_layer >> magic;
+    if (magic != NET_LAYER_SNAPSHOT_MAGIC) {
+        HCCL_ERROR(
+            "[%s] invalid or truncated netLayer snapshot: magic[0x%x], expected[0x%x]", __func__, magic,
+            NET_LAYER_SNAPSHOT_MAGIC);
+        return HCCL_E_PARA; // 固定尾标记避免截断快照被当成空配置。
+    }
+    return CopyNetLayerConfig(copy, config);
+}
+
 void SnapShotParser::SerializeCommConfigInfo(const HcclCommConfig& config, BinaryStream& binStream) const
 {
     HCCL_INFO(
         "[%s]Snapshot saving: Start to serial commConfig info, hcclBufferSize[%u] MB", __func__, config.hcclBufferSize);
     binStream << config.reserved << config.hcclBufferSize << config.hcclDeterministic << config.hcclCommName
               << config.hcclUdi;
+    CHK_RET_THROW(
+        InvalidParamsException, "serialize netLayer config failed", SerializeNetLayerConfig(config, binStream));
 }
 
 void SnapShotParser::SerializeParamsInfo(const CommParams& commParams, BinaryStream& binStream) const
@@ -393,7 +481,9 @@ HcclResult SnapShotParser::DeserializeCommVersionInfo(BinaryStream& binaryStream
     binaryStream >> snapshotPub.snapshotVersion >> snapshotPub.cannVersion >> snapshotPub.hcclVersion;
     if (std::memcmp(snapshotPub.snapshotVersion, LEGACY_SNAPSHOT_VERSION, SNAPSHOT_VERSION_SIZE) == 0) {
         HCCL_WARNING("[DeserializeCommVersionInfo] legacy snapshot; recovering with virtual grouping disabled");
-    } else if (std::memcmp(snapshotPub.snapshotVersion, SNAPSHOT_VERSION, SNAPSHOT_VERSION_SIZE) != 0) {
+    } else if (
+        std::memcmp(snapshotPub.snapshotVersion, GROUPING_SNAPSHOT_VERSION, SNAPSHOT_VERSION_SIZE) != 0
+        && std::memcmp(snapshotPub.snapshotVersion, SNAPSHOT_VERSION, SNAPSHOT_VERSION_SIZE) != 0) {
         HCCL_ERROR("[DeserializeCommVersionInfo] unsupported snapshot version; recreate the communicator");
         return HCCL_E_NOT_SUPPORT;
     }
@@ -405,6 +495,7 @@ HcclResult SnapShotParser::DeserializeCommConfigInfo(BinaryStream& binaryStream,
     HCCL_INFO("[%s]Snapshot recovering: Start to deserialize commConfig info.", __func__);
     binaryStream >> config.reserved >> config.hcclBufferSize >> config.hcclDeterministic >> config.hcclCommName
         >> config.hcclUdi;
+    CHK_RET(DeserializeNetLayerConfig(binaryStream, config));
     config.hcclBufferSize = 0;
     HCCL_INFO(
         "Snapshot recovering: hcclBufferSize[%u] MB, hcclDeterministic[%u], hcclCommName[%s], "
@@ -475,6 +566,8 @@ void SnapShotParser::SerializeSubCommConfigInfo(const HcclCommConfig& subConfig,
         subConfig.hcclBufferSize, subConfig.hcclDeterministic, subConfig.hcclCommName, subConfig.hcclUdi);
     binStream << subConfig.reserved << subConfig.hcclBufferSize << subConfig.hcclDeterministic << subConfig.hcclCommName
               << subConfig.hcclUdi;
+    CHK_RET_THROW(
+        InvalidParamsException, "serialize netLayer config failed", SerializeNetLayerConfig(subConfig, binStream));
 }
 
 void SnapShotParser::SerializeRankIds(const std::vector<u32>& rankIds, BinaryStream& binStream) const
@@ -504,6 +597,7 @@ HcclResult SnapShotParser::DeserializeSubCommConfigInfo(BinaryStream& binaryStre
     HCCL_INFO("[%s]Snapshot recovering: Start to deserialize sub commConfig info.", __func__);
     binaryStream >> subConfig.reserved >> subConfig.hcclBufferSize >> subConfig.hcclDeterministic
         >> subConfig.hcclCommName >> subConfig.hcclUdi;
+    CHK_RET(DeserializeNetLayerConfig(binaryStream, subConfig));
     HCCL_INFO(
         "Snapshot recovering: hcclReserved[%s], hcclBufferSize[%u] MB, hcclDeterministic[%u], hcclCommName[%s], "
         "hcclUdi[%s]",

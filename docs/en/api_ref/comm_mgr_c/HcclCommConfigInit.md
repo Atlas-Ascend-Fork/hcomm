@@ -24,6 +24,8 @@
 
 Initializes the communicator configuration.
 
+The current configuration version is V13. `hccl_use_net_layer` defaults to an empty string (not configured). For selection rules, see [HcclCommConfig](./data_type_definition/HcclCommConfig.md).
+
 ## Function Prototype
 
 ```c

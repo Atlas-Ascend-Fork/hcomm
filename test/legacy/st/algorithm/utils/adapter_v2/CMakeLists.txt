@@ -12,6 +12,7 @@ set (include_list
     ${checker_include_list}
     ${HCOMM_CODE_LEGACY}/common
     ${HCOMM_DIR}/src/base_comm/common/debug
+    ${HCOMM_DIR}/src/coll_communicator_mgr/config_mgr
 
     ${UTILS_DIR}/adapter_v1/aiv
 

@@ -67,14 +67,15 @@ namespace {
         if (rankGraph == nullptr) {
             return;
         }
-        remoteLocalId = rankGraph->GetLocalId(rankId);
-        const Hccl::NetInstance* netInstance = rankGraph->GetNetInstanceByRankId(0, rankId);
-        if (netInstance == nullptr) {
+        // 查询裁剪前保存的设备归属，不依赖 layer 0 通信实例。
+        std::string localInstanceId;
+        if (rankGraph->GetLayer0NetInstanceId(rankId, localInstanceId) != HCCL_SUCCESS) {
             HCCL_ERROR(
-                "[CcuTaskExceptionAdpt][GetCcuCqeErrInfoByRankIdImpl] netInstance is nullptr, rankId[%u].", rankId);
+                "[CcuTaskExceptionAdpt][GetCcuCqeErrInfoByRankIdImpl] local identity not found, rankId[%u].", rankId);
             return;
         }
-        netInstanceId = netInstance->GetNetInstId();
+        remoteLocalId = rankGraph->GetLocalId(rankId);
+        netInstanceId = localInstanceId;
     }
 
     HcclResult GetChannelRemoteRankIdImpl(void* comm, u64 channelHandle, u32& remoteRank)

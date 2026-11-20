@@ -22,17 +22,26 @@ namespace {
     }
 } // namespace
 
-HcclResult RegisterRankGraphBuilderBridge(const RankGraphBuilderBridge& bridge)
+HcclResult RegisterRankGraphBuilderBridge(const RankGraphBuilderBridge& bridge, uint32_t version, uint32_t size)
 {
-    // 构建、恢复和所有权接管回调必须同时发布，确保返回对象始终能由 hcomm 侧正确释放。
+    // 先校验内部协议，再读取回调，禁止按不匹配的表布局解释函数指针。
+    CHK_PRT_RET(
+        version != RANK_GRAPH_BUILDER_BRIDGE_VERSION || size != sizeof(RankGraphBuilderBridge),
+        HCCL_ERROR(
+            "[%s] incompatible bridge: version[%u], size[%u], expected version[%u], size[%zu]", __func__, version, size,
+            RANK_GRAPH_BUILDER_BRIDGE_VERSION, sizeof(RankGraphBuilderBridge)),
+        HCCL_E_NOT_SUPPORT);
+    // 构建、恢复、子域和所有权接管回调必须同时发布，确保对象由 hcomm 侧正确释放。
     if (bridge.buildFromString == nullptr || bridge.buildFromRankTable == nullptr || bridge.recoverBuild == nullptr
-        || bridge.adoptRankGraph == nullptr) {
+        || bridge.adoptRankGraph == nullptr || bridge.createSubGraph == nullptr) {
+        HCCL_ERROR("[%s] RankGraphBuilder bridge callbacks are incomplete.", __func__);
         return HCCL_E_PTR;
     }
     auto& registeredBridge = BridgeSlot();
     // bridge 在动态库装载期完成一次注册，运行阶段不允许替换回调集合。
     if (registeredBridge.buildFromString != nullptr || registeredBridge.buildFromRankTable != nullptr
-        || registeredBridge.recoverBuild != nullptr || registeredBridge.adoptRankGraph != nullptr) {
+        || registeredBridge.recoverBuild != nullptr || registeredBridge.adoptRankGraph != nullptr
+        || registeredBridge.createSubGraph != nullptr) {
         HCCL_ERROR("[%s] RankGraphBuilder bridge has already been registered.", __func__);
         return HCCL_E_INTERNAL;
     }
@@ -45,9 +54,10 @@ const RankGraphBuilderBridge* GetRankGraphBuilderBridge()
     const auto& bridge = BridgeSlot();
     // 不向调用方暴露不完整回调表，避免构建成功后缺少匹配的销毁路径。
     if (bridge.buildFromString == nullptr || bridge.buildFromRankTable == nullptr || bridge.recoverBuild == nullptr
-        || bridge.adoptRankGraph == nullptr) {
+        || bridge.adoptRankGraph == nullptr || bridge.createSubGraph == nullptr) {
         return nullptr;
     }
     return &bridge;
 }
+
 } // namespace Hccl

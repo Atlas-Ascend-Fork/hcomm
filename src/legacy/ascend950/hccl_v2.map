@@ -442,8 +442,8 @@ global:
         "Hccl::RdmaHandleManager::IsHandleValid(void*)";  # _ZN4Hccl17RdmaHandleManager13IsHandleValidEPv
         "Hccl::RdmaHandleManager::UboeIpv4ToEid(Hccl::IpAddress const&, Hccl::IpAddress&, unsigned int)";  # _ZN4Hccl17RdmaHandleManager13UboeIpv4ToEidERKNS_9IpAddressERS1_j
         "Hccl::RdmaLocalNotify::RdmaLocalNotify(void*, bool)";  # _ZN4Hccl15RdmaLocalNotifyC1EPvb
-        "Hccl::RegisterRankGraphBuilderBridge(Hccl::RankGraphBuilderBridge const&)";  # _ZN4Hccl30RegisterRankGraphBuilderBridgeERKNS_22RankGraphBuilderBridgeE
-        "Hccl::RegisterRootInfoDetectBridge(Hccl::RootInfoDetectBridge const&)";  # _ZN4Hccl28RegisterRootInfoDetectBridgeERKNS_20RootInfoDetectBridgeE
+        "Hccl::RegisterRankGraphBuilderBridge(Hccl::RankGraphBuilderBridge const&, unsigned int, unsigned int)";
+        "Hccl::RegisterRootInfoDetectBridge(Hccl::RootInfoDetectBridge const&, unsigned int, unsigned int)";
         "Hccl::ReleaseUbConnectionTp(int, Hccl::IpAddress const&, Hccl::IpAddress const&, Hccl::TpProtocol, Hccl::TpInfo&, unsigned int)";  # _ZN4Hccl21ReleaseUbConnectionTpEiRKNS_9IpAddressES2_NS_10TpProtocolERNS_6TpInfoEj
         "Hccl::RemoteIpcRmaBuffer::RemoteIpcRmaBuffer(Hccl::Serializable const&, unsigned char)";  # _ZN4Hccl18RemoteIpcRmaBufferC1ERKNS_12SerializableEh
         "Hccl::RemoteRdmaRmaBuffer::RemoteRdmaRmaBuffer(void*, Hccl::Serializable const&)";  # _ZN4Hccl19RemoteRdmaRmaBufferC1EPvRKNS_12SerializableE

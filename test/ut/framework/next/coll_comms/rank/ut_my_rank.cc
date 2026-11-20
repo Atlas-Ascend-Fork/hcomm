@@ -3584,29 +3584,23 @@ TEST_F(MyRankTest, Ut_RankGraphV2_GetNetInstId_When_NullThenNormal_Expect_NotFou
 {
     auto* v2 = dynamic_cast<RankGraphV2*>(rankGraph.get());
     ASSERT_NE(v2, nullptr);
-    std::string netInstId;
+    // 身份查询要求 rank 存在，使用真实图验证，不绕过成员检查。
+    auto peer = std::make_shared<Hccl::NetInstance::Peer>(0, 0, 0, 0);
+    ASSERT_EQ(realRankGraph.AddPeer(peer), HCCL_SUCCESS);
+    std::string netInstId = "stale";
 
     // 轮1：netLayer0 无 netInstance → E_NOT_FOUND
-    MOCKER_CPP(
-        &Hccl::RankGraph::GetNetInstanceByRankId,
-        const Hccl::NetInstance* (Hccl::RankGraph::*)(u32, Hccl::RankId) const)
-        .stubs()
-        .will(returnValue(static_cast<const Hccl::NetInstance*>(nullptr)));
     EXPECT_EQ(v2->GetNetInstId(0, netInstId), HCCL_E_NOT_FOUND);
     EXPECT_TRUE(netInstId.empty());
-    GlobalMockObject::verify();
 
     // 轮2：正常返回 netLayer0 的 netInstId
-    Hccl::NetInstance* fakeInstance = reinterpret_cast<Hccl::NetInstance*>(0x1);
-    MOCKER_CPP(
-        &Hccl::RankGraph::GetNetInstanceByRankId,
-        const Hccl::NetInstance* (Hccl::RankGraph::*)(u32, Hccl::RankId) const)
-        .stubs()
-        .will(returnValue(static_cast<const Hccl::NetInstance*>(fakeInstance)));
-    MOCKER_CPP(&Hccl::NetInstance::GetNetInstId).stubs().will(returnValue(std::string("S1")));
+    auto instance = std::make_shared<Hccl::InnerNetInstance>(0, "S1");
+    instance->AddRankId(0);
+    ASSERT_EQ(instance->AddNode(peer), HCCL_SUCCESS);
+    ASSERT_EQ(peer->AddNetInstance(instance), HCCL_SUCCESS);
+    ASSERT_EQ(realRankGraph.AddNetInstance(instance), HCCL_SUCCESS);
     EXPECT_EQ(v2->GetNetInstId(0, netInstId), HCCL_SUCCESS);
     EXPECT_EQ(netInstId, "S1");
-    GlobalMockObject::verify();
 }
 
 TEST_F(MyRankTest, Ut_CollectEndpointDescs_When_EarlyReturn_Expect_ErrorMapping)

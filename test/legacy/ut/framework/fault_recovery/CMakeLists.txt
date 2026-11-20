@@ -13,3 +13,7 @@ target_sources(hccl_v2_utest
     ut_recover_info.cc
     ut_snap_shot_parse.cc
 )
+
+target_include_directories(hccl_v2_utest PRIVATE
+    ${HCCL_CODE_ROOT}/test/ut/framework/next/coll_comms/rank_graphs/common
+)

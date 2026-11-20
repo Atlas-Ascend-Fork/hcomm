@@ -28,6 +28,7 @@ if(TARGET ccl_kernel)
     )
     target_include_directories(ccl_kernel PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${HCOMM_DIR}/src/coll_communicator_mgr/config_mgr
     )
 endif()
 

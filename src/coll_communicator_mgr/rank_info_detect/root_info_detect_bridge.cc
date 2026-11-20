@@ -23,11 +23,18 @@ namespace {
     }
 } // namespace
 
-HcclResult RegisterRootInfoDetectBridge(const RootInfoDetectBridge& bridge)
+HcclResult RegisterRootInfoDetectBridge(const RootInfoDetectBridge& bridge, uint32_t version, uint32_t size)
 {
+    // 先校验内部协议，再读取回调，避免按旧签名调用。
+    CHK_PRT_RET(
+        version != ROOT_INFO_DETECT_BRIDGE_VERSION || size != sizeof(RootInfoDetectBridge),
+        HCCL_ERROR(
+            "[%s] incompatible bridge: version[%u], size[%u], expected version[%u], size[%zu]", __func__, version, size,
+            ROOT_INFO_DETECT_BRIDGE_VERSION, sizeof(RootInfoDetectBridge)),
+        HCCL_E_NOT_SUPPORT);
     // 只发布完整回调表，避免兼容入口读取到部分可用的 bridge。
-    // scalable 两槽为可选追加槽：仅要求"同时为空或同时非空"，向后兼容旧 provider。
     if (bridge.getRootInfo == nullptr || bridge.detectRankTable == nullptr) {
+        HCCL_ERROR("[%s] RootInfoDetect bridge callbacks are incomplete.", __func__);
         return HCCL_E_PTR;
     }
     if ((bridge.getRootInfoScalable == nullptr) != (bridge.detectRankTableScalable == nullptr)) {
@@ -62,4 +69,5 @@ const RootInfoDetectBridge* GetRootInfoDetectBridgeScalable()
     }
     return bridge;
 }
+
 } // namespace Hccl

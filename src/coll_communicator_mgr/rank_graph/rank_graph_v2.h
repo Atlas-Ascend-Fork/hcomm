@@ -10,6 +10,7 @@
 
 #ifndef HCOMM_RANK_GRAPH_V2_H
 #define HCOMM_RANK_GRAPH_V2_H
+#include <mutex>
 #include "rank_graph_base.h"
 #include "rank_graph_interface.h"
 namespace hccl {
@@ -19,6 +20,10 @@ public:
     RankGraphV2();
     RankGraphV2(void* rankGraphPtr);
     ~RankGraphV2() override;
+
+    // 仅在发布给查询方前调用一次；不改原图、不读环境，失败保持原视图。
+    // 使用图中保存的选层结果，校验实际层未超出允许范围；完整成员连通性由算法检查。
+    HcclResult InitNetLayerSelection();
 
     HcclResult GetRankId(uint32_t* rank) override;
     HcclResult GetRankSize(uint32_t* rankSize) override;
@@ -47,6 +52,19 @@ public:
     HcclResult GetIpIndex(uint32_t rankId, const Hccl::IpAddress& ipAddr, uint32_t& ipIndex) const override;
 
 private:
+    // 选层图拒绝查询未选择的层；默认图沿用原接口检查。
+    HcclResult CheckNetLayer(uint32_t netLayer) const;
+    // 仅在禁用 layer 0 且保留本地身份时允许分组兼容查询，不授权通信链路。
+    bool IsLayer0MetadataQuery(uint32_t netLayer) const;
+    // 一次性缓存本地成员及各组人数，同时缓存失败结果供后续查询复用。
+    HcclResult PrepareLayer0Metadata();
+    // 仅缓存服务器分组，借用数组初始化后不再修改，不包含端点或通信边。
+    std::once_flag layer0MetadataOnce_;
+    HcclResult layer0MetadataResult_{HCCL_E_NOT_FOUND};
+    std::vector<uint32_t> layer0InstSizes_;
+    std::vector<uint32_t> layer0LocalRanks_;
+    bool hasNetLayerSelection_{false};
+    uint32_t selectedLayerMask_{0};
     std::unique_ptr<Hccl::IRankGraph> pImpl;
     Hccl::RankGraph* rankGraph_{nullptr}; // 由void*构造时转换而来，供标志类查询直读，绕开IRankGraph
 };

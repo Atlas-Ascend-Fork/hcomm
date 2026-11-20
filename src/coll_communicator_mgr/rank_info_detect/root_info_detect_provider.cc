@@ -102,8 +102,12 @@ namespace {
     // root 进程复用入参 detect（已 SetupServer），非 root 进程新建 detect 走 SetupAgent。
     HcclResult DetectRankTableImpl(
         u32 nRanks, u32 rank, const HcclRootHandleV2& rootHandle, RankTableInfo& rankTable,
-        RootInfoDetectBridge::DetectContext& detectContext)
+        RootInfoDetectBridge::DetectContext& detectContext, const char* netLayerExpression)
     {
+        hccl::NetLayerSelection selection;
+        if (netLayerExpression != nullptr) {
+            CHK_RET(hccl::ReadNetLayerSelection(netLayerExpression, selection));
+        }
         s32 userDevId = 0;
         s32 devPhyId = 0;
         CHK_RET(GetCurrentDeviceIds(userDevId, devPhyId));
@@ -131,6 +135,7 @@ namespace {
             "[RankInfoDetect::%s] detect rank[%u], ptr[%p], isRoot[%d].", __func__, rank,
             static_cast<void*>(rankInfoDetectAgent.get()), static_cast<int>(rankInfoDetectAgent->IsRoot()));
 
+        rankInfoDetectAgent->SetNetLayerSelection(selection);
         CHK_RET(rankInfoDetectAgent->SetupAgent(nRanks, rank, rootHandle));
         CHK_RET(rankInfoDetectAgent->WaitComplete(rootHandle.listenPort, RANKINFO_DETECT_SERVER_STATUS_IDLE));
 
@@ -339,7 +344,8 @@ namespace {
         RootInfoDetectBridgeRegistrar()
         {
             // 静态构造函数无法向加载方返回错误；重复注册由 bridge 侧日志记录。
-            (void)RegisterRootInfoDetectBridge(ROOT_INFO_DETECT_BRIDGE);
+            (void)RegisterRootInfoDetectBridge(
+                ROOT_INFO_DETECT_BRIDGE, ROOT_INFO_DETECT_BRIDGE_VERSION, sizeof(RootInfoDetectBridge));
         }
     };
 

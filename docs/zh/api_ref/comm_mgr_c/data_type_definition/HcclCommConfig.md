@@ -8,6 +8,7 @@
 
 ```c
 const uint32_t HCCL_COMM_CONFIG_INFO_BYTES = 24;
+const uint32_t HCCL_COMM_NET_LAYER_MAX_LENGTH = 32;
 const uint32_t COMM_NAME_MAX_LENGTH = 128;
 const uint32_t BUFFER_NAME_MAX_LENGTH = 128;
 const uint32_t UDI_MAX_LENGTH = 128;
@@ -35,6 +36,7 @@ typedef struct HcclCommConfigDef {
     uint64_t hcclSymWinMaxMemSizePerRank;
     uint32_t hcclChannelSqDepth;
     uint32_t hcclChannelScqDepth;
+    char hccl_use_net_layer[HCCL_COMM_NET_LAYER_MAX_LENGTH];
 } HcclCommConfig;
 ```
 
@@ -321,6 +323,17 @@ typedef struct HcclCommConfigDef {
 
 - **hcclChannelScqDepth**：用于配置通信发送完成队列（SCQ）深度，目前仅支持Ascend 950PR&950DT系列产品，且仅在AIV展开模式和UB_CTP、UBC_TP、UB_RTP协议下可配置。配置值会向上调整为最近的2的整数次幂，调整后的有效取值范围为[64, 32768]。未配置时使用默认深度32768。其余场景下保持为无效值。当hcclChannelSqDepth与hcclChannelScqDepth同时配置时，hcclChannelScqDepth不得小于hcclChannelSqDepth（HOST、AIV场景），否则通道创建返回HCCL_E_PARA。
 
+- **hccl_use_net_layer**：配置通信域允许使用的Net Layer，仅支持Ascend 950PR&950DT系列产品。V13新增字段，默认为空字符串（未配置），旧版本配置不读取此字段。容量为32字节，包含字符串结束符，表达式最多31字节。
+
+  **注意事项：**
+
+  - 支持层号`0`～`7`，使用英文逗号分隔，例如`2`、`0,2`；`not(0)`表示排除layer 0，保留其他候选层。允许重复层号和标记间的ASCII空白，不支持中文标点、范围或嵌套表达式；列表顺序不表示优先级。
+  - 正选和排除表达式中提到的层均须存在，且显式选层结果不能为空。超长、未终止、仅含空白或其他非法配置返回`HCCL_E_PARA`，不回退到默认配置。
+  - 独立域参数非空时优先使用，不读取、不校验环境变量；参数为空时读取`HCCL_USE_NET_LAYER`，二者均未配置时保持原行为。环境变量语法相同，应在启动应用前设置，例如`export HCCL_USE_NET_LAYER='not(0)'`。
+  - 子域参数为空时继承父域允许范围与子域候选层的交集；显式配置只能收窄该范围，不重新读取环境变量。
+  - 支持RootInfo、ClusterInfo/RankTable建域及子域创建。InitAll、Scalable暂不支持显式选层，合法显式配置返回`HCCL_E_NOT_SUPPORT`，环境变量配置同样受此限制。
+  - 配置在初始化时生效，不支持动态修改。环境变量首次成功解析后在进程内复用，包括未配置状态。同域各rank应保证有效选层一致。所选层无法满足算子要求时，由后续匹配、选路或执行报错，不回退到禁用层。
+
 ## 配置优先级说明
 
 以上配置为通信域级别的配置，对于部分参数，HCCL提供了全局级别的环境变量配置，优先级如下：
@@ -350,3 +363,4 @@ typedef struct HcclCommConfigDef {
 | hcclAlgo | 配置项hcclAlgo（通信域粒度配置）> 环境变量[HCCL_ALGO](https://gitcode.com/cann/hccl/blob/master/docs/zh/user_guide/hccl_env/HCCL_ALGO.md)（全局配置）> 自适应选择算法。 |
 | hcclRetryEnable | 配置项hcclRetryEnable（通信域粒度配置）> 环境变量[HCCL_OP_RETRY_ENABLE](https://gitcode.com/cann/hccl/blob/master/docs/zh/user_guide/hccl_env/HCCL_OP_RETRY_ENABLE.md)（全局配置）> 默认值0。 |
 | hcclRetryParams | 配置项hcclRetryParams（通信域粒度配置）> 环境变量[HCCL_OP_RETRY_PARAMS](https://gitcode.com/cann/hccl/blob/master/docs/zh/user_guide/hccl_env/HCCL_OP_RETRY_PARAMS.md)（全局配置）> 默认配置（MaxCnt：1，HoldTime：5000，IntervalTime：1000）。 |
+| hccl_use_net_layer | 独立通信域：非空通信域参数 > 环境变量HCCL_USE_NET_LAYER > 原有默认行为。子通信域：非空子域参数 > 继承父域，不重新读取环境变量。 |

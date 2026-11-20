@@ -28,6 +28,7 @@
 #include "hcom_common.h"
 #include "coll_comm_mgr.h"
 #include "coll_comm.h" // HcclDevMemAcquire 的 DPUTAG 分支：CollComm/ThreadMgr 完整类型
+#include "coll_comm_config.h"
 #include "rank_consistentcy_checker.h"
 #include "../common/src/topo/topoinfo_ranktable_partition.h"
 #include "mmpa_api.h"
@@ -359,6 +360,19 @@ HcclResult HcclCommInitClusterInfoWrapper([[maybe_unused]] struct hcclAsyncJob* 
 HcclResult HcclCommInitClusterInfo(
     [[maybe_unused]] const char* clusterInfo, [[maybe_unused]] uint32_t rank, [[maybe_unused]] HcclComm* comm)
 {
+    bool isSupportV2 = false;
+    CHK_RET(hrtGetHcclV2Support(&isSupportV2));
+    if (isSupportV2) {
+        // 无配置入口只解析环境变量；未配置时沿用原流程。
+        NetLayerSelection selection;
+        CHK_RET(NetLayerSelection::LoadForIndependentComm(nullptr, selection));
+        if (selection.GetMode() != NetLayerSelectionMode::DEFAULT) {
+            HcclCommConfig config;
+            HcclCommConfigInit(&config);
+            // 环境已由 config_mgr 缓存，不在入口手动写入参数字段。
+            return HcclCommInitClusterInfoConfig(clusterInfo, rank, &config, comm);
+        }
+    }
     if (hcclGroupDepth > 0) {
         HcclResult ret = HCCL_SUCCESS;
         std::shared_ptr<struct hcclCommInitRankTableAsyncJob> job;
@@ -464,6 +478,7 @@ HcclResult HcclCommInitClusterInfoConfigWrapper([[maybe_unused]] struct hcclAsyn
     HCCLV2_FUNC_RUN(
         [&]() -> HcclResult {
             void* commV2 = nullptr;
+            // 异步任务持有入口已冻结的完整配置快照。
             CHK_RET(HcclCommInitClusterInfoConfigV2(clusterInfo, rank, config, &commV2));
             HcclResult ret = HcclCommInitCollComm(rank, &commV2, config, comm);
             if (ret != HCCL_SUCCESS) {
@@ -525,12 +540,28 @@ HcclResult HcclCommInitClusterInfoConfig(
     [[maybe_unused]] const char* clusterInfo, [[maybe_unused]] uint32_t rank, [[maybe_unused]] HcclCommConfig* config,
     [[maybe_unused]] HcclComm* comm)
 {
+    // 仅 V2 路径固化选层，A3 保留原配置及异步受理行为。
+    bool isSupportV2 = false;
+    CHK_RET(hrtGetHcclV2Support(&isSupportV2));
+    HcclCommConfig preparedConfig{};
+    if (isSupportV2) {
+        RPT_INPUT_ERR(
+            config == nullptr, "EI0003", std::vector<std::string>({"ccl_op", "value", "parameter", "expect"}),
+            std::vector<std::string>({"HcclCommInitClusterInfoConfig", "nullptr", "config", "non-null pointer"}));
+        CHK_SMART_PTR_NULL(config);
+        CHK_RET(PrepareIndependentCommConfig(config, preparedConfig));
+        config = &preparedConfig;
+    }
     if (hcclGroupDepth > 0) {
         HcclResult ret = HCCL_SUCCESS;
         std::shared_ptr<struct hcclCommInitRankTableConfigAsyncJob> job;
         EXCEPTION_CATCH((job = std::make_shared<struct hcclCommInitRankTableConfigAsyncJob>()), return HCCL_E_PARA);
         job->clusterInfo = clusterInfo;
         job->rank = rank;
+        if (isSupportV2) {
+            job->ownedConfig = preparedConfig;
+            config = &job->ownedConfig;
+        }
         job->config = config;
         job->initComm = comm;
         s32 devId = 0;
@@ -555,6 +586,7 @@ HcclResult HcclCommInitClusterInfoConfig(
     CHK_SMART_PTR_NULL(config);
     HCCLV2_FUNC_RUN([&]() -> HcclResult {
         void* commV2 = nullptr;
+        // 同步路径直接使用本入口已固化的配置快照。
         CHK_RET(HcclCommInitClusterInfoConfigV2(clusterInfo, rank, config, &commV2));
         HcclResult ret = HcclCommInitCollComm(rank, &commV2, config, comm);
         if (ret != HCCL_SUCCESS) {

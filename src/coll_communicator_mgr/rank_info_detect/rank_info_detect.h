@@ -20,6 +20,7 @@
 #include "orion_adapter_hccp.h"
 #include "rank_info_detect_service.h"
 #include "rank_info_detect_client.h"
+#include "coll_comm_config.h"
 #include "socket_handle_manager.h"
 #include "universal_concurrent_map.h"
 #include "adapter_error_manager_pub.h"
@@ -42,6 +43,7 @@ public:
     HcclResult SetupAgent(u32 rankSize, u32 rankId, const HcclRootHandleV2& rootHandle);
     const HcclRootHandleV2& GetRootHandleInfo() const { return rootHandle_; }
     void SetRootHandle(const HcclRootHandleV2& rootHandle) { rootHandle_ = rootHandle; }
+    void SetNetLayerSelection(const hccl::NetLayerSelection& selection) { netLayerSelection_ = selection; }
     void GetRankTable(RankTableInfo& ranktable) const;
     HcclResult WaitComplete(u32 listenPort, u32 listenStatus) const;
 
@@ -70,6 +72,7 @@ public:
     u32 GetDevPhyId() const { return devPhyId_; }
 
 private:
+    hccl::NetLayerSelection netLayerSelection_{};
     s32 devLogicId_{0};
     s32 userDevId_{0};
     u32 devPhyId_{0};

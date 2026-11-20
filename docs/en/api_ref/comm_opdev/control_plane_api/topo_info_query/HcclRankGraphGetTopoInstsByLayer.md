@@ -45,6 +45,7 @@ HcclResult HcclRankGraphGetTopoInstsByLayer(HcclComm comm, uint32_t netLayer, ui
 
 ## Constraints
 
+- On Ascend 950PR&950DT products with layer selection configured, querying a disabled layer, including `netLayer=0`, returns `HCCL_E_PARA`. Retained local groups are not returned as topology instances of that layer.
 - The returned memory is managed by the library. The caller must not release it.
 - Copy the returned data in a timely manner. Repeated calls in the same communicator may invalidate the previous result.
 

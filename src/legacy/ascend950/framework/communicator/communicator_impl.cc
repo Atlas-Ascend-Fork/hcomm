@@ -9,6 +9,9 @@
  */
 
 #include "communicator_impl.h"
+#include <cstddef>
+#include "comm_config_pub.h"
+#include "coll_comm_config.h"
 #include <algorithm>
 #include <iterator>
 #include "link_data_adapter.h"
@@ -279,7 +282,7 @@ HcclResult CommunicatorImpl::Init(
             DlProfFunction::GetInstance().DlProfFunctionInit(); InitMirrorTaskManager();
             CHK_RET(InitProfilingReporter()); CHK_RET(InitTaskExceptionHandler()); RegisterKernel();
             SetCommStatus(CommStatus::COMM_READY);
-            SnapShotParser::GetInstance().SerializeSubCommInfo(commParams, subConfig, rankIdsVec, staticBinaryInfo););
+            SnapShotParser::GetInstance().SerializeSubCommInfo(commParams, config, rankIdsVec, staticBinaryInfo););
         return HcclResult::HCCL_SUCCESS;
     } else {
         HCCL_ERROR("Repeated calling init method!");
@@ -320,7 +323,11 @@ HcclResult CommunicatorImpl::CreateSubComm(
         if (initFlag) {
             // 创建子虚拟拓扑
             std::unique_ptr<RankGraph> subRankGraph;
-            CHK_RET(rankGraph->CreateSubRankGraph(rankIds, subRankGraph));
+            const auto* bridge = GetRankGraphBuilderBridge();
+            CHK_PRT_RET(
+                bridge == nullptr, HCCL_ERROR("[%s] RankGraphBuilder bridge is not registered.", __func__),
+                HCCL_E_INTERNAL);
+            CHK_RET(bridge->createSubGraph(*rankGraph, rankIds, subConfig.hccl_use_net_layer, subRankGraph));
             subCommImpl->rankIdsVec = rankIds;
             HCCL_INFO(
                 "[%s]rankIds size[%u], rankIdsVec size[%u]", __func__, rankIds.size(), subCommImpl->rankIdsVec.size());
@@ -1402,7 +1409,7 @@ HcclResult CommunicatorImpl::InitRankGraph(const string& ranktableM)
         HCCL_ERROR("[%s] RankGraphBuilder bridge is not registered.", __func__), HCCL_E_INTERNAL);
 
     RankGraphBuildResult buildResult{};
-    HcclResult ret = bridge->buildFromString(ranktableM, topoPath, myRank, buildResult);
+    HcclResult ret = bridge->buildFromString(ranktableM, topoPath, myRank, config.hccl_use_net_layer, buildResult);
     // 参数类错误（如ranktable语法错误）原样上抛，保持与历史 HCCL_E_PARA 接口契约一致
     CHK_PRT_RET(
         ret == HCCL_E_PARA,
@@ -1470,7 +1477,7 @@ HcclResult CommunicatorImpl::InitRankGraph(const RankTableInfo& ranktable)
         HCCL_ERROR("[%s] RankGraphBuilder bridge is not registered.", __func__), HCCL_E_INTERNAL);
 
     RankGraphBuildResult buildResult{};
-    HcclResult ret = bridge->buildFromRankTable(ranktable, topoPath, myRank, buildResult);
+    HcclResult ret = bridge->buildFromRankTable(ranktable, topoPath, myRank, config.hccl_use_net_layer, buildResult);
     // 参数类错误原样上抛，保持与历史 HCCL_E_PARA 接口契约一致
     CHK_PRT_RET(
         ret == HCCL_E_PARA,
@@ -1485,6 +1492,40 @@ HcclResult CommunicatorImpl::InitRankGraph(const RankTableInfo& ranktable)
     return HCCL_SUCCESS;
 }
 
+// 保存已构建的有效层，供快照恢复使用，避免重新解释 not(...)。
+static HcclResult SaveBuiltNetLayerConfig(const RankGraph& graph, HcclCommConfig& config)
+{
+    const auto& selection = graph.GetBuildLayerSelection();
+    if (!selection.has_value()) {
+        return HCCL_SUCCESS;
+    }
+    if (selection->selectedLayers == 0 || (selection->selectedLayers >> MAX_NET_LAYER) != 0) {
+        HCCL_ERROR(
+            "[%s] cannot save invalid selectedLayers[%s], supported layer count[%u]", __func__,
+            hccl::NetLayerSelection::FormatLayers(selection->selectedLayers).c_str(), MAX_NET_LAYER);
+        return HCCL_E_PARA;
+    }
+    std::string expression;
+    for (uint32_t layer = 0; layer < MAX_NET_LAYER; ++layer) {
+        if ((selection->selectedLayers & (1U << layer)) != 0) {
+            if (!expression.empty()) {
+                expression += ',';
+            }
+            expression += static_cast<char>('0' + layer);
+        }
+    }
+    CHK_SAFETY_FUNC_RET(strcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), expression.c_str()));
+    CommConfigInfo header{sizeof(HcclCommConfig), HCCL_COMM_CONFIG_MAGIC_WORD, HCCL_COMM_CONFIG_VERSION, {0}};
+    // 保持原写入范围，不覆盖配置头中的8字节保留区。
+    CHK_SAFETY_FUNC_RET(
+        memcpy_s(config.reserved, sizeof(config.reserved), &header, offsetof(CommConfigInfo, reserved)));
+    HCCL_DEBUG(
+        "[%s] saved netLayer selection for recovery, rank[%d], availableLayers[%s], selectedLayers[%s], expression[%s]",
+        __func__, graph.GetMyRank(), hccl::NetLayerSelection::FormatLayers(selection->availableLayers).c_str(),
+        hccl::NetLayerSelection::FormatLayers(selection->selectedLayers).c_str(), expression.c_str());
+    return HCCL_SUCCESS;
+}
+
 HcclResult CommunicatorImpl::InitRankGraph(std::unique_ptr<RankGraph>& inputRankGraph)
 {
     if (inputRankGraph != nullptr) {
@@ -1495,6 +1536,7 @@ HcclResult CommunicatorImpl::InitRankGraph(std::unique_ptr<RankGraph>& inputRank
         return HCCL_E_PTR;
     }
     TRY_CATCH_RETURN(CheckRankGraph(););
+    CHK_RET(SaveBuiltNetLayerConfig(*rankGraph, config));
     CHK_RET(SaveTopoDesc(id));
     return HCCL_SUCCESS;
 }
@@ -1523,6 +1565,7 @@ HcclResult CommunicatorImpl::InitRankGraph(
         HCCL_DEBUG("[CommunicatorImpl][%s] topoInfo[%s]", __func__, topoInfo->Describe().c_str());
     }
     TRY_CATCH_RETURN(CheckRankGraph(););
+    CHK_RET(SaveBuiltNetLayerConfig(*rankGraph, config));
     CHK_RET(SaveTopoDesc(id));
     // 优化：GetFullMeshLinks + 逐link Describe打印为124万行级日志开销，ranktableInfo/topoInfo Describe同理，
     // 以上打印已由RUN_INFO降级为DEBUG，仅在DEBUG日志开启时执行，避免13W/20W卡规模下刷屏
@@ -2477,9 +2520,20 @@ CommunicatorImpl::RecoverSubComm(const SnapShotSubComm& snapShotSubComm, Communi
         if (initFlag) {
             // 创建子虚拟拓扑
             std::unique_ptr<RankGraph> subRankGraph;
-            HcclResult ret = rankGraph->CreateSubRankGraph(rankIds, subRankGraph);
+            const auto* bridge = GetRankGraphBuilderBridge();
+            HcclResult ret = HCCL_E_INTERNAL;
+            if (bridge == nullptr) {
+                HCCL_ERROR("[%s] RankGraphBuilder bridge is not registered.", __func__);
+            } else {
+                ret = bridge->createSubGraph(
+                    *rankGraph, rankIds, snapShotSubComm.config.hccl_use_net_layer, subRankGraph);
+            }
             if (ret != HcclResult::HCCL_SUCCESS) {
                 SetCommStatus(CommStatus::COMM_IDLE);
+                HCCL_ERROR(
+                    "[CommunicatorImpl][%s] recover subgraph failed, parentComm[%s], rank[%d], subRankSize[%zu], "
+                    "ret[%d]",
+                    __func__, id.c_str(), myRank, rankIds.size(), ret);
                 return ret;
             }
             // 初始化子通信域
@@ -2530,7 +2584,8 @@ HcclResult CommunicatorImpl::RecoverRankGraphData(SnapShotComm& snapShotComm, co
     RankGraphBuildResult buildResult{};
     // 恢复构建也由 hcomm 完成，并返回同一版本的 graph、rank table 和 topo 快照。
     ret = bridge->recoverBuild(
-        snapShotComm.rankTableInfo, snapShotComm.topoInfo, myRank, snapShotComm.enableVirtualGroups, buildResult);
+        snapShotComm.rankTableInfo, snapShotComm.topoInfo, myRank, snapShotComm.enableVirtualGroups,
+        config.hccl_use_net_layer, buildResult);
     CHK_PRT_RET(
         ret != HCCL_SUCCESS,
         HCCL_ERROR("[%s] recover rank graph failed, errNo[0x%016llx].", __func__, HCCL_ERROR_CODE(ret)), ret);
@@ -2612,7 +2667,9 @@ u32 CommunicatorImpl::GetStep() const { return step; }
 
 std::set<RankId> CommunicatorImpl::GetNeighboorRanks() const
 {
-    return rankGraph->GetNetInstanceByRankId(0, myRank)->GetRankIds();
+    CHECK_NULLPTR(rankGraph, "rankGraph is nullptr!");
+    // 使用建图时保存的本地成员，不依赖 layer 0 通信实例是否保留。
+    return rankGraph->GetInnerRanks();
 }
 
 void CommunicatorImpl::InitMirrorTaskManager()
@@ -3457,6 +3514,8 @@ void CommunicatorImpl::ClearQueryCache()
 
 HcclResult CommunicatorImpl::GetNetLayers(uint32_t** netLayers, uint32_t* netLayerNum)
 {
+    CHK_PTR_NULL(netLayers);
+    CHK_PTR_NULL(netLayerNum);
     {
         // 读锁快路径：已缓存则直接返回，缓存条目写入后不可变，借用指针在通信域销毁前始终有效
         std::shared_lock<std::shared_mutex> lock(queryCacheMutex_);
@@ -3931,11 +3990,18 @@ HcclResult CommunicatorImpl::GetEndpointInfo(
 
 HcclResult CommunicatorImpl::SaveTopoDesc(std::string& identifier)
 {
-    uint32_t topoType = 0;
-    CHK_RET(GetInstTopoTypeByNetLayer(0, &topoType)); // layer 0
+    CHK_PTR_NULL(rankGraph);
+    CommTopo topoType = COMM_TOPO_RESERVED;
+    const auto& selection = rankGraph->GetBuildLayerSelection();
+    if (!selection.has_value() || (selection->selectedLayers & 1U) != 0) {
+        uint32_t layer0TopoType = 0;
+        CHK_RET(GetInstTopoTypeByNetLayer(0, &layer0TopoType));
+        topoType = static_cast<CommTopo>(layer0TopoType);
+    }
 
     CommTopoDesc::GetInstance().SaveRankSize(identifier, rankSize);
-    CommTopoDesc::GetInstance().SaveL0TopoType(identifier, static_cast<CommTopo>(topoType));
+    // 显式排除 layer 0 时覆盖旧缓存，不借用其他层的拓扑类型。
+    CommTopoDesc::GetInstance().SaveL0TopoType(identifier, topoType);
     return HCCL_SUCCESS;
 }
 

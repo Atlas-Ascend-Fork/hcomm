@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "hccl_exception.h"
+#include "net_layer_config.h"
 #include "log.h"
 #include "rank_graph_builder.h"
 #include "phy_topo_builder.h"
@@ -288,19 +289,27 @@ namespace {
         return HCCL_SUCCESS;
     }
 
-    // BuildRankGraph 是三个 provider 入口共享的构建骨架，BuildFunc 表示各入口不同的构建动作：
+    // 默认和显式选层共用一次构造、构图和结果发布，仅策略不同。
     template <typename BuildFunc>
-    HcclResult BuildRankGraph(BuildFunc&& buildFunc, RankGraphBuildResult& result)
-    {
-        RankGraphBuilder rankGraphBuilder;
-        return FillBuildResult(rankGraphBuilder, buildFunc(rankGraphBuilder), result);
-    }
-
-    template <typename BuildFunc>
-    HcclResult RunBuild(const char* funcName, BuildFunc&& buildFunc, RankGraphBuildResult& result)
+    HcclResult
+    RunBuild(const char* funcName, BuildFunc&& buildFunc, RankGraphBuildResult& result, const char* netLayerExpression)
     {
         try {
-            return BuildRankGraph(buildFunc, result);
+            CHK_PTR_NULL(netLayerExpression);
+            hccl::NetLayerSelection selection;
+            // 空串保持默认构图；不读取通信域的其他配置。
+            if (netLayerExpression[0] != '\0') {
+                CHK_RET(hccl::ReadNetLayerSelection(netLayerExpression, selection));
+            }
+            RankGraphBuilder::LayerSelector selector;
+            if (selection.GetMode() != hccl::NetLayerSelectionMode::DEFAULT) {
+                // 按值保存策略，在读取真实候选层后解析，不重新读取环境。
+                selector = [selection](u32 available, u32& effective) {
+                    return selection.Resolve(available, effective);
+                };
+            }
+            RankGraphBuilder builder(selector);
+            return FillBuildResult(builder, buildFunc(builder), result);
         } catch (const HcclException& e) {
             HCCL_ERROR("[%s] failed: %s", funcName, e.what());
             return e.GetErrorCode();
@@ -318,18 +327,20 @@ namespace {
 
     // 三个窄入口分别承接字符串初始化、RootInfoDetect 结果初始化和故障恢复，
     HcclResult BuildFromStringImpl(
-        const std::string& rankTable, const std::string& topoPath, RankId myRank, RankGraphBuildResult& result)
+        const std::string& rankTable, const std::string& topoPath, RankId myRank, const char* netLayerExpression,
+        RankGraphBuildResult& result)
     {
         return RunBuild(
             __func__,
             [&](RankGraphBuilder& rankGraphBuilder) {
                 return rankGraphBuilder.Build(rankTable, topoPath, myRank);
             },
-            result);
+            result, netLayerExpression);
     }
 
     HcclResult BuildFromRankTableImpl(
-        const RankTableInfo& rankTable, const std::string& topoPath, RankId myRank, RankGraphBuildResult& result)
+        const RankTableInfo& rankTable, const std::string& topoPath, RankId myRank, const char* netLayerExpression,
+        RankGraphBuildResult& result)
     {
         // 逻辑超节点：表汇聚后、Build之前集中查层并改写全表目标层实例ID，改写后的表一次建图。
         // 拆分层号随RankTable保存，在FillBuildResult中设置图的拆分标记，让GetPaths过滤跨组的超内链路。
@@ -353,35 +364,69 @@ namespace {
                 }
                 return rankGraphBuilder.Build(inputTable, topoPath, myRank);
             },
-            result);
+            result, netLayerExpression);
         return (logicRet != HCCL_SUCCESS) ? logicRet : ret;
     }
 
     HcclResult RecoverBuildImpl(
         const RankTableInfo& rankTable, const hccl::TopoInfo& topoInfo, RankId myRank, bool enableVirtualGroups,
-        RankGraphBuildResult& result)
+        const char* netLayerExpression, RankGraphBuildResult& result)
     {
         return RunBuild(
             __func__,
             [&](RankGraphBuilder& rankGraphBuilder) {
                 return rankGraphBuilder.RecoverBuild(rankTable, topoInfo, myRank, enableVirtualGroups);
             },
-            result);
+            result, netLayerExpression);
     }
 
-    // 将 bridge 的四个字段绑定到本文件中的 provider 实现；调用函数指针等价于调用对应的 Impl 函数。
+    HcclResult CreateSubGraphImpl(
+        const RankGraph& parent, const std::vector<u32>& rankIds, const char* netLayerExpression,
+        std::unique_ptr<RankGraph>& result)
+    {
+        try {
+            CHK_PTR_NULL(netLayerExpression);
+            if (netLayerExpression[0] == '\0') {
+                return parent.CreateSubRankGraph(rankIds, result);
+            }
+            u32 available = 0;
+            for (u32 layer : parent.GetLevels(parent.GetMyRank())) {
+                if (layer >= MAX_NET_LAYER) {
+                    HCCL_ERROR(
+                        "[%s] parent rank[%d] has invalid netLayer[%u], expected less than[%u]", __func__,
+                        parent.GetMyRank(), layer, MAX_NET_LAYER);
+                    return HCCL_E_PARA;
+                }
+                available |= 1U << layer;
+            }
+            const auto& built = parent.GetBuildLayerSelection();
+            const u32 allowed = built ? built->selectedLayers : available;
+            u32 selected = 0;
+            CHK_RET(hccl::NetLayerSelection::ResolveForSubComm(netLayerExpression, allowed, available, selected));
+            return parent.CreateSubRankGraph(rankIds, result, selected);
+        } catch (const HcclException& e) {
+            HCCL_ERROR("[%s] failed: %s", __func__, e.what());
+            return e.GetErrorCode();
+        } catch (const std::bad_alloc& e) {
+            HCCL_ERROR("[%s] allocate subgraph for rank count[%zu] failed: %s", __func__, rankIds.size(), e.what());
+            return HCCL_E_MEMORY;
+        } catch (...) {
+            HCCL_ERROR("[%s] failed to build subgraph", __func__);
+            return HCCL_E_INTERNAL;
+        }
+    }
+
+    // 默认和显式选层共用原注册表，只传递构图所需的选层字段。
     const RankGraphBuilderBridge RANK_GRAPH_BUILDER_BRIDGE = {
-        BuildFromStringImpl,
-        BuildFromRankTableImpl,
-        RecoverBuildImpl,
-        AdoptRankGraphImpl,
+        BuildFromStringImpl, BuildFromRankTableImpl, RecoverBuildImpl, AdoptRankGraphImpl, CreateSubGraphImpl,
     };
 
     // hcomm 装载时向 hccl_v2 发布窄回调接口，legacy 调用方无需链接 RankGraphBuilder 的具体实现。
     struct RankGraphBuilderBridgeRegistrar {
         RankGraphBuilderBridgeRegistrar()
         {
-            HcclResult ret = RegisterRankGraphBuilderBridge(RANK_GRAPH_BUILDER_BRIDGE);
+            HcclResult ret = RegisterRankGraphBuilderBridge(
+                RANK_GRAPH_BUILDER_BRIDGE, RANK_GRAPH_BUILDER_BRIDGE_VERSION, sizeof(RANK_GRAPH_BUILDER_BRIDGE));
             if (ret != HCCL_SUCCESS) {
                 HCCL_ERROR("[%s] register RankGraphBuilder bridge failed, ret[%d].", __func__, static_cast<int>(ret));
             }

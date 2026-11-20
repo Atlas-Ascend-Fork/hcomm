@@ -25,6 +25,14 @@ target_sources(hccl_v2_utest PRIVATE
     ${HCCL_CODE_ROOT}/test/ut/coll_communicator_mgr/rank_info_detect/ut_op_base_v2_scalable_utest.cc
 )
 
+# 源文件属性须与目标在同一目录设置，确保配置解析按函数裁剪选项实际生效。
+set_source_files_properties(
+    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/config_mgr/coll_comm_config.cc
+    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/config_mgr/env_net_layer_config.cc
+    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/config_mgr/net_layer_config.cc
+    PROPERTIES COMPILE_OPTIONS "-ffunction-sections;-fdata-sections"
+)
+
 FILE(GLOB_RECURSE ut_sources_list LIST_DIRECTORIES TRUE ${HCCL_LLT_ROOT}/ut)
 
 foreach (dir ${ut_sources_list})

@@ -168,13 +168,19 @@ HcclResult RankInfoDetectService::SetupGrowLoop()
             CHK_RET(FinishGrowCollect(loopResult));
             break;
         }
+        const auto netLayerResult = static_cast<HcclResult>(GetNetLayerCheckResult().result);
         ret = BroadcastRankTableForGrow();
-        if (ret != HCCL_SUCCESS) {
-            HCCL_ERROR("[RankInfoDetectService::%s] grow round BroadcastRankTable failed, ret[%d].", __func__, ret);
+        if (ret != HCCL_SUCCESS || netLayerResult != HCCL_SUCCESS) {
+            HCCL_ERROR(
+                "[RankInfoDetectService::%s] grow round failed, broadcastResult[%d], netLayerResult[%d].", __func__,
+                ret, netLayerResult);
             loopResult = RollbackNewConnections();
             rankTable_ = savedRankTable;
             failedAgentIdList_.clear();
-            if (loopResult == HCCL_SUCCESS) {
+            if (ret == HCCL_SUCCESS) {
+                // 先广播失败结果解除各端等待，再向 root 返回同一选层错误。
+                loopResult = netLayerResult;
+            } else if (loopResult == HCCL_SUCCESS) {
                 loopResult = HCCL_E_INTERNAL;
             }
             CHK_RET(FinishGrowCollect(loopResult));
@@ -443,6 +449,7 @@ HcclResult RankInfoDetectService::GetRankTable(bool isInitCollect)
     if (isInitCollect) {
         // Init：从空表开始，全量 recv 所有连接（全是新连接）构建 rankTable_
         rankTable_ = RankTableInfo{};
+        netLayerCheckInfos_.clear();
         for (auto& iter : connSockets_) {
             vector<char> rankInfoMsg{};
             SocketAgent socketAgent(iter.second.get());
@@ -652,10 +659,10 @@ HcclResult RankInfoDetectService::ParseRankTable(vector<char>& rankInfoMsg, bool
 {
     HCCL_INFO("[RankInfoDetectService::%s] start.", __func__);
 
-    // 消息格式: [ranktable数据(n字节)][step(4字节)]
+    // 消息格式: [ranktable数据(n字节)][step(4字节)][可选NetLayerCheckInfo]
     BinaryStream binStream(rankInfoMsg);
 
-    // 解析localRankInfo
+    // 每个客户端只上报本 rank；完整通信域由服务端逐份汇总。
     RankTableInfo localRankInfo;
     TRY_CATCH_RETURN(localRankInfo = RankTableInfo(binStream););
     localRankInfo.Dump();
@@ -677,13 +684,77 @@ HcclResult RankInfoDetectService::ParseRankTable(vector<char>& rankInfoMsg, bool
             LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), receivedStep, expectedStep),
         HCCL_E_PARA);
 
-    // 添加到rankTable_
+    // 添加到rankTable_，沿用其中的非空校验。
     CHK_RET(rankTable_.UpdateRankTable(localRankInfo));
+
+    NetLayerCheckInfo checkInfo;
+    HcclResult checkRet = checkInfo.Deserialize(binStream);
+    if (checkRet != HCCL_SUCCESS) {
+        HCCL_ERROR(
+            "[NetLayerConsistency] cannot parse rank report, rank[%u], domainRankCount[%u], step[%u], result[%d]",
+            localRankInfo.ranks.front().rankId, rankTable_.rankCount, receivedStep, checkRet);
+        checkInfo.result = checkRet;
+    }
+    // 先收齐再广播错误，不能在第一个选层冲突处退出并让其余 rank 等待超时。
+    netLayerCheckInfos_[localRankInfo.ranks.front().rankId] = checkInfo;
+    HCCL_INFO(
+        "[NetLayerConsistency] received rank[%u], version[%u], explicitSelection[%u], effectiveLayers[%s], result[%u]",
+        localRankInfo.ranks.front().rankId, checkInfo.version, checkInfo.explicitSelection,
+        hccl::NetLayerSelection::FormatLayers(checkInfo.layers).c_str(), checkInfo.result);
+
     // RootInfo探测聚合表，grow root直接取表时也能正确识别来源。
     rankTable_.SetSource(RankTableSource::ROOTINFO);
 
     HCCL_INFO("[RankInfoDetectService::%s] end.", __func__);
     return HCCL_SUCCESS;
+}
+
+NetLayerCheckInfo RankInfoDetectService::GetNetLayerCheckResult() const
+{
+    NetLayerCheckInfo summary;
+    summary.version = NetLayerCheckInfo::VERSION;
+    for (const auto& entry : netLayerCheckInfos_) {
+        summary.explicitSelection |= entry.second.explicitSelection;
+        if (entry.second.result != HCCL_SUCCESS) {
+            summary.result = entry.second.result == HCCL_E_NOT_SUPPORT ? HCCL_E_NOT_SUPPORT : HCCL_E_PARA;
+            HCCL_ERROR(
+                "[NetLayerConsistency] invalid selection report, rank[%u], result[%u]", entry.first,
+                entry.second.result);
+            return summary;
+        }
+    }
+    // 全部未配置时保持原行为，不额外限制异构 rank 的候选层集合。
+    if (summary.explicitSelection == 0) {
+        HCCL_INFO(
+            "[NetLayerConsistency] all reports use default selection, reportCount[%zu]", netLayerCheckInfos_.size());
+        return summary;
+    }
+    if (netLayerCheckInfos_.size() != rankTable_.rankCount) {
+        HCCL_ERROR(
+            "[NetLayerConsistency] report count[%zu] differs from rankCount[%u]", netLayerCheckInfos_.size(),
+            rankTable_.rankCount);
+        summary.result = HCCL_E_PARA;
+        return summary;
+    }
+    summary.layers = netLayerCheckInfos_.begin()->second.layers;
+    for (const auto& entry : netLayerCheckInfos_) {
+        summary.result = summary.CheckConsistency(entry.second);
+        if (summary.result == HCCL_E_NOT_SUPPORT) {
+            HCCL_ERROR("[NetLayerConsistency] rank[%u] does not support selected-layer verification", entry.first);
+            return summary;
+        }
+        if (summary.result != HCCL_SUCCESS) {
+            HCCL_ERROR(
+                "[NetLayerConsistency] rank[%u] layers[%s] differs from rank[%u] layers[%s]", entry.first,
+                hccl::NetLayerSelection::FormatLayers(entry.second.layers).c_str(), netLayerCheckInfos_.begin()->first,
+                hccl::NetLayerSelection::FormatLayers(summary.layers).c_str());
+            return summary;
+        }
+    }
+    HCCL_RUN_INFO(
+        "[NetLayerConsistency] verified rankCount[%u], effectiveLayers[%s]", rankTable_.rankCount,
+        hccl::NetLayerSelection::FormatLayers(summary.layers).c_str());
+    return summary;
 }
 
 bool RankIdCompare(const hccl::NewRankInfo& i, const hccl::NewRankInfo& j) { return (i.rankId < j.rankId); }

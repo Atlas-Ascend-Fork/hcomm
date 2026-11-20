@@ -33,6 +33,7 @@
 #include "root_handle_v2.h"
 #include "root_info_detect_bridge.h"
 #include "rank_info_detect.h"
+#include "rank_graph_builder_bridge.h"
 #include "stream.h"
 #include "env_config_v2.h"
 #include "stream_utils.h"
@@ -171,6 +172,10 @@ HcclResult CreateCommConfig(uint32_t rank, HcclCommConfig* config, HcclComm* com
         HCCL_INFO("[HcclCommInitClusterInfoConfig] set default HCCL BUFFER");
     }
     CHK_RET(GetEffectiveHcclDeterministic(config->hcclDeterministic, hcclConf->hcclDeterministic));
+    // 入口已冻结完整配置；旧版本通过环境选层时也直接传递，不再按版本清空。
+    CHK_SAFETY_FUNC_RET(memcpy_s(
+        hcclConf->hccl_use_net_layer, sizeof(hcclConf->hccl_use_net_layer), config->hccl_use_net_layer,
+        sizeof(config->hccl_use_net_layer)));
 
     CHK_SAFETY_FUNC_RET(memcpy_s(
         hcclConf->hcclCommName, sizeof(hcclConf->hcclCommName), config->hcclCommName, sizeof(config->hcclCommName)));
@@ -285,6 +290,10 @@ HcclResult CreateCommConfigRootInfo(
         HCCL_INFO("[HcclCommInitRootInfoConfigV2] set default HCCL BUFFER");
     }
     CHK_RET(GetEffectiveHcclDeterministic(config->hcclDeterministic, hcclConf->hcclDeterministic));
+    // 复用 RootInfo 探测使用的冻结配置，保持探测与构图选层一致。
+    CHK_SAFETY_FUNC_RET(memcpy_s(
+        hcclConf->hccl_use_net_layer, sizeof(hcclConf->hccl_use_net_layer), config->hccl_use_net_layer,
+        sizeof(config->hccl_use_net_layer)));
 
     CHK_SAFETY_FUNC_RET(memcpy_s(
         hcclConf->hcclCommName, sizeof(hcclConf->hcclCommName), config->hcclCommName, sizeof(config->hcclCommName)));
@@ -1865,13 +1874,13 @@ HcclResult HcclCommResumeImplV2(HcclComm comm)
 
 HcclResult RootInfoDetect(
     const u32 nRanks, u32 rank, const HcclRootHandleV2& rootHandle, RankTableInfo& rankTable,
-    RootInfoDetectBridge::DetectContext& detectContext)
+    RootInfoDetectBridge::DetectContext& detectContext, const char* netLayerExpression)
 {
     const RootInfoDetectBridge* bridge = GetRootInfoDetectBridge();
     CHK_PRT_RET(
         bridge == nullptr || bridge->detectRankTable == nullptr,
         HCCL_ERROR("[%s] RootInfoDetect bridge is not registered.", __func__), HCCL_E_INTERNAL);
-    return bridge->detectRankTable(nRanks, rank, rootHandle, rankTable, detectContext);
+    return bridge->detectRankTable(nRanks, rank, rootHandle, rankTable, detectContext, netLayerExpression);
 }
 
 HcclResult
@@ -1906,7 +1915,7 @@ CommInitRootInfo(u32 nRanks, u32 rank, const HcclRootHandleV2& rootHandle, const
         }
     }
     RankTableInfo rankTable{};
-    HcclResult ret = RootInfoDetect(nRanks, rank, rootHandle, rankTable, rootInfoDetectContext);
+    HcclResult ret = RootInfoDetect(nRanks, rank, rootHandle, rankTable, rootInfoDetectContext, nullptr);
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR(
             "[%s] errNo[0x%016llx] RootInfoDetect failed, rootHandle[%s].", __func__, HCCL_ERROR_CODE(ret),
@@ -2099,7 +2108,9 @@ HcclResult HcclCommInitRootInfoConfigV2(
             HCCL_INFO("[%s] pending detect taken for identifier[%s].", __func__, detectIdentifier.c_str());
         }
     }
-    HcclResult ret = RootInfoDetect(nRanks, rank, rootHandle, rankTable, rootInfoDetectContext);
+    // 兼容入口只转发已冻结的选层字段，一致性由 HCOMM 初始化控制面完成。
+    HcclResult ret
+        = RootInfoDetect(nRanks, rank, rootHandle, rankTable, rootInfoDetectContext, config->hccl_use_net_layer);
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR(
             "[%s] errNo[0x%016llx] RootInfoDetect failed, identifier[%s].", __func__, HCCL_ERROR_CODE(ret),

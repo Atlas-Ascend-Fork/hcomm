@@ -16,6 +16,7 @@
 #include <sys/epoll.h>
 #include <unistd.h>
 #include <functional>
+#include "hccp.h"
 
 #define private public
 #include "base_config_legacy.h"
@@ -36,7 +37,7 @@ std::shared_ptr<Socket> MakeDeviceSocket()
 {
     IpAddress remoteIp;
     IpAddress localIp;
-    SocketHandle socketHandle;
+    SocketHandle socketHandle{};
     return std::make_shared<Socket>(
         socketHandle, localIp, 0, remoteIp, "test", SocketRole::SERVER, NicType::DEVICE_NIC_TYPE);
 }
@@ -384,6 +385,75 @@ TEST_F(RankInfoDispatcherTest, Ut_PrepareResource_When_Input_Expect_NO_THROW)
     client.ConstructSingleRank(clusterInfo);
     EXPECT_EQ(workers.PrepareResource(connectSockets, clusterInfo, failedAgentIdList, 0), HcclResult::HCCL_SUCCESS);
     EXPECT_EQ(workers.fdHandleToFdContextMap_.size(), 1);
+}
+
+TEST_F(RankInfoDispatcherTest, Ut_PrepareResource_BroadcastsNetLayerCheckResult)
+{
+    MOCKER_CPP(&RankInfoDispatcher::InitWorkerThread).stubs().will(ignoreReturnValue());
+    MOCKER(RaCreateEventHandle).stubs().will(returnValue(0));
+    MOCKER(RaDestroyEventHandle).stubs().will(returnValue(0));
+    auto socket = MakeDeviceSocket();
+    RankInfoDetectService server(0, socket, "test", {});
+    RankTableInfo clusterInfo;
+    RankInfoDetectClient client(0, 1, 0, socket);
+    client.ConstructSingleRank(clusterInfo);
+    auto secondRank = clusterInfo.ranks.front();
+    secondRank.rankId = 1;
+    clusterInfo.ranks.push_back(secondRank);
+    clusterInfo.rankCount = 2;
+    server.rankTable_ = clusterInfo;
+
+    NetLayerCheckInfo selected;
+    selected.version = NetLayerCheckInfo::VERSION;
+    selected.explicitSelection = 1;
+    selected.layers = 0x6;
+    const struct {
+        bool explicitSelection;
+        HcclResult result;
+    } cases[] = {
+        {false, HCCL_SUCCESS}, {false, HCCL_E_PARA}, {false, HCCL_E_NOT_SUPPORT},
+        {true, HCCL_SUCCESS},  {true, HCCL_E_PARA},  {true, HCCL_E_NOT_SUPPORT},
+    };
+    for (const auto& item : cases) {
+        SCOPED_TRACE(testing::Message() << item.explicitSelection << ":" << item.result);
+        // root 自身未配置时，也必须广播其他 rank 的显式选层结果或任一端失败。
+        server.netLayerCheckInfos_[0] = selected;
+        server.netLayerCheckInfos_[0].explicitSelection = 0;
+        server.netLayerCheckInfos_[1] = selected;
+        server.netLayerCheckInfos_[1].explicitSelection = item.explicitSelection;
+        if (!item.explicitSelection) {
+            server.netLayerCheckInfos_[1].result = item.result;
+        } else if (item.result == HCCL_E_PARA) {
+            server.netLayerCheckInfos_[1].layers = 0x3;
+        } else if (item.result == HCCL_E_NOT_SUPPORT) {
+            server.netLayerCheckInfos_[1].version = 0;
+        }
+        RankInfoDispatcher workers(&server);
+        std::unordered_map<std::string, std::shared_ptr<Socket>> sockets{{"0", socket}};
+        ASSERT_EQ(workers.PrepareResource(sockets, clusterInfo, "", 1), HCCL_SUCCESS);
+
+        // 读取真实发送缓冲区，确认尾部结果没有破坏既有消息字段。
+        BinaryStream stream(workers.rankTableMsg_);
+        RankTableInfo receivedTable(stream);
+        u32 step = 0;
+        std::string failedRanks;
+        stream >> step >> failedRanks;
+        NetLayerCheckInfo received;
+        ASSERT_EQ(received.Deserialize(stream), HCCL_SUCCESS);
+        EXPECT_EQ(receivedTable.rankCount, 2);
+        EXPECT_EQ(step, 1);
+        EXPECT_TRUE(failedRanks.empty());
+        const bool omitted = !item.explicitSelection && item.result == HCCL_SUCCESS;
+        EXPECT_EQ(received.version, omitted ? 0U : static_cast<u32>(NetLayerCheckInfo::VERSION));
+        EXPECT_EQ(received.explicitSelection, static_cast<u32>(item.explicitSelection));
+        EXPECT_EQ(received.result, item.result);
+        if (item.explicitSelection && item.result == HCCL_SUCCESS) {
+            EXPECT_EQ(received.layers, 0x6);
+        }
+        const auto& tx = workers.fdHandleToFdContextMap_.begin()->second.txState;
+        EXPECT_EQ(tx.bodyLen, workers.rankTableMsg_.size());
+        EXPECT_EQ(tx.data, workers.rankTableMsg_.data());
+    }
 }
 
 TEST_F(RankInfoDispatcherTest, Ut_PrepareResource_When_Input_Expect_E_PARA)

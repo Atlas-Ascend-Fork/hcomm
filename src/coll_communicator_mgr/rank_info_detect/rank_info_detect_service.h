@@ -21,6 +21,7 @@
 #include <condition_variable>
 #include <mutex>
 #include "universal_concurrent_map.h"
+#include <map>
 #include "new_rank_info.h"
 #include "rank_table_info.h"
 #include "internal_exception.h"
@@ -133,10 +134,13 @@ public:
         std::lock_guard<std::mutex> lock(connMtx_);
         connSockets_ = std::move(sockets);
     }
+    // 汇总各 rank 的选层上报；存在显式选层时要求有效层一致，全默认沿用原行为。
+    NetLayerCheckInfo GetNetLayerCheckResult() const;
 
     HcclResult SetupScalable(u32 groupSize, const std::function<HcclResult(RankTableInfo&)>& meshMergeCallback);
 
 private:
+    std::map<u32, NetLayerCheckInfo> netLayerCheckInfos_{};
     u32 devPhyId_{0};
     u32 groupFirstRank_{0}; // 本组首 rankId（单 root 为 0）
     shared_ptr<Socket> serverSocket_{nullptr};

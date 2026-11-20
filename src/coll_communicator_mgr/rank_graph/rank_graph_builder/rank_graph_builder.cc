@@ -16,6 +16,7 @@
 #include "detour_service.h"
 #include "json/json_api.h"
 #include "phy_topo_builder.h"
+#include "coll_comm_config.h"
 
 namespace Hccl {
 
@@ -380,11 +381,68 @@ std::map<PlaneId, FabricId> GetFabricsFromAddrInfo(const std::vector<AddressInfo
 
 HcclResult RankGraphBuilder::CheckNetLayerFromPhyTopo(const u32 netLayer) const
 {
+    // 校验待构建层的物理拓扑；选层过滤不改变该层原有的构图要求。
     if (!PhyTopo::GetInstance()->IsNetLayerExisted(netLayer)) {
         HCCL_ERROR("[RankGraphBuilder][%s] netLayer[%u] not exist in topo.", __func__, netLayer);
         return HCCL_E_PARA;
     }
     return HCCL_SUCCESS;
+}
+
+bool RankGraphBuilder::IsLayerSelected(u32 netLayer) const
+{
+    // 判断该层是否需要建图；默认构建所有真实层号，不假设层号连续。
+    return !selectedLayers_.has_value()
+           || (netLayer < MAX_NET_LAYER && (selectedLayers_.value() & (1U << netLayer)) != 0);
+}
+
+HcclResult RankGraphBuilder::CheckSelectedLayers()
+{
+    if (!layerSelector_) {
+        return HCCL_SUCCESS;
+    }
+    // 沿用构图流程 ranks[rankId] 的索引约定，直接读取本 rank，避免扫描整个通信域。
+    u32 available = 0;
+    for (const auto& level : rankTable_->ranks.at(myRank_).rankLevelInfos) {
+        if (level.netLayer < MAX_NET_LAYER) {
+            available |= 1U << level.netLayer;
+        }
+    }
+    u32 mask = 0;
+    const auto ret = layerSelector_(available, mask);
+    CHK_PRT_RET(
+        ret != HCCL_SUCCESS,
+        HCCL_ERROR(
+            "[RankGraphBuilder][%s] resolve selected layers failed, rank[%d], availableLayers[%s], ret[%d]", __func__,
+            myRank_, hccl::NetLayerSelection::FormatLayers(available).c_str(), ret),
+        HCCL_E_PARA);
+    CHK_PRT_RET(
+        mask == 0 || (mask & ~available) != 0,
+        HCCL_ERROR(
+            "[RankGraphBuilder][%s] invalid selection, rank[%d], selectedLayers[%s], availableLayers[%s]", __func__,
+            myRank_, hccl::NetLayerSelection::FormatLayers(mask).c_str(),
+            hccl::NetLayerSelection::FormatLayers(available).c_str()),
+        HCCL_E_PARA);
+    availableLayers_ = available;
+    selectedLayers_ = mask;
+    return HCCL_SUCCESS;
+}
+
+HcclResult RankGraphBuilder::InitInnerRanksFromLocalGroups()
+{
+    // 复用构图时保存的设备归属，不重扫 RankTable，也不补回 layer 0 通信边。
+    const auto& layer0InstIds = rankGraph_->layer0NetInstIds_;
+    const auto myInstance = layer0InstIds.find(myRank_);
+    CHK_PRT_RET(
+        myInstance == layer0InstIds.end(), HCCL_ERROR("[RankGraphBuilder] rank[%d] has no layer 0 identity", myRank_),
+        HCCL_E_PARA);
+    std::set<RankId> innerRanks;
+    for (const auto& rankInstance : layer0InstIds) {
+        if (rankInstance.second == myInstance->second) {
+            innerRanks.insert(rankInstance.first);
+        }
+    }
+    return rankGraph_->SetInnerRanks(innerRanks);
 }
 
 // 根据ranktable构造添加peers和NetInstances, NetInstance添加nodes和links(peer2net)
@@ -494,9 +552,6 @@ HcclResult RankGraphBuilder::BuildFromRankTable()
     // 保存NetInstance指针以便后续执行Add操作
     tempNetInsts_.resize(MAX_NET_LAYER); // 为了方便修改RankGraph的NetInstance，共享指针。
 
-    // 350L拆层形态: 对称时还原为拆层前的单层视图(与基线行为一致)
-    RestoreSymmetricLevel0View();
-
     // 遍历rankTable每一个rank, virtualTopo添加Peers
     for (const auto& rankInfo : rankTable_->ranks) {
         CHK_RET(updaterFor64Plus1_.SaveReplaceInfo(rankInfo)); // 暂存备份替换信息
@@ -509,6 +564,20 @@ HcclResult RankGraphBuilder::BuildFromRankTable()
 
         // 构造当前rank的每个LevelInfo所在NetInstance, 添加 RankId 和 Peer
         for (const auto& levelInfo : rankInfo.rankLevelInfos) {
+            CHK_PRT_RET(
+                levelInfo.netLayer >= MAX_NET_LAYER,
+                HCCL_ERROR("[%s] rank[%d] invalid netLayer[%u]", __func__, rankId, levelInfo.netLayer), HCCL_E_PARA);
+            if (levelInfo.netLayer == 0) {
+                // 在裁剪前保留各 rank 的设备归属，供监控和异常定位使用。
+                rankGraph_->layer0NetInstIds_.emplace(rankId, levelInfo.netInstId);
+            }
+            if (levelInfo.netLayer == 0 && rankId == myRank_) {
+                // 硬件兜底属性与允许通信的层无关，仍保留给引擎能力检查。
+                level0PcieFallback_ = levelInfo.pcieFallback;
+            }
+            if (!IsLayerSelected(levelInfo.netLayer)) {
+                continue;
+            }
             // 校验netLayer是否在topo中
             CHK_RET(CheckNetLayerFromPhyTopo(levelInfo.netLayer));
             // rankLevelInfo.level、id对应NetInstance，若不存在则创建
@@ -524,10 +593,6 @@ HcclResult RankGraphBuilder::BuildFromRankTable()
             CHK_RET(peer->AddNetInstance(curNetInstance));
             if (levelInfo.netLayer == 0) {
                 peer->SetPortPortAddrMapLayer0(levelInfo.portAddrMap);
-                if (rankId == myRank_) {
-                    // 记录本rank的level0是否为无UB兜底层（显式标记字段，见rank_info_detect_client）
-                    level0PcieFallback_ = levelInfo.pcieFallback;
-                }
             }
             HCCL_DEBUG(
                 "[RankGraphBuilder][BuildFromRankTable] rankLevelInfo : rankId[%d] level[%u] "
@@ -548,7 +613,7 @@ HcclResult RankGraphBuilder::BuildFromRankTable()
     }
 
     // 初始化innerRanks
-    CHK_RET(rankGraph_->InitInnerRanks());
+    CHK_RET(IsLayerSelected(0) ? rankGraph_->InitInnerRanks() : InitInnerRanksFromLocalGroups());
 
     // 将本rank level0 pcie兜底标记持久化进RankGraph，供MyRank经hccl::RankGraph接口读取（CCU无UB拦截等）
     rankGraph_->SetLevel0PcieFallback(level0PcieFallback_);
@@ -930,26 +995,31 @@ HcclResult RankGraphBuilder::CheckMyRankInRankTable() const
 
 HcclResult RankGraphBuilder::BuildRankGraph(bool enableVirtualGroups)
 {
-    // 创建VirtualTopo
-    rankGraph_ = make_unique<RankGraph>(myRank_, enableVirtualGroups);
-
     // 校验myRank在rankTable中
     CHK_RET(CheckMyRankInRankTable());
+    // 先完成主线拓扑还原，再解析选层，避免选中的 layer 1 随后被合入 layer 0。
+    RestoreSymmetricLevel0View();
+    CHK_RET(CheckSelectedLayers());
+    // 创建VirtualTopo
+    rankGraph_ = make_unique<RankGraph>(myRank_, enableVirtualGroups);
 
     // 根据ranktable构造添加peers和NetInstances, 每个NetInstance添加nodes和links(peer2net)
     CHK_RET(BuildFromRankTable());
 
-    // 根据phytopo构造添加InnerGroup中的links(peer2peer), 不包括备份节点
-    CHK_RET(BuildPeer2PeerLinks());
+    // layer 0 禁用时，直连、PCIe兜底、备份替换及绕路均不得补回该层。
+    if (IsLayerSelected(0)) {
+        // 根据phytopo构造添加InnerGroup中的links(peer2peer), 不包括备份节点
+        CHK_RET(BuildPeer2PeerLinks());
 
-    // 使用备份D时需要修改虚拟拓扑
-    CHK_RET(updaterFor64Plus1_.UpdateRankGraph(rankGraph_.get(), rankTable_.get()));
+        // 使用备份D时需要修改虚拟拓扑
+        CHK_RET(updaterFor64Plus1_.UpdateRankGraph(rankGraph_.get(), rankTable_.get()));
 
-    // 为myrank的peer2peer更新topoInst
-    CHK_RET(UpdateTopoInstForMyRankOnly());
+        // 为myrank的peer2peer更新topoInst
+        CHK_RET(UpdateTopoInstForMyRankOnly());
 
-    // 添加绕路 绕路获取
-    CHK_RET(DetourService::GetInstance().InsertDetourLinks(rankGraph_.get(), rankTable_.get()));
+        // 添加绕路 绕路获取
+        CHK_RET(DetourService::GetInstance().InsertDetourLinks(rankGraph_.get(), rankTable_.get()));
+    }
 
     // 打平所有 netLayer 的 rankAddrs，按 rank 去重排序，构建 ipIndex 映射表
     BuildIpIndexMap();
@@ -957,16 +1027,37 @@ HcclResult RankGraphBuilder::BuildRankGraph(bool enableVirtualGroups)
     // 设置endpoint
     CHK_RET(SetEndpointDesc());
 
+    // 与图一同发布本次构图的候选层和生效层，避免查询方对 not(...) 重复选层。
+    if (selectedLayers_.has_value()) {
+        rankGraph_->buildLayerSelection_ = RankGraph::BuildLayerSelection{availableLayers_, selectedLayers_.value()};
+    }
+    // 建域不要求全域连通，Send/Recv 可以只使用同组成员间的链路。
     // 构造完成
     if (enableVirtualGroups) {
         CHK_RET(rankGraph_->BuildVirtualGroups());
     }
     rankGraph_->InitFinish();
+    if (selectedLayers_.has_value()) {
+        std::string layers;
+        for (u32 layer : rankGraph_->GetLevels(myRank_)) {
+            if (!layers.empty()) {
+                layers += ',';
+            }
+            layers += std::to_string(layer);
+        }
+        HCCL_RUN_INFO(
+            "[RankGraphBuilder][%s] build success, rank[%d], rankSize[%u], builtNetLayers[%s], "
+            "selectedLayers[%s], availableLayers[%s]",
+            __func__, myRank_, rankGraph_->GetRankSize(), layers.c_str(),
+            hccl::NetLayerSelection::FormatLayers(selectedLayers_.value()).c_str(),
+            hccl::NetLayerSelection::FormatLayers(availableLayers_).c_str());
+    }
     return HCCL_SUCCESS;
 }
 
 void RankGraphBuilder::BuildIpIndexMap()
 {
+    // ipIndex 是原始地址的稳定编号；选层仅限制接口和边，不重排硬件地址索引。
     // 打平所有 netLayer 的 rankAddrs，按 rank 去重排序，用排序后的下标作为 ipIndex
     std::unordered_map<RankId, std::map<IpAddress, uint32_t>> ipIndexMap;
     for (const auto& rankInfo : rankTable_->ranks) {

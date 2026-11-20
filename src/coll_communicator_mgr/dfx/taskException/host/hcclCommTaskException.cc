@@ -363,14 +363,18 @@ void TaskExceptionHost::GetAicpuCqeErrNetInstanceByRankId(
         return;
     }
     Hccl::RankGraph* rankGraphv2 = static_cast<Hccl::RankGraph*>(rankGraph);
-    const Hccl::NetInstance* netInstance = rankGraphv2->GetNetInstanceByRankId(0, rankid);
-    if (netInstance == nullptr) {
-        HCCL_ERROR("[GetAicpuCqeErrNetInstanceByRankId]netInstance is nullptr, rankId[%u]", rankid);
+    if (rankGraphv2 == nullptr) {
+        HCCL_ERROR("[GetAicpuCqeErrNetInstanceByRankId]rankGraphv2 is nullptr, rankId[%u]", rankid);
         netInstanceId = "";
         return;
     }
-    std::string netInsId = netInstance->GetNetInstId();
-    netInstanceId = netInsId;
+    ret = rankGraphv2->GetLayer0NetInstanceId(rankid, netInstanceId);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR(
+            "[GetAicpuCqeErrNetInstanceByRankId]GetLayer0NetInstanceId failed, rankId[%u], ret[%d]", rankid, ret);
+        netInstanceId = "";
+        return;
+    }
     return;
 }
 

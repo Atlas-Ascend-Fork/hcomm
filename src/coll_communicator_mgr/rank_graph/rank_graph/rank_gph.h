@@ -12,6 +12,7 @@
 #define RANK_GRAPH_H
 
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -35,6 +36,13 @@ static_assert(MAX_NET_LAYER == MAX_VALUE_NETLAYER + 1, "RankGraph layer count mu
 
 class RankGraph {
 public:
+    struct BuildLayerSelection {
+        u32 availableLayers{0};
+        u32 selectedLayers{0};
+    };
+    // 仅由建图器记录；查询层据此识别真实裁剪图，不再对裁剪结果重新解释排除表达式。
+    const std::optional<BuildLayerSelection>& GetBuildLayerSelection() const { return buildLayerSelection_; }
+
     explicit RankGraph(RankId myRank, bool enableVirtualGroups = false)
         : netInsts_(MAX_NET_LAYER),
           myRank_(myRank),
@@ -46,6 +54,8 @@ public:
     HcclResult AddPeer(const std::shared_ptr<NetInstance::Peer>& peer);
     HcclResult AddNetInstance(const std::shared_ptr<NetInstance>& netInst);
     HcclResult InitInnerRanks();
+    // 本地成员独立于通信层保存，支持不含 layer 0 的图。
+    HcclResult SetInnerRanks(const std::set<RankId>& ranks);
     void InitFinish();
     // Build the immutable grouping view before InitFinish when enabled; physical topology is unchanged.
     HcclResult BuildVirtualGroups();
@@ -55,8 +65,14 @@ public:
     bool HasRank(RankId rankId) const;
     u32 GetRankSize() const;
     u32 GetInnerRankSize() const;
+    // 本地归属不代表可通信层；裁掉 layer 0 后仍用于区分本机与跨机资源。
+    const std::set<RankId>& GetInnerRanks() const { return innerRanks_; }
     RankId GetMyRank() const;
     LocalId GetLocalId(RankId rankId) const;
+    // 查询原 layer 0 的 netInstanceId；仅表示归属，不授权 layer 0 通信。
+    HcclResult GetLayer0NetInstanceId(RankId rankId, std::string& netInstId) const;
+    // 仅统计保留的 layer 0 身份元数据，按各实例最小 rank 排列人数。
+    HcclResult GetLayer0InstSizes(std::vector<u32>& instSizes) const;
     LocalId GetReplacedLocalId(RankId rankId) const;
     std::set<u32> GetLevels(RankId rankId) const;
     u32 GetLevelNum() const;
@@ -100,9 +116,10 @@ public:
         ipIndexMap_ = std::move(ipIndexMap);
     }
 
-    // 创建子虚拟拓扑
+    // 未指定选层时继承父域策略；显式选层只能保留父图已有层，不重新编号。
     HcclResult CreateSubRankGraph(
-        const std::vector<u32>& rankIds, std::unique_ptr<RankGraph>& subRankGraph) const; // 外部接口传入类型为u32
+        const std::vector<u32>& rankIds, std::unique_ptr<RankGraph>& subRankGraph,
+        std::optional<u32> selectedLayers = std::nullopt) const;
     // 打包接口
     std::vector<char> GetPackedData(const std::vector<std::pair<u32, RankId>>& netLayerRankPairs) const;
     void Dump() const;
@@ -124,6 +141,7 @@ private:
     HcclResult BuildLayerVirtualGroups(u32 netLayer, LayerVirtualGroups& view, bool& hasSplit) const;
     HcclResult FindLocalVirtualGroup(u32 netLayer, const std::vector<u32>*& ranks) const;
 
+    friend class RankGraphBuilder;
     RankId2PeerMap peers_;      // <rankId, Peer>
     Level2Id2NetInst netInsts_; // <netLayer, netInstId, group>
     std::set<RankId> innerRanks_;
@@ -136,11 +154,19 @@ private:
     std::map<RankId, std::string> logicSuperPodGroupIds_; // rankId→逻辑ID，SetLogicSuperPodSplit时拷入
     std::unordered_map<RankId, std::map<IpAddress, uint32_t>>
         ipIndexMap_; // ipIndex 映射表，由 RankGraphBuilder 统一设置
+    std::optional<BuildLayerSelection> buildLayerSelection_;
+    std::unordered_map<RankId, std::string> layer0NetInstIds_;
+    // 保存原 Peer 的层号和接口供再次选层；不访问其 NetInstance，也不作为子图接口公开。
+    std::unordered_map<RankId, std::shared_ptr<const NetInstance::Peer>> endpointSourcePeers_;
 
     HcclResult CreateSubNetInstances(
         const std::vector<RankId> rankIds, Level2Id2NetInst& subNetInstances, RankId2PeerMap& peers,
         RankGraph* subRankGraph) const;
     HcclResult AddSubPeers(const std::vector<RankId>& rankIds, RankGraph* subRankGraph, RankId2PeerMap& peers) const;
+    // 使用已确定的选层结果构建子图，复制成员归属并按保留层处理端点映射。
+    HcclResult CreateSubRankGraphImpl(
+        const std::vector<u32>& rankIds, std::unique_ptr<RankGraph>& subRankGraph,
+        const std::optional<BuildLayerSelection>& selection) const;
     HcclResult AddSubLinks(
         const std::vector<RankId>& rankIds, RankId2PeerMap& peers, Level2Id2NetInst& subNetInsts,
         RankId parentMyRank) const;

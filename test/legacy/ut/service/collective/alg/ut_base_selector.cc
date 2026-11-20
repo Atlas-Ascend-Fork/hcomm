@@ -8,6 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -17,6 +18,7 @@
 #include <mockcpp/mockcpp.hpp>
 #include "base_selector.h"
 #include "rank_gph.h"
+#include "topo_match_concurr_mesh.h"
 
 using namespace Hccl;
 
@@ -203,5 +205,20 @@ TEST_F(BaseSelectorTest, RejectMismatchedRankSize)
     selector_.SetRankSize(3);
     TestBaseSelector::TopoInfo topoInfo{};
     EXPECT_EQ(selector_.ExtractNetLayerDetails(topoInfo), HCCL_E_PARA);
+}
+
+TEST_F(BaseSelectorTest, ConcurrentMeshRejectsMissingLayerZero)
+{
+    AddNetInstance(1, "all", {0, 1, 2, 3});
+    AddNetInstance(2, "all", {0, 1, 2, 3});
+    TopoMatchConcurrMesh matcher(0, 4, &rankGraph_, DevType::DEV_TYPE_950);
+    std::vector<std::vector<RankId>> topology;
+    std::vector<RankId> ranks;
+    std::map<RankId, u32> rankMap;
+    EXPECT_EQ(matcher.MatchTopo(topology, ranks, rankMap), HCCL_E_NOT_SUPPORT);
+    EXPECT_TRUE(topology.empty());
+    EXPECT_TRUE(ranks.empty());
+    EXPECT_TRUE(rankMap.empty());
+    EXPECT_EQ(rankGraph_.GetLevels(0), (std::set<u32>{1, 2}));
 }
 } // namespace

@@ -22,7 +22,9 @@ constexpr u32 SNAPSHOT_VERSION_SIZE = 128;
 constexpr u32 GROUP_NAME_SIZE = 128;
 // Legacy snapshots have no grouping policy and recover with virtual grouping disabled.
 constexpr char LEGACY_SNAPSHOT_VERSION[SNAPSHOT_VERSION_SIZE] = "snapshotVersionIsFixNow";
-constexpr char SNAPSHOT_VERSION[SNAPSHOT_VERSION_SIZE] = "snapshotVirtualGroupsPolicyV1";
+constexpr char GROUPING_SNAPSHOT_VERSION[SNAPSHOT_VERSION_SIZE] = "snapshotVirtualGroupsPolicyV1";
+// 选层扩展独立升版；恢复须使用识别该格式的版本，不支持旧版回滚读取。
+constexpr char SNAPSHOT_VERSION[SNAPSHOT_VERSION_SIZE] = "snapshotNetLayerSelectionV1";
 
 struct SnapShotDynamic {
     vector<std::pair<u32, RankId>> levelRankPairs{};
@@ -147,6 +149,10 @@ private:
     HcclResult DeAllSnapShotStaticBuf(BinaryStream& buf, SnapShotBuf& localBuff);
     // 解析 ccuStatus
     HcclResult DeserializeCcuStatusBuf(BinaryStream& buf, SnapShotBuf& localBuff) const;
+
+    // 主域、子域共用选层快照格式；旧版本不增减字节，不重新解析策略。
+    HcclResult SerializeNetLayerConfig(const HcclCommConfig& config, BinaryStream& stream) const;
+    HcclResult DeserializeNetLayerConfig(BinaryStream& stream, HcclCommConfig& config) const;
 
     // 全局通信域静态信息的序列化
     void SerializeParamsInfo(const CommParams& commParams, BinaryStream& binStream) const;

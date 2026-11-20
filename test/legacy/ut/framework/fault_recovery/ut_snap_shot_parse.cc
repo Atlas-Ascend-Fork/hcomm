@@ -11,12 +11,16 @@
 #include "gtest/gtest.h"
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>
+#include <algorithm>
+#include <cstddef>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 
 #define private public
 #define protected public
 #include "snap_shot_parse.h"
+#include "checkcrc.h"
 #include "communicator_impl.h"
 #include "internal_exception.h"
 #include "null_ptr_exception.h"
@@ -34,6 +38,10 @@
 #include "recover_info.h"
 #include "net_instance.h"
 #include "rank_graph_builder.h"
+#include "rank_graph_builder_bridge.h"
+#include "rank_graph_test_data_builder.h"
+#include "hccl/hccl_comm.h"
+#include "comm_config_pub.h"
 #include "phy_topo_builder.h"
 #include "detour_service.h"
 #include "sal.h"
@@ -52,10 +60,15 @@ protected:
 
     static void TearDownTestCase() { std::cout << "SnapShotParserTest TearDown" << std::endl; }
 
-    virtual void SetUp() { std::cout << "A Test case in SnapShotParserTest SetUP" << std::endl; }
+    virtual void SetUp()
+    {
+        PhyTopo::GetInstance()->Clear();
+        std::cout << "A Test case in SnapShotParserTest SetUP" << std::endl;
+    }
 
     virtual void TearDown()
     {
+        PhyTopo::GetInstance()->Clear();
         GlobalMockObject::verify();
         std::cout << "A Test case in SnapShotParserTest TearDown" << std::endl;
     }
@@ -70,6 +83,257 @@ TEST_F(SnapShotParserTest, SnapshotGenerate_test_err)
     EXPECT_EQ(HCCL_E_PARA, res);
 }
 
+TEST_F(SnapShotParserTest, Ut_ConfigSnapshot_When_SelectedOrLegacy_Expect_PreservePolicyAndStreamBoundary)
+{
+    auto& parser = SnapShotParser::GetInstance();
+    for (bool subComm : {false, true}) {
+        for (uint32_t version : {11U, 12U, 13U, 14U}) {
+            SCOPED_TRACE(subComm);
+            SCOPED_TRACE(version);
+            HcclCommConfig input{};
+            HcclCommConfigInit(&input);
+            std::memcpy(input.reserved + offsetof(CommConfigInfo, version), &version, sizeof(version));
+            ASSERT_EQ(EOK, strcpy_s(input.hccl_use_net_layer, sizeof(input.hccl_use_net_layer), "1,2"));
+            BinaryStream stream;
+            if (subComm) {
+                parser.SerializeSubCommConfigInfo(input, stream);
+            } else {
+                parser.SerializeCommConfigInfo(input, stream);
+            }
+            const uint32_t sentinel = 0x12345678;
+            stream << sentinel;
+            HcclCommConfig output{};
+            ASSERT_EQ(EOK, strcpy_s(output.hccl_use_net_layer, sizeof(output.hccl_use_net_layer), "stale"));
+            EXPECT_EQ(
+                HCCL_SUCCESS, subComm ? parser.DeserializeSubCommConfigInfo(stream, output) :
+                                        parser.DeserializeCommConfigInfo(stream, output));
+            EXPECT_STREQ(version >= 13U ? "1,2" : "", output.hccl_use_net_layer);
+            uint32_t next = 0;
+            stream >> next;
+            EXPECT_EQ(sentinel, next);
+        }
+    }
+}
+
+TEST_F(SnapShotParserTest, Ut_ConfigSnapshot_When_TruncatedSelection_Expect_Reject)
+{
+    HcclCommConfig config{};
+    HcclCommConfigInit(&config);
+    BinaryStream stream;
+    stream << config.reserved << config.hcclBufferSize << config.hcclDeterministic << config.hcclCommName
+           << config.hcclUdi;
+    HcclCommConfig output{};
+    EXPECT_EQ(HCCL_E_PARA, SnapShotParser::GetInstance().DeserializeCommConfigInfo(stream, output));
+    EXPECT_STREQ("", output.hccl_use_net_layer);
+}
+
+TEST_F(SnapShotParserTest, Ut_ConfigSnapshot_When_DirtyStringTail_Expect_ZeroPadding)
+{
+    for (const std::string expression : {std::string(), std::string("1,2"), std::string(31, '1')}) {
+        SCOPED_TRACE(expression);
+        HcclCommConfig config{};
+        HcclCommConfigInit(&config);
+        std::memset(config.hccl_use_net_layer, 'x', sizeof(config.hccl_use_net_layer));
+        std::memcpy(config.hccl_use_net_layer, expression.c_str(), expression.size() + 1);
+        BinaryStream stream;
+        ASSERT_EQ(HCCL_SUCCESS, SnapShotParser::GetInstance().SerializeNetLayerConfig(config, stream));
+        const std::string bytes = stream.GetString();
+        ASSERT_EQ(HCCL_COMM_NET_LAYER_MAX_LENGTH + sizeof(uint32_t), bytes.size());
+        EXPECT_EQ(expression, bytes.substr(0, expression.size()));
+        EXPECT_TRUE(std::all_of(
+            bytes.begin() + expression.size(), bytes.begin() + HCCL_COMM_NET_LAYER_MAX_LENGTH, [](char value) {
+                return value == '\0';
+            }));
+        uint32_t marker = 0;
+        std::memcpy(&marker, bytes.data() + HCCL_COMM_NET_LAYER_MAX_LENGTH, sizeof(marker));
+        EXPECT_EQ(0x4E4C0001U, marker);
+    }
+}
+
+TEST_F(SnapShotParserTest, Ut_ConfigSnapshot_When_InvalidSelectionField_Expect_Reject)
+{
+    auto& parser = SnapShotParser::GetInstance();
+    HcclCommConfig config{};
+    HcclCommConfigInit(&config);
+    const size_t shortSize = offsetof(HcclCommConfig, hccl_use_net_layer);
+    std::memcpy(config.reserved, &shortSize, sizeof(shortSize));
+    BinaryStream stream;
+    EXPECT_EQ(HCCL_E_PARA, parser.SerializeNetLayerConfig(config, stream));
+    EXPECT_EQ(0U, stream.GetSize());
+    HcclCommConfigInit(&config);
+    std::memset(config.hccl_use_net_layer, '2', sizeof(config.hccl_use_net_layer));
+    EXPECT_EQ(HCCL_E_PARA, parser.SerializeNetLayerConfig(config, stream));
+    EXPECT_EQ(0U, stream.GetSize());
+}
+
+TEST_F(SnapShotParserTest, Ut_ConfigSnapshot_When_OldShortInput_Expect_NoTailRead)
+{
+    // 旧配置仅有头部时，不读取选层字段，也不改变快照边界。
+    alignas(HcclCommConfig) char oldHeader[HCCL_COMM_CONFIG_INFO_BYTES]{};
+    const size_t size = sizeof(oldHeader);
+    const uint32_t magic = HCCL_COMM_CONFIG_MAGIC_WORD;
+    std::memcpy(oldHeader, &size, sizeof(size));
+    std::memcpy(oldHeader + sizeof(size), &magic, sizeof(magic));
+    auto& parser = SnapShotParser::GetInstance();
+    BinaryStream stream;
+    EXPECT_EQ(
+        HCCL_SUCCESS, parser.SerializeNetLayerConfig(*reinterpret_cast<const HcclCommConfig*>(oldHeader), stream));
+    EXPECT_EQ(0U, stream.GetSize());
+    HcclCommConfig output{};
+    std::memcpy(output.reserved, oldHeader, sizeof(oldHeader));
+    ASSERT_EQ(EOK, strcpy_s(output.hccl_use_net_layer, sizeof(output.hccl_use_net_layer), "2"));
+    EXPECT_EQ(HCCL_SUCCESS, parser.DeserializeNetLayerConfig(stream, output));
+    EXPECT_STREQ("", output.hccl_use_net_layer);
+}
+
+TEST_F(SnapShotParserTest, Ut_ConfigSnapshot_When_GraphInitialized_Expect_ReplayBuiltLayers)
+{
+    const auto* bridge = GetRankGraphBuilderBridge();
+    ASSERT_NE(nullptr, bridge);
+    auto& parser = SnapShotParser::GetInstance();
+    // 不触发设备地址检查及拓扑缓存，保留真实 InitRankGraph 和选层结果保存路径。
+    MOCKER_CPP(&CommunicatorImpl::CheckRankGraphAddrs).stubs().will(ignoreReturnValue());
+    MOCKER_CPP(&CommunicatorImpl::SaveTopoDesc).stubs().will(returnValue(HCCL_SUCCESS));
+    const auto ranks = test::MakeRankTable4pForBuilder();
+    const auto topo = test::MakeFourPeerBuilderTopo();
+    const struct {
+        const char* expression;
+        std::set<u32> expected;
+        const char* savedExpression;
+    } cases[]
+        = {{"", {0, 1, 2}, ""}, {"0", {0}, "0"}, {"2", {2}, "2"}, {"not(0)", {1, 2}, "1,2"}, {"0,2", {0, 2}, "0,2"}};
+    for (bool subComm : {false, true}) {
+        for (const auto& item : cases) {
+            SCOPED_TRACE(subComm);
+            SCOPED_TRACE(item.expression);
+            CommunicatorImpl comm{};
+            comm.myRank = 0;
+            HcclCommConfigInit(&comm.config);
+            ASSERT_EQ(
+                EOK, strcpy_s(comm.config.hccl_use_net_layer, sizeof(comm.config.hccl_use_net_layer), item.expression));
+            RankGraphBuildResult built{};
+            HcclCommConfig parentConfig{};
+            HcclCommConfigInit(&parentConfig);
+            ASSERT_EQ(
+                HCCL_SUCCESS, bridge->recoverBuild(
+                                  ranks, topo, 0, false,
+                                  subComm ? parentConfig.hccl_use_net_layer : comm.config.hccl_use_net_layer, built));
+            const auto parent = built.rankGraph;
+            if (subComm) {
+                std::unique_ptr<RankGraph> child;
+                ASSERT_EQ(HCCL_SUCCESS, bridge->createSubGraph(*parent, {0, 1}, comm.config.hccl_use_net_layer, child));
+                comm.rankSize = child->GetRankSize();
+                ASSERT_EQ(HCCL_SUCCESS, comm.InitRankGraph(child));
+            } else {
+                ASSERT_EQ(
+                    HCCL_SUCCESS,
+                    comm.InitRankGraph(
+                        std::move(built.rankGraph), std::move(built.rankTableInfo), std::move(built.topoInfo)));
+            }
+            EXPECT_STREQ(item.savedExpression, comm.config.hccl_use_net_layer);
+            BinaryStream stream;
+            if (subComm) {
+                parser.SerializeSubCommConfigInfo(comm.config, stream);
+            } else {
+                parser.SerializeCommConfigInfo(comm.config, stream);
+            }
+            HcclCommConfig restored{};
+            ASSERT_EQ(
+                HCCL_SUCCESS, subComm ? parser.DeserializeSubCommConfigInfo(stream, restored) :
+                                        parser.DeserializeCommConfigInfo(stream, restored));
+            EXPECT_STREQ(item.savedExpression, restored.hccl_use_net_layer);
+            if (subComm) {
+                std::unique_ptr<RankGraph> replayed;
+                ASSERT_EQ(HCCL_SUCCESS, bridge->createSubGraph(*parent, {0, 1}, restored.hccl_use_net_layer, replayed));
+                EXPECT_EQ(item.expected, replayed->GetLevels(0));
+                EXPECT_EQ(2U, replayed->GetRankSize());
+            } else {
+                RankGraphBuildResult replayed{};
+                ASSERT_EQ(
+                    HCCL_SUCCESS, bridge->recoverBuild(ranks, topo, 0, false, restored.hccl_use_net_layer, replayed));
+                EXPECT_EQ(item.expected, replayed.rankGraph->GetLevels(0));
+                EXPECT_EQ(4U, replayed.rankGraph->GetRankSize());
+                EXPECT_EQ(ranks.rankCount, replayed.rankTableInfo.rankCount);
+                EXPECT_EQ(topo.edgeCount, replayed.topoInfo.edgeCount);
+            }
+        }
+    }
+}
+
+TEST_F(SnapShotParserTest, Ut_InitRankGraph_When_InvalidBuiltLayers_Expect_ConfigUnchanged)
+{
+    MOCKER_CPP(&CommunicatorImpl::CheckRankGraph).stubs().will(ignoreReturnValue());
+    MOCKER_CPP(&CommunicatorImpl::SaveTopoDesc).expects(never());
+    for (u32 mask : {0U, 1U << MAX_NET_LAYER}) {
+        SCOPED_TRACE(mask);
+        auto graph = std::make_unique<RankGraph>(0);
+        graph->buildLayerSelection_ = RankGraph::BuildLayerSelection{7U, mask};
+        CommunicatorImpl comm{};
+        HcclCommConfigInit(&comm.config);
+        ASSERT_EQ(EOK, strcpy_s(comm.config.hccl_use_net_layer, sizeof(comm.config.hccl_use_net_layer), "0"));
+        EXPECT_EQ(HCCL_E_PARA, comm.InitRankGraph(graph));
+        EXPECT_STREQ("0", comm.config.hccl_use_net_layer);
+    }
+}
+
+TEST_F(SnapShotParserTest, Ut_ParseSnapshot_When_InvalidMainOrSubSelection_Expect_Reject)
+{
+    auto& parser = SnapShotParser::GetInstance();
+    HcclCommConfig config{};
+    HcclCommConfigInit(&config);
+    ASSERT_EQ(EOK, strcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), "1"));
+    CommParams params("snapshot", 0, 1, 0, Hccl::DevType::DEV_TYPE_950, false, true);
+    BinaryStream stream;
+    parser.SerializeCommVersionInfo(stream);
+    stream << std::string("main");
+    parser.SerializeCommConfigInfo(config, stream);
+    const size_t selectionSize = HCCL_COMM_NET_LAYER_MAX_LENGTH + sizeof(uint32_t);
+    const size_t mainOffset = stream.GetSize() - selectionSize;
+    parser.SerializeParamsInfo(params, stream);
+    auto rankTable = std::make_unique<RankTableInfo>();
+    rankTable->version = "1.0";
+    rankTable->rankCount = 1;
+    rankTable->ranks.resize(1);
+    rankTable->ranks[0].rankLevelInfos.resize(1);
+    rankTable->ranks[0].controlPlane.addrType = AddrType::IPV4;
+    rankTable->ranks[0].controlPlane.addr = IpAddress("127.0.0.1");
+    parser.SerializeRankTableInfo(std::move(rankTable), stream);
+    auto topo = std::make_shared<hccl::TopoInfo>();
+    parser.SerializeTopoInfo(topo, stream);
+    stream << u32{0}; // 当前快照格式在 TopoInfo 后保存虚拟分组策略。
+    stream << size_t{1} << std::string("sub");
+    parser.SerializeSubCommParamsInfo(params, stream);
+    parser.SerializeSubCommConfigInfo(config, stream);
+    const size_t subOffset = stream.GetSize() - selectionSize;
+    parser.SerializeRankIds({0}, stream);
+    // 完整动态区：主域和一个子域均无已提交算子，CCU 通信域列表为空。
+    stream << u32{0} << u32{0} << u32{0} << false << u32{0} << size_t{1};
+    stream << u32{0} << u32{0} << false << u32{0} << size_t{0} << size_t{0};
+    for (size_t offset : {mainOffset, subOffset}) {
+        for (uint32_t fault : {0U, 1U, 2U}) {
+            SCOPED_TRACE(offset);
+            SCOPED_TRACE(fault);
+            std::string bytes = stream.GetString();
+            if (fault == 1) {
+                bytes[offset + HCCL_COMM_NET_LAYER_MAX_LENGTH] ^= 1; // 损坏尾标记。
+            } else if (fault == 2) {
+                bytes.replace(offset, HCCL_COMM_NET_LAYER_MAX_LENGTH, HCCL_COMM_NET_LAYER_MAX_LENGTH, '1');
+            }
+            const uint32_t dataLen = static_cast<uint32_t>(bytes.size());
+            const uint32_t totalSize = dataLen + 2 * sizeof(uint32_t);
+            std::vector<uint32_t> buffer((totalSize + sizeof(uint32_t) - 1) / sizeof(uint32_t), 0);
+            buffer[0] = dataLen;
+            CheckCrc crc;
+            ASSERT_EQ(HCCL_SUCCESS, crc.Calc32Crc(bytes.data(), dataLen, &buffer[1]));
+            std::memcpy(buffer.data() + 2, bytes.data(), dataLen);
+            SnapShotBuf output{};
+            EXPECT_EQ(
+                fault == 0 ? HCCL_SUCCESS : HCCL_E_PARA,
+                parser.ParseSnapshotToLocalBuff(buffer.data(), totalSize, output));
+        }
+    }
+}
+
 TEST_F(SnapShotParserTest, SerializeCommonInfoTest)
 {
     // 初始化快照解析器实例
@@ -77,7 +341,7 @@ TEST_F(SnapShotParserTest, SerializeCommonInfoTest)
     Snapshot snapShot;
 
     // 创建示例输入参数
-    CommParams commParams("test_comm_id", 0, 4, 0, DevType::DEV_TYPE_950, false, true);
+    CommParams commParams("test_comm_id", 0, 4, 0, Hccl::DevType::DEV_TYPE_950, false, true);
     HcclCommConfig config;
     strcpy(config.reserved, "test_reserved");
     config.hcclBufferSize = 1024;
@@ -167,7 +431,7 @@ TEST_F(SnapShotParserTest, SerializeSubCommInfoTest)
     // 初始化快照解析器实例
     SnapShotParser& parser = SnapShotParser::GetInstance();
     // 创建示例输入参数
-    CommParams commParams("test_comm_id", 0, 4, 0, DevType::DEV_TYPE_950, false, true);
+    CommParams commParams("test_comm_id", 0, 4, 0, Hccl::DevType::DEV_TYPE_950, false, true);
     HcclCommConfig config;
     strcpy(config.reserved, "test_reserved");
     config.hcclBufferSize = 1024;
@@ -371,7 +635,7 @@ TEST_F(SnapShotParserTest, DeSerializeSubCommInfoTest2)
     SnapShotParser& parser = SnapShotParser::GetInstance();
 
     // 创建示例输入参数
-    CommParams commParams("test_comm_id", 0, 4, 0, DevType::DEV_TYPE_950, false, true);
+    CommParams commParams("test_comm_id", 0, 4, 0, Hccl::DevType::DEV_TYPE_950, false, true);
     HcclCommConfig config;
     strcpy(config.reserved, "t");
     config.hcclBufferSize = 1024;
@@ -578,11 +842,17 @@ TEST_F(SnapShotParserTest, ut_DeSnapShotDynamicBuf_with_all_elements_ReturnHCCL_
 TEST_F(SnapShotParserTest, CurrentAndLegacySnapshotPolicyRoundTrip)
 {
     auto& parser = SnapShotParser::GetInstance();
-    for (u32 versionCase : {0U, 1U, 2U}) {
+    for (u32 versionCase : {0U, 1U, 2U, 3U, 4U}) {
+        SCOPED_TRACE(versionCase);
         const bool legacy = versionCase == 0;
-        const bool enabled = versionCase == 2;
-        CommParams params("policy", 0, 1, 0, DevType::DEV_TYPE_950, false, true);
+        const bool netLayerFormat = versionCase >= 3;
+        const bool enabled = versionCase == 2 || versionCase == 4;
+        CommParams params("policy", 0, 1, 0, Hccl::DevType::DEV_TYPE_950, false, true);
         HcclCommConfig config{};
+        if (netLayerFormat) {
+            HcclCommConfigInit(&config);
+            ASSERT_EQ(EOK, strcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), "0"));
+        }
         auto table = std::make_unique<RankTableInfo>();
         table->version = "2.0";
         table->rankCount = 1;
@@ -604,8 +874,11 @@ TEST_F(SnapShotParserTest, CurrentAndLegacySnapshotPolicyRoundTrip)
         peer.localId = 0;
         topo->peers.push_back(peer);
         BinaryStream stream;
-        if (legacy) {
-            char oldVersion[SNAPSHOT_VERSION_SIZE] = "snapshotVersionIsFixNow";
+        if (!netLayerFormat) {
+            char oldVersion[SNAPSHOT_VERSION_SIZE] = {};
+            ASSERT_EQ(
+                EOK,
+                strcpy_s(oldVersion, sizeof(oldVersion), legacy ? LEGACY_SNAPSHOT_VERSION : GROUPING_SNAPSHOT_VERSION));
             char otherVersion[SNAPSHOT_VERSION_SIZE] = {};
             stream << oldVersion << otherVersion << otherVersion;
         } else {
@@ -639,14 +912,36 @@ TEST_F(SnapShotParserTest, CurrentAndLegacySnapshotPolicyRoundTrip)
         snapshot.snapshot.snapShotComm.enableVirtualGroups = true;
         ASSERT_EQ(parser.ParseSnapshotToLocalBuff(bytes.data(), bytes.size(), snapshot), HCCL_SUCCESS);
         EXPECT_EQ(snapshot.snapshot.snapShotComm.enableVirtualGroups, enabled);
+        EXPECT_STREQ(netLayerFormat ? "0" : "", snapshot.snapshot.snapShotComm.config.hccl_use_net_layer);
         EXPECT_EQ(snapshot.snapshot.snapShotComm.commParams.commId, "policy");
         ASSERT_EQ(snapshot.subSnapshot.size(), 1U);
         EXPECT_STREQ(snapshot.subSnapshot[0].groupName, "sub_policy");
         EXPECT_EQ(snapshot.subSnapshot[0].snapShotSubComm.rankIds, (std::vector<RankId>{0}));
+        EXPECT_STREQ(netLayerFormat ? "0" : "", snapshot.subSnapshot[0].snapShotSubComm.config.hccl_use_net_layer);
         EXPECT_EQ(snapshot.snapShotPub.step, 17U);
         ASSERT_EQ(snapshot.ccuStatusSnapshot.useMsCommIds.size(), 1U);
         EXPECT_STREQ(snapshot.ccuStatusSnapshot.useMsCommIds[0].data(), "policy");
     }
+}
+
+TEST_F(SnapShotParserTest, NetLayerSnapshotVersionIsRejectedByPreviousReaders)
+{
+    auto& parser = SnapShotParser::GetInstance();
+    BinaryStream stream;
+    parser.SerializeCommVersionInfo(stream);
+    const u32 sentinel = 0x12345678;
+    stream << sentinel;
+    SnapShotPub header{};
+    ASSERT_EQ(HCCL_SUCCESS, parser.DeserializeCommVersionInfo(stream, header));
+    EXPECT_STREQ("snapshotNetLayerSelectionV1", header.snapshotVersion);
+    // 固定旧读端支持的格式标识，验证它会在读取通信域字段前拒绝新格式。
+    const char legacyVersion[SNAPSHOT_VERSION_SIZE] = "snapshotVersionIsFixNow";
+    const char groupingVersion[SNAPSHOT_VERSION_SIZE] = "snapshotVirtualGroupsPolicyV1";
+    EXPECT_NE(0, std::memcmp(header.snapshotVersion, legacyVersion, SNAPSHOT_VERSION_SIZE));
+    EXPECT_NE(0, std::memcmp(header.snapshotVersion, groupingVersion, SNAPSHOT_VERSION_SIZE));
+    u32 next = 0;
+    stream >> next;
+    EXPECT_EQ(sentinel, next);
 }
 
 TEST_F(SnapShotParserTest, UnknownSnapshotVersionIsNotSupported)

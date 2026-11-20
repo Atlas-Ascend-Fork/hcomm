@@ -24,6 +24,7 @@
 #include "socket_exception.h"
 #include "socket_agent.h"
 #include "ip_address.h"
+#include "coll_comm_config.h"
 
 namespace Hccl {
 
@@ -47,11 +48,16 @@ public:
     HcclResult TearDown();
 
     HcclResult Setup(RankTableInfo& rankTable);
+    // Setup 前按值保存入口已解析的策略；探测阶段不重新读取环境变量。
+    void SetNetLayerSelection(const hccl::NetLayerSelection& selection) { netLayerSelection_ = selection; }
 
     // expectedRankCount 扩容后预期总 rank 数，用于校验接收到的 rankCount。
     HcclResult WaitForNextBroadcast(RankTableInfo& rankTable, uint32_t expectedRankCount);
 
 private:
+    hccl::NetLayerSelection netLayerSelection_{};
+    NetLayerCheckInfo localNetLayerCheck_{};
+    NetLayerCheckInfo remoteNetLayerCheck_{};
     u32 devPhyId_{0};
     u32 rankSize_{0};
     u32 rankId_{0};
@@ -72,9 +78,14 @@ private:
     HcclResult SendLocalRankTable(const RankTableInfo& localRankTable);
     HcclResult ConstructRankTable(RankTableInfo& localRankTable);
     HcclResult VerifyRankTable();
+    // 按本 rank 候选层生成上报结果；解析失败也写入报文，交由 root 汇总。
+    void PrepareNetLayerCheck(const hccl::NewRankInfo& rankInfo);
+    // 校验 root 汇总结果及本地有效层；显式选层遇旧 root 时拒绝继续。
+    HcclResult VerifyNetLayerConsistency() const;
     HcclResult RecvRankTable();
     HcclResult RecvRankTableMsg(vector<char>& rankInfoMsg);
-    void ParseRankTable(vector<char>& rankInfoMsg);
+    // 解析广播内容，选层报文错误直接返回；原有反序列化异常由调用方处理。
+    HcclResult ParseRankTable(vector<char>& rankInfoMsg);
     s32 ProbeHostRoceAddr(const IpAddress& hostAddr) const;
     void ConstructSingleRank(RankTableInfo& localRankTable);
     HcclResult GetLocalTlsStatus(TlsStatus& tlsStatus) const;

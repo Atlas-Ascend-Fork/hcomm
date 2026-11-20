@@ -22,6 +22,8 @@
 
 初始化通信域配置项。
 
+当前配置版本为V13，`hccl_use_net_layer`默认为空字符串（未配置），选层规则参见[HcclCommConfig](./data_type_definition/HcclCommConfig.md)。
+
 ## 函数原型
 
 ```c

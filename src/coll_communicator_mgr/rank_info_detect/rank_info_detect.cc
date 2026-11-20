@@ -463,6 +463,7 @@ HcclResult RankInfoDetect::SetupAgent(u32 rankSize, u32 rankId, const HcclRootHa
                      = std::make_shared<RankInfoDetectClient>(devPhyId_, rankSize, rankId, clientSocket););
 
     // 2. 调用RankInfoDetectClient.Setup, 获取rankTable
+    rankInfoDetectClient->SetNetLayerSelection(netLayerSelection_);
     CHK_RET(rankInfoDetectClient->Setup(rankTable_));
 
     HCCL_DEBUG("[RankInfoDetect::%s] setup agent end.", __func__);

@@ -53,6 +53,7 @@ struct hcclCommInitConfigAsyncJob : public hcclAsyncJob {
     HcclComm* initComm;
     std::string identifier;
     const HcclCommConfig* config;
+    HcclCommConfig ownedConfig{}; // 仅 V2 入队时复制，存活至任务销毁；非 V2 沿用 config 原指针。
 };
 
 struct hcclCommInitScalableAsyncJob : public hcclAsyncJob {
@@ -64,6 +65,7 @@ struct hcclCommInitScalableAsyncJob : public hcclAsyncJob {
     s32 devId;
     HcclComm* initComm;
     const HcclCommConfig* config;
+    HcclCommConfig ownedConfig{};
 };
 
 struct hcclCommInitRankTableAsyncJob : public hcclAsyncJob {
@@ -78,6 +80,7 @@ struct hcclCommInitRankTableConfigAsyncJob : public hcclAsyncJob {
     u32 rank;
     HcclComm* initComm;
     HcclCommConfig* config;
+    HcclCommConfig ownedConfig{};
     s32 devId;
 };
 

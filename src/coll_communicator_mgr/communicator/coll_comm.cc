@@ -303,6 +303,17 @@ CollComm::InitSimpleMode(void* rankGraph, aclrtBinHandle binHandle, HcclMem cclB
     return HCCL_SUCCESS;
 }
 
+HcclResult CollComm::InitRankGraph(void* rankGraph)
+{
+    CHK_PTR_NULL(rankGraph);
+    auto graph = std::make_unique<RankGraphV2>(rankGraph);
+    CHK_RET(graph->InitNetLayerSelection());
+    // 选层校验成功后才发布，失败不留下未受限的图。
+    rankGraphOwner_ = std::move(graph);
+    rankgraph_ = rankGraphOwner_.get();
+    return HCCL_SUCCESS;
+}
+
 HcclResult
 CollComm::InitFullMode(void* rankGraph, aclrtBinHandle binHandle, HcclMem cclBuffer, uint32_t opExpansionMode)
 {
@@ -313,8 +324,7 @@ CollComm::InitFullMode(void* rankGraph, aclrtBinHandle binHandle, HcclMem cclBuf
     EXCEPTION_HANDLE_BEGIN
 
     CHK_RET(DlHalFunction::GetInstance().DlHalFunctionInit());
-    rankGraphOwner_ = std::make_unique<RankGraphV2>(rankGraph);
-    rankgraph_ = rankGraphOwner_.get();
+    CHK_RET(InitRankGraph(rankGraph));
     uint32_t rankNum = 0;
     CHK_PTR_NULL(rankgraph_);
     CHK_RET(rankgraph_->GetRankSize(&rankNum));

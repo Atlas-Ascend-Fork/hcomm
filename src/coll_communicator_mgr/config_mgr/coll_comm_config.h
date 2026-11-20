@@ -11,18 +11,31 @@
 #ifndef COLL_COMM_CONFIG_H
 #define COLL_COMM_CONFIG_H
 
-#include "comm_config_pub.h"
+#include <cstddef>
+#include <cstdint>
+#include <string>
+
 #include "hccl/hccl_types.h"
+#include "net_layer_config.h"
 
 namespace hccl {
+// 这里只使用引用，避免将 legacy 配置头传播到拓扑探测等调用方。
+class CommConfig;
+
 constexpr uint32_t HCCL_COMM_CONFIG_SQ_DEPTH_VERSION = 11U;
 constexpr uint32_t HCCL_COMM_CONFIG_SCQ_DEPTH_VERSION = 12U;
 
 void InitDefaultHcclCommConfig(HcclCommConfig& config);
 
+// 按size承接完整本地副本，保留原版本供旧业务字段消费；仅对新增选层字段检查版本和长度。
+// 失败不修改输出。
+// 非空input至少须可读size_t字节，并保证实际缓冲区不小于头部声明的size。
+HcclResult ReadHcclCommConfig(const HcclCommConfig* input, HcclCommConfig& output);
+
 HcclResult ApplyHcclCommConfig(
     const HcclCommConfig* hcclCommConfig, CommConfig& commConfig, uint32_t& opExpansionMode,
     int32_t processDeterministic);
+
 } // namespace hccl
 
 #endif /* COLL_COMM_CONFIG_H */

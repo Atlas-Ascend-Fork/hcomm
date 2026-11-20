@@ -11,6 +11,7 @@
 #include "externalinput_pub.h"
 #include "externalinput.h"
 #include "comm_config_pub.h"
+#include "hccl/hccl_types.h"
 #include "adapter_error_manager_pub.h"
 #include "adapter_rts_common.h"
 #include "alg_env_config.h"
@@ -152,18 +153,18 @@ HcclResult CommConfig::CheckMagicWord(const CommConfigHandle& config)
 
 HcclResult CommConfig::SetConfigByVersion(const CommConfigHandle& config)
 {
-    if (config.info.version > CommConfigVersion::COMM_CONFIG_VERSION_TWELVE) {
+    if (config.info.version > CommConfigVersion::COMM_CONFIG_VERSION_THIRTEEN) {
         // 传入的config的版本高于当前版本，警告不支持的配置项将被忽略
         HCCL_WARNING(
             "[SetConfigByVersion] The version of provided config[%u] is higher than the current version[%u], "
             "unsupported configuration will be ignored.",
-            config.info.version, CommConfigVersion::COMM_CONFIG_VERSION_TWELVE);
-    } else if (config.info.version < CommConfigVersion::COMM_CONFIG_VERSION_TWELVE) {
+            config.info.version, CommConfigVersion::COMM_CONFIG_VERSION_THIRTEEN);
+    } else if (config.info.version < CommConfigVersion::COMM_CONFIG_VERSION_THIRTEEN) {
         // 传入的config的版本低于当前版本，警告高版本支持的配置项将被忽略
         HCCL_WARNING(
             "[SetConfigByVersion] The version of provided config[%u] is lower than the current version[%u], "
             "configurations supported by later versions will be ignored.",
-            config.info.version, CommConfigVersion::COMM_CONFIG_VERSION_TWELVE);
+            config.info.version, CommConfigVersion::COMM_CONFIG_VERSION_THIRTEEN);
     }
 
     if (config.info.version >= CommConfigVersion::COMM_CONFIG_VERSION_ONE) {

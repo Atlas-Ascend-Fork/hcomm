@@ -10,7 +10,171 @@
 
 #include "hccl_api_base_test.h"
 #include "hccl_comm_pub.h"
+#define private public
 #include "llt_hccl_stub_rank_graph.h"
+#include "rank_graph_v2.h"
+#undef private
+
+// 直接验证现代包装层，不创建通信域，也不依赖设备资源初始化。
+class RankGraphSelectionTest : public testing::Test {
+protected:
+    void TearDown() override { GlobalMockObject::verify(); }
+
+    void StubLayers(uint32_t* layers, uint32_t count)
+    {
+        std::set<uint32_t> candidates;
+        for (uint32_t i = 0; i < count; ++i) {
+            candidates.insert(layers[i]);
+        }
+        for (uint32_t rank : {0U, 1U}) {
+            if (!original_.HasRank(rank)) {
+                auto peer = std::make_shared<Hccl::NetInstance::Peer>(rank, rank, rank, rank);
+                ASSERT_EQ(HCCL_SUCCESS, original_.AddPeer(peer));
+            }
+        }
+        MOCKER_CPP(&Hccl::RankGraph::GetLevels).stubs().will(returnValue(candidates));
+    }
+
+    Hccl::RankGraph original_{0};
+};
+
+TEST_F(RankGraphSelectionTest, SelectedLayerKeepsRealIdAndForwardsAllowedQuery)
+{
+    uint32_t candidates[] = {2};
+    StubLayers(candidates, 1);
+    // 全图有三层，本 rank 只有 layer 2；真实查询返回数量必须与数组长度一致。
+    MOCKER_CPP(&Hccl::RankGraph::GetLevelNum).stubs().will(returnValue(3U));
+    original_.buildLayerSelection_ = Hccl::RankGraph::BuildLayerSelection{5, 4};
+    hccl::RankGraphV2 graph(&original_);
+    ASSERT_EQ(graph.InitNetLayerSelection(), HCCL_SUCCESS);
+    uint32_t* layers = nullptr;
+    uint32_t count = 0;
+    ASSERT_EQ(graph.GetNetLayers(&layers, &count), HCCL_SUCCESS);
+    ASSERT_EQ(count, 1U);
+    EXPECT_EQ(layers[0], 2U);
+    auto* cachedLayers = layers;
+    ASSERT_EQ(graph.GetNetLayers(&layers, &count), HCCL_SUCCESS);
+    EXPECT_EQ(layers, cachedLayers);
+    EXPECT_EQ(count, 1U);
+    uint32_t expectedRanks = 8;
+    MOCKER_CPP(&Hccl::IRankGraph::GetInstSizeByNetLayer)
+        .expects(once())
+        .with(eq(2U), outBoundP(&expectedRanks, sizeof(expectedRanks)))
+        .will(returnValue(HCCL_SUCCESS));
+    uint32_t ranks = 0;
+    EXPECT_EQ(graph.GetInstSizeByNetLayer(2, &ranks), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, 8U);
+    EXPECT_EQ(candidates[0], 2U);
+}
+
+TEST_F(RankGraphSelectionTest, DisabledLayerQueriesNeverReachOriginalGraph)
+{
+    uint32_t candidates[] = {2};
+    StubLayers(candidates, 1);
+    original_.buildLayerSelection_ = Hccl::RankGraph::BuildLayerSelection{5, 4};
+    original_.layer0NetInstIds_.emplace(0, "server0");
+    hccl::RankGraphV2 graph(&original_);
+    ASSERT_EQ(graph.InitNetLayerSelection(), HCCL_SUCCESS);
+    MOCKER_CPP(&Hccl::IRankGraph::GetLinks).expects(never());
+    MOCKER_CPP(&Hccl::IRankGraph::GetInstTopoTypeByNetLayer).expects(never());
+    MOCKER_CPP(&Hccl::IRankGraph::GetInstSizeByNetLayer).expects(never());
+    MOCKER_CPP(&Hccl::IRankGraph::GetInstRanksByNetLayer).expects(never());
+    MOCKER_CPP(&Hccl::IRankGraph::GetInstSizeListByNetLayer).expects(never());
+    MOCKER_CPP(&Hccl::IRankGraph::GetTopoInstsByLayer).expects(never());
+    MOCKER_CPP(&Hccl::IRankGraph::GetTopoType).expects(never());
+    MOCKER_CPP(&Hccl::IRankGraph::GetRanksByTopoInst).expects(never());
+    MOCKER_CPP(&Hccl::IRankGraph::GetEndpointNum).expects(never());
+    MOCKER_CPP(&Hccl::IRankGraph::GetEndpointDesc).expects(never());
+    for (uint32_t layer : {0U, 1U, 8U, UINT32_MAX}) {
+        CommLink* links = nullptr;
+        uint32_t count = 123;
+        EXPECT_EQ(graph.GetLinks(layer, 0, 1, &links, &count), layer == 0 ? HCCL_SUCCESS : HCCL_E_PARA);
+        EXPECT_EQ(links, nullptr);
+        EXPECT_EQ(count, layer == 0 ? 0U : 123U);
+        EXPECT_EQ(graph.GetInstTopoTypeByNetLayer(layer, nullptr), HCCL_E_PARA);
+        const auto metadataResult = layer == 0 ? HCCL_E_PTR : HCCL_E_PARA;
+        EXPECT_EQ(graph.GetInstSizeByNetLayer(layer, nullptr), metadataResult);
+        EXPECT_EQ(graph.GetInstRanksByNetLayer(layer, nullptr, nullptr), metadataResult);
+        EXPECT_EQ(graph.GetInstSizeListByNetLayer(layer, nullptr, nullptr), metadataResult);
+        EXPECT_EQ(graph.GetTopoInstsByLayer(layer, nullptr, nullptr), HCCL_E_PARA);
+        EXPECT_EQ(graph.GetTopoType(layer, 0, nullptr), HCCL_E_PARA);
+        EXPECT_EQ(graph.GetRanksByTopoInst(layer, 0, nullptr, nullptr), HCCL_E_PARA);
+        EXPECT_EQ(graph.GetEndpointNum(layer, 0, nullptr), HCCL_E_PARA);
+        EXPECT_EQ(graph.GetEndpointDesc(layer, 0, nullptr, nullptr), HCCL_E_PARA);
+    }
+}
+
+TEST_F(RankGraphSelectionTest, LayerZeroMetadataDoesNotInventMissingGroups)
+{
+    uint32_t candidates[] = {1};
+    StubLayers(candidates, 1);
+    for (uint32_t available : {2U, 3U}) {
+        original_.buildLayerSelection_ = Hccl::RankGraph::BuildLayerSelection{available, 2};
+        hccl::RankGraphV2 graph(&original_);
+        ASSERT_EQ(HCCL_SUCCESS, graph.InitNetLayerSelection());
+        uint32_t* sizes = nullptr;
+        uint32_t count = 123;
+        EXPECT_NE(HCCL_SUCCESS, graph.GetInstSizeListByNetLayer(0, &sizes, &count));
+        EXPECT_EQ(nullptr, sizes);
+        EXPECT_EQ(123U, count);
+    }
+}
+
+TEST_F(RankGraphSelectionTest, DefaultSelectionPreservesDelegation)
+{
+    uint32_t candidates[] = {2, 0};
+    StubLayers(candidates, 2);
+    uint32_t* forwardedLayers = candidates;
+    uint32_t forwardedCount = 2;
+    MOCKER_CPP(&Hccl::IRankGraph::GetNetLayers)
+        .expects(once())
+        .with(outBoundP(&forwardedLayers, sizeof(forwardedLayers)), outBoundP(&forwardedCount, sizeof(forwardedCount)))
+        .will(returnValue(HCCL_SUCCESS));
+    hccl::RankGraphV2 graph(&original_);
+    ASSERT_EQ(graph.InitNetLayerSelection(), HCCL_SUCCESS);
+    uint32_t* layers = nullptr;
+    uint32_t count = 0;
+    ASSERT_EQ(graph.GetNetLayers(&layers, &count), HCCL_SUCCESS);
+    EXPECT_EQ(layers, candidates);
+    EXPECT_EQ(count, 2U);
+    MOCKER_CPP(&Hccl::IRankGraph::GetLinks).expects(once()).will(returnValue(HCCL_E_NOT_FOUND));
+    EXPECT_EQ(graph.GetLinks(2, 0, 1, nullptr, nullptr), HCCL_E_NOT_FOUND);
+}
+
+TEST_F(RankGraphSelectionTest, InvalidCandidateLayerIsRejectedBeforeBitShift)
+{
+    original_.buildLayerSelection_ = Hccl::RankGraph::BuildLayerSelection{5, 5};
+    uint32_t candidates[] = {0, 32};
+    StubLayers(candidates, 2);
+    hccl::RankGraphV2 graph(&original_);
+    EXPECT_EQ(graph.InitNetLayerSelection(), HCCL_E_PARA);
+    candidates[1] = 2;
+    GlobalMockObject::verify();
+    StubLayers(candidates, 2);
+    EXPECT_EQ(graph.InitNetLayerSelection(), HCCL_SUCCESS);
+}
+
+TEST_F(RankGraphSelectionTest, InvalidOriginalGraphOrLocalRankIsRejected)
+{
+    hccl::RankGraphV2 uninitialized;
+    hccl::RankGraphV2 empty(nullptr);
+    EXPECT_EQ(uninitialized.InitNetLayerSelection(), HCCL_E_PTR);
+    EXPECT_EQ(empty.InitNetLayerSelection(), HCCL_E_PTR);
+
+    original_.buildLayerSelection_ = Hccl::RankGraph::BuildLayerSelection{1, 1};
+    MOCKER_CPP(&Hccl::RankGraph::HasRank).stubs().will(returnValue(false));
+    MOCKER_CPP(&Hccl::RankGraph::GetLevels).expects(never());
+    hccl::RankGraphV2 graph(&original_);
+    EXPECT_EQ(graph.InitNetLayerSelection(), HCCL_E_PARA);
+}
+
+TEST_F(RankGraphSelectionTest, DefaultDoesNotReadCandidateGraph)
+{
+    MOCKER_CPP(&Hccl::RankGraph::HasRank).expects(never());
+    MOCKER_CPP(&Hccl::RankGraph::GetLevels).expects(never());
+    hccl::RankGraphV2 graph(&original_);
+    EXPECT_EQ(graph.InitNetLayerSelection(), HCCL_SUCCESS);
+}
 
 class HcclRankGraphTest : public BaseInit {
 public:

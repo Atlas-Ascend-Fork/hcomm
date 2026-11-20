@@ -26,6 +26,7 @@
 #include "env_config.h"
 #if (!defined(HCCD)) && (!defined(CCL_KERNEL_AICPU))
 #include "coll_comm.h"
+#include "coll_comm_config.h"
 #endif
 #include "../common/src/topo/topoinfo_detect.h"
 #include "../common/src/topo/topoinfo_detect_scalable.h"
@@ -335,6 +336,14 @@ HcclResult HcclCommInitAll(uint32_t ndev, int32_t* devices, HcclComm* comms)
 
 #if (!defined(HCCD)) && (!defined(CCL_KERNEL_AICPU))
     HCCLV2_FUNC_RUN([&]() -> HcclResult {
+        NetLayerSelection selection;
+        CHK_RET(NetLayerSelection::LoadForIndependentComm(nullptr, selection));
+        CHK_PRT_RET(
+            selection.GetMode() != NetLayerSelectionMode::DEFAULT,
+            HCCL_ERROR(
+                "[HcclCommInitAll] InitAll does not support HCCL_USE_NET_LAYER[%s]",
+                selection.GetNormalizedExpression().c_str()),
+            HCCL_E_NOT_SUPPORT);
         CHK_RET(HcclCommInitAllV2(ndev, devices, comms));
         CHK_RET(HcclCollCommInitAll(ndev, devices, comms));
         return HCCL_SUCCESS;
@@ -692,8 +701,11 @@ HcclCommInitClusterInfoMemConfig(const char* rankTableString, uint32_t rank, Hcc
 #if (!defined(HCCD)) && (!defined(CCL_KERNEL_AICPU))
     HCCLV2_FUNC_RUN([&]() -> HcclResult {
         void* commV2 = nullptr;
-        CHK_RET(HcclCommInitClusterInfoMemConfigV2(rankTableString, rank, config, &commV2));
-        HcclResult ret = HcclCommInitCollComm(rank, &commV2, config, comm);
+        // 在跨库调用前补齐旧版字段，两条初始化路径使用同一份配置。
+        HcclCommConfig normalizedConfig{};
+        CHK_RET(PrepareIndependentCommConfig(config, normalizedConfig));
+        CHK_RET(HcclCommInitClusterInfoMemConfigV2(rankTableString, rank, &normalizedConfig, &commV2));
+        HcclResult ret = HcclCommInitCollComm(rank, &commV2, &normalizedConfig, comm);
         if (ret != HCCL_SUCCESS) {
             HCCL_ERROR("[HcclCommInitCollComm]HcclCommInitCollComm failed.Destroy comv2");
             CHK_RET(HcclCommDestroyV2(commV2));
@@ -834,9 +846,12 @@ HcclResult HcclCreateSubCommConfig(
         HcclComm commV2 = globalComm->GetCommunicatorV2();
         CHK_PTR_NULL(commV2);
         HcclComm subCommV2 = nullptr;
-        CHK_RET(HcclCreateSubCommConfigV2(&commV2, rankNum, rankIds, subCommId, subCommRankId, config, &subCommV2));
+        HcclCommConfig normalizedConfig{};
+        CHK_RET(ReadHcclCommConfig(config, normalizedConfig));
+        CHK_RET(HcclCreateSubCommConfigV2(
+            &commV2, rankNum, rankIds, subCommId, subCommRankId, &normalizedConfig, &subCommV2));
         const auto* parentCollComm = globalComm->GetCollComm();
-        HcclResult ret = HcclCommInitCollComm(subCommRankId, &subCommV2, config, subComm);
+        HcclResult ret = HcclCommInitCollComm(subCommRankId, &subCommV2, &normalizedConfig, subComm);
         if (ret != HCCL_SUCCESS) {
             HCCL_ERROR("[HcclCommInitCollComm]HcclCommInitCollComm failed. Destroy subCommV2");
             CHK_RET(HcclCommDestroyV2(subCommV2));
@@ -1275,6 +1290,21 @@ HcclResult HcclCommInitRootInfoInnerWrapper(struct hcclAsyncJob* job_)
 
 HcclResult HcclCommInitRootInfo(uint32_t nRanks, const HcclRootInfo* rootInfo, uint32_t rank, HcclComm* comm)
 {
+#if (!defined(HCCD)) && (!defined(CCL_KERNEL_AICPU))
+    bool isSupportV2 = false;
+    CHK_RET(hrtGetHcclV2Support(&isSupportV2));
+    if (isSupportV2) {
+        // 无配置入口只解析环境变量；未配置时沿用原流程。
+        NetLayerSelection selection;
+        CHK_RET(NetLayerSelection::LoadForIndependentComm(nullptr, selection));
+        if (selection.GetMode() != NetLayerSelectionMode::DEFAULT) {
+            HcclCommConfig config;
+            HcclCommConfigInit(&config);
+            // 环境已由 config_mgr 缓存，不在入口手动写入参数字段。
+            return HcclCommInitRootInfoConfig(nRanks, rootInfo, rank, &config, comm);
+        }
+    }
+#endif
     HCCL_INFO("hcclGroupDepth=[%d]", hcclGroupDepth);
     HcclResult ret = HCCL_SUCCESS;
     if (hcclGroupDepth > 0) {
@@ -1430,6 +1460,17 @@ HcclResult HcclCommInitRootInfoConfigInnerWrapper(struct hcclAsyncJob* job_)
 HcclResult HcclCommInitRootInfoConfig(
     uint32_t nRanks, const HcclRootInfo* rootInfo, uint32_t rank, const HcclCommConfig* config, HcclComm* comm)
 {
+#if (!defined(HCCD)) && (!defined(CCL_KERNEL_AICPU))
+    // 仅 V2 路径固化选层，A3 保留原配置及异步受理行为。
+    bool isSupportV2 = false;
+    CHK_RET(hrtGetHcclV2Support(&isSupportV2));
+    HcclCommConfig preparedConfig{};
+    if (isSupportV2) {
+        CHK_PRT_RET(config == nullptr, HCCL_ERROR("[HcclCommInitRootInfoConfig] config is nullptr"), HCCL_E_PTR);
+        CHK_RET(PrepareIndependentCommConfig(config, preparedConfig));
+        config = &preparedConfig;
+    }
+#endif
     HcclResult ret = HCCL_SUCCESS;
     HCCL_INFO("hcclGroupDepth=[%d]", hcclGroupDepth);
     if (hcclGroupDepth > 0) {
@@ -1439,6 +1480,12 @@ HcclResult HcclCommInitRootInfoConfig(
         job->rootInfo = rootInfo;
         job->rank = rank;
         job->initComm = comm;
+#if (!defined(HCCD)) && (!defined(CCL_KERNEL_AICPU))
+        if (isSupportV2) {
+            job->ownedConfig = preparedConfig;
+            config = &job->ownedConfig;
+        }
+#endif
         job->config = config;
         s32 devId = 0;
         CHK_RET(HcclDeviceRefresh(devId));
@@ -1690,6 +1737,21 @@ HcclResult HcclCommInitRootInfoScalable(
     uint32_t nRanks, uint32_t nRoot, const HcclRootInfo* rootInfoList, uint32_t rank, uint32_t nExtRoot,
     const HcclCommConfig* config, HcclComm* comm)
 {
+#if (!defined(HCCD)) && (!defined(CCL_KERNEL_AICPU))
+    bool isSupportV2 = false;
+    CHK_RET(hrtGetHcclV2Support(&isSupportV2));
+    HcclCommConfig preparedConfig{};
+    if (isSupportV2) {
+        CHK_RET(PrepareIndependentCommConfig(config, preparedConfig));
+        CHK_PRT_RET(
+            preparedConfig.hccl_use_net_layer[0] != '\0',
+            HCCL_ERROR(
+                "[%s] scalable creation does not support hccl_use_net_layer/HCCL_USE_NET_LAYER[%s]", __func__,
+                preparedConfig.hccl_use_net_layer),
+            HCCL_E_NOT_SUPPORT);
+        config = &preparedConfig;
+    }
+#endif
     HCCL_INFO("hcclGroupDepth=[%d]", hcclGroupDepth);
     HcclResult ret = HCCL_SUCCESS;
     if (hcclGroupDepth > 0) {
@@ -1701,6 +1763,12 @@ HcclResult HcclCommInitRootInfoScalable(
         job->rank = rank;
         job->nExtRoot = nExtRoot;
         job->initComm = comm;
+#if (!defined(HCCD)) && (!defined(CCL_KERNEL_AICPU))
+        if (isSupportV2) {
+            job->ownedConfig = preparedConfig;
+            config = &job->ownedConfig;
+        }
+#endif
         job->config = config;
         s32 devId = 0;
         CHK_RET(HcclDeviceRefresh(devId));

@@ -137,7 +137,8 @@ typedef struct HcclRootInfoDef {
 
 const uint32_t HCCL_COMM_CONFIG_INFO_BYTES = 24;
 const uint32_t HCCL_COMM_CONFIG_MAGIC_WORD = 0xf0f0f0f0;
-const uint32_t HCCL_COMM_CONFIG_VERSION = 12;
+const uint32_t HCCL_COMM_CONFIG_VERSION = 13;
+const uint32_t HCCL_COMM_NET_LAYER_MAX_LENGTH = 32;
 const uint32_t HCCL_COMM_DEFAULT_BUFFSIZE = 200;
 const uint32_t HCCL_COMM_BUFFSIZE_CONFIG_NOT_SET = 0xffffffff;
 const uint32_t HCCL_COMM_DEFAULT_DETERMINISTIC = 0;
@@ -178,6 +179,8 @@ typedef struct HcclCommConfigDef {
     uint64_t hcclSymWinMaxMemSizePerRank; // 对称内存预留VA大小, 单位GB
     uint32_t hcclChannelSqDepth;
     uint32_t hcclChannelScqDepth;
+    // 独立域空串使用环境配置，子域空串继承父域；支持0~7列表或not(列表)，初始化时生效。
+    char hccl_use_net_layer[HCCL_COMM_NET_LAYER_MAX_LENGTH];
 } HcclCommConfig;
 
 typedef enum {

@@ -466,7 +466,7 @@ global:
         "Hccl::PhyTopo::Link::GetSourceIFace()";  # _ZN4Hccl7PhyTopo4Link14GetSourceIFaceEv
         "hccl::PhyTopoBuilder::Build(std::string const&)";  # _ZN4hccl14PhyTopoBuilder5BuildERKSs
         "hccl::PhyTopoBuilder::GetInstance()";  # _ZN4hccl14PhyTopoBuilder11GetInstanceEv
-        "Hccl::RankGraph::CreateSubRankGraph(std::vector<unsigned int, std::allocator<unsigned int> > const&, std::unique_ptr<Hccl::RankGraph, std::default_delete<Hccl::RankGraph> >&) const";  # _ZNK4Hccl9RankGraph18CreateSubRankGraphERKSt6vectorIjSaIjEERSt10unique_ptrIS0_St14default_deleteIS0_EE
+        "Hccl::RankGraph::CreateSubRankGraph(std::vector<unsigned int, std::allocator<unsigned int> > const&, std::unique_ptr<Hccl::RankGraph, std::default_delete<Hccl::RankGraph> >&, std::optional<unsigned int>) const";
         "Hccl::RankGraph::Dump() const";  # _ZNK4Hccl9RankGraph4DumpEv
         "Hccl::RankGraph::GetEndpointDesc(unsigned int, unsigned int, unsigned int*, EndpointDesc*) const";  # _ZNK4Hccl9RankGraph15GetEndpointDescEjjPjP12EndpointDesc
         "Hccl::RankGraph::GetEndpointInfo(unsigned int, EndpointDesc const*, EndpointAttr, unsigned int, void*) const";  # _ZNK4Hccl9RankGraph15GetEndpointInfoEjPK12EndpointDesc12EndpointAttrjPv

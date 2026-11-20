@@ -12,6 +12,8 @@ set(src_list
     coll_comm_config.cc
     coll_comm_config_mgr.cc
     env_logic_superpod_config.cc
+    env_net_layer_config.cc
+    net_layer_config.cc
     env_ub_config.cc
     host_multi_qp_config.cc
 )

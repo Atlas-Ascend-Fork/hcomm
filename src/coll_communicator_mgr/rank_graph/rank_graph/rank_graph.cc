@@ -21,10 +21,13 @@
 #include "not_support_exception.h"
 #include "rank_gph.h"
 #include "link_data_adapter.h"
+#include "coll_comm_config.h"
 
 namespace Hccl {
 
 using namespace std;
+
+string RankIds2Str(const set<RankId>& rankIds);
 
 HcclResult RankGraph::AddPeer(const shared_ptr<NetInstance::Peer>& peer)
 {
@@ -80,6 +83,24 @@ HcclResult RankGraph::InitInnerRanks()
     }
 
     innerRanks_ = innerInstance->GetRankIds();
+    return HCCL_SUCCESS;
+}
+
+HcclResult RankGraph::SetInnerRanks(const std::set<RankId>& ranks)
+{
+    CHK_PRT_RET(
+        initFlag_,
+        HCCL_ERROR(
+            "[RankGraph][%s] cannot change inner ranks after initialization, myRank[%d], innerRanks[%s], "
+            "requestedRanks[%s]",
+            __func__, myRank_, RankIds2Str(innerRanks_).c_str(), RankIds2Str(ranks).c_str()),
+        HCCL_E_NOT_SUPPORT);
+    CHK_PRT_RET(
+        ranks.count(myRank_) == 0, HCCL_ERROR("[RankGraph] local rank is absent from inner ranks"), HCCL_E_PARA);
+    for (const auto rank : ranks) {
+        CHK_PRT_RET(!HasRank(rank), HCCL_ERROR("[RankGraph] unknown inner rank[%d]", rank), HCCL_E_PARA);
+    }
+    innerRanks_ = ranks;
     return HCCL_SUCCESS;
 }
 
@@ -205,6 +226,55 @@ LocalId RankGraph::GetReplacedLocalId(RankId rankId) const
     }
 
     return peers_.at(rankId)->GetReplacedLocalId();
+}
+
+HcclResult RankGraph::GetLayer0NetInstanceId(RankId rankId, std::string& netInstId) const
+{
+    // 返回原 layer 0 的 netInstanceId（本地归属），不代表 layer 0 仍可用于通信。
+    netInstId.clear();
+    if (!HasRank(rankId)) {
+        HCCL_WARNING("[RankGraph][GetLayer0NetInstanceId] rank[%d] does not exist", rankId);
+        return HCCL_E_NOT_FOUND;
+    }
+    auto it = layer0NetInstIds_.find(rankId);
+    if (it != layer0NetInstIds_.end()) {
+        netInstId = it->second;
+        return HCCL_SUCCESS;
+    }
+    // 兼容直接组装的完整图；仅查询身份，不创建或恢复 layer 0 通信边。
+    const auto* localInstance = GetNetInstanceByRankId(0, rankId);
+    if (localInstance == nullptr) {
+        HCCL_DEBUG(
+            "[RankGraph][GetLayer0NetInstanceId] no layer 0 identity metadata or netInstance, myRank[%d], rank[%d]",
+            myRank_, rankId);
+        return HCCL_E_NOT_FOUND;
+    }
+    netInstId = localInstance->GetNetInstId();
+    return HCCL_SUCCESS;
+}
+
+HcclResult RankGraph::GetLayer0InstSizes(std::vector<u32>& instSizes) const
+{
+    CHK_PRT_RET(
+        layer0NetInstIds_.empty(), HCCL_ERROR("[RankGraph] layer 0 identity metadata is empty, rank[%d]", myRank_),
+        HCCL_E_NOT_FOUND);
+    // 一次遍历身份表计数，不逐 rank 查询实例，也不复制所有实例的成员列表。
+    std::unordered_map<std::string, std::pair<RankId, u32>> instanceSizes;
+    for (const auto& entry : layer0NetInstIds_) {
+        auto inserted = instanceSizes.emplace(entry.second, std::make_pair(entry.first, 0U));
+        auto& size = inserted.first->second;
+        size.first = std::min(size.first, entry.first);
+        ++size.second;
+    }
+    std::map<RankId, u32> orderedSizes;
+    for (const auto& instance : instanceSizes) {
+        orderedSizes.emplace(instance.second.first, instance.second.second);
+    }
+    instSizes.clear();
+    for (const auto& instance : orderedSizes) {
+        instSizes.push_back(instance.second);
+    }
+    return HCCL_SUCCESS;
 }
 
 set<u32> RankGraph::GetLevels(RankId rankId) const
@@ -860,6 +930,36 @@ HcclResult AddGroupLinks(
     return HCCL_SUCCESS;
 }
 
+namespace {
+    // 子域收窄 hccl_use_net_layer 时，只保留允许层的地址/协议到接口映射。
+    HcclResult CopySelectedEndpointMap(const NetInstance::Peer& source, NetInstance::Peer& target, u32 selectedLayers)
+    {
+        for (u32 layer : source.GetLevels()) {
+            if (layer >= MAX_NET_LAYER) {
+                HCCL_ERROR(
+                    "[RankGraph][%s] invalid endpoint layer[%u], supportedRange[0,%u], sourceRank[%d], subRank[%d], "
+                    "selectedLayers[%s]",
+                    __func__, layer, MAX_NET_LAYER - 1, source.GetRankId(), target.GetRankId(),
+                    hccl::NetLayerSelection::FormatLayers(selectedLayers).c_str());
+                return HCCL_E_PARA;
+            }
+            if ((selectedLayers & (1U << layer)) == 0) {
+                continue;
+            }
+            const auto ifaces = source.GetIfacesByLayer(layer);
+            for (const auto& iface : ifaces) {
+                CHK_PTR_NULL(iface);
+                CommAddr address{};
+                CHK_RET(GetCommAddr(address, iface->GetAddr()));
+                for (const auto& protocol : iface->GetLinkProtocols()) {
+                    target.SetEndpointToIface(address, LinkProtocolToCommProtocol(protocol), iface);
+                }
+            }
+        }
+        return HCCL_SUCCESS;
+    }
+} // namespace
+
 HcclResult
 RankGraph::AddSubPeers(const std::vector<RankId>& rankIds, RankGraph* subRankGraph, RankId2PeerMap& peers) const
 {
@@ -876,13 +976,37 @@ RankGraph::AddSubPeers(const std::vector<RankId>& rankIds, RankGraph* subRankGra
         shared_ptr<NetInstance::Peer> subPeer
             = make_shared<NetInstance::Peer>(subRankId, localId, replacedLocalId, deviceId, devicePort, hostPort);
         CHK_RET(subRankGraph->AddPeer(subPeer));
+        std::string layer0NetInstId;
+        const auto layer0IdentityRet = GetLayer0NetInstanceId(rankId, layer0NetInstId);
+        if (layer0IdentityRet == HCCL_SUCCESS) {
+            subRankGraph->layer0NetInstIds_.emplace(subRankId, layer0NetInstId);
+        } else {
+            HCCL_WARNING(
+                "[RankGraph][AddSubPeers] layer 0 identity unavailable, parentRank[%d], subRank[%d], ret[%d]; "
+                "continue building without copying layer 0 identity",
+                rankId, subRankId, layer0IdentityRet);
+        }
         peers.emplace(subRankId, subPeer);
-        const auto& oldEndpointMap = oldPeer->GetEndpointToIfaceMap();
-        for (const auto& entry : oldEndpointMap) {
-            subPeer->SetEndpointToIface(entry.first.first, entry.first.second, entry.second);
-            HCCL_DEBUG(
-                "[SubRankGraph][AddSubPeers] endpointToIfaceMap: protocol[%d] for subRankId[%d]", entry.first.second,
-                subRankId);
+        // 保留接口来源供嵌套子域再次选层；单 rank 子图的按层接口列表可能为空。
+        const auto source = endpointSourcePeers_.find(rankId);
+        const std::shared_ptr<const NetInstance::Peer> endpointSource
+            = source == endpointSourcePeers_.end() ? oldPeer : source->second;
+        subRankGraph->endpointSourcePeers_.emplace(subRankId, endpointSource);
+        const auto& selection = subRankGraph->buildLayerSelection_;
+        const auto parentLayers = oldPeer->GetLevels();
+        // 默认、全选及等层继承均复制原映射，仅移除父图现有层时重建。
+        const bool narrowed
+            = selection.has_value() && std::any_of(parentLayers.begin(), parentLayers.end(), [&](u32 layer) {
+                  return layer < MAX_NET_LAYER && (selection->selectedLayers & (1U << layer)) == 0;
+              });
+        if (narrowed) {
+            // 仅按保留层重建端点映射，避免同地址/协议指向禁用层；接口列表仍由原子图构建流程填充。
+            CHK_RET(CopySelectedEndpointMap(*endpointSource, *subPeer, selection->selectedLayers));
+        } else {
+            const auto& oldEndpointMap = oldPeer->GetEndpointToIfaceMap();
+            for (const auto& entry : oldEndpointMap) {
+                subPeer->SetEndpointToIface(entry.first.first, entry.first.second, entry.second);
+            }
         }
         HCCL_DEBUG(
             "[RankGraph][AddSubPeers] oldRankId[%d] subPeer[%s] add success.", rankId, subPeer->Describe().c_str());
@@ -919,6 +1043,13 @@ HcclResult RankGraph::CreateSubNetInstances(
         set<u32> curLevels;
         TRY_CATCH_RETURN(curLevels = GetLevels(rankIds[subRankId]););
         for (u32 netLayer : curLevels) {
+            CHK_PRT_RET(
+                netLayer >= MAX_NET_LAYER,
+                HCCL_ERROR("[%s] rank[%d] invalid netLayer[%u]", __func__, rankIds[subRankId], netLayer), HCCL_E_PARA);
+            if (subRankGraph->buildLayerSelection_.has_value()
+                && (subRankGraph->buildLayerSelection_->selectedLayers & (1U << netLayer)) == 0) {
+                continue;
+            }
             const NetInstance* oldNetInstance = GetNetInstanceByRankId(netLayer, rankIds[subRankId]);
             if (oldNetInstance == nullptr) {
                 HCCL_ERROR("[%s] oldNetInstance is nullptr", __func__);
@@ -959,15 +1090,39 @@ HcclResult RankGraph::AddSubLinks(
     return HCCL_SUCCESS;
 }
 
-HcclResult
-RankGraph::CreateSubRankGraph(const std::vector<u32>& rankIds, std::unique_ptr<RankGraph>& subRankGraph) const
+HcclResult RankGraph::CreateSubRankGraph(
+    const std::vector<u32>& rankIds, std::unique_ptr<RankGraph>& subRankGraph, std::optional<u32> selectedLayers) const
 {
-    subRankGraph.reset();
+    auto selection = buildLayerSelection_;
+    if (selectedLayers.has_value()) {
+        u32 availableLayers = 0;
+        for (u32 layer : GetLevels(myRank_)) {
+            CHK_PRT_RET(
+                layer >= MAX_NET_LAYER, HCCL_ERROR("[%s] invalid parent layer[%u]", __func__, layer), HCCL_E_PARA);
+            availableLayers |= 1U << layer;
+        }
+        CHK_PRT_RET(
+            *selectedLayers == 0 || (*selectedLayers & ~availableLayers) != 0,
+            HCCL_ERROR(
+                "[%s] invalid child netLayers[%s], parent availableLayers[%s]", __func__,
+                hccl::NetLayerSelection::FormatLayers(*selectedLayers).c_str(),
+                hccl::NetLayerSelection::FormatLayers(availableLayers).c_str()),
+            HCCL_E_PARA);
+        selection = BuildLayerSelection{availableLayers, *selectedLayers};
+    }
+    // 继承和显式选层均成功后再替换输出，失败保留调用方原结果。
+    std::unique_ptr<RankGraph> prepared;
+    CHK_RET(CreateSubRankGraphImpl(rankIds, prepared, selection));
+    subRankGraph = std::move(prepared);
+    return HCCL_SUCCESS;
+}
+
+HcclResult RankGraph::CreateSubRankGraphImpl(
+    const std::vector<u32>& rankIds, std::unique_ptr<RankGraph>& subRankGraph,
+    const std::optional<BuildLayerSelection>& selection) const
+{
     // 参数类型转换
-    vector<RankId> subRankIds;
-    for_each(rankIds.begin(), rankIds.end(), [&](u32 rankId) {
-        subRankIds.emplace_back(static_cast<RankId>(rankId));
-    });
+    const vector<RankId> subRankIds(rankIds.begin(), rankIds.end());
 
     // 参数检查, 若rankIds中存在当前virtualTopo不存在的rankId, 抛异
     for (const auto rankId : subRankIds) {
@@ -981,6 +1136,8 @@ RankGraph::CreateSubRankGraph(const std::vector<u32>& rankIds, std::unique_ptr<R
     RankId subMyRankId;
     TRY_CATCH_RETURN(subMyRankId = GetSubRankId(subRankIds, myRank_););
     subRankGraph = make_unique<RankGraph>(subMyRankId, enableVirtualGroups_);
+    // 子图只投影父图已有资源，保留建图选层来源，不能退回未裁剪的查询视图。
+    subRankGraph->buildLayerSelection_ = selection;
     subRankGraph->SetLevel0PcieFallback(level0PcieFallback_); // 无UB兜底标记随子图继承
     if (logicSuperPodSplitEnabled_) {
         // 子图rankId是rankIds数组下标，需按父图映射重编
@@ -1016,14 +1173,36 @@ RankGraph::CreateSubRankGraph(const std::vector<u32>& rankIds, std::unique_ptr<R
     CHK_RET(AddSubLinks(subRankIds, peers, subNetInstances, myRank_));
 
     // step5: 设置innerRanks
-    CHK_RET(subRankGraph->InitInnerRanks());
+    if (subRankGraph->GetLevels(subMyRankId).count(0) != 0) {
+        // 保留 layer 0 时沿用原分组计算；禁用时仅继承归属，不补回通信层。
+        CHK_RET(subRankGraph->InitInnerRanks());
+    } else {
+        // 无 layer 0 时按父域本地成员投影，并转换成子域 rankId。
+        std::set<RankId> subInnerRanks;
+        for (RankId rank = 0; rank < static_cast<RankId>(subRankIds.size()); ++rank) {
+            if (innerRanks_.count(subRankIds[rank]) != 0) {
+                subInnerRanks.insert(rank);
+            }
+        }
+        CHK_RET(subRankGraph->SetInnerRanks(subInnerRanks));
+    }
     // step6: 构造完成
     if (enableVirtualGroups_) {
         CHK_RET(subRankGraph->BuildVirtualGroups());
     }
     subRankGraph->InitFinish();
 
-    HCCL_INFO("[subRankGraph] Build success!");
+    if (selection.has_value()) {
+        HCCL_RUN_INFO(
+            "[RankGraph][%s] subgraph build success, parentRank[%d], subRank[%d], rankSize[%zu], "
+            "selectedLayers[%s], availableLayers[%s], innerRankSize[%zu]",
+            __func__, myRank_, subMyRankId, rankIds.size(),
+            hccl::NetLayerSelection::FormatLayers(selection->selectedLayers).c_str(),
+            hccl::NetLayerSelection::FormatLayers(selection->availableLayers).c_str(),
+            subRankGraph->GetInnerRanks().size());
+    } else {
+        HCCL_INFO("[subRankGraph] Build success!");
+    }
     // 优化：超大图全量Dump构造Describe大字符串，日志级别不满足时直接跳过
     if (UNLIKELY(HcclCheckLogLevel(DLOG_DEBUG))) {
         subRankGraph->Dump();
@@ -1091,6 +1270,14 @@ void RankGraph::Dump() const
 {
     HCCL_DEBUG("RankGraph Dump:");
     HCCL_DEBUG("myRank: %d", myRank_);
+    if (buildLayerSelection_.has_value()) {
+        HCCL_DEBUG(
+            "netLayer selection: mode[SELECTED], selectedLayers[%s], availableLayers[%s]",
+            hccl::NetLayerSelection::FormatLayers(buildLayerSelection_->selectedLayers).c_str(),
+            hccl::NetLayerSelection::FormatLayers(buildLayerSelection_->availableLayers).c_str());
+    } else {
+        HCCL_DEBUG("netLayer selection: mode[DEFAULT], no layer filtering");
+    }
     HCCL_DEBUG("innerRanks: [%s]", RankIds2Str(innerRanks_).c_str());
     HCCL_DEBUG("peers:");
     for (const auto& peer : peers_) {

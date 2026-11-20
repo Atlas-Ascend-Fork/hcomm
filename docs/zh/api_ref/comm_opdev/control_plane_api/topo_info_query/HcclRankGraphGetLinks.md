@@ -71,6 +71,7 @@ HcclResult HcclRankGraphGetLinks(HcclComm comm, uint32_t netLayer, uint32_t srcR
 
 ## 约束说明
 
+- Ascend 950PR&950DT系列产品禁用layer 0后，查询`netLayer=0`时，若保留本地归属信息且源、目的rank合法且不同，返回`HCCL_SUCCESS`，但`links=NULL`、`linkNum=0`，不提供layer 0通信链路；没有本地归属信息时返回`HCCL_E_PARA`。
 - 返回的内存由库内管理，调用者严禁释放。
 - 返回结果为通信域内按参数缓存的只读数据。每次调用返回的结果不再变化；同一通信域内后续调用（无论参数是否相同）不会使已返回的结果失效。各通信域独立缓存，互不影响。
 - Ascend 950PR&950DT系列产品返回的links列表顺序：P2P链路在前且保持原相对顺序；CLOS链路按源端点端口数量降序追加。

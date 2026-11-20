@@ -9,7 +9,11 @@
  */
 
 #include "coll_comm_config.h"
+#include "comm_config_pub.h"
+#include <algorithm>
+#include <cstddef>
 #include <cstring> // 包含strnlen函数
+#include "hccl/hccl_comm.h"
 
 namespace hccl {
 constexpr uint32_t MULTIPLE = 4;             // 用于A5判断TC是否为4的倍数
@@ -51,6 +55,64 @@ void InitDefaultHcclCommConfig(HcclCommConfig& config)
     config.hcclSymWinMaxMemSizePerRank = HCCL_DEFAULT_SYMMETRIC_MEMORY_STRIDE;
     config.hcclChannelSqDepth = HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET;
     config.hcclChannelScqDepth = HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET;
+    for (auto& value : config.hccl_use_net_layer) {
+        value = '\0';
+    }
+}
+
+HcclResult ReadHcclCommConfig(const HcclCommConfig* input, HcclCommConfig& output)
+{
+    CHK_PTR_NULL(input);
+    CommConfigInfo info{};
+    static_assert(sizeof(info) == HCCL_COMM_CONFIG_INFO_BYTES, "Config header layout must match the public ABI");
+    static_assert(
+        offsetof(HcclCommConfig, reserved) == 0 && offsetof(CommConfigInfo, configSize) == 0,
+        "Config size must be readable at the start of the public config");
+    // 先读size再读完整配置头，避免短头部或未对齐指针越界读取。
+    auto ret = memcpy_s(&info.configSize, sizeof(info.configSize), input, sizeof(info.configSize));
+    CHK_PRT_RET(ret != EOK, HCCL_ERROR("[ReadHcclCommConfig] copy size failed[%d]", ret), HCCL_E_MEMORY);
+    CHK_PRT_RET(
+        info.configSize < sizeof(info),
+        HCCL_ERROR("[ReadHcclCommConfig] config size[%zu] is smaller than header[%zu]", info.configSize, sizeof(info)),
+        HCCL_E_PARA);
+    ret = memcpy_s(&info, sizeof(info), input, sizeof(info));
+    CHK_PRT_RET(ret != EOK, HCCL_ERROR("[ReadHcclCommConfig] copy header failed[%d]", ret), HCCL_E_MEMORY);
+    CHK_PRT_RET(
+        info.magicWord != HCCL_COMM_CONFIG_MAGIC_WORD,
+        HCCL_ERROR("[ReadHcclCommConfig] invalid magic word[0x%x]", info.magicWord), HCCL_E_PARA);
+    const size_t netLayerEnd
+        = offsetof(HcclCommConfig, hccl_use_net_layer) + sizeof(HcclCommConfig::hccl_use_net_layer);
+    CHK_PRT_RET(
+        info.version >= HCCL_COMM_CONFIG_NET_LAYER_VERSION && info.configSize < netLayerEnd,
+        HCCL_ERROR(
+            "[ReadHcclCommConfig] config size[%zu] is too small for netLayer version[%u], need[%zu]", info.configSize,
+            info.version, netLayerEnd),
+        HCCL_E_PARA);
+
+    HcclCommConfig normalizedConfig{};
+    HcclCommConfigInit(&normalizedConfig);
+    // 仅承接输入字节；旧业务字段仍按原版本规则消费，不做历史字段转换。
+    const size_t copySize = std::min(info.configSize, sizeof(normalizedConfig));
+    ret = memcpy_s(&normalizedConfig, sizeof(normalizedConfig), input, copySize);
+    CHK_PRT_RET(ret != EOK, HCCL_ERROR("[ReadHcclCommConfig] copy config failed[%d]", ret), HCCL_E_MEMORY);
+    if (info.version < HCCL_COMM_CONFIG_NET_LAYER_VERSION) {
+        // 即使旧版调用方提供了更大的缓冲区，也不能把尾部内容当成选层参数。
+        for (auto& value : normalizedConfig.hccl_use_net_layer) {
+            value = '\0';
+        }
+    } else if (
+        std::memchr(normalizedConfig.hccl_use_net_layer, '\0', sizeof(normalizedConfig.hccl_use_net_layer))
+        == nullptr) {
+        HCCL_ERROR(
+            "[ReadHcclCommConfig] hccl_use_net_layer has no terminator within capacity[%zu]",
+            sizeof(normalizedConfig.hccl_use_net_layer));
+        return HCCL_E_PARA;
+    }
+    info.configSize = sizeof(normalizedConfig);
+    ret = memcpy_s(normalizedConfig.reserved, sizeof(normalizedConfig.reserved), &info, sizeof(info));
+    CHK_PRT_RET(ret != EOK, HCCL_ERROR("[ReadHcclCommConfig] copy local header failed[%d]", ret), HCCL_E_MEMORY);
+    output = normalizedConfig;
+    return HCCL_SUCCESS;
 }
 
 static HcclResult GetHcclCommConfigVersion(const HcclCommConfig* config, uint32_t& version)
@@ -221,4 +283,5 @@ HcclResult ApplyHcclCommConfig(
     CHK_RET(ApplyHcclScqDepth(hcclCommConfig, commConfig));
     return HCCL_SUCCESS;
 }
+
 } // namespace hccl

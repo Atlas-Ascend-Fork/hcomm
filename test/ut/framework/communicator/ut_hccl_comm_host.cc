@@ -16,6 +16,8 @@
 #include "../../stub/llt_hccl_stub_rank_graph.h"
 #include "launch_aicpu.h"
 #include "adapter_rts.h"
+#include "hccl/hccl_comm.h"
+#include "coll_comm_config.h"
 
 using namespace hccl;
 
@@ -107,6 +109,24 @@ TEST_F(HcclCommHostTest, Ut_AdoptCollComm_When_AicpuMode_Expect_KernelLaunched)
     EXPECT_TRUE(hcclCommPtr->GetAicpuCommState());
 }
 
+TEST_F(HcclCommHostTest, Ut_SimpleModeIgnoresNetLayerSelection)
+{
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_910_93)).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hcclComm::InitBinHandle).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&CollComm::Init).expects(once()).will(returnValue(HCCL_SUCCESS));
+    MOCKER(ReadHcclCommConfig).expects(never());
+    MOCKER(ReadNetLayerSelection).expects(never());
+    HcclCommConfig config{};
+    HcclCommConfigInit(&config);
+    config.hcclDeterministic = 0;
+    ASSERT_EQ(strcpy_s(config.hccl_use_net_layer, sizeof(config.hccl_use_net_layer), "invalid"), EOK);
+    hcclComm comm(1, 1, "a3_unchanged");
+    HcclMem buffer{};
+    EXPECT_EQ(
+        comm.InitCollComm(nullptr, nullptr, 0, buffer, "a3_unchanged", &config, CollCommInitMode::simpleMode),
+        HCCL_SUCCESS);
+}
+
 // Resume when communicator is V2 -> should call CollComm::Resume
 TEST_F(HcclCommHostTest, Ut_ResumeWhenIsCommunicatorV2ExpectSuccess)
 {
@@ -133,6 +153,8 @@ TEST_F(HcclCommHostTest, Ut_ResumeWhenIsCommunicatorV2ExpectSuccess)
     MOCKER_CPP(&CollComm::Resume).stubs().will(returnValue(HCCL_SUCCESS));
 
     HcclCommConfig config{};
+    HcclCommConfigInit(&config);
+    config.hcclDeterministic = 0;
     unsetenv("HCCL_DFS_CONFIG");
     HcclResult ret = hcclCommPtr->InitCollComm(commV2, rankGraphV2.get(), rank, cclBuffer, commName, &config);
     EXPECT_EQ(ret, HCCL_SUCCESS);
@@ -167,6 +189,8 @@ TEST_F(HcclCommHostTest, Ut_ResumeWhenIsCommunicatorV2AndCollResumeFailsExpectEr
     MOCKER_CPP(&CollComm::Resume).stubs().will(returnValue(HCCL_E_INTERNAL));
 
     HcclCommConfig config{};
+    HcclCommConfigInit(&config);
+    config.hcclDeterministic = 0;
     unsetenv("HCCL_DFS_CONFIG");
     HcclResult ret = hcclCommPtr->InitCollComm(commV2, rankGraphV2.get(), rank, cclBuffer, commName, &config);
     EXPECT_EQ(ret, HCCL_SUCCESS);
@@ -200,6 +224,8 @@ TEST_F(HcclCommHostTest, Ut_GetCommStatusWhenIsCommunicatorV2ExpectCollStatus)
     MOCKER_CPP(&CollComm::GetCommStatus).stubs().will(returnValue(HcclCommStatus::HCCL_COMM_STATUS_SUSPENDING));
 
     HcclCommConfig config{};
+    HcclCommConfigInit(&config);
+    config.hcclDeterministic = 0;
     unsetenv("HCCL_DFS_CONFIG");
     HcclResult ret = hcclCommPtr->InitCollComm(commV2, rankGraphV2.get(), rank, cclBuffer, commName, &config);
     EXPECT_EQ(ret, HCCL_SUCCESS);

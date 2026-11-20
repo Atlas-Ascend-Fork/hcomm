@@ -10,6 +10,7 @@ When initializing a communicator with specific configurations, this data type is
 
 ```c
 const uint32_t HCCL_COMM_CONFIG_INFO_BYTES = 24;
+const uint32_t HCCL_COMM_NET_LAYER_MAX_LENGTH = 32;
 const uint32_t COMM_NAME_MAX_LENGTH = 128;
 const uint32_t BUFFER_NAME_MAX_LENGTH = 128;
 const uint32_t UDI_MAX_LENGTH = 128;
@@ -36,6 +37,8 @@ typedef struct HcclCommConfigDef {
     uint32_t hcclQos;
     uint64_t hcclSymWinMaxMemSizePerRank;
     uint32_t hcclChannelSqDepth;
+    uint32_t hcclChannelScqDepth;
+    char hccl_use_net_layer[HCCL_COMM_NET_LAYER_MAX_LENGTH];
 } HcclCommConfig;
 ```
 
@@ -300,6 +303,17 @@ typedef struct HcclCommConfigDef {
 - **hcclChannelSqDepth**: used to configure the depth of the communication send queue (SQ). Currently, it is supported only in the A5 scenario, and configurable only in the AIV expansion mode and under the UB_CTP and UB_RTP protocols. The configured value is rounded up to the nearest power of 2, and the adjusted effective value range is [16, the device's max_jfs_depth]. In other scenarios, it remains an invalid value.
 
 
+- **hccl_use_net_layer**: Specifies the Net Layers allowed for communication. Supported only on Ascend 950PR&950DT products. Introduced in V13, this field defaults to an empty string (not configured) and is not read from earlier configuration versions. Its capacity is 32 bytes including the null terminator, allowing an expression of at most 31 bytes.
+
+  **Note:**
+
+  - Supports layer IDs `0` to `7`, separated by ASCII commas, for example, `2` or `0,2`. `not(0)` excludes layer 0 and retains the other candidate layers. Duplicate IDs and ASCII whitespace between tokens are allowed. Non-ASCII punctuation, ranges, and nested expressions are not supported. List order does not indicate priority.
+  - Every layer named in an inclusion or exclusion expression must exist, and an explicit selection must not be empty. Overlong, unterminated, whitespace-only, or otherwise invalid settings return `HCCL_E_PARA` without falling back to defaults.
+  - For an independent communicator, a nonempty parameter takes precedence without reading or validating the environment variable. An empty parameter uses `HCCL_USE_NET_LAYER`; if neither is configured, existing behavior is preserved. The environment variable uses the same syntax and must be set before starting the application, for example, `export HCCL_USE_NET_LAYER='not(0)'`.
+  - An empty sub-communicator parameter inherits the intersection of the parent's allowed layers and the sub-communicator's candidate layers. An explicit setting can only narrow this range. The environment variable is not reread.
+  - Supports RootInfo, ClusterInfo/RankTable, and sub-communicator creation. InitAll and Scalable do not currently support explicit selection; a valid explicit setting returns `HCCL_E_NOT_SUPPORT`. This also applies to environment variable settings.
+  - Selection takes effect during initialization and cannot be changed dynamically. The first successfully parsed environment setting, including an unset setting, is reused for the process. All ranks in a communicator must have the same effective selection. If the selected layers cannot meet an operator's requirements, subsequent matching, routing, or execution reports an error without falling back to disabled layers.
+
 ## Configuration Priority
 
 The preceding configurations are at the communicator level. For some parameters, HCCL also provides global environment variable configuration. The priority is as follows:
@@ -329,3 +343,4 @@ The preceding configurations are at the communicator level. For some parameters,
 | hcclAlgo | Configuration item **hcclAlgo** (communicator-level configuration) > environment variable [HCCL_ALGO](https://gitcode.com/cann/hccl/blob/master/docs/en/user_guide/hccl_env/HCCL_ALGO.md) (global configuration) > adaptive algorithm selection. |
 | hcclRetryEnable | Configuration item **hcclRetryEnable** (communicator-level configuration) > environment variable [HCCL_OP_RETRY_ENABLE](https://gitcode.com/cann/hccl/blob/master/docs/en/user_guide/hccl_env/HCCL_OP_RETRY_ENABLE.md) (global configuration) > default value **0**. |
 | hcclRetryParams | Configuration item **hcclRetryParams** (communicator-level configuration) > environment variable [HCCL_OP_RETRY_PARAMS](https://gitcode.com/cann/hccl/blob/master/docs/en/user_guide/hccl_env/HCCL_OP_RETRY_PARAMS.md) (global configuration) > default configuration (**MaxCnt**: **1**, **HoldTime**: **5000**, **IntervalTime**: **1000**). |
+| hccl_use_net_layer | Independent communicator: nonempty communicator parameter > HCCL_USE_NET_LAYER environment variable > existing default behavior. Sub-communicator: nonempty sub-communicator parameter > inheritance from the parent, without rereading the environment variable. |

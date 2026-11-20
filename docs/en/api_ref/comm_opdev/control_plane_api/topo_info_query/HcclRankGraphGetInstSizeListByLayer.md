@@ -68,6 +68,7 @@ When a virtual grouping view has been built for the layer, `instSizeList` contai
 - Virtual grouping views are built before rank graph initialization completes and cannot be rebuilt after initialization. The following constraints on caching, immutable results, and pointer validity also apply to virtual grouping results.
 <!-- end id8 -->
 
+- On Ascend 950PR&950DT products with layer 0 disabled, querying `netLayer=0` still returns the member counts of the communicator's groups and the group count if local group identity information is retained; a sub-communicator counts only its own members. This does not imply usable layer 0 topology instances. Without that identity information, the query returns `HCCL_E_PARA`.
 - The returned memory is managed by the library. The caller must not release it.
 - Returned results are read-only data cached by the `netLayer` parameter within each communicator. The result returned by each call remains unchanged. Subsequent calls within the same communicator, whether with the same or different parameters, do not invalidate previously returned results. Each communicator maintains an independent cache.
 - **comm** must be a valid communicator handle obtained from a communicator creation API and must remain valid throughout the call. Null, dangling, or destroyed handles are not allowed.

@@ -157,21 +157,21 @@ TEST(RootInfoDetectBridgeTest, Ut_RegisterRootInfoDetectBridge_When_ScalableSlot
 {
     RootInfoDetectBridge bridge{};
     // 基础两槽非法（空指针）直接拒绝
-    EXPECT_EQ(RegisterRootInfoDetectBridge(bridge), HCCL_E_PTR);
+    EXPECT_EQ(RegisterRootInfoDetectBridge(bridge, ROOT_INFO_DETECT_BRIDGE_VERSION, sizeof(bridge)), HCCL_E_PTR);
 
     // 基础两槽合法、scalable 槽只填一个 → 配对校验拒绝
     bridge.getRootInfo = [](HcclRootInfo*, RootInfoDetectBridge::DetectContext&) -> HcclResult {
         return HCCL_SUCCESS;
     };
-    bridge.detectRankTable
-        = [](u32, u32, const HcclRootHandleV2&, RankTableInfo&, RootInfoDetectBridge::DetectContext&) -> HcclResult {
+    bridge.detectRankTable = [](u32, u32, const HcclRootHandleV2&, RankTableInfo&, RootInfoDetectBridge::DetectContext&,
+                                const char*) -> HcclResult {
         return HCCL_SUCCESS;
     };
     bridge.getRootInfoScalable = [](HcclRootInfo*) -> HcclResult {
         return HCCL_SUCCESS;
     };
     bridge.detectRankTableScalable = nullptr;
-    EXPECT_EQ(RegisterRootInfoDetectBridge(bridge), HCCL_E_PTR);
+    EXPECT_EQ(RegisterRootInfoDetectBridge(bridge, ROOT_INFO_DETECT_BRIDGE_VERSION, sizeof(bridge)), HCCL_E_PTR);
 }
 
 // Ut_GetRootInfoDetectBridgeScalable_When_SlotsRegistered_Return_NonNull：
