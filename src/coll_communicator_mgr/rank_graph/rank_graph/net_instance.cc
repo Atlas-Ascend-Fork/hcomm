@@ -191,8 +191,8 @@ bool CheckPortGroupSize(u32 netLayer, NetInstance::Link& srcLink, NetInstance::L
 {
     auto srcConnIface = srcLink.GetSourceIface();
     auto targetConnIface = dstLink.GetTargetIface();
-    auto srcPortGroupSize = static_cast<u8>(srcConnIface->GetPorts().size());
-    auto tgtPortGroupSize = static_cast<u8>(targetConnIface->GetPorts().size());
+    auto srcPortGroupSize = static_cast<u8>(srcConnIface->GetPortNum());
+    auto tgtPortGroupSize = static_cast<u8>(targetConnIface->GetPortNum());
     if (srcPortGroupSize != tgtPortGroupSize) {
         auto srcPeer = srcLink.GetSourceNode();
         auto targetPeer = dstLink.GetTargetNode();
@@ -277,6 +277,98 @@ vector<NetInstance::Path> InnerNetInstance::GetPaths(const RankId srcRankId, con
     return paths;
 }
 
+namespace {
+    // NodeId 位编码：低 32 位为 rankId/fabricId，高 32 位为节点类型标记（Peer 为 0、Fabric 为 1，
+    // 见 Peer/Fabric::GenerateNodeId）；编码若调整须同步修改本常量与两处 GenerateNodeId
+    constexpr u32 NODE_TYPE_MARK_SHIFT = 32;
+    bool IsPeerNodeId(NodeId nodeId) { return (nodeId >> NODE_TYPE_MARK_SHIFT) == 0; }
+} // namespace
+
+void InnerNetInstance::GetReachableRanks(
+    const RankId srcRankId, std::map<LinkProtocol, std::set<RankId>>& reachableByProtocol) const
+{
+    if (peers.count(srcRankId) == 0) {
+        return; // 与 GetPaths 的存在性检查等价
+    }
+    NodeId srcPeerId = peers.at(srcRankId)->GetNodeId();
+    // 1. 直达边；2. fabric 路径（协议仅取 peer2net 边）
+    CollectDirectEdgeReachableRanks(srcRankId, srcPeerId, reachableByProtocol);
+    CollectFabricReachableRanks(srcRankId, srcPeerId, reachableByProtocol);
+}
+
+// 直达边批量收集：src 出边中目标为 Peer 的边，并入该边协议全集
+void InnerNetInstance::CollectDirectEdgeReachableRanks(
+    const RankId srcRankId, const NodeId srcPeerId, std::map<LinkProtocol, std::set<RankId>>& reachableByProtocol) const
+{
+    const auto* outEdges = vGraph.GetOutEdges(srcPeerId);
+    if (outEdges != nullptr) {
+        for (const auto& [dstNodeId, edgeVec] : *outEdges) {
+            if (!IsPeerNodeId(dstNodeId) || peers.count(static_cast<RankId>(dstNodeId)) == 0) {
+                continue; // fabric 节点或未知节点，走 fabric 路径
+            }
+            RankId dstRank = static_cast<RankId>(dstNodeId);
+            if (dstRank == srcRankId) {
+                continue; // 防御：旧路径从不收集自己（外层跳过 self）
+            }
+            for (const auto& edge : edgeVec) {
+                for (LinkProtocol proto : edge->GetLinkProtocols()) {
+                    reachableByProtocol[proto].insert(dstRank);
+                }
+            }
+        }
+    }
+}
+
+void InnerNetInstance::CollectFabricReachableRanks(
+    const RankId srcRankId, const NodeId srcPeerId, std::map<LinkProtocol, std::set<RankId>>& reachableByProtocol) const
+{
+    for (const auto& fabric : fabrics) {
+        NodeId fabricNodeId = fabric->GetNodeId();
+        const auto* sLinks = vGraph.FindEdges(srcPeerId, fabricNodeId);
+        if (sLinks == nullptr || sLinks->empty()) {
+            continue;
+        }
+        // 预聚合 F->peer 边：dLink 目标侧端口数 -> 可达 rank 集
+        std::unordered_map<u32, std::set<RankId>> peersByPortNum;
+        const auto* fabOut = vGraph.GetOutEdges(fabricNodeId);
+        if (fabOut != nullptr) {
+            for (const auto& [dstNodeId, edgeVec] : *fabOut) {
+                if (!IsPeerNodeId(dstNodeId) || peers.count(static_cast<RankId>(dstNodeId)) == 0) {
+                    continue;
+                }
+                RankId dstRank = static_cast<RankId>(dstNodeId);
+                if (dstRank == srcRankId) {
+                    continue;
+                }
+                for (const auto& dLink : edgeVec) {
+                    const auto tgtIface = dLink->GetTargetIface();
+                    if (tgtIface == nullptr) {
+                        continue;
+                    }
+                    peersByPortNum[tgtIface->GetPortNum()].insert(dstRank);
+                }
+            }
+        }
+        // 配对命中的 sLink：其协议桶并入该端口数下全部可达 rank（Inner 取全部 sLink×dLink 组合并集）
+        for (const auto& sLink : *sLinks) {
+            const auto srcIface = sLink->GetSourceIface();
+            if (srcIface == nullptr) {
+                continue;
+            }
+            auto it = peersByPortNum.find(srcIface->GetPortNum());
+            if (it == peersByPortNum.end()) {
+                continue;
+            }
+            for (LinkProtocol proto : sLink->GetLinkProtocols()) {
+                auto& protoBucket = reachableByProtocol[proto];
+                for (RankId dstRank : it->second) {
+                    protoBucket.insert(dstRank);
+                }
+            }
+        }
+    }
+}
+
 const std::unordered_map<u32, std::vector<std::shared_ptr<NetInstance::ConnInterface>>>
 NetInstance::Node::GetInterfacesMap() const
 {
@@ -326,6 +418,51 @@ vector<NetInstance::Path> ClosNetInstance::GetPaths(const RankId srcRankId, cons
     }
 
     return paths;
+}
+
+void ClosNetInstance::GetReachableRanks(
+    const RankId srcRankId, std::map<LinkProtocol, std::set<RankId>>& reachableByProtocol) const
+{
+    if (peers.count(srcRankId) == 0) {
+        return;
+    }
+    NodeId srcPeerId = peers.at(srcRankId)->GetNodeId();
+    for (const auto& fabric : fabrics) {
+        NodeId fabricNodeId = fabric->GetNodeId();
+        // 代表 sLink：桶内最后一条（TraverseEdge 覆盖式赋值取尾的等价实现）
+        const auto* sLinks = vGraph.FindEdges(srcPeerId, fabricNodeId);
+        if (sLinks == nullptr || sLinks->empty()) {
+            continue;
+        }
+        const auto& sLink = sLinks->back();
+        const auto srcIface = sLink->GetSourceIface();
+        if (srcIface == nullptr) {
+            continue;
+        }
+        const u32 sPortNum = srcIface->GetPortNum();
+        // 对 F 的每个出边 peer：代表 dLink = 桶内最后一条；端口配对则并入 sLink 协议
+        const auto* fabOut = vGraph.GetOutEdges(fabricNodeId);
+        if (fabOut == nullptr) {
+            continue;
+        }
+        for (const auto& [dstNodeId, edgeVec] : *fabOut) {
+            if (!IsPeerNodeId(dstNodeId) || peers.count(static_cast<RankId>(dstNodeId)) == 0 || edgeVec.empty()) {
+                continue;
+            }
+            RankId dstRank = static_cast<RankId>(dstNodeId);
+            if (dstRank == srcRankId) {
+                continue;
+            }
+            const auto& dLink = edgeVec.back(); // 代表 dLink：桶内最后一条
+            const auto tgtIface = dLink->GetTargetIface();
+            if (tgtIface == nullptr || tgtIface->GetPortNum() != sPortNum) {
+                continue;
+            }
+            for (LinkProtocol proto : sLink->GetLinkProtocols()) {
+                reachableByProtocol[proto].insert(dstRank);
+            }
+        }
+    }
 }
 
 void NetInstance::Node::AddConnInterface(u32 layer, const shared_ptr<NetInstance::ConnInterface>& interface)
@@ -405,6 +542,8 @@ RankId NetInstance::Peer::GetRankId() const { return rankId_; }
 
 set<u32> NetInstance::Peer::GetLevels() const { return netLayers_; }
 
+bool NetInstance::Peer::HasLevel(u32 netLayer) const { return netLayers_.count(netLayer) > 0; }
+
 const NetInstance* NetInstance::Peer::GetNetInstance(u32 netLayer) const
 {
     if (netLayer >= netInsts_.size() || netInsts_.at(netLayer) == nullptr) {
@@ -466,7 +605,7 @@ string NetInstance::Fabric::Describe() const
 
 LinkType NetInstance::Link::GetType() const { return type_; }
 
-std::set<LinkProtocol> NetInstance::Link::GetLinkProtocols() const { return linkProtocols_; }
+const std::set<LinkProtocol>& NetInstance::Link::GetLinkProtocols() const { return linkProtocols_; }
 
 LinkDirection NetInstance::Link::GetLinkDirection() const { return direction_; }
 

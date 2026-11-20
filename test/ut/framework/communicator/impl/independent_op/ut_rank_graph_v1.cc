@@ -761,3 +761,15 @@ TEST_F(RankGraphV1DirectTest, Ut_MatchEndpointByAddr_When_NoMatch_Expect_Nullptr
     const EndpointDesc* result = rankGraph.MatchEndpointByAddr(graphInfo, &queryEndpoint);
     EXPECT_EQ(result, nullptr);
 }
+
+// 未 override 的旧子类调用基类默认实现返回 HCCL_E_NOT_SUPPORT（旧子类零改动自动降级）。
+TEST_F(RankGraphV1DirectTest, Ut_GetReachableRanksPerProtocol_When_OldSubclassDefaultImpl_Return_NotSupport)
+{
+    RankGraphV1 rankGraph;
+    const std::set<CommProtocol> protocols
+        = {COMM_PROTOCOL_UB_CTP, COMM_PROTOCOL_UBC_TP, COMM_PROTOCOL_UBOE, COMM_PROTOCOL_UB_RTP, COMM_PROTOCOL_UB_MEM};
+    std::unordered_map<CommProtocol, std::vector<uint32_t>> reachable;
+    HcclResult ret = rankGraph.GetReachableRanksPerProtocol(0, 0, protocols, reachable);
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
+    EXPECT_TRUE(reachable.empty()); // 出参未被修改
+}

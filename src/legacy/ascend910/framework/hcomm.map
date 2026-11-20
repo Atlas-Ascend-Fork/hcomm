@@ -491,6 +491,7 @@ global:
         "Hccl::RankGraph::GetReplacedLocalId(int) const";  # _ZNK4Hccl9RankGraph18GetReplacedLocalIdEi
         "Hccl::RankGraph::GetTopoInstsByLayer(unsigned int, std::vector<unsigned int, std::allocator<unsigned int> >&, unsigned int&) const";  # _ZNK4Hccl9RankGraph19GetTopoInstsByLayerEjRSt6vectorIjSaIjEERj
         "Hccl::RankGraph::GetTopoType(unsigned int, unsigned int, Hccl::TopoType&) const";  # _ZNK4Hccl9RankGraph11GetTopoTypeEjjRNS_8TopoTypeE
+        "Hccl::RankGraph::HasLevel(int, unsigned int) const";  # _ZNK4Hccl9RankGraph8HasLevelEij
         "Hccl::RankTableInfo::Check()";  # _ZN4Hccl13RankTableInfo5CheckEv
         "Hccl::RankTableInfo::Describe() const";  # _ZNK4Hccl13RankTableInfo8DescribeEv
         "Hccl::RankTableInfo::Dump() const";  # _ZNK4Hccl13RankTableInfo4DumpEv

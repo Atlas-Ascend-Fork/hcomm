@@ -75,6 +75,7 @@ public:
     HcclResult GetLayer0InstSizes(std::vector<u32>& instSizes) const;
     LocalId GetReplacedLocalId(RankId rankId) const;
     std::set<u32> GetLevels(RankId rankId) const;
+    bool HasLevel(RankId rankId, u32 netLayer) const;
     u32 GetLevelNum() const;
     const NetInstance* GetNetInstanceByNetInstId(u32 netLayer, const std::string& netInstId) const;
     NetInstance* GetNetInstanceByNetInstId(u32 netLayer, const std::string& netInstId);
@@ -82,6 +83,11 @@ public:
     NetInstance* GetNetInstanceByRankId(u32 netLayer, RankId rankId);
     const std::shared_ptr<NetInstance::Peer> GetPeer(RankId rankId) const;
     std::vector<NetInstance::Path> GetPaths(u32 netLayer, RankId sRankId, RankId dRankId) const;
+    // 按协议批量收集 selfRank 在 netLayer 内的可达 rank；出参自洽：预置聚焦协议空桶再填充（失败路径不写出参），
+    // 虚拟分段视图激活且 selfRank==myRank 时限本 rank 分段内（图遍历结果与分段求交），其余保持物理口径
+    HcclResult GetReachableRanksPerProtocol(
+        u32 netLayer, RankId selfRank, const std::set<CommProtocol>& focusedProtocols,
+        std::unordered_map<CommProtocol, std::vector<uint32_t>>& reachableRanks) const;
     u32 GetLayerRanks(const u32 netLayer) const; // 获取myRank在指定netLayer包含的rank总数
     // 查询myRank在该netLayer下所在虚拟分段组的ranks列表及总数；未建立虚拟分组视图时返回其netInstance成员。
     HcclResult GetLocalInstRanks(const u32 netLayer, vector<u32>& rankList, u32& rankNum) const;

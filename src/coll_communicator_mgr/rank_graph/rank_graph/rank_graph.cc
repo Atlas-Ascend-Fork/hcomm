@@ -286,6 +286,11 @@ set<u32> RankGraph::GetLevels(RankId rankId) const
     return peers_.at(rankId)->GetLevels();
 }
 
+bool RankGraph::HasLevel(RankId rankId, u32 netLayer) const
+{
+    return HasRank(rankId) && peers_.at(rankId)->HasLevel(netLayer);
+}
+
 u32 RankGraph::GetLevelNum() const
 {
     u32 validLevelNum{0};
@@ -437,6 +442,59 @@ HcclResult RankGraph::GetLocalInstRanks(const u32 netLayer, vector<u32>& rankLis
         rankList.push_back(static_cast<u32>(rank));
     }
     rankNum = rankSet.size();
+    return HCCL_SUCCESS;
+}
+
+HcclResult RankGraph::GetReachableRanksPerProtocol(
+    u32 netLayer, RankId selfRank, const std::set<CommProtocol>& focusedProtocols,
+    std::unordered_map<CommProtocol, std::vector<uint32_t>>& reachableRanks) const
+{
+    if (!HasLevel(selfRank, netLayer)) {
+        HCCL_ERROR("[RankGraph][%s] netLayer[%u] is invalid for rank[%u]", __func__, netLayer, selfRank);
+        return HCCL_E_PARA;
+    }
+    const NetInstance* netInstance = GetNetInstanceByRankId(netLayer, selfRank);
+    CHK_PRT_RET(
+        netInstance == nullptr, HCCL_ERROR("[%s] rank %u has no netInstance on layer %u", __func__, selfRank, netLayer),
+        HCCL_E_PTR);
+
+    // 口径对齐老路径：虚拟分段视图存在时，收集域限定在本 rank 所在分段内（老逐 peer 路径经
+    // GetInstRanksByNetLayer→GetLocalInstRanks 枚举分段成员；无分段视图时不过滤，行为不变）
+    const std::vector<u32>* virtualGroup = nullptr;
+    if (selfRank == myRank_) {
+        CHK_RET(FindLocalVirtualGroup(netLayer, virtualGroup));
+    }
+
+    std::map<LinkProtocol, std::set<RankId>> reachableByProtocol; // 未过滤（LinkProtocol 域）
+    netInstance->GetReachableRanks(selfRank, reachableByProtocol);
+    // 出参自洽：先按聚焦协议预置空桶再填充，未命中协议的桶不依赖调用方预置
+    for (CommProtocol protocol : focusedProtocols) {
+        reachableRanks[protocol] = {};
+    }
+    // 1:1 映射过滤：聚焦协议外的桶丢弃（ROCE/HCCS/PCIE 零物化成本跳过）
+    for (const auto& [linkProto, rankSet] : reachableByProtocol) {
+        CommProtocol commProto = LinkProtocolToCommProtocol(linkProto);
+        if (focusedProtocols.count(commProto) == 0) {
+            continue;
+        }
+        if (virtualGroup != nullptr) {
+            // 分段交集过滤（rankSet 与分段各自升序，双指针求交保持升序去重）
+            std::vector<uint32_t> filtered;
+            filtered.reserve(rankSet.size());
+            auto groupIt = virtualGroup->begin();
+            for (RankId rank : rankSet) {
+                while (groupIt != virtualGroup->end() && *groupIt < static_cast<uint32_t>(rank)) {
+                    ++groupIt;
+                }
+                if (groupIt != virtualGroup->end() && *groupIt == static_cast<uint32_t>(rank)) {
+                    filtered.push_back(static_cast<uint32_t>(rank));
+                }
+            }
+            reachableRanks[commProto] = std::move(filtered);
+        } else {
+            reachableRanks[commProto] = std::vector<uint32_t>(rankSet.begin(), rankSet.end()); // set 天然升序去重
+        }
+    }
     return HCCL_SUCCESS;
 }
 
@@ -711,7 +769,7 @@ HcclResult RankGraph::GetEndpointInfo(
                     "[GetEndpointInfo] Size mismatch: expected %zu, actual %u", sizeof(EndpointAttrBwCoeff), infoLen);
                 return HCCL_E_PARA;
             }
-            *(static_cast<EndpointAttrBwCoeff*>(info)) = iface->GetPorts().size();
+            *(static_cast<EndpointAttrBwCoeff*>(info)) = iface->GetPortNum();
             break;
         }
         case ENDPOINT_ATTR_DIE_ID: {

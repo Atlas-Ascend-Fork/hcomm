@@ -118,9 +118,7 @@ HcclResult IRankGraph::GetInstTopoTypeByNetLayer(uint32_t netLayer, CommTopo* to
     CHK_PTR_NULL(topoType);
     CHK_PTR_NULL(rankGraphPtr_);
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
-    u32 rankId = rankGraph->GetMyRank();
-    std::set<u32> levels = rankGraph->GetLevels(rankId);
-    if (levels.find(netLayer) == levels.end()) {
+    if (!rankGraph->HasLevel(rankGraph->GetMyRank(), netLayer)) {
         HCCL_ERROR("[IRankGraph::GetInstTopoTypeByNetLayer] netLayer[%u] is invalid", netLayer);
         return HCCL_E_PARA;
     }
@@ -146,9 +144,7 @@ HcclResult IRankGraph::GetInstSizeByNetLayer(uint32_t netLayer, uint32_t* rankNu
     CHK_PTR_NULL(rankNum);
     CHK_PTR_NULL(rankGraphPtr_);
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
-    u32 rankId = rankGraph->GetMyRank();
-    std::set<u32> levels = rankGraph->GetLevels(rankId);
-    if (levels.find(netLayer) == levels.end()) {
+    if (!rankGraph->HasLevel(rankGraph->GetMyRank(), netLayer)) {
         HCCL_ERROR("[IRankGraph::GetInstSizeByNetLayer] netLayer[%u] is invalid", netLayer);
         return HCCL_E_PARA;
     }
@@ -173,9 +169,7 @@ HcclResult IRankGraph::GetInstRanksByNetLayer(uint32_t netLayer, uint32_t** rank
         }
     }
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
-    u32 rankId = rankGraph->GetMyRank();
-    std::set<u32> levels = rankGraph->GetLevels(rankId);
-    if (levels.find(netLayer) == levels.end()) {
+    if (!rankGraph->HasLevel(rankGraph->GetMyRank(), netLayer)) {
         HCCL_ERROR("[IRankGraph::GetInstRanksByNetLayer] netLayer[%u] is invalid", netLayer);
         return HCCL_E_PARA;
     }
@@ -206,8 +200,7 @@ HcclResult IRankGraph::GetInstSizeListByNetLayer(uint32_t netLayer, uint32_t** i
     }
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     u32 rankId = rankGraph->GetMyRank();
-    std::set<u32> levels = rankGraph->GetLevels(rankId);
-    if (levels.find(netLayer) == levels.end()) {
+    if (!rankGraph->HasLevel(rankId, netLayer)) {
         HCCL_ERROR("[IRankGraph::GetInstSizeListByNetLayer] netLayer[%u] is invalid", netLayer);
         return HCCL_E_PARA;
     }
@@ -458,9 +451,7 @@ IRankGraph::GetLinks(uint32_t netLayer, uint32_t srcRank, uint32_t dstRank, Comm
         }
     }
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
-    u32 rankId = rankGraph->GetMyRank();
-    std::set<u32> levels = rankGraph->GetLevels(rankId);
-    if (levels.find(netLayer) == levels.end()) {
+    if (!rankGraph->HasLevel(rankGraph->GetMyRank(), netLayer)) {
         HCCL_ERROR("[IRankGraph::GetLinks] netLayer[%u] is invalid", netLayer);
         return HCCL_E_PARA;
     }
@@ -490,9 +481,7 @@ HcclResult IRankGraph::GetTopoInstsByLayer(uint32_t netLayer, uint32_t** topoIns
         }
     }
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
-    u32 rankId = rankGraph->GetMyRank();
-    std::set<u32> levels = rankGraph->GetLevels(rankId);
-    if (levels.find(netLayer) == levels.end()) {
+    if (!rankGraph->HasLevel(rankGraph->GetMyRank(), netLayer)) {
         HCCL_ERROR("[IRankGraph::GetTopoInstsByLayer] netLayer[%u] is invalid", netLayer);
         return HCCL_E_PARA;
     }
@@ -513,8 +502,7 @@ HcclResult IRankGraph::GetTopoType(const uint32_t netLayer, const uint32_t topoI
     CHK_PTR_NULL(rankGraphPtr_);
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     u32 rankId = rankGraph->GetMyRank();
-    std::set<u32> levels = rankGraph->GetLevels(rankId);
-    if (levels.find(netLayer) == levels.end()) {
+    if (!rankGraph->HasLevel(rankId, netLayer)) {
         HCCL_ERROR("[IRankGraph::GetTopoType] netLayer[%u] is invalid", netLayer);
         return HCCL_E_PARA;
     }
@@ -560,9 +548,7 @@ IRankGraph::GetRanksByTopoInst(const uint32_t netLayer, const uint32_t topoInstI
         }
     }
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
-    u32 rankId = rankGraph->GetMyRank();
-    std::set<u32> levels = rankGraph->GetLevels(rankId);
-    if (levels.find(netLayer) == levels.end()) {
+    if (!rankGraph->HasLevel(rankGraph->GetMyRank(), netLayer)) {
         HCCL_ERROR("[IRankGraph::GetRanksByTopoInst] netLayer[%u] is invalid", netLayer);
         return HCCL_E_PARA;
     }
@@ -589,8 +575,7 @@ HcclResult IRankGraph::GetEndpointNum(uint32_t netLayer, uint32_t topoInstId, ui
     CHK_PTR_NULL(rankGraphPtr_);
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     u32 rankId = rankGraph->GetMyRank();
-    std::set<u32> levels = rankGraph->GetLevels(rankId);
-    if (levels.find(netLayer) == levels.end()) {
+    if (!rankGraph->HasLevel(rankId, netLayer)) {
         HCCL_ERROR("[IRankGraph::GetEndpointNum] netLayer[%u] is invalid", netLayer);
         return HCCL_E_PARA;
     }
@@ -613,8 +598,7 @@ IRankGraph::GetEndpointDesc(uint32_t netLayer, uint32_t topoInstId, uint32_t* de
     CHK_PTR_NULL(rankGraphPtr_);
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     u32 rankId = rankGraph->GetMyRank();
-    std::set<u32> levels = rankGraph->GetLevels(rankId);
-    if (levels.find(netLayer) == levels.end()) {
+    if (!rankGraph->HasLevel(rankId, netLayer)) {
         HCCL_ERROR("[IRankGraph::GetEndpointDesc] netLayer[%u] is invalid", netLayer);
         return HCCL_E_PARA;
     }

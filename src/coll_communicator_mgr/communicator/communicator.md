@@ -789,9 +789,9 @@ classDiagram
 |------|----------|
 | `InitFullMode(...)` | fullMode 完整初始化：DlHalFunctionInit→RankGraphV2→GetRankIpPortMap→资源管理器→MyRank→InitWorldTeams→InitSymmetricMemory→InitHDCommunicate→HcclCommDfx→InitTaskExceptionHandler→InitKfcAndRegisterCollComm |
 | `InitSimpleMode(...)` | simpleMode 简化初始化：仅 DlHalFunctionInit→RankGraph 裸指针→MyRank，不创建下列 fullMode 资源 |
-| `InitWorldTeams()` | 通信域初始化时按 protocol + netLayer 创建 A5 URMA/UB Memory 预制 worldTeam：遍历 netLayer→CollectLayerReachableRanks→CreateUrmaWorldTeams（UB_CTP/UBC_TP/UBOE/UB_RTP）→UB_MEM LSA 候选（左右邻居均有 UB_MEM 链路的最大 netLayer） |
+| `InitWorldTeams()` | 通信域初始化时按 protocol + netLayer 创建 A5 URMA/UB Memory 预制 worldTeam：遍历 netLayer→CollectReachableRanksPerProtocol（批量直连，WorldTeam 预制链路恒为 RankGraphV2）→CreateUrmaWorldTeams（UB_CTP/UBC_TP/UBOE/UB_RTP）→UB_MEM LSA 候选（左右邻居均有 UB_MEM 链路的最大 netLayer） |
 | `CreatePrebuiltWorldTeam(protocol, netLayer, ranks, rankNum, selfMemberId)` | 创建并注册预制 worldTeam（不通信、不创建 syncMem，barrierCount：UB_MEM=0，其他=1），失败时销毁 team |
-| `CollectLayerReachableRanks(...)` | 按协议收集本 Rank 在指定 netLayer 内的可达 Rank（GetLinks 判链路有效性），不在收集阶段创建 worldTeam |
+| `CollectReachableRanksPerProtocol(netLayer, reachableRanksByProtocol)` | 按协议批量收集本 Rank 在指定 netLayer 内的可达 Rank（图邻接单次遍历，出参自洽预置聚焦协议空桶）；WorldTeam 预制链路恒为 RankGraphV2，非 SUCCESS 由调用方按硬失败处理 |
 | `InitSymmetricMemory()` | 创建 URMA SymmetricMemory；存在 LSA Team 时创建 UbMemSymmetricMemory 并 Init；未预制 LSA Team 表示仅使用 URMA（正常场景） |
 | `InitHDCommunicate()` | 创建 KFC 控制通道 H2D（sizeof(KfcCommand)）与状态通道 D2H（sizeof(KfcExecStatus)）共享内存并 InitHost |
 | `InitTaskExceptionHandler()` | 向 TaskExceptionHost::GetInstance(deviceLogicId_) 注册本通信域（commHandle=this 指针） |

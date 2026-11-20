@@ -321,9 +321,9 @@ private:
     // 通信域初始化时按 protocol + netLayer 创建 A5 URMA/UB Memory 预制 worldTeam。
     HcclResult InitWorldTeams();
     HcclResult InitWorldTeamLayer(uint32_t netLayer, uint32_t selfRankId, UbWorldTeamCandidate& ubCandidate);
-    // 按协议收集本 Rank 在指定 NetLayer 内的可达 Rank，不在收集阶段创建 WorldTeam。
-    void CollectLayerReachableRanks(
-        uint32_t netLayer, const uint32_t* ranks, uint32_t rankNum, ProtocolRankMap& reachableRanksByProtocol) const;
+    // 按协议批量收集本 Rank 在指定 NetLayer 内的可达 Rank，不在收集阶段创建 WorldTeam。
+    // 走图邻接单次遍历的批量接口（WorldTeam 预制链路恒为 RankGraphV2）
+    HcclResult CollectReachableRanksPerProtocol(uint32_t netLayer, ProtocolRankMap& reachableRanksByProtocol) const;
     // 使用各 URMA 协议自己的可达成员集合预制 WorldTeam。
     HcclResult
     CreateUrmaWorldTeams(uint32_t netLayer, uint32_t selfRankId, const ProtocolRankMap& reachableRanksByProtocol);

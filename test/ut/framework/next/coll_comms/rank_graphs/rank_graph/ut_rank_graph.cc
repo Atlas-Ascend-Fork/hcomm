@@ -13,6 +13,7 @@
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>
 #include "rank_gph.h"
+#include "rank_graph_v2.h"
 #include "rank_graph_builder.h"
 #include "phy_topo_builder.h"
 #include "detour_service.h"
@@ -328,7 +329,7 @@ std::shared_ptr<RankGraph> create4pclosRankGraph(RankId myRank)
     std::set<LinkProtocol> meshProtocols = {LinkProtocol::UB_TP};
     auto makeMeshIface = [&](u32 topoInstId) {
         return std::make_shared<NetInstance::ConnInterface>(
-            IpAddress(0), meshPorts, AddrPosition::DEVICE, LinkType::PEER2PEER, meshProtocols, TopoType::MESH_1D,
+            IpAddress(0), meshPorts, AddrPosition::DEVICE, LinkType::PEER2PEER, meshProtocols, Hccl::TopoType::MESH_1D,
             topoInstId);
     };
     auto addMeshLink = [&](NetInstance* netInstance, const std::shared_ptr<NetInstance::Peer>& srcPeer,
@@ -349,7 +350,7 @@ std::shared_ptr<RankGraph> create4pclosRankGraph(RankId myRank)
     std::set<LinkProtocol> protocols = {LinkProtocol::PCIE};
     auto makeIface = [&](u32 topoInstId) {
         return std::make_shared<NetInstance::ConnInterface>(
-            IpAddress(0), ports, AddrPosition::DEVICE, LinkType::PEER2NET, protocols, TopoType::CLOS, topoInstId);
+            IpAddress(0), ports, AddrPosition::DEVICE, LinkType::PEER2NET, protocols, Hccl::TopoType::CLOS, topoInstId);
     };
 
     auto rank0ToFabricIface = makeIface(closTopoInstId);
@@ -369,14 +370,14 @@ std::shared_ptr<RankGraph> create4pclosRankGraph(RankId myRank)
     peer3->AddConnInterface(layer, rank3ToFabricIface);
     peer3->AddConnInterface(layer, fabricToRank3Iface);
 
-    netInstMixPcie->UpdateTopoInst(mesh01TopoInstId, TopoType::MESH_1D, peer0->GetRankId());
-    netInstMixPcie->UpdateTopoInst(mesh01TopoInstId, TopoType::MESH_1D, peer1->GetRankId());
-    netInstMixPcie->UpdateTopoInst(mesh23TopoInstId, TopoType::MESH_1D, peer2->GetRankId());
-    netInstMixPcie->UpdateTopoInst(mesh23TopoInstId, TopoType::MESH_1D, peer3->GetRankId());
-    netInstMixPcie->UpdateTopoInst(closTopoInstId, TopoType::CLOS, peer0->GetRankId());
-    netInstMixPcie->UpdateTopoInst(closTopoInstId, TopoType::CLOS, peer1->GetRankId());
-    netInstMixPcie->UpdateTopoInst(closTopoInstId, TopoType::CLOS, peer2->GetRankId());
-    netInstMixPcie->UpdateTopoInst(closTopoInstId, TopoType::CLOS, peer3->GetRankId());
+    netInstMixPcie->UpdateTopoInst(mesh01TopoInstId, Hccl::TopoType::MESH_1D, peer0->GetRankId());
+    netInstMixPcie->UpdateTopoInst(mesh01TopoInstId, Hccl::TopoType::MESH_1D, peer1->GetRankId());
+    netInstMixPcie->UpdateTopoInst(mesh23TopoInstId, Hccl::TopoType::MESH_1D, peer2->GetRankId());
+    netInstMixPcie->UpdateTopoInst(mesh23TopoInstId, Hccl::TopoType::MESH_1D, peer3->GetRankId());
+    netInstMixPcie->UpdateTopoInst(closTopoInstId, Hccl::TopoType::CLOS, peer0->GetRankId());
+    netInstMixPcie->UpdateTopoInst(closTopoInstId, Hccl::TopoType::CLOS, peer1->GetRankId());
+    netInstMixPcie->UpdateTopoInst(closTopoInstId, Hccl::TopoType::CLOS, peer2->GetRankId());
+    netInstMixPcie->UpdateTopoInst(closTopoInstId, Hccl::TopoType::CLOS, peer3->GetRankId());
     netInstMixPcie->AddLink(
         std::make_shared<NetInstance::Link>(peer0, fabric, rank0ToFabricIface, nullptr, LinkType::PEER2NET, protocols));
     netInstMixPcie->AddLink(
@@ -687,7 +688,7 @@ MakeVirtualTestGraph(u32 myRank, const std::vector<VirtualTestLayer>& layers, bo
                 auto peer = graph->GetPeer(rank);
                 EXPECT_EQ(inst->AddNode(peer), HCCL_SUCCESS);
                 EXPECT_EQ(peer->AddNetInstance(inst), HCCL_SUCCESS);
-                inst->UpdateTopoInst(VIRTUAL_TEST_TOPO_ID, TopoType::CLOS, rank);
+                inst->UpdateTopoInst(VIRTUAL_TEST_TOPO_ID, Hccl::TopoType::CLOS, rank);
             }
             EXPECT_EQ(graph->AddNetInstance(inst), HCCL_SUCCESS);
         }
@@ -726,9 +727,9 @@ TEST_F(RankGraphTest, Ut_VirtualGroups_When_ServerMajor_Expect_LocalSegmentsAndP
         EXPECT_EQ(ranks, (std::vector<u32>{VIRTUAL_TEST_TOPO_ID}));
         ASSERT_EQ(graph->GetRanksByTopoInst(1, VIRTUAL_TEST_TOPO_ID, ranks, count), HCCL_SUCCESS);
         EXPECT_EQ(ranks, VirtualTestRange(rank / 4 * 4, 4));
-        TopoType type;
+        Hccl::TopoType type;
         ASSERT_EQ(graph->GetTopoType(1, VIRTUAL_TEST_TOPO_ID, type), HCCL_SUCCESS);
-        EXPECT_EQ(type, TopoType::CLOS);
+        EXPECT_EQ(type, Hccl::TopoType::CLOS);
         EXPECT_EQ(graph->GetRanksByTopoInst(1, 999, ranks, count), HCCL_E_PARA);
         ASSERT_EQ(graph->GetLocalInstRanks(0, ranks, count), HCCL_SUCCESS);
         EXPECT_EQ(ranks, VirtualTestRange(rank / 4 * 4, 4));
@@ -748,12 +749,12 @@ TEST_F(RankGraphTest, Ut_VirtualGroups_When_TopoInstOutsideLocalGroup_Expect_Not
         auto* netInstance = graph->GetNetInstanceByRankId(1, 0);
         ASSERT_NE(netInstance, nullptr);
         for (u32 rank : VirtualTestRange(8, 4)) {
-            netInstance->UpdateTopoInst(otherTopoInstId, TopoType::CLOS, rank);
+            netInstance->UpdateTopoInst(otherTopoInstId, Hccl::TopoType::CLOS, rank);
         }
         ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS);
-        TopoType type;
+        Hccl::TopoType type;
         ASSERT_EQ(graph->GetTopoType(1, otherTopoInstId, type), HCCL_SUCCESS);
-        EXPECT_EQ(type, TopoType::CLOS);
+        EXPECT_EQ(type, Hccl::TopoType::CLOS);
         std::vector<u32> ranks{99};
         u32 count = 99;
         if (enabled) {
@@ -877,10 +878,10 @@ TEST_F(RankGraphTest, Ut_VirtualGroups_When_CrossSegmentLink_Expect_PhysicalPath
     std::set<LinkProtocol> protocols = {LinkProtocol::UB_TP};
     auto sourceIface = std::make_shared<NetInstance::ConnInterface>(
         IpAddress("::1"), std::set<std::string>{"0/0"}, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols,
-        TopoType::CLOS, VIRTUAL_TEST_TOPO_ID);
+        Hccl::TopoType::CLOS, VIRTUAL_TEST_TOPO_ID);
     auto targetIface = std::make_shared<NetInstance::ConnInterface>(
         IpAddress("::2"), std::set<std::string>{"0/1"}, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols,
-        TopoType::CLOS, VIRTUAL_TEST_TOPO_ID);
+        Hccl::TopoType::CLOS, VIRTUAL_TEST_TOPO_ID);
     src->AddConnInterface(1, sourceIface);
     dst->AddConnInterface(1, targetIface);
     inst->AddLink(std::make_shared<NetInstance::Link>(
@@ -966,4 +967,374 @@ TEST_F(RankGraphTest, Ut_VirtualGroups_When_ContinuousParent_Expect_ChildInherit
     u32 count = 0;
     ASSERT_EQ(child->GetNetInstanceList(1, sizes, count), HCCL_SUCCESS);
     EXPECT_EQ(sizes, (std::vector<u32>{1, 1, 1, 1}));
+}
+
+// ===================== worldteam 批量可达性优化新增接口 =====================
+
+namespace {
+std::shared_ptr<NetInstance::ConnInterface>
+UtMakeRankGraphIface(const std::set<std::string>& ports, const std::set<LinkProtocol>& protocols, AddrPosition pos)
+{
+    IpAddress addr(0);
+    return std::make_shared<NetInstance::ConnInterface>(addr, ports, pos, LinkType::PEER2PEER, protocols);
+}
+} // namespace
+
+TEST_F(RankGraphTest, Ut_RankGraphHasLevel_When_RankInLayer_Return_True)
+{
+    RankGraph rankGraph(myRank);
+    auto peer = createPeer(0, 0, 0);
+    auto netInst = std::make_shared<InnerNetInstance>(0, "ut_haslevel");
+    ASSERT_EQ(peer->AddNetInstance(netInst), HCCL_SUCCESS);
+    ASSERT_EQ(rankGraph.AddPeer(peer), HCCL_SUCCESS);
+
+    EXPECT_TRUE(peer->HasLevel(0));
+    EXPECT_TRUE(rankGraph.HasLevel(0, 0));
+}
+
+TEST_F(RankGraphTest, Ut_RankGraphHasLevel_When_RankNotInLayer_Return_False)
+{
+    RankGraph rankGraph(myRank);
+    auto peer = createPeer(0, 0, 0);
+    auto netInst = std::make_shared<InnerNetInstance>(0, "ut_haslevel_miss");
+    ASSERT_EQ(peer->AddNetInstance(netInst), HCCL_SUCCESS);
+    ASSERT_EQ(rankGraph.AddPeer(peer), HCCL_SUCCESS);
+
+    EXPECT_FALSE(peer->HasLevel(1));
+    EXPECT_FALSE(rankGraph.HasLevel(0, 1));
+}
+
+TEST_F(RankGraphTest, Ut_RankGraphHasLevel_When_RankNotExist_Return_FalseWithoutThrow)
+{
+    // 行为变更点：原 GetLevels 对不存在 rank 抛 InvalidParamsException，HasLevel 返回 false 不抛异常
+    // （10 处替换点 rankId 均为 GetMyRank() 恒存在，生产行为不变）
+    RankGraph rankGraph(myRank);
+    auto peer = createPeer(0, 0, 0);
+    auto netInst = std::make_shared<InnerNetInstance>(0, "ut_haslevel_noexist");
+    ASSERT_EQ(peer->AddNetInstance(netInst), HCCL_SUCCESS);
+    ASSERT_EQ(rankGraph.AddPeer(peer), HCCL_SUCCESS);
+
+    EXPECT_FALSE(rankGraph.HasLevel(27, 0));
+}
+
+TEST_F(RankGraphTest, Ut_GetReachableRanksPerProtocol_When_InvalidNetLayer_Return_EPARA)
+{
+    RankGraph rankGraph(myRank);
+    auto peer = createPeer(0, 0, 0);
+    auto netInst = std::make_shared<InnerNetInstance>(0, "ut_rrbys_epara");
+    ASSERT_EQ(peer->AddNetInstance(netInst), HCCL_SUCCESS);
+    ASSERT_EQ(rankGraph.AddPeer(peer), HCCL_SUCCESS);
+
+    const std::set<CommProtocol> protocols
+        = {COMM_PROTOCOL_UB_CTP, COMM_PROTOCOL_UBC_TP, COMM_PROTOCOL_UBOE, COMM_PROTOCOL_UB_RTP, COMM_PROTOCOL_UB_MEM};
+    std::unordered_map<CommProtocol, std::vector<uint32_t>> reachable;
+    EXPECT_EQ(rankGraph.GetReachableRanksPerProtocol(1, 0, protocols, reachable), HCCL_E_PARA);
+    EXPECT_TRUE(reachable.empty()); // 出参未被修改
+}
+
+TEST_F(RankGraphTest, Ut_GetReachableRanksPerProtocol_When_OnlyUnfocusedProtocol_Return_EmptyFocusedBuckets)
+{
+    RankGraph rankGraph(myRank);
+    auto peer0 = createPeer(0, 0, 0);
+    auto peer1 = createPeer(1, 1, 1);
+    auto netInst = std::make_shared<InnerNetInstance>(0, "ut_rrbys_roce");
+    ASSERT_EQ(peer0->AddNetInstance(netInst), HCCL_SUCCESS);
+    ASSERT_EQ(peer1->AddNetInstance(netInst), HCCL_SUCCESS);
+    netInst->AddRankId(0);
+    netInst->AddRankId(1);
+    ASSERT_EQ(rankGraph.AddPeer(peer0), HCCL_SUCCESS);
+    ASSERT_EQ(rankGraph.AddPeer(peer1), HCCL_SUCCESS);
+    ASSERT_EQ(rankGraph.AddNetInstance(netInst), HCCL_SUCCESS);
+    (void)netInst->AddNode(peer0);
+    (void)netInst->AddNode(peer1);
+    // 直达边 0->1 仅 ROCE 协议
+    const std::set<LinkProtocol> roce = {LinkProtocol::ROCE};
+    const std::set<std::string> ports = {"0/0"};
+    netInst->AddLink(std::make_shared<NetInstance::Link>(
+        peer0, peer1, UtMakeRankGraphIface(ports, roce, AddrPosition::HOST),
+        UtMakeRankGraphIface(ports, roce, AddrPosition::DEVICE), LinkType::PEER2PEER, roce));
+
+    // 步骤 1：NetInstance 层未过滤（LinkProtocol 域），含 ROCE 桶
+    std::map<LinkProtocol, std::set<RankId>> reachableByProtocol;
+    netInst->GetReachableRanks(0, reachableByProtocol);
+    ASSERT_EQ(reachableByProtocol.count(LinkProtocol::ROCE), 1U);
+    EXPECT_EQ(reachableByProtocol.at(LinkProtocol::ROCE), (std::set<RankId>{1}));
+
+    // 步骤 2：RankGraph 层按聚焦协议过滤——出参自洽预置聚焦协议全集空桶（未命中协议不依赖调用方预置）
+    const std::set<CommProtocol> protocols
+        = {COMM_PROTOCOL_UB_CTP, COMM_PROTOCOL_UBC_TP, COMM_PROTOCOL_UBOE, COMM_PROTOCOL_UB_RTP, COMM_PROTOCOL_UB_MEM};
+    std::unordered_map<CommProtocol, std::vector<uint32_t>> reachable;
+    EXPECT_EQ(rankGraph.GetReachableRanksPerProtocol(0, 0, protocols, reachable), HCCL_SUCCESS);
+    EXPECT_EQ(reachable.size(), protocols.size());
+    for (CommProtocol protocol : protocols) {
+        EXPECT_TRUE(reachable.at(protocol).empty());
+    }
+}
+
+// ===================== 批量接口 vs 旧 GetLinks 逐 peer 路径对拍（真实图，非桩） =====================
+
+namespace {
+// 与生产收集一致的关注协议集合
+const std::set<CommProtocol>& UtDuelFocusedProtocols()
+{
+    static const std::set<CommProtocol> protocols
+        = {COMM_PROTOCOL_UB_CTP, COMM_PROTOCOL_UBC_TP, COMM_PROTOCOL_UBOE, COMM_PROTOCOL_UB_RTP, COMM_PROTOCOL_UB_MEM};
+    return protocols;
+}
+
+// 旧路径等价聚合：逐 peer GetLinks 后按协议分桶（全量 std::find 去重，不依赖遍历顺序）。
+// EXPECT 而非 ASSERT：失败时留痕并继续聚合，避免辅助函数提前 return 掩盖 GetLinks 错误码
+void UtAggregateLegacyByGetLinks(
+    hccl::RankGraphV2& graph, uint32_t netLayer, uint32_t selfRank, const std::vector<uint32_t>& peerRanks,
+    std::unordered_map<CommProtocol, std::vector<uint32_t>>& out)
+{
+    for (uint32_t peerRank : peerRanks) {
+        CommLink* links = nullptr;
+        uint32_t linkNum = 0;
+        EXPECT_EQ(graph.GetLinks(netLayer, selfRank, peerRank, &links, &linkNum), HCCL_SUCCESS)
+            << "GetLinks failed, peer[" << peerRank << "]";
+        if (links == nullptr) {
+            continue;
+        }
+        for (uint32_t linkIndex = 0; linkIndex < linkNum; ++linkIndex) {
+            auto protocolIt = out.find(links[linkIndex].linkAttr.linkProtocol);
+            if (protocolIt == out.end()) {
+                continue;
+            }
+            if (std::find(protocolIt->second.begin(), protocolIt->second.end(), peerRank) == protocolIt->second.end()) {
+                protocolIt->second.push_back(peerRank);
+            }
+        }
+    }
+}
+
+// 逐协议归一化比对（缺桶视为空桶、排序后比较）
+::testing::AssertionResult UtDuelCompareBuckets(
+    const std::unordered_map<CommProtocol, std::vector<uint32_t>>& batch,
+    const std::unordered_map<CommProtocol, std::vector<uint32_t>>& legacy, const std::set<CommProtocol>& protocols)
+{
+    for (CommProtocol protocol : protocols) {
+        auto batchIt = batch.find(protocol);
+        auto legacyIt = legacy.find(protocol);
+        std::vector<uint32_t> batchBucket = batchIt == batch.end() ? std::vector<uint32_t>{} : batchIt->second;
+        std::vector<uint32_t> legacyBucket = legacyIt == legacy.end() ? std::vector<uint32_t>{} : legacyIt->second;
+        std::sort(batchBucket.begin(), batchBucket.end());
+        std::sort(legacyBucket.begin(), legacyBucket.end());
+        if (batchBucket != legacyBucket) {
+            return ::testing::AssertionFailure() << "protocol[" << static_cast<int>(protocol) << "] batchNum["
+                                                 << batchBucket.size() << "] legacyNum[" << legacyBucket.size() << "]";
+        }
+    }
+    return ::testing::AssertionSuccess();
+}
+} // namespace
+
+// 对拍（Inner 真实图）：批量 GetReachableRanksPerProtocol vs 逐 peer GetLinks 汇总，
+// 覆盖直达边多协议、fabric 端口配对成功/失败、多协议分桶
+TEST_F(RankGraphTest, Ut_GetReachableRanksPerProtocolVsGetLinks_When_InnerRealGraph_Return_IdenticalBuckets)
+{
+    RankGraph rankGraph(myRank);
+    auto netInst = std::make_shared<InnerNetInstance>(0, "ut_duel_inner");
+    const std::vector<RankId> rankIds = {0, 1, 2, 3};
+    std::map<RankId, std::shared_ptr<NetInstance::Peer>> graphPeers;
+    for (RankId rankId : rankIds) {
+        auto peer = std::make_shared<NetInstance::Peer>(rankId, rankId, rankId, rankId);
+        ASSERT_EQ(peer->AddNetInstance(netInst), HCCL_SUCCESS);
+        ASSERT_EQ(rankGraph.AddPeer(peer), HCCL_SUCCESS);
+        netInst->AddRankId(rankId);
+        (void)netInst->AddNode(peer);
+        graphPeers[rankId] = peer;
+    }
+    ASSERT_EQ(rankGraph.AddNetInstance(netInst), HCCL_SUCCESS);
+    auto fabric = std::make_shared<NetInstance::Fabric>(10, "ut_duel_plane");
+    (void)netInst->AddNode(fabric);
+    ASSERT_EQ(rankGraph.InitInnerRanks(), HCCL_SUCCESS);
+
+    const std::set<LinkProtocol> dual = {LinkProtocol::UB_CTP, LinkProtocol::UB_TP};
+    const std::set<LinkProtocol> ctp = {LinkProtocol::UB_CTP};
+    const std::set<LinkProtocol> rtp = {LinkProtocol::UB_RTP};
+    const std::set<std::string> ports1 = {"0/0"};
+    const std::set<std::string> ports4 = {"0/0", "0/1", "0/2", "0/3"};
+    // 直达边：0->1 双协议；0->2 仅 CTP（两侧 iface 均非空，老路径 InsertInnerLink 依赖）
+    netInst->AddLink(std::make_shared<NetInstance::Link>(
+        graphPeers[0], graphPeers[1], UtMakeRankGraphIface(ports1, dual, AddrPosition::DEVICE),
+        UtMakeRankGraphIface(ports1, dual, AddrPosition::DEVICE), LinkType::PEER2PEER, dual, LinkDirection::BOTH, 1));
+    netInst->AddLink(std::make_shared<NetInstance::Link>(
+        graphPeers[0], graphPeers[2], UtMakeRankGraphIface(ports1, ctp, AddrPosition::DEVICE),
+        UtMakeRankGraphIface(ports1, ctp, AddrPosition::DEVICE), LinkType::PEER2PEER, ctp, LinkDirection::BOTH, 1));
+    // fabric（生产 PEER2NET 形态：peer 侧 iface 非空、fabric 侧 iface 为空——net_instance.h Link 契约）：
+    // 老路径 BuildLinkList 据此走 InsertClosLinks（协议仅取 peer2net 边，且只对 Peer 节点 cast、不碰 fabric）。
+    // sLink(0->F) 源侧 4 端口（配对键）；dLink(F->3) 目标侧 4 端口（配对）；dLink(F->1) 目标侧 1 端口（不配对）。
+    // dLink 协议异于 sLink（UB_RTP）：若新实现误并入 dLink 协议，RTP 桶非空即与老路径失配
+    netInst->AddLink(std::make_shared<NetInstance::Link>(
+        graphPeers[0], fabric, UtMakeRankGraphIface(ports4, ctp, AddrPosition::DEVICE), nullptr, LinkType::PEER2PEER,
+        ctp, LinkDirection::BOTH, 1));
+    netInst->AddLink(std::make_shared<NetInstance::Link>(
+        fabric, graphPeers[3], nullptr, UtMakeRankGraphIface(ports4, rtp, AddrPosition::DEVICE), LinkType::PEER2PEER,
+        rtp, LinkDirection::BOTH, 1));
+    netInst->AddLink(std::make_shared<NetInstance::Link>(
+        fabric, graphPeers[1], nullptr, UtMakeRankGraphIface(ports1, rtp, AddrPosition::DEVICE), LinkType::PEER2PEER,
+        rtp, LinkDirection::BOTH, 1));
+
+    hccl::RankGraphV2 v2(static_cast<void*>(&rankGraph));
+    const std::set<CommProtocol>& protocols = UtDuelFocusedProtocols();
+
+    // 新路径：批量
+    std::unordered_map<CommProtocol, std::vector<uint32_t>> batch;
+    ASSERT_EQ(v2.GetReachableRanksPerProtocol(0, myRank, protocols, batch), HCCL_SUCCESS);
+
+    // 旧路径：逐 peer GetLinks 汇总。与生产调用方 InitWorldTeamLayer 一致预置 5 协议空桶
+    // （聚合仅向已存在的桶追加，桶不存在即跳过——空 map 传入会恒为空）
+    std::unordered_map<CommProtocol, std::vector<uint32_t>> legacy;
+    for (CommProtocol protocol : protocols) {
+        legacy[protocol] = {};
+    }
+    UtAggregateLegacyByGetLinks(v2, 0, myRank, {1, 2, 3}, legacy);
+
+    EXPECT_TRUE(UtDuelCompareBuckets(batch, legacy, protocols));
+    // 语义锚点：两路径均应给出 CTP={1,2,3}、UBC_TP={1}；dLink 的 RTP 协议不出现（协议仅取 peer2net 边）
+    ASSERT_EQ(batch.count(COMM_PROTOCOL_UB_CTP), 1U);
+    EXPECT_EQ(batch.at(COMM_PROTOCOL_UB_CTP), (std::vector<uint32_t>{1, 2, 3}));
+    ASSERT_EQ(batch.count(COMM_PROTOCOL_UBC_TP), 1U);
+    EXPECT_EQ(batch.at(COMM_PROTOCOL_UBC_TP), (std::vector<uint32_t>{1}));
+    ASSERT_EQ(batch.count(COMM_PROTOCOL_UB_RTP), 1U);
+    EXPECT_TRUE(batch.at(COMM_PROTOCOL_UB_RTP).empty());
+}
+
+// 对拍（Clos 真实图）：同桶多条 sLink/dLink 时代表链路取尾语义
+TEST_F(RankGraphTest, Ut_GetReachableRanksPerProtocolVsGetLinks_When_ClosRealGraph_Return_IdenticalBuckets)
+{
+    RankGraph rankGraph(myRank);
+    // 双层拓扑贴近生产形态：layer 0 Inner（rankIds 与上层一致）+ layer 1 Clos。
+    // InitInnerRanks 固定查 layer 0，仅挂 layer 1 Clos 实例会触发 NullPtrException 失败。
+    auto innerInst = std::make_shared<InnerNetInstance>(0, "ut_duel_inner_l0");
+    auto netInst = std::make_shared<ClosNetInstance>(1, "ut_duel_clos");
+    const std::vector<RankId> rankIds = {0, 1};
+    std::map<RankId, std::shared_ptr<NetInstance::Peer>> graphPeers;
+    for (RankId rankId : rankIds) {
+        auto peer = std::make_shared<NetInstance::Peer>(rankId, rankId, rankId, rankId);
+        ASSERT_EQ(peer->AddNetInstance(innerInst), HCCL_SUCCESS);
+        ASSERT_EQ(peer->AddNetInstance(netInst), HCCL_SUCCESS);
+        ASSERT_EQ(rankGraph.AddPeer(peer), HCCL_SUCCESS);
+        innerInst->AddRankId(rankId);
+        (void)innerInst->AddNode(peer);
+        netInst->AddRankId(rankId);
+        (void)netInst->AddNode(peer);
+        graphPeers[rankId] = peer;
+    }
+    ASSERT_EQ(rankGraph.AddNetInstance(innerInst), HCCL_SUCCESS);
+    ASSERT_EQ(rankGraph.AddNetInstance(netInst), HCCL_SUCCESS);
+    auto fabric = std::make_shared<NetInstance::Fabric>(10, "ut_duel_plane");
+    (void)netInst->AddNode(fabric);
+    ASSERT_EQ(rankGraph.InitInnerRanks(), HCCL_SUCCESS);
+
+    const std::set<LinkProtocol> ctp = {LinkProtocol::UB_CTP};
+    const std::set<LinkProtocol> tp = {LinkProtocol::UB_TP};
+    const std::set<LinkProtocol> rtp = {LinkProtocol::UB_RTP};
+    const std::set<std::string> ports2 = {"0/0", "0/1"};
+    const std::set<std::string> ports3 = {"0/0", "0/1", "0/2"};
+    // 同 (0,F) 两条 sLink：首条 CTP/2 端口，末条 TP/2 端口（代表取尾——协议锚点：误取首条即 CTP 桶非空失配）；
+    // 同 (F,1) 两条 dLink：首条目标侧 3 端口（不配对），末条目标侧 2 端口（代表取尾，与末条 sLink 端口配对）。
+    // 生产 PEER2NET 形态：peer 侧 iface 非空、fabric 侧 iface 为空（net_instance.h Link 契约），老路径
+    // BuildLinkList 据此走 InsertClosLinks（协议仅取 peer2net 边，只对 Peer 节点 cast、不碰 fabric）；
+    // dLink 协议异于 sLink（UB_RTP）：若新实现误并入 dLink 协议，RTP 桶非空即与老路径失配
+    netInst->AddLink(std::make_shared<NetInstance::Link>(
+        graphPeers[0], fabric, UtMakeRankGraphIface(ports2, ctp, AddrPosition::DEVICE), nullptr, LinkType::PEER2PEER,
+        ctp, LinkDirection::BOTH, 1));
+    netInst->AddLink(std::make_shared<NetInstance::Link>(
+        graphPeers[0], fabric, UtMakeRankGraphIface(ports2, tp, AddrPosition::DEVICE), nullptr, LinkType::PEER2PEER, tp,
+        LinkDirection::BOTH, 1));
+    netInst->AddLink(std::make_shared<NetInstance::Link>(
+        fabric, graphPeers[1], nullptr, UtMakeRankGraphIface(ports3, rtp, AddrPosition::DEVICE), LinkType::PEER2PEER,
+        rtp, LinkDirection::BOTH, 1));
+    netInst->AddLink(std::make_shared<NetInstance::Link>(
+        fabric, graphPeers[1], nullptr, UtMakeRankGraphIface(ports2, rtp, AddrPosition::DEVICE), LinkType::PEER2PEER,
+        rtp, LinkDirection::BOTH, 1));
+
+    hccl::RankGraphV2 v2(static_cast<void*>(&rankGraph));
+    const std::set<CommProtocol>& protocols = UtDuelFocusedProtocols();
+
+    std::unordered_map<CommProtocol, std::vector<uint32_t>> batch;
+    ASSERT_EQ(v2.GetReachableRanksPerProtocol(1, myRank, protocols, batch), HCCL_SUCCESS);
+
+    // 与生产调用方一致预置协议空桶（聚合仅向已存在的桶追加）
+    std::unordered_map<CommProtocol, std::vector<uint32_t>> legacy;
+    for (CommProtocol protocol : protocols) {
+        legacy[protocol] = {};
+    }
+    UtAggregateLegacyByGetLinks(v2, 1, myRank, {1}, legacy);
+
+    EXPECT_TRUE(UtDuelCompareBuckets(batch, legacy, protocols));
+    // 语义锚点：代表链路取尾 → 仅末条 sLink(TP) 参与配对，UBC_TP={1}、CTP 为预置空桶（误取首条 sLink 即失配）；
+    // dLink 的 RTP 协议不出现（协议仅取 peer2net 边）
+    ASSERT_EQ(batch.count(COMM_PROTOCOL_UBC_TP), 1U);
+    EXPECT_EQ(batch.at(COMM_PROTOCOL_UBC_TP), (std::vector<uint32_t>{1}));
+    ASSERT_EQ(batch.count(COMM_PROTOCOL_UB_CTP), 1U);
+    EXPECT_TRUE(batch.at(COMM_PROTOCOL_UB_CTP).empty());
+    ASSERT_EQ(batch.count(COMM_PROTOCOL_UB_RTP), 1U);
+    EXPECT_TRUE(batch.at(COMM_PROTOCOL_UB_RTP).empty());
+}
+
+// 对拍（虚拟分段图）：分段激活且段间存在物理边时，批量收集限定在本 rank 分段内——
+// 与老路径口径一致（老路径经 GetInstRanksByNetLayer 枚举分段成员逐 peer GetLinks，跨段 rank 不入桶）。
+// 图形：layer1 单实例含 rank {0,1,5,6}（数值不连续触发分段：段A={0,1}、段B={5,6}），
+// 直达边 0→1（段内）与 0→5（跨段）均存在——批量必须过滤跨段 rank 5，仅 CTP={1}
+TEST_F(RankGraphTest, Ut_GetReachableRanksPerProtocolVsGetLinks_When_VirtualGroupSplit_Return_SegmentScopedBuckets)
+{
+    // enableVirtualGroups=true 构图；分段视图须 InitFinish 前建（BuildVirtualGroups 契约）
+    RankGraph rankGraph(myRank, true);
+    auto innerInst = std::make_shared<InnerNetInstance>(0, "ut_duel_vg_l0");
+    auto netInst = std::make_shared<InnerNetInstance>(1, "ut_duel_vg");
+    const std::vector<RankId> rankIds = {0, 1, 5, 6};
+    std::map<RankId, std::shared_ptr<NetInstance::Peer>> graphPeers;
+    for (RankId rankId : rankIds) {
+        auto peer = std::make_shared<NetInstance::Peer>(rankId, rankId, rankId, rankId);
+        ASSERT_EQ(peer->AddNetInstance(innerInst), HCCL_SUCCESS);
+        ASSERT_EQ(peer->AddNetInstance(netInst), HCCL_SUCCESS);
+        ASSERT_EQ(rankGraph.AddPeer(peer), HCCL_SUCCESS);
+        innerInst->AddRankId(rankId);
+        (void)innerInst->AddNode(peer);
+        netInst->AddRankId(rankId);
+        (void)netInst->AddNode(peer);
+        graphPeers[rankId] = peer;
+    }
+    ASSERT_EQ(rankGraph.AddNetInstance(innerInst), HCCL_SUCCESS);
+    ASSERT_EQ(rankGraph.AddNetInstance(netInst), HCCL_SUCCESS);
+    ASSERT_EQ(rankGraph.InitInnerRanks(), HCCL_SUCCESS);
+    ASSERT_EQ(rankGraph.BuildVirtualGroups(), HCCL_SUCCESS);
+
+    const std::set<LinkProtocol> ctp = {LinkProtocol::UB_CTP};
+    const std::set<std::string> ports1 = {"0/0"};
+    // 直达边：0→1（段内）与 0→5（跨段——图上真实存在，但分段语义下不应入桶）
+    netInst->AddLink(std::make_shared<NetInstance::Link>(
+        graphPeers[0], graphPeers[1], UtMakeRankGraphIface(ports1, ctp, AddrPosition::DEVICE),
+        UtMakeRankGraphIface(ports1, ctp, AddrPosition::DEVICE), LinkType::PEER2PEER, ctp, LinkDirection::BOTH, 1));
+    netInst->AddLink(std::make_shared<NetInstance::Link>(
+        graphPeers[0], graphPeers[5], UtMakeRankGraphIface(ports1, ctp, AddrPosition::DEVICE),
+        UtMakeRankGraphIface(ports1, ctp, AddrPosition::DEVICE), LinkType::PEER2PEER, ctp, LinkDirection::BOTH, 1));
+
+    hccl::RankGraphV2 v2(static_cast<void*>(&rankGraph));
+    const std::set<CommProtocol>& protocols = UtDuelFocusedProtocols();
+
+    // 分段视图核验：layer1 本 rank 分段 = {0,1}（分段激活）
+    std::vector<uint32_t> segRanks;
+    u32 segNum = 0;
+    ASSERT_EQ(rankGraph.GetLocalInstRanks(1, segRanks, segNum), HCCL_SUCCESS);
+    ASSERT_EQ(segRanks, (std::vector<uint32_t>{0, 1}));
+
+    // 新路径：批量（应限定分段，跨段 rank 5 被过滤）
+    std::unordered_map<CommProtocol, std::vector<uint32_t>> batch;
+    ASSERT_EQ(v2.GetReachableRanksPerProtocol(1, myRank, protocols, batch), HCCL_SUCCESS);
+
+    // 语义锚点：CTP 仅含段内 rank 1，跨段 rank 5 不入桶（无过滤实现将得 {1,5}）
+    ASSERT_EQ(batch.count(COMM_PROTOCOL_UB_CTP), 1U);
+    EXPECT_EQ(batch.at(COMM_PROTOCOL_UB_CTP), (std::vector<uint32_t>{1}));
+
+    // 老路径：按生产口径枚举分段成员逐 peer GetLinks（ranks 来自 GetInstRanksByNetLayer 分段口径）
+    std::unordered_map<CommProtocol, std::vector<uint32_t>> legacy;
+    for (CommProtocol protocol : protocols) {
+        legacy[protocol] = {};
+    }
+    UtAggregateLegacyByGetLinks(v2, 1, myRank, {1}, legacy);
+    EXPECT_TRUE(UtDuelCompareBuckets(batch, legacy, protocols));
 }

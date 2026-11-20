@@ -51,6 +51,25 @@ public:
         return nodeEdges;
     }
 
+    // 只读邻接访问器（批量可达性遍历用，避免 std::function 回调间接开销）；节点/边不存在时返回 nullptr。
+    // 生命周期契约：返回指针指向容器内部结点，仅在图未修改期间有效——任何 AddNode/AddEdge/DeleteEdge
+    // （可能触发 rehash/迭代器失效）之后即失效；调用方取得指针后不得再改图。
+    const std::unordered_map<NodeId, std::vector<std::shared_ptr<EdgeType>>>* GetOutEdges(const NodeId srcNodeId) const
+    {
+        auto it = edges.find(srcNodeId);
+        return it == edges.end() ? nullptr : &it->second;
+    }
+
+    const std::vector<std::shared_ptr<EdgeType>>* FindEdges(const NodeId srcNodeId, const NodeId dstNodeId) const
+    {
+        const auto* outEdges = GetOutEdges(srcNodeId);
+        if (outEdges == nullptr) {
+            return nullptr;
+        }
+        auto it = outEdges->find(dstNodeId);
+        return it == outEdges->end() ? nullptr : &it->second;
+    }
+
     void TraverseNode(std::function<void(NodeId nodeId, const std::shared_ptr<NodeType>&)> func) const
     {
         for (auto& node : nodes) {

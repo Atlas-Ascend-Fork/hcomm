@@ -896,6 +896,7 @@ public:
     GetLinks(uint32_t netLayer, uint32_t srcRank, uint32_t dstRank, CommLink** linkList, uint32_t* listSize) override
     {
         (void)srcRank;
+        getLinksCalls++;
         auto it = layerLinks.find(netLayer);
         if (it == layerLinks.end()) {
             *linkList = nullptr;
@@ -904,6 +905,44 @@ public:
         }
         *linkList = it->second.data();
         *listSize = static_cast<uint32_t>(it->second.size());
+        return HCCL_SUCCESS;
+    }
+    HcclResult GetReachableRanksPerProtocol(
+        uint32_t netLayer, uint32_t selfRank, const std::set<CommProtocol>& protocols,
+        std::unordered_map<CommProtocol, std::vector<uint32_t>>& reachableRanks) const override
+    {
+        getReachableRanksCalls++;
+        if (getReachableRanksRet != HCCL_SUCCESS) {
+            return getReachableRanksRet; // 可配置错误码透传（如 HCCL_E_NOT_SUPPORT 模拟子类未实现）
+        }
+        auto ranksIt = layerRanks.find(netLayer);
+        if (ranksIt == layerRanks.end()) {
+            return HCCL_E_NOT_SUPPORT;
+        }
+        // 契约对齐真实实现（RankGraph::GetReachableRanksPerProtocol）：成功路径先预置全部聚焦协议
+        // 空桶再填充；层存在但无链路（layerLinks 无条目）为空收集非错误
+        for (CommProtocol proto : protocols) {
+            reachableRanks[proto] = {};
+        }
+        std::set<CommProtocol> present; // 桩语义：层内全部 peer 对全部出现的协议可达
+        auto linksIt = layerLinks.find(netLayer);
+        if (linksIt != layerLinks.end()) {
+            for (const CommLink& link : linksIt->second) {
+                present.insert(link.linkAttr.linkProtocol);
+            }
+        }
+        for (CommProtocol proto : present) {
+            if (protocols.count(proto) == 0) {
+                continue;
+            }
+            std::vector<uint32_t> bucket;
+            for (uint32_t rank : ranksIt->second) {
+                if (rank != selfRank) {
+                    bucket.push_back(rank); // layerRanks 已升序
+                }
+            }
+            reachableRanks[proto] = std::move(bucket);
+        }
         return HCCL_SUCCESS;
     }
     HcclResult GetRankGraphInfo(GraphType type, void** graph, uint32_t* len) override
@@ -953,6 +992,9 @@ public:
     std::map<uint32_t, std::vector<uint32_t>> layerRanks; // netLayer -> ranks
     std::map<uint32_t, std::vector<CommLink>> layerLinks; // netLayer -> links
     HcclResult getNetLayersRet{HCCL_SUCCESS};
+    HcclResult getReachableRanksRet{HCCL_SUCCESS};
+    uint32_t getLinksCalls{0};
+    mutable uint32_t getReachableRanksCalls{0};
 };
 
 CommLink MakeLink(CommProtocol proto)
@@ -3864,4 +3906,95 @@ TEST_F(CollCommShrinkTest, Ut_HcclCommShrink_When_CommNull_Expect_E_PTR)
     HcclComm newComm = nullptr;
     HcclResult ret = HcclCommShrink(nullptr, excludeList, 1, nullptr, 0, &newComm);
     EXPECT_EQ(ret, HCCL_E_PTR);
+}
+
+// ===================== 3. worldteam 批量可达性优化（修改点 3/10/11） =====================
+
+// 批量收集函数直连桩：SUCCESS 走桩批量输出；返回码原样透传给调用方（调用方按硬失败处理）。
+TEST_F(TestCollComm, Ut_CollectReachableRanksPerProtocol_When_StubBatchOrNotSupport_Return_TransparentResult)
+{
+    hccl::CollComm coll(nullptr, 0, "ut_collect_batch", hccl::ManagerCallbacks{});
+    UtRankGraphStub graph;
+    graph.layerBuf = {0};
+    graph.layerRanks[0] = {0, 1, 2};
+    graph.layerLinks[0] = {MakeLink(COMM_PROTOCOL_UB_CTP), MakeLink(COMM_PROTOCOL_UBC_TP)};
+    coll.rankgraph_ = &graph;
+
+    hccl::CollComm::ProtocolRankMap reachable
+        = {{COMM_PROTOCOL_UB_CTP, {}},
+           {COMM_PROTOCOL_UBC_TP, {}},
+           {COMM_PROTOCOL_UBOE, {}},
+           {COMM_PROTOCOL_UB_RTP, {}},
+           {COMM_PROTOCOL_UB_MEM, {}}};
+
+    // 批量成功：桩语义为层内全部 peer 对出现协议可达；收集期零逐 peer GetLinks 物化（核心优化性质）
+    graph.getReachableRanksRet = HCCL_SUCCESS;
+    EXPECT_EQ(coll.CollectReachableRanksPerProtocol(0, reachable), HCCL_SUCCESS);
+    EXPECT_GT(graph.getReachableRanksCalls, 0U);
+    EXPECT_EQ(graph.getLinksCalls, 0U);
+    EXPECT_EQ(reachable.at(COMM_PROTOCOL_UB_CTP), (std::vector<uint32_t>{1, 2}));
+    EXPECT_EQ(reachable.at(COMM_PROTOCOL_UBC_TP), (std::vector<uint32_t>{1, 2}));
+
+    // 批量失败：返回码原样透传，不触发逐 peer 查询（批量为唯一路径）
+    graph.getReachableRanksCalls = 0;
+    graph.getReachableRanksRet = HCCL_E_NOT_SUPPORT;
+    EXPECT_EQ(coll.CollectReachableRanksPerProtocol(0, reachable), HCCL_E_NOT_SUPPORT);
+
+    coll.rankgraph_ = nullptr;
+}
+
+// 批量模式下 InitWorldTeams 的 worldTeam 输出齐全（批量为唯一收集路径）。
+TEST_F(TestCollComm, Ut_InitWorldTeams_When_StubBatch_Return_WorldTeamOutput)
+{
+    MOCKER(HcommTeamCreate).stubs().will(invoke(UtStubHcommTeamCreateOk));
+    hccl::CollComm coll(nullptr, 0, "ut_iwt_dualmode", hccl::ManagerCallbacks{});
+    const std::vector<std::pair<CommProtocol, uint32_t>> queryKeys
+        = {{COMM_PROTOCOL_UB_CTP, 0}, {COMM_PROTOCOL_UB_MEM, 0}, {COMM_PROTOCOL_UBC_TP, 1}, {COMM_PROTOCOL_UB_CTP, 1}};
+
+    // 收集各 (protocol, netLayer) 键的 worldTeam 存在性与成员列表 + 层分段表
+    auto collectOutputs = [&coll, &queryKeys]() {
+        std::vector<std::pair<bool, std::vector<uint32_t>>> outputs;
+        for (const auto& key : queryKeys) {
+            HcommTeamHandle team
+                = hccl::HcclTeamMgr::GetInstance().FindWorldTeamByProtoLayer(&coll, key.first, key.second);
+            std::vector<uint32_t> ranks;
+            if (team != nullptr) {
+                ranks = hccl::HcclTeamMgr::GetInstance().GetPrebuiltWorldTeamRanks(&coll, key.first, key.second);
+            }
+            outputs.emplace_back(team != nullptr, ranks);
+        }
+        std::vector<uint32_t> sizes = {0, 0, 0};
+        hccl::HcclTeamMgr::GetInstance().GetWorldTeamSizesPerNetLayer(&coll, sizes);
+        outputs.emplace_back(true, std::move(sizes));
+        return outputs;
+    };
+
+    UtRankGraphStub graph;
+    graph.layerBuf = {0, 1};
+    graph.layerRanks[0] = {0, 1};
+    graph.layerRanks[1] = {0, 1};
+    graph.layerLinks[0] = {MakeLink(COMM_PROTOCOL_UB_CTP), MakeLink(COMM_PROTOCOL_UB_MEM)};
+    graph.layerLinks[1] = {MakeLink(COMM_PROTOCOL_UBC_TP), MakeLink(COMM_PROTOCOL_UB_CTP)};
+    coll.rankgraph_ = &graph;
+
+    // 批量模式：InitWorldTeams 走批量收集，各 (protocol, netLayer) 键产出齐全
+    graph.getReachableRanksRet = HCCL_SUCCESS;
+    ASSERT_EQ(coll.InitWorldTeams(), HCCL_SUCCESS);
+    EXPECT_GT(graph.getReachableRanksCalls, 0U);
+    EXPECT_EQ(graph.getLinksCalls, 0U); // 收集期零逐 peer GetLinks 物化（核心优化性质）
+    auto batchOutputs = collectOutputs();
+    for (size_t i = 0; i < queryKeys.size(); ++i) {
+        EXPECT_TRUE(batchOutputs[i].first) << "batch mode key index " << i; // 批量模式产出齐全
+    }
+    // 成员列表锚点：桩语义为层内全部 peer 对出现协议可达，teamRanks = 可达集 + self 升序
+    EXPECT_EQ(batchOutputs[0].second, (std::vector<uint32_t>{0, 1})); // UB_CTP@0
+    EXPECT_EQ(batchOutputs[1].second, (std::vector<uint32_t>{0, 1})); // UB_MEM@0
+    EXPECT_EQ(batchOutputs[2].second, (std::vector<uint32_t>{0, 1})); // UBC_TP@1
+    EXPECT_EQ(batchOutputs[3].second, (std::vector<uint32_t>{0, 1})); // UB_CTP@1
+    // 分层大小锚点：每层取首个注册 team 的成员数（layerRanksMap_ 首层登记语义）→ {2, 2}
+    EXPECT_EQ(batchOutputs[queryKeys.size()].second, (std::vector<uint32_t>{2, 2}));
+
+    hccl::HcclTeamMgr::GetInstance().ClearByCollComm(&coll);
+    coll.rankgraph_ = nullptr;
+    GlobalMockObject::verify();
 }

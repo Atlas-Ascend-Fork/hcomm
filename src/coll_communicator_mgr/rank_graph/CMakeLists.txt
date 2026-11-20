@@ -45,6 +45,8 @@ if(TARGET ccl_kernel)
     target_include_directories(ccl_kernel PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
     )
+    # 裸名 graph.h 存在 legacy 同名镜像（new_topo_builder/common，同 guard GROUP_H），BEFORE 前插优先命中本目录版本，勿调整 -I 顺序
+    target_include_directories(ccl_kernel BEFORE PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/common)
 endif()
 
 if(TARGET hccl_v2)

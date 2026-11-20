@@ -453,34 +453,12 @@ HcclResult CollComm::CreatePrebuiltWorldTeam(
     return HCCL_SUCCESS;
 }
 
-void CollComm::CollectLayerReachableRanks(
-    uint32_t netLayer, const uint32_t* ranks, uint32_t rankNum, ProtocolRankMap& reachableRanksByProtocol) const
+HcclResult
+CollComm::CollectReachableRanksPerProtocol(uint32_t netLayer, ProtocolRankMap& reachableRanksByProtocol) const
 {
-    for (uint32_t peerIndex = 0; peerIndex < rankNum; ++peerIndex) {
-        if (ranks[peerIndex] == rankId_) {
-            continue;
-        }
-        CommLink* links = nullptr;
-        uint32_t linkNum = 0;
-        HcclResult ret = rankgraph_->GetLinks(netLayer, rankId_, ranks[peerIndex], &links, &linkNum);
-        if (ret != HCCL_SUCCESS || links == nullptr || linkNum == 0) {
-            HCCL_INFO(
-                "[CollComm][%s] netLayer[%u] selfRank[%u] remoteRank[%u] has no valid links, skip", __func__, netLayer,
-                rankId_, ranks[peerIndex]);
-            continue;
-        }
-        for (uint32_t linkIndex = 0; linkIndex < linkNum; ++linkIndex) {
-            const CommLink& link = links[linkIndex];
-            auto protocolIt = reachableRanksByProtocol.find(link.linkAttr.linkProtocol);
-            if (protocolIt == reachableRanksByProtocol.end()) {
-                continue;
-            }
-            if (std::find(protocolIt->second.begin(), protocolIt->second.end(), ranks[peerIndex])
-                == protocolIt->second.end()) {
-                protocolIt->second.emplace_back(ranks[peerIndex]);
-            }
-        }
-    }
+    static const std::set<CommProtocol> focusedProtocols
+        = {COMM_PROTOCOL_UB_CTP, COMM_PROTOCOL_UBC_TP, COMM_PROTOCOL_UBOE, COMM_PROTOCOL_UB_RTP, COMM_PROTOCOL_UB_MEM};
+    return rankgraph_->GetReachableRanksPerProtocol(netLayer, rankId_, focusedProtocols, reachableRanksByProtocol);
 }
 
 HcclResult
@@ -497,7 +475,10 @@ CollComm::CreateUrmaWorldTeams(uint32_t netLayer, uint32_t selfRankId, const Pro
         if (worldTeam != nullptr) {
             continue;
         }
-        std::vector<uint32_t> teamRanks = protocolIt->second;
+        // 消除"拷贝构造容量恰为 size + 首次 emplace 必扩容"的一趟搬移
+        std::vector<uint32_t> teamRanks;
+        teamRanks.reserve(protocolIt->second.size() + 1);
+        teamRanks.assign(protocolIt->second.begin(), protocolIt->second.end());
         teamRanks.emplace_back(selfRankId);
         std::sort(teamRanks.begin(), teamRanks.end());
         auto selfIt = std::find(teamRanks.begin(), teamRanks.end(), selfRankId);
@@ -523,13 +504,9 @@ HcclResult CollComm::InitWorldTeamLayer(uint32_t netLayer, uint32_t selfRankId, 
         return HCCL_SUCCESS;
     }
     uint32_t selfMemberId = static_cast<uint32_t>(selfIt - ranks);
-    ProtocolRankMap reachableRanksByProtocol
-        = {{COMM_PROTOCOL_UB_CTP, {}},
-           {COMM_PROTOCOL_UBC_TP, {}},
-           {COMM_PROTOCOL_UBOE, {}},
-           {COMM_PROTOCOL_UB_RTP, {}},
-           {COMM_PROTOCOL_UB_MEM, {}}};
-    CollectLayerReachableRanks(netLayer, ranks, rankNum, reachableRanksByProtocol);
+    // WorldTeam 预制链路（InitFullMode）恒为 RankGraphV2（批量接口必实现），直接批量收集；
+    ProtocolRankMap reachableRanksByProtocol;
+    CHK_RET(CollectReachableRanksPerProtocol(netLayer, reachableRanksByProtocol));
     CHK_RET(CreateUrmaWorldTeams(netLayer, selfRankId, reachableRanksByProtocol));
 
     auto ubMemIt = reachableRanksByProtocol.find(COMM_PROTOCOL_UB_MEM);

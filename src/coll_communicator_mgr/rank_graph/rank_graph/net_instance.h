@@ -47,6 +47,7 @@ public:
         IpAddress GetAddr() const;
         AddrPosition GetPos() const;
         std::set<string> GetPorts() const;
+        u32 GetPortNum() const { return static_cast<u32>(ports.size()); }
         LinkType GetLinkType() const;
         std::set<LinkProtocol> GetLinkProtocols() const;
         void SetLocalDieId(u32 dieId);
@@ -124,6 +125,7 @@ public:
         u32 GetDevicePort() const;
         u32 GetHostPort() const;
         std::set<u32> GetLevels() const;
+        bool HasLevel(u32 netLayer) const;
         NetInstancePtr GetNetInstance(u32 level) const;
         std::map<std::string, std::vector<IpAddress>> GetPortAddrMapLayer0() const;
         void SetPortPortAddrMapLayer0(std::map<std::string, std::vector<IpAddress>> portAddrMap);
@@ -185,7 +187,7 @@ public:
 
         u32 GetHop() const;
         LinkType GetType() const;
-        std::set<LinkProtocol> GetLinkProtocols() const;
+        const std::set<LinkProtocol>& GetLinkProtocols() const;
         LinkDirection GetLinkDirection() const;
         std::shared_ptr<NetInstance::ConnInterface> GetSourceIface() const;
         std::shared_ptr<NetInstance::ConnInterface> GetTargetIface() const;
@@ -250,6 +252,10 @@ public:
     HcclResult GetTopoType(const u32 topoInstId, TopoType& topoType) const;
     HcclResult GetRanksByTopoInst(const u32 topoInstId, std::vector<u32>& ranks, u32& rankNum) const;
     virtual std::vector<Path> GetPaths(const RankId srcRankId, const RankId dstRankId) const = 0;
+    // 单次遍历本实例图内可达路径（直达边与经 fabric 的转发路径），按协议收集可达 peer
+    virtual void
+    GetReachableRanks(const RankId srcRankId, std::map<LinkProtocol, std::set<RankId>>& reachableByProtocol) const
+        = 0;
     std::string Describe() const;
 
 protected:
@@ -275,6 +281,19 @@ public:
     ~InnerNetInstance() override = default;
 
     std::vector<Path> GetPaths(const RankId srcRankId, const RankId dstRankId) const override;
+    void GetReachableRanks(
+        const RankId srcRankId, std::map<LinkProtocol, std::set<RankId>>& reachableByProtocol) const override;
+
+private:
+    // 直达边批量收集（GetPaths 直达边段的批量等价实现）：src 出边中目标为 Peer 的边，并入该边协议全集
+    void CollectDirectEdgeReachableRanks(
+        const RankId srcRankId, const NodeId srcPeerId,
+        std::map<LinkProtocol, std::set<RankId>>& reachableByProtocol) const;
+    // fabric 路径批量收集（GetPaths fabric 段的批量等价实现）：协议仅取 peer2net（src->F）边；
+    // 配对 = sLink 源侧端口数 == dLink 目标侧端口数；Inner 取全部 sLink×dLink 组合并集
+    void CollectFabricReachableRanks(
+        const RankId srcRankId, const NodeId srcPeerId,
+        std::map<LinkProtocol, std::set<RankId>>& reachableByProtocol) const;
 };
 
 class ClosNetInstance : public NetInstance {
@@ -285,6 +304,8 @@ public:
     ~ClosNetInstance() override = default;
 
     std::vector<Path> GetPaths(const RankId srcRankId, const RankId dstRankId) const override;
+    void GetReachableRanks(
+        const RankId srcRankId, std::map<LinkProtocol, std::set<RankId>>& reachableByProtocol) const override;
 };
 
 } // namespace Hccl

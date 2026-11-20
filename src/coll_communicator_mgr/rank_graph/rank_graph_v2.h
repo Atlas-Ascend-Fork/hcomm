@@ -50,6 +50,9 @@ public:
     HcclResult GetDeviceId(uint32_t rankId, uint32_t* deviceId) override;
     bool IsLevel0PcieFallback() const override; // 无UB盖板兜底场景：本rank的level0为pcie fallback层
     HcclResult GetIpIndex(uint32_t rankId, const Hccl::IpAddress& ipAddr, uint32_t& ipIndex) const override;
+    HcclResult GetReachableRanksPerProtocol(
+        uint32_t netLayer, uint32_t selfRank, const std::set<CommProtocol>& protocols,
+        std::unordered_map<CommProtocol, std::vector<uint32_t>>& reachableRanks) const override;
 
 private:
     // 选层图拒绝查询未选择的层；默认图沿用原接口检查。

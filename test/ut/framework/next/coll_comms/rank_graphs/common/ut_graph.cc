@@ -297,3 +297,36 @@ TEST_F(GraphTest, Ut_TraverseEdge_When_EdgeExist_Expect_Success)
     EXPECT_EQ(peerNodeNum, 1);
     EXPECT_EQ(fabricNodeNum, 1);
 }
+
+// worldteam 批量可达性遍历新增的只读邻接访问器：节点/边不存在返回 nullptr，存在时内容与 GetEdges 一致。
+TEST_F(GraphTest, Ut_GraphFindEdges_When_NodeOrEdgeAbsent_Expect_ReturnNullptr)
+{
+    // 空 Graph：节点不存在
+    EXPECT_EQ(graph->GetOutEdges(100), nullptr);
+    EXPECT_EQ(graph->FindEdges(100, 200), nullptr);
+
+    NodeId nodeId1 = 1;
+    NodeId nodeId2 = 2;
+    std::shared_ptr<PhyTopo::Node> node1 = std::make_shared<PhyTopo::Node>(PhyTopo::Node::NodeType::PEER);
+    std::shared_ptr<PhyTopo::Node> node2 = std::make_shared<PhyTopo::Node>(PhyTopo::Node::NodeType::PEER);
+    PhyTopo::LinkAttributes linkAttrs;
+    linkAttrs.linktype = LinkType::PEER2PEER;
+    linkAttrs.protocols = {LinkProtocol::UB_CTP};
+    std::shared_ptr<PhyTopo::Link> edge = std::make_shared<PhyTopo::Link>(node1, node2, linkAttrs, TopoType::CLOS, 0);
+    graph->AddNode(nodeId1, node1);
+    graph->AddNode(nodeId2, node2);
+    graph->AddEdge(nodeId1, nodeId2, edge);
+
+    const auto* outEdges = graph->GetOutEdges(nodeId1);
+    ASSERT_NE(outEdges, nullptr);
+    ASSERT_EQ(outEdges->size(), 1U);
+
+    const auto* found = graph->FindEdges(nodeId1, nodeId2);
+    ASSERT_NE(found, nullptr);
+    EXPECT_EQ(*found, graph->GetEdges(nodeId1, nodeId2)); // 与 GetEdges 内容一致
+
+    // 边/节点不存在
+    EXPECT_EQ(graph->FindEdges(nodeId2, nodeId1), nullptr); // 反向边不存在
+    EXPECT_EQ(graph->FindEdges(nodeId1, 3), nullptr);       // 目标节点不存在
+    EXPECT_EQ(graph->GetOutEdges(nodeId2), nullptr);        // 无出边节点
+}

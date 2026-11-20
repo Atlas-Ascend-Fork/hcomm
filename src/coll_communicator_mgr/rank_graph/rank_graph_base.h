@@ -11,6 +11,10 @@
 #ifndef RANK_HCOMM_GRAPH_H
 #define RANK_HCOMM_GRAPH_H
 
+#include <set>
+#include <unordered_map>
+#include <vector>
+
 #include "topoinfo_struct.h"
 #include "hccl/hccl_res.h"
 #include "hccl_independent_common.h"
@@ -69,6 +73,15 @@ public:
     {
         return HCCL_E_NOT_SUPPORT;
     };
+    // 按协议批量查询本 Rank 在 netLayer 内的可达 rank；WorldTeam 预制链路（InitFullMode）恒为RankGraphV2 必实现，
+    // 默认 NOT_SUPPORT
+    virtual HcclResult GetReachableRanksPerProtocol(
+        [[maybe_unused]] uint32_t netLayer, [[maybe_unused]] uint32_t selfRank,
+        [[maybe_unused]] const std::set<CommProtocol>& protocols,
+        [[maybe_unused]] std::unordered_map<CommProtocol, std::vector<uint32_t>>& reachableRanks) const
+    {
+        return HCCL_E_NOT_SUPPORT;
+    }
 };
 } // namespace hccl
 #endif

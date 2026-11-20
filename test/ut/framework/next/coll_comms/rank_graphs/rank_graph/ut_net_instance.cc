@@ -547,3 +547,182 @@ TEST_F(NetInstanceTest, UT_GetIfacesByLayer_When_Valid_Return_HCCl_SUCCESS)
     EXPECT_EQ(ifaces.size(), 1);
     EXPECT_EQ(ifaces[0], connInterface);
 }
+
+// ===================== worldteam 批量可达性优化新增接口 =====================
+
+namespace {
+// —— worldteam 批量可达性用例的构造辅助 ——
+std::shared_ptr<NetInstance::ConnInterface>
+UtMakeBatchIface(const std::set<std::string>& ports, const std::set<LinkProtocol>& protocols, AddrPosition pos)
+{
+    IpAddress addr(0);
+    return std::make_shared<NetInstance::ConnInterface>(addr, ports, pos, LinkType::PEER2PEER, protocols);
+}
+
+std::shared_ptr<NetInstance::Peer> UtMakeBatchPeer(RankId rankId)
+{
+    return std::make_shared<NetInstance::Peer>(rankId, rankId, rankId, rankId);
+}
+
+void UtAddBatchNodes(NetInstance& inst, const std::vector<RankId>& rankIds)
+{
+    for (RankId rankId : rankIds) {
+        inst.AddRankId(rankId);
+        (void)inst.AddNode(UtMakeBatchPeer(rankId));
+    }
+}
+} // namespace
+
+TEST_F(NetInstanceTest, Ut_GetPortNum_When_VariousPortCount_Return_EqualToPortsSize)
+{
+    IpAddress addr(0);
+    const std::set<LinkProtocol> protocols = {LinkProtocol::UB_CTP};
+    const std::vector<std::set<std::string>> portSets
+        = {std::set<std::string>{}, std::set<std::string>{"0/0"}, std::set<std::string>{"0/0", "0/1", "0/2"}};
+    for (const auto& ports : portSets) {
+        NetInstance::ConnInterface iface(addr, ports, AddrPosition::HOST, LinkType::PEER2PEER, protocols);
+        EXPECT_EQ(iface.GetPortNum(), iface.GetPorts().size());
+        EXPECT_EQ(iface.GetPortNum(), static_cast<u32>(ports.size()));
+    }
+}
+
+TEST_F(NetInstanceTest, Ut_InnerGetReachableRanks_When_DirectEdgeMultiProtocol_Return_SortedDedupBuckets)
+{
+    InnerNetInstance inst(0, "ut_inner_rr_direct");
+    UtAddBatchNodes(inst, {0, 1, 2});
+    const auto& peers = inst.GetPeers();
+    const std::set<std::string> ports = {"0/0"};
+    // 直达边 0->1 协议全集 {UB_CTP, UB_TP}；0->2 仅 {UB_CTP}
+    const std::set<LinkProtocol> dualProto = {LinkProtocol::UB_CTP, LinkProtocol::UB_TP};
+    const std::set<LinkProtocol> ctpOnly = {LinkProtocol::UB_CTP};
+    inst.AddLink(std::make_shared<NetInstance::Link>(
+        peers.at(0), peers.at(1), UtMakeBatchIface(ports, dualProto, AddrPosition::HOST),
+        UtMakeBatchIface(ports, dualProto, AddrPosition::DEVICE), LinkType::PEER2PEER, dualProto));
+    inst.AddLink(std::make_shared<NetInstance::Link>(
+        peers.at(0), peers.at(2), UtMakeBatchIface(ports, ctpOnly, AddrPosition::HOST),
+        UtMakeBatchIface(ports, ctpOnly, AddrPosition::DEVICE), LinkType::PEER2PEER, ctpOnly));
+
+    std::map<LinkProtocol, std::set<RankId>> out;
+    inst.GetReachableRanks(0, out);
+
+    // 手算期望逐协议一致：升序、去重、直达边并入该边协议全集
+    ASSERT_EQ(out.count(LinkProtocol::UB_CTP), 1U);
+    EXPECT_EQ(out.at(LinkProtocol::UB_CTP), (std::set<RankId>{1, 2}));
+    ASSERT_EQ(out.count(LinkProtocol::UB_TP), 1U);
+    EXPECT_EQ(out.at(LinkProtocol::UB_TP), (std::set<RankId>{1}));
+    EXPECT_EQ(out.size(), 2U);
+}
+
+TEST_F(NetInstanceTest, Ut_InnerGetReachableRanks_When_FabricPortNumMismatch_Return_PeerExcluded)
+{
+    InnerNetInstance inst(0, "ut_inner_rr_fabric");
+    UtAddBatchNodes(inst, {0, 1, 2});
+    const auto& peers = inst.GetPeers();
+    auto fabric = std::make_shared<NetInstance::Fabric>(10, "ut_plane");
+    (void)inst.AddNode(fabric);
+
+    const std::set<LinkProtocol> ctp = {LinkProtocol::UB_CTP};
+    const std::set<std::string> ports4 = {"0/0", "0/1", "0/2", "0/3"};
+    const std::set<std::string> ports1 = {"0/0"};
+    // sLink(0->F) 源侧 4 端口；dLink(F->1) 目标侧 1 端口（不配对）；dLink(F->2) 目标侧 4 端口（配对）
+    inst.AddLink(std::make_shared<NetInstance::Link>(
+        peers.at(0), fabric, UtMakeBatchIface(ports4, ctp, AddrPosition::HOST), nullptr, LinkType::PEER2PEER, ctp));
+    inst.AddLink(std::make_shared<NetInstance::Link>(
+        fabric, peers.at(1), nullptr, UtMakeBatchIface(ports1, ctp, AddrPosition::DEVICE), LinkType::PEER2PEER, ctp));
+    inst.AddLink(std::make_shared<NetInstance::Link>(
+        fabric, peers.at(2), nullptr, UtMakeBatchIface(ports4, ctp, AddrPosition::DEVICE), LinkType::PEER2PEER, ctp));
+
+    std::map<LinkProtocol, std::set<RankId>> out;
+    inst.GetReachableRanks(0, out);
+
+    // 端口不配对的 peer 1 不在任何桶；peer 2 经 sLink 协议入桶（协议仅取 peer2net 边）
+    ASSERT_EQ(out.count(LinkProtocol::UB_CTP), 1U);
+    EXPECT_EQ(out.at(LinkProtocol::UB_CTP), (std::set<RankId>{2}));
+    EXPECT_EQ(out.size(), 1U);
+}
+
+TEST_F(NetInstanceTest, Ut_ClosGetReachableRanks_When_MultipleEdgesPerBucket_Return_TailLinkOnly)
+{
+    ClosNetInstance inst(1, "ut_clos_rr");
+    UtAddBatchNodes(inst, {0, 1});
+    const auto& peers = inst.GetPeers();
+    auto fabric = std::make_shared<NetInstance::Fabric>(10, "ut_plane");
+    (void)inst.AddNode(fabric);
+
+    const std::set<LinkProtocol> ctp = {LinkProtocol::UB_CTP};
+    const std::set<LinkProtocol> tp = {LinkProtocol::UB_TP};
+    const std::set<std::string> ports1 = {"0/0"};
+    const std::set<std::string> ports2 = {"0/0", "0/1"};
+    const std::set<std::string> ports3 = {"0/0", "0/1", "0/2"};
+    // 同 (0, F) 两条 sLink：首条 {UB_CTP}/1 端口，末条 {UB_TP}/2 端口
+    inst.AddLink(std::make_shared<NetInstance::Link>(
+        peers.at(0), fabric, UtMakeBatchIface(ports1, ctp, AddrPosition::HOST), nullptr, LinkType::PEER2PEER, ctp));
+    inst.AddLink(std::make_shared<NetInstance::Link>(
+        peers.at(0), fabric, UtMakeBatchIface(ports2, tp, AddrPosition::HOST), nullptr, LinkType::PEER2PEER, tp));
+    // 同 (F, 1) 两条 dLink：首条目标侧 3 端口，末条目标侧 2 端口（仅与末条 sLink 配对）
+    inst.AddLink(std::make_shared<NetInstance::Link>(
+        fabric, peers.at(1), nullptr, UtMakeBatchIface(ports3, tp, AddrPosition::DEVICE), LinkType::PEER2PEER, tp));
+    inst.AddLink(std::make_shared<NetInstance::Link>(
+        fabric, peers.at(1), nullptr, UtMakeBatchIface(ports2, tp, AddrPosition::DEVICE), LinkType::PEER2PEER, tp));
+
+    std::map<LinkProtocol, std::set<RankId>> out;
+    inst.GetReachableRanks(0, out);
+
+    // 取尾语义：仅末条 sLink({UB_TP}/2 端口) 与末条 dLink(2 端口) 参与判定，首条协议不产出
+    ASSERT_EQ(out.count(LinkProtocol::UB_TP), 1U);
+    EXPECT_EQ(out.at(LinkProtocol::UB_TP), (std::set<RankId>{1}));
+    EXPECT_EQ(out.count(LinkProtocol::UB_CTP), 0U);
+}
+
+TEST_F(NetInstanceTest, Ut_InnerGetReachableRanks_When_SelfEdgeExists_Return_SelfExcluded)
+{
+    InnerNetInstance inst(0, "ut_inner_rr_self");
+    UtAddBatchNodes(inst, {0, 1});
+    const auto& peers = inst.GetPeers();
+    const std::set<std::string> ports = {"0/0"};
+    const std::set<LinkProtocol> ctp = {LinkProtocol::UB_CTP};
+    // 自环边 0->0 + 正常边 0->1
+    inst.AddLink(std::make_shared<NetInstance::Link>(
+        peers.at(0), peers.at(0), UtMakeBatchIface(ports, ctp, AddrPosition::HOST),
+        UtMakeBatchIface(ports, ctp, AddrPosition::DEVICE), LinkType::PEER2PEER, ctp));
+    inst.AddLink(std::make_shared<NetInstance::Link>(
+        peers.at(0), peers.at(1), UtMakeBatchIface(ports, ctp, AddrPosition::HOST),
+        UtMakeBatchIface(ports, ctp, AddrPosition::DEVICE), LinkType::PEER2PEER, ctp));
+
+    std::map<LinkProtocol, std::set<RankId>> out;
+    inst.GetReachableRanks(0, out);
+
+    // 防御分支：self 不入任何桶（等价旧路径外层跳过 self），正常 peer 入桶
+    ASSERT_EQ(out.count(LinkProtocol::UB_CTP), 1U);
+    EXPECT_EQ(out.at(LinkProtocol::UB_CTP), (std::set<RankId>{1}));
+}
+
+TEST_F(NetInstanceTest, Ut_InnerGetReachableRanks_When_DirectAndFabricCoexist_Return_Union)
+{
+    InnerNetInstance inst(0, "ut_inner_rr_union");
+    UtAddBatchNodes(inst, {0, 1, 2});
+    const auto& peers = inst.GetPeers();
+    auto fabric = std::make_shared<NetInstance::Fabric>(10, "ut_plane");
+    (void)inst.AddNode(fabric);
+
+    const std::set<std::string> ports = {"0/0"};
+    const std::set<LinkProtocol> ctp = {LinkProtocol::UB_CTP};
+    const std::set<LinkProtocol> tp = {LinkProtocol::UB_TP};
+    // 直达边 0->1 {UB_CTP}；fabric 路径 0->F->2（端口配对），sLink {UB_TP}
+    inst.AddLink(std::make_shared<NetInstance::Link>(
+        peers.at(0), peers.at(1), UtMakeBatchIface(ports, ctp, AddrPosition::HOST),
+        UtMakeBatchIface(ports, ctp, AddrPosition::DEVICE), LinkType::PEER2PEER, ctp));
+    inst.AddLink(std::make_shared<NetInstance::Link>(
+        peers.at(0), fabric, UtMakeBatchIface(ports, tp, AddrPosition::HOST), nullptr, LinkType::PEER2PEER, tp));
+    inst.AddLink(std::make_shared<NetInstance::Link>(
+        fabric, peers.at(2), nullptr, UtMakeBatchIface(ports, tp, AddrPosition::DEVICE), LinkType::PEER2PEER, tp));
+
+    std::map<LinkProtocol, std::set<RankId>> out;
+    inst.GetReachableRanks(0, out);
+
+    // 直达与 fabric 并集、两协议域互不污染
+    ASSERT_EQ(out.count(LinkProtocol::UB_CTP), 1U);
+    EXPECT_EQ(out.at(LinkProtocol::UB_CTP), (std::set<RankId>{1}));
+    ASSERT_EQ(out.count(LinkProtocol::UB_TP), 1U);
+    EXPECT_EQ(out.at(LinkProtocol::UB_TP), (std::set<RankId>{2}));
+}

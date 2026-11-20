@@ -111,6 +111,14 @@ HcclResult RankGraphV2::GetIpIndex(uint32_t rankId, const Hccl::IpAddress& ipAdd
     return rankGraph_->GetIpIndex(rankId, ipAddr, ipIndex);
 }
 
+HcclResult RankGraphV2::GetReachableRanksPerProtocol(
+    uint32_t netLayer, uint32_t selfRank, const std::set<CommProtocol>& protocols,
+    std::unordered_map<CommProtocol, std::vector<uint32_t>>& reachableRanks) const
+{
+    CHK_PTR_NULL(rankGraph_);
+    return rankGraph_->GetReachableRanksPerProtocol(netLayer, selfRank, protocols, reachableRanks);
+}
+
 HcclResult RankGraphV2::GetRankSize(uint32_t* rankSize) { return pImpl->GetRankSize(rankSize); }
 
 HcclResult RankGraphV2::GetDevicePort(const uint32_t rank, uint32_t* devPort)
