@@ -196,11 +196,12 @@ HcclResult AicpuTsUbRtpChannel::ProcessUbRtpState()
     switch (ubRtpStatus) {
         case UbRtpStatus::INIT:
             SetState(UbRtpStatus::BUILD_CONN, channelStatus_);
-            break;
+            // [sm-chain] INIT 为纯转移、BUILD_CONN 为本地构造，同一入口内连续推进到 SEND_SIZE。
+            [[fallthrough]];
         case UbRtpStatus::BUILD_CONN:
             CHK_RET(BuildConn());
             SetState(UbRtpStatus::SEND_SIZE, channelStatus_);
-            break;
+            [[fallthrough]];
         case UbRtpStatus::SEND_SIZE: {
             bool isReady = false;
             CHK_RET(IsResReady(isReady));

@@ -378,7 +378,11 @@ HcclResult HostCpuRoceChannel::GetStatus(ChannelStatus& status)
         case RdmaStatus::INIT:
             // 检查socket状态
             CHK_RET(CheckSocketStatus());
-            break;
+            // [sm-chain] socket 未就绪时保持 INIT 下一轮重试；就绪后同轮进入 SOCKET_OK 完成能力交换。
+            if (rdmaStatus_ != RdmaStatus::SOCKET_OK) {
+                break;
+            }
+            [[fallthrough]];
         case RdmaStatus::SOCKET_OK: {
             // 发送交换数据（EAGAIN 表示数据未交换未完全，下次轮询重试）
             HcclResult capRet = ExchangeCapability();

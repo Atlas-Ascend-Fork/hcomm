@@ -153,7 +153,15 @@ HcclResult UbMemTransport::StatusMachine()
         } switch (ubStatus) {
             case UbStatus::INIT:
                 CHK_RET(HandleInitStatus());
-                break;
+                // [sm-chain] INIT 仅本地转移，同一入口内继续处理下一状态。
+                if (ubStatus == UbStatus::RECV_SIZE) {
+                    CHK_RET(HandleRecvSizeStatus());
+                    break;
+                }
+                if (ubStatus != UbStatus::SEND_DATA) {
+                    break;
+                }
+                [[fallthrough]];
             case UbStatus::SEND_DATA:
                 CHK_RET(HandleSendAllStatus());
                 break;

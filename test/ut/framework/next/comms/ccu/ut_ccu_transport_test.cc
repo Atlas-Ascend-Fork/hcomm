@@ -398,3 +398,59 @@ TEST_F(CcuTransportTest, Ut_ConstructMsgOnlyTransport_When_SocketNull_Expect_E_P
         CcuTransport::ConstructMsgOnlyTransport(nullptr, impl, CcuTransport::CcuResStatus::RES_UNAVAIL),
         HcclResult::HCCL_E_PTR);
 }
+
+TEST_F(CcuTransportTest, Ut_CcuTransportStatusMachine_When_RecvAllInfo_Return_ChainedToSendFin)
+{
+    transport->transStatus_ = CcuTransport::TransStatus::RECV_ALL_INFO;
+    transport->SetLocResStatus(CcuTransport::CcuResStatus::RES_OK);
+    transport->rmtResStatus_ = CcuTransport::CcuResStatus::RES_UNAVAIL;
+
+    MOCKER_CPP(&CcuTransport::RecvDataProcess).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&CcuTransport::SendFinish).expects(once()).will(returnValue(HcclResult::HCCL_SUCCESS));
+
+    EXPECT_EQ(transport->StatusMachine(), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(transport->transStatus_, CcuTransport::TransStatus::RECVING_FIN);
+
+    GlobalMockObject::verify();
+    GlobalMockObject::reset();
+}
+
+TEST_F(CcuTransportTest, Ut_CcuTransportStatusMachine_When_ResSufficientAndConnNotConnected_Return_StaySendFin)
+{
+    transport->transStatus_ = CcuTransport::TransStatus::RECV_ALL_INFO;
+    transport->SetLocResStatus(CcuTransport::CcuResStatus::RES_OK);
+    transport->rmtResStatus_ = CcuTransport::CcuResStatus::RES_OK;
+    transport->ccuConnection_
+        = std::make_unique<CcuConnection>(CommAddr{}, CommAddr{}, CcuChannelInfo{}, std::vector<CcuJetty*>{}, 0U);
+
+    MOCKER_CPP(&CcuTransport::RecvDataProcess).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&CcuConnection::ImportJetty).expects(once()).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&CcuConnection::GetStatus).stubs().will(returnValue(CcuConnStatus(CcuConnStatus::EXCHANGEABLE)));
+    MOCKER_CPP(&CcuTransport::SendFinish).expects(never()).will(returnValue(HcclResult::HCCL_SUCCESS));
+
+    EXPECT_EQ(transport->StatusMachine(), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(transport->transStatus_, CcuTransport::TransStatus::SEND_FIN);
+
+    GlobalMockObject::verify();
+    GlobalMockObject::reset();
+}
+
+TEST_F(CcuTransportTest, Ut_CcuTransportStatusMachine_When_ResSufficientAndConnected_Return_ChainedToRecvingFin)
+{
+    transport->transStatus_ = CcuTransport::TransStatus::RECV_ALL_INFO;
+    transport->SetLocResStatus(CcuTransport::CcuResStatus::RES_OK);
+    transport->rmtResStatus_ = CcuTransport::CcuResStatus::RES_OK;
+    transport->ccuConnection_
+        = std::make_unique<CcuConnection>(CommAddr{}, CommAddr{}, CcuChannelInfo{}, std::vector<CcuJetty*>{}, 0U);
+
+    MOCKER_CPP(&CcuTransport::RecvDataProcess).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&CcuConnection::ImportJetty).expects(once()).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&CcuConnection::GetStatus).stubs().will(returnValue(CcuConnStatus(CcuConnStatus::CONNECTED)));
+    MOCKER_CPP(&CcuTransport::SendFinish).expects(once()).will(returnValue(HcclResult::HCCL_SUCCESS));
+
+    EXPECT_EQ(transport->StatusMachine(), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(transport->transStatus_, CcuTransport::TransStatus::RECVING_FIN);
+
+    GlobalMockObject::verify();
+    GlobalMockObject::reset();
+}

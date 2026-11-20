@@ -400,8 +400,7 @@ protected:
         auto impl = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
         EXPECT_EQ(impl->Init(), HCCL_SUCCESS);
         hcomm::ChannelStatus status = impl->GetStatus();
-        EXPECT_EQ(impl->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::SOCKET_OK);
-        status = impl->GetStatus();
+        EXPECT_EQ(impl->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::CAP_EXCHANGED);
         status = impl->GetStatus();
         status = impl->GetStatus();
         status = impl->GetStatus();
@@ -478,9 +477,6 @@ TEST_F(HostCpuRoceChannelTest, Ut_When_Normal_Expect_HCCL_SUCCESS)
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // connect
     hcomm::ChannelStatus status = impl_->GetStatus();
-    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::SOCKET_OK);
-    EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
-    status = impl_->GetStatus();
     EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::CAP_EXCHANGED);
     EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
     status = impl_->GetStatus();
@@ -539,9 +535,6 @@ TEST_F(HostCpuRoceChannelTest, Ut_Init_When_ExchangeAllMemsIsTrue_And_SocketIsNu
     EXPECT_EQ(impl_->maxMsgSize_, EXPECTED_MAX_TRANSFER_SZ);
     // connect
     hcomm::ChannelStatus status = impl_->GetStatus();
-    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::SOCKET_OK);
-    EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
-    status = impl_->GetStatus();
     EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::CAP_EXCHANGED);
     EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
     status = impl_->GetStatus();
@@ -619,9 +612,6 @@ TEST_F(HostCpuRoceChannelTest, Ut_When_CreateQp_Failed_Expect_FAILED)
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // connect
     hcomm::ChannelStatus status = impl_->GetStatus();
-    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::SOCKET_OK);
-    EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
-    status = impl_->GetStatus();
     EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::CAP_EXCHANGED);
     EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
     status = impl_->GetStatus();
@@ -661,9 +651,6 @@ TEST_F(HostCpuRoceChannelTest, Ut_When_ExchangeData_Failed_Expect_FAILED)
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // connect
     hcomm::ChannelStatus status = impl_->GetStatus();
-    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::SOCKET_OK);
-    EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
-    status = impl_->GetStatus();
     EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::CAP_EXCHANGED);
     EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
     status = impl_->GetStatus();
@@ -703,9 +690,6 @@ TEST_F(HostCpuRoceChannelTest, Ut_When_ModifyQp_Failed_Expect_FAILED)
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // connect
     hcomm::ChannelStatus status = impl_->GetStatus();
-    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::SOCKET_OK);
-    EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
-    status = impl_->GetStatus();
     EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::CAP_EXCHANGED);
     EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
     status = impl_->GetStatus();
@@ -801,9 +785,6 @@ TEST_F(HostCpuRoceChannelTest, Ut_When_Rdma_Conn_Failed_Expect_ERROR)
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // connect
     hcomm::ChannelStatus status = impl_->GetStatus();
-    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::SOCKET_OK);
-    EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
-    status = impl_->GetStatus();
     EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::CAP_EXCHANGED);
     EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
     status = impl_->GetStatus();
@@ -851,9 +832,6 @@ TEST_F(HostCpuRoceChannelTest, Ut_When_HostCpuRoceChannel_Pack_And_Unpack_Expect
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // connect
     hcomm::ChannelStatus status = impl_->GetStatus();
-    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::SOCKET_OK);
-    EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
-    status = impl_->GetStatus();
     EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::CAP_EXCHANGED);
     EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
     status = impl_->GetStatus();
@@ -911,9 +889,6 @@ TEST_F(HostCpuRoceChannelTest, Ut_ChannelFence_When_WqeNumIsZero_Expect_HCCL_SUC
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // connect
     hcomm::ChannelStatus status = impl_->GetStatus();
-    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::SOCKET_OK);
-    EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
-    status = impl_->GetStatus();
     EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::CAP_EXCHANGED);
     EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
     status = impl_->GetStatus();
@@ -1058,9 +1033,6 @@ TEST_F(HostCpuRoceChannelTest, Ut_Write_When_Normal_Expect_HCCL_SUCCESS)
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // connect
     hcomm::ChannelStatus status = impl_->GetStatus();
-    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::SOCKET_OK);
-    EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
-    status = impl_->GetStatus();
     EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::CAP_EXCHANGED);
     EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
     status = impl_->GetStatus();
@@ -1116,9 +1088,6 @@ TEST_F(HostCpuRoceChannelTest, Ut_Read_When_Normal_Expect_HCCL_SUCCESS)
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // connect
     hcomm::ChannelStatus status = impl_->GetStatus();
-    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::SOCKET_OK);
-    EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
-    status = impl_->GetStatus();
     EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::CAP_EXCHANGED);
     EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
     status = impl_->GetStatus();
@@ -2695,22 +2664,17 @@ TEST_F(HostCpuRoceChannelTest, Ut_GetStatus_HybridMode_Calls_ExchangeDataHybird)
     auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
 
-    // 第一个 GetStatus: INIT -> SOCKET_OK
+    // 第一个 GetStatus: INIT + 能力交换 -> CAP_EXCHANGED（两步合并）
     hcomm::ChannelStatus status = impl_->GetStatus();
-    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::SOCKET_OK);
-    EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
-
-    // 第二个 GetStatus: SOCKET_OK -> CAP_EXCHANGED
-    status = impl_->GetStatus();
     EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::CAP_EXCHANGED);
     EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
 
-    // 第三个 GetStatus: CAP_EXCHANGED -> QP_CREATED
+    // 第二个 GetStatus: CAP_EXCHANGED -> QP_CREATED
     status = impl_->GetStatus();
     EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::QP_CREATED);
     EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
 
-    // 第四个 GetStatus: QP_CREATED -> DATA_EXCHANGE (hybrid 模式调用 ExchangeDataHybird)
+    // 第三个 GetStatus: QP_CREATED -> DATA_EXCHANGE (hybrid 模式调用 ExchangeDataHybird)
     status = impl_->GetStatus();
     EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::DATA_EXCHANGE);
     EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
@@ -2749,10 +2713,8 @@ TEST_F(HostCpuRoceChannelTest, Ut_GetStatus_HybridMode_ConnectSingleQpHybrid_Fai
     // 手动设置 isHybridMode_ = true，因为 ExchangeCapability 被 mock 了
     impl_->isHybridMode_ = true;
 
-    // 驱动到 DATA_EXCHANGE 状态
+    // 驱动到 DATA_EXCHANGE 状态（INIT 与能力交换已合并，首轮到 CAP_EXCHANGED）
     hcomm::ChannelStatus status = impl_->GetStatus();
-    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::SOCKET_OK);
-    status = impl_->GetStatus();
     EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::CAP_EXCHANGED);
     status = impl_->GetStatus();
     EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::QP_CREATED);
@@ -3789,6 +3751,82 @@ TEST_F(HostCpuRoceChannelTest, Ut_When_BuildSocket_RoleReserved_Expect_PortInCon
     EXPECT_EQ(impl->local_.socketConfig->listeningPort, 60001U); // desc.port 未置 → local_.serverPort 默认 60001
     EXPECT_EQ(impl->local_.socket, fakeSocket);
     impl->local_.socket = nullptr; // 防止析构归还打到真实 SocketMgr
+}
+
+TEST_F(HostCpuRoceChannelTest, Ut_HostCpuRoceChannelGetStatus_When_SocketNotOk_Return_StayInit)
+{
+    DevType devType = DevType::DEV_TYPE_950;
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&Hccl::Socket::GetStatus).stubs().will(returnValue((Hccl::SocketStatus)Hccl::SocketStatus::CONNECTING));
+    MOCKER_CPP(&hcomm::HostCpuRoceChannel::ExchangeCapability).expects(never()).will(returnValue(HCCL_SUCCESS));
+
+    void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
+    channelDesc.memHandles = &memHandle;
+    channelDesc.memHandleNum = 1;
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
+    EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
+
+    impl_->GetStatus();
+    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::INIT);
+}
+
+TEST_F(HostCpuRoceChannelTest, Ut_HostCpuRoceChannelGetStatus_When_SocketOk_Return_StayCapExchanged)
+{
+    DevType devType = DevType::DEV_TYPE_950;
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&Hccl::Socket::GetStatus).stubs().will(returnValue((Hccl::SocketStatus)Hccl::SocketStatus::OK));
+    MOCKER_CPP(&hcomm::HostCpuRoceChannel::ExchangeCapability).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hcomm::HostRdmaConnection::CreateQp).stubs().will(returnValue(HCCL_SUCCESS));
+
+    void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
+    channelDesc.memHandles = &memHandle;
+    channelDesc.memHandleNum = 1;
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
+    EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
+
+    impl_->GetStatus();
+    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::CAP_EXCHANGED);
+
+    impl_->GetStatus();
+    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::QP_CREATED);
+}
+
+namespace {
+int g_capExchangeCalls = 0;
+
+HcclResult ExchangeCapabilityEagainThenOk(hcomm::HostCpuRoceChannel* self)
+{
+    (void)self;
+    ++g_capExchangeCalls;
+    return g_capExchangeCalls == 1 ? HCCL_E_AGAIN : HCCL_SUCCESS;
+}
+} // namespace
+
+TEST_F(HostCpuRoceChannelTest, Ut_HostCpuRoceChannelGetStatus_When_CapExchangeEagain_Return_StaySocketOkThenAdvance)
+{
+    g_capExchangeCalls = 0;
+    DevType devType = DevType::DEV_TYPE_950;
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&Hccl::Socket::GetStatus).stubs().will(returnValue((Hccl::SocketStatus)Hccl::SocketStatus::OK));
+    MOCKER_CPP(&hcomm::HostCpuRoceChannel::ExchangeCapability).stubs().will(invoke(ExchangeCapabilityEagainThenOk));
+    MOCKER_CPP(&hcomm::HostRdmaConnection::CreateQp).stubs().will(returnValue(HCCL_SUCCESS));
+
+    void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
+    channelDesc.memHandles = &memHandle;
+    channelDesc.memHandleNum = 1;
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
+    EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
+
+    impl_->GetStatus();
+    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::SOCKET_OK);
+    EXPECT_EQ(g_capExchangeCalls, 1);
+
+    impl_->GetStatus();
+    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::CAP_EXCHANGED);
+    EXPECT_EQ(g_capExchangeCalls, 2);
+
+    impl_->GetStatus();
+    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::QP_CREATED);
 }
 
 // Keep the actual Write/Read -> PostRdmaOp -> FindLocalBuffer -> BuildRdmaWr chain.

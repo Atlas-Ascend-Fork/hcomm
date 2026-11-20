@@ -1150,3 +1150,102 @@ TEST_F(AicpuTsUboeChannelTest, Ut_GetMemUpdatePack_When_CalledTwice_Expect_SameB
     EXPECT_EQ(first, second);
     EXPECT_EQ(ch.rmtBufferVec_.size(), 1U);
 }
+
+TEST_F(AicpuTsUboeChannelTest, Ut_AicpuTsUboeChannelProcessState_When_Init_Return_ChainedToSendEid)
+{
+    FakeEndpoint fe;
+    EndpointHandle ep = reinterpret_cast<EndpointHandle>(&fe);
+    HcommChannelDesc desc{};
+    AicpuTsUboeChannel ch(ep, desc, COMM_ENGINE_RESERVED);
+    ch.uboeStatus = AicpuTsUboeChannel::UboeStatus::INIT;
+
+    MOCKER_CPP(&hcomm::AicpuTsUboeChannel::SendEidData).expects(once()).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hcomm::AicpuTsUboeChannel::RecvEidData).expects(never()).will(returnValue(HCCL_SUCCESS));
+
+    EXPECT_EQ(ch.ProcessUboeState(), HCCL_SUCCESS);
+    EXPECT_EQ(ch.uboeStatus, AicpuTsUboeChannel::UboeStatus::RECV_EID);
+}
+
+TEST_F(AicpuTsUboeChannelTest, Ut_AicpuTsUboeChannelProcessState_When_ProcessEidData_Return_ChainedToSendSize)
+{
+    bool resReady = true;
+    FakeEndpoint fe;
+    EndpointHandle ep = reinterpret_cast<EndpointHandle>(&fe);
+    HcommChannelDesc desc{};
+    AicpuTsUboeChannel ch(ep, desc, COMM_ENGINE_RESERVED);
+    ch.uboeStatus = AicpuTsUboeChannel::UboeStatus::PROCESS_EID_DATA;
+
+    MOCKER_CPP(&hcomm::AicpuTsUboeChannel::RecvEidDataProcess).stubs();
+    MOCKER_CPP(&hcomm::AicpuTsUboeUbRtpChannelHelper::BuildConn).expects(once()).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hcomm::AicpuTsUboeUbRtpChannelHelper::IsResReady)
+        .stubs()
+        .with(outBound(resReady))
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hcomm::AicpuTsUboeUbRtpChannelHelper::SendDataSize).expects(once()).will(returnValue(HCCL_SUCCESS));
+
+    EXPECT_EQ(ch.ProcessUboeState(), HCCL_SUCCESS);
+    EXPECT_EQ(ch.uboeStatus, AicpuTsUboeChannel::UboeStatus::RECV_SIZE);
+}
+
+TEST_F(AicpuTsUboeChannelTest, Ut_AicpuTsUboeChannelProcessState_When_ResNotReady_Return_StaySendSizeOnce)
+{
+    bool resReady = false;
+    FakeEndpoint fe;
+    EndpointHandle ep = reinterpret_cast<EndpointHandle>(&fe);
+    HcommChannelDesc desc{};
+    AicpuTsUboeChannel ch(ep, desc, COMM_ENGINE_RESERVED);
+    ch.uboeStatus = AicpuTsUboeChannel::UboeStatus::PROCESS_EID_DATA;
+
+    MOCKER_CPP(&hcomm::AicpuTsUboeChannel::RecvEidDataProcess).stubs();
+    MOCKER_CPP(&hcomm::AicpuTsUboeUbRtpChannelHelper::BuildConn).expects(once()).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hcomm::AicpuTsUboeUbRtpChannelHelper::IsResReady)
+        .stubs()
+        .with(outBound(resReady))
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hcomm::AicpuTsUboeUbRtpChannelHelper::SendDataSize).expects(never()).will(returnValue(HCCL_SUCCESS));
+
+    for (int i = 0; i < 3; ++i) {
+        EXPECT_EQ(ch.ProcessUboeState(), HCCL_SUCCESS);
+        EXPECT_EQ(ch.uboeStatus, AicpuTsUboeChannel::UboeStatus::SEND_SIZE);
+    }
+}
+
+TEST_F(AicpuTsUboeChannelTest, Ut_AicpuTsUboeChannelProcessState_When_BuildConnFailed_Return_ErrorAndStayBuildConn)
+{
+    bool resReady = true;
+    FakeEndpoint fe;
+    EndpointHandle ep = reinterpret_cast<EndpointHandle>(&fe);
+    HcommChannelDesc desc{};
+    AicpuTsUboeChannel ch(ep, desc, COMM_ENGINE_RESERVED);
+    ch.uboeStatus = AicpuTsUboeChannel::UboeStatus::PROCESS_EID_DATA;
+
+    MOCKER_CPP(&hcomm::AicpuTsUboeChannel::RecvEidDataProcess).stubs();
+    MOCKER_CPP(&hcomm::AicpuTsUboeUbRtpChannelHelper::BuildConn).expects(once()).will(returnValue(HCCL_E_INTERNAL));
+    MOCKER_CPP(&hcomm::AicpuTsUboeUbRtpChannelHelper::IsResReady)
+        .stubs()
+        .with(outBound(resReady))
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hcomm::AicpuTsUboeUbRtpChannelHelper::SendDataSize).expects(never());
+
+    EXPECT_EQ(ch.ProcessUboeState(), HCCL_E_INTERNAL);
+    EXPECT_EQ(ch.uboeStatus, AicpuTsUboeChannel::UboeStatus::BUILD_CONN);
+}
+
+TEST_F(AicpuTsUboeChannelTest, Ut_AicpuTsUboeChannelProcessState_When_SendDataSizeFailed_Return_ErrorAndStaySendSize)
+{
+    bool resReady = true;
+    FakeEndpoint fe;
+    EndpointHandle ep = reinterpret_cast<EndpointHandle>(&fe);
+    HcommChannelDesc desc{};
+    AicpuTsUboeChannel ch(ep, desc, COMM_ENGINE_RESERVED);
+    ch.uboeStatus = AicpuTsUboeChannel::UboeStatus::SEND_SIZE;
+
+    MOCKER_CPP(&hcomm::AicpuTsUboeUbRtpChannelHelper::IsResReady)
+        .stubs()
+        .with(outBound(resReady))
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hcomm::AicpuTsUboeUbRtpChannelHelper::SendDataSize).expects(once()).will(returnValue(HCCL_E_INTERNAL));
+
+    EXPECT_EQ(ch.ProcessUboeState(), HCCL_E_INTERNAL);
+    EXPECT_EQ(ch.uboeStatus, AicpuTsUboeChannel::UboeStatus::SEND_SIZE);
+}

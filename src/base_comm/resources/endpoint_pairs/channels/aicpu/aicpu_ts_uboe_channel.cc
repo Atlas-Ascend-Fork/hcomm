@@ -253,7 +253,8 @@ HcclResult AicpuTsUboeChannel::ProcessUboeState()
     switch (uboeStatus) {
         case UboeStatus::INIT:
             SetState(UboeStatus::SEND_EID, ChannelStatus::SOCKET_OK);
-            break;
+            // [sm-chain] INIT 只改状态，同一入口内继续 SEND_EID；SEND_EID 下发 SendAsync 后让出。
+            [[fallthrough]];
         case UboeStatus::SEND_EID:
             CHK_RET(SendEidData());
             SetState(UboeStatus::RECV_EID, channelStatus_);
@@ -265,11 +266,12 @@ HcclResult AicpuTsUboeChannel::ProcessUboeState()
         case UboeStatus::PROCESS_EID_DATA:
             RecvEidDataProcess();
             SetState(UboeStatus::BUILD_CONN, channelStatus_);
-            break;
+            // [sm-chain] 解析 EID 与构造连接均为本地动作，同一入口内连续推进到 SEND_SIZE。
+            [[fallthrough]];
         case UboeStatus::BUILD_CONN:
             CHK_RET(BuildConn());
             SetState(UboeStatus::SEND_SIZE, channelStatus_);
-            break;
+            [[fallthrough]];
         case UboeStatus::SEND_SIZE: {
             bool isReady = false;
             CHK_RET(IsResReady(isReady));

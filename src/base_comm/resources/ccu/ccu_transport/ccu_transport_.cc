@@ -290,7 +290,8 @@ HcclResult CcuTransport::StatusMachine()
                 CHK_RET(ccuConnection_->ImportJetty());
             }
             transStatus_ = TransStatus::SEND_FIN;
-            break;
+            // [sm-chain] RECV_ALL_INFO 后同轮进入 SEND_FIN 判定（条件不满足则原地保留）。
+            [[fallthrough]];
         case CcuTransport::TransStatus::SEND_FIN: {
             if (!IsBothEndResSufficient()) {
                 CHK_RET(SendFinish());
