@@ -333,6 +333,28 @@ static const NetInfo g_netInfoList[] = {
             CLOS_LEVEL3,
         },
    },
+   {
+        .mainBoardId = {MAIN_BOARD_ID_SERVER_650E_4P, MAIN_BOARD_INVALID},
+        .spodType = TOPO_TYPE_IGNORE,
+        .levelNum = 3,
+        {
+            {
+                .level = 0,
+                .netType = NET_TYPE_TOPO_FILE_DESC,
+                .ueNum = 2,
+                .instanceIdFunc = GetNetInstanceIdForOS,
+                .ueList = {
+                    {.dieId = UDIE_0, .feId = MAX_UE_ID, .type = UE_TYPE_MESH},
+                    {.dieId = UDIE_1, .feId = MAX_UE_ID, .type = UE_TYPE_MESH},
+                }
+            },
+            {
+                .level = 2, .netType = NET_TYPE_CLOS, .ueNum = 1, .instanceIdFunc = GetNetInstanceIdForCluster,
+                .ueList = { {.dieId = UDIE_1, .feId = 0, .type = UE_TYPE_UBOE, .ports = "1/8"} }
+            },
+            CLOS_LEVEL3,
+        },
+   },
 };
 
 int ServerGetRootinfoLen(size_t* len)

@@ -191,6 +191,9 @@ int TopoGetFilePath(unsigned mainboard_id, unsigned int spod_type, char* buf_siz
         case MAIN_BOARD_ID_SERVER_550EL_200:
             ret = sprintf_s(buf_size, buf_len, "%s/%s", driver_install_path, "driver/topo/950/atlas_550EL_200.json");
             break;
+        case MAIN_BOARD_ID_SERVER_650E_4P:
+            ret = sprintf_s(buf_size, buf_len, "%s/%s", driver_install_path, "driver/topo/950/atlas_650E.json");
+            break;
         default:
             TOPO_WARN("TopoGetFilePath: unsupported mainboard_id=%u spod_type=%u", mainboard_id, spod_type);
             return -1;

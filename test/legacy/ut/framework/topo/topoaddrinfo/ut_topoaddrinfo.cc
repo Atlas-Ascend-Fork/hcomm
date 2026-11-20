@@ -1466,3 +1466,102 @@ TEST_F(TopoAddrInfoTest, test_ub_entity_filter)
     const UBEntity* ue = GetUBEntityByFilter(&ueList, 0, MAX_UE_ID, UE_TYPE_MESH);
     EXPECT_EQ(ue, &ueList.ueList[2]);
 }
+
+void mock_uelist_for_server_650e_4p(UEList* ueList)
+{
+    memset_s(ueList, sizeof(UEList), 0x00, sizeof(UEList));
+    // die0 的 mesh 实体：1 个 pg EID + 6 个业务口 EID（FM 口 3~8）
+    hex32_to_bin16("00000000003f030000100000df000b01", ueList->ueList[0].eidList[0].eid.raw);
+    hex32_to_bin16("000000000008030000100000df000901", ueList->ueList[0].eidList[1].eid.raw);
+    hex32_to_bin16("000000000007030000100000df000801", ueList->ueList[0].eidList[2].eid.raw);
+    hex32_to_bin16("000000000006030000100000df000701", ueList->ueList[0].eidList[3].eid.raw);
+    hex32_to_bin16("000000000005030000100000df000601", ueList->ueList[0].eidList[4].eid.raw);
+    hex32_to_bin16("000000000004030000100000df000501", ueList->ueList[0].eidList[5].eid.raw);
+    hex32_to_bin16("000000000003030000100000df000401", ueList->ueList[0].eidList[6].eid.raw);
+    ueList->ueList[0].eidNum = 7;
+    // die1 的 mesh 实体：1 个 pg EID + 6 个业务口 EID（FM 口 2~7）
+    hex32_to_bin16("00000000007f050000100000df001b00", ueList->ueList[1].eidList[0].eid.raw);
+    hex32_to_bin16("000000000047050000100000df001800", ueList->ueList[1].eidList[1].eid.raw);
+    hex32_to_bin16("000000000046050000100000df001700", ueList->ueList[1].eidList[2].eid.raw);
+    hex32_to_bin16("000000000045050000100000df001600", ueList->ueList[1].eidList[3].eid.raw);
+    hex32_to_bin16("000000000044050000100000df001500", ueList->ueList[1].eidList[4].eid.raw);
+    hex32_to_bin16("000000000043050000100000df001400", ueList->ueList[1].eidList[5].eid.raw);
+    hex32_to_bin16("000000000042050000100000df001300", ueList->ueList[1].eidList[6].eid.raw);
+    ueList->ueList[1].eidNum = 7;
+    // UBOE 参数面实体（UDie1 port8）：单 EID 单 IP（备份+并用聚合，同交换机）
+    hex32_to_bin16("0000000000ff0ac0000000000a140200", ueList->ueList[2].eidList[0].eid.raw);
+    ueList->ueList[2].eidNum = 1;
+    ueList->ueNum = 3;
+}
+
+TEST_F(TopoAddrInfoTest, ut_rootinfo_for_server_650e_4p)
+{
+    /*
+    模拟650E四模组一体机（0x33）：机内4P mesh双die + UBOE参数面，无超平面
+    输入双die的mesh实体（各1 pg + 6业务口）和单EID的UBOE实体
+    预期：mesh层双die地址齐全、pg被过滤、plane_0/plane_1分组、UBOE层一条IP、RoCE层无配置时跳过
+    */
+    unsigned int mainboard_id = MAIN_BOARD_ID_SERVER_650E_4P; // 650E四模组一体机
+    char drv_path[256] = "/usr/local/Ascend2";
+    UEList ueList;
+    mock_uelist_for_server_650e_4p(&ueList);
+
+    struct dcmi_spod_info spinfo;
+    spinfo.sdid = 0x00000000;
+    spinfo.super_pod_size = 128;
+    spinfo.super_pod_id = 1;
+    spinfo.server_index = 1;
+    spinfo.chassis_id = 0x00000000;
+    spinfo.super_pod_type = 0x00000000;
+
+    MOCKER(hal_get_mainboard_id).stubs().with(mockcpp::any(), outBoundP(&mainboard_id)).will(returnValue(0));
+    MOCKER(hal_get_driver_install_path)
+        .stubs()
+        .with(outBoundP(drv_path, strlen(drv_path)), mockcpp::any())
+        .will(returnValue(0));
+    MOCKER(HalGetUBEntityList).stubs().with(mockcpp::any(), outBoundP(&ueList)).will(returnValue(0));
+    MOCKER(hal_get_spod_info).stubs().with(mockcpp::any(), outBoundP(&spinfo)).will(returnValue(0));
+
+    size_t bufSize = 0;
+    EXPECT_EQ(TopoAddrInfoGetSize(0, &bufSize), 0);
+    char* buf = (char*)malloc(bufSize);
+    memset_s(buf, bufSize, 0x00, bufSize);
+    int ret = TopoAddrInfoGet(0, buf, &bufSize);
+    EXPECT_EQ(ret, 0);
+    printf("[%s]\n", buf);
+
+    // 校验die0的mesh地址：6个业务口都在，pg被过滤
+    EXPECT_TRUE(strstr(buf, "000000000008030000100000df000901") != NULL);
+    EXPECT_TRUE(strstr(buf, "000000000007030000100000df000801") != NULL);
+    EXPECT_TRUE(strstr(buf, "000000000006030000100000df000701") != NULL);
+    EXPECT_TRUE(strstr(buf, "000000000005030000100000df000601") != NULL);
+    EXPECT_TRUE(strstr(buf, "000000000004030000100000df000501") != NULL);
+    EXPECT_TRUE(strstr(buf, "000000000003030000100000df000401") != NULL);
+    EXPECT_TRUE(strstr(buf, "00000000003f030000100000df000b01") == NULL); // die0的pg不进名片
+    // 校验die1的mesh地址：6个业务口都在，pg被过滤
+    EXPECT_TRUE(strstr(buf, "000000000047050000100000df001800") != NULL);
+    EXPECT_TRUE(strstr(buf, "000000000046050000100000df001700") != NULL);
+    EXPECT_TRUE(strstr(buf, "000000000045050000100000df001600") != NULL);
+    EXPECT_TRUE(strstr(buf, "000000000044050000100000df001500") != NULL);
+    EXPECT_TRUE(strstr(buf, "000000000043050000100000df001400") != NULL);
+    EXPECT_TRUE(strstr(buf, "000000000042050000100000df001300") != NULL);
+    EXPECT_TRUE(strstr(buf, "00000000007f050000100000df001b00") == NULL); // die1的pg不进名片
+
+    // 校验双die的plane分组
+    EXPECT_TRUE(strstr(buf, "plane_0") != NULL);
+    EXPECT_TRUE(strstr(buf, "plane_1") != NULL);
+
+    // 校验UBOE参数面：一条IP + 端口标注1/8 + plane_uboe
+    EXPECT_TRUE(strstr(buf, "10.10.20.2") != NULL);
+    EXPECT_TRUE(strstr(buf, "1/8") != NULL);
+    EXPECT_TRUE(strstr(buf, "plane_uboe") != NULL);
+
+    // 校验mesh层net type正确
+    EXPECT_TRUE(strstr(buf, "TOPO_FILE_DESC") != NULL);
+    // 校验出框层群名为cluster
+    EXPECT_TRUE(strstr(buf, "cluster") != NULL);
+    // 校验650E的图纸路径
+    EXPECT_TRUE(strstr(buf, "atlas_650E.json") != NULL);
+
+    free(buf);
+}
