@@ -174,8 +174,10 @@ HcommResult HcommAicpuTsTaskCacheExecute(const char* tag, void** addrs, uint64_t
     CHK_PTR_NULL(AicpuTaskCacheManager::cacheEntryPtr);
 
     // 刷新并下发task
-    HcclResult ret
-        = AicpuTaskCacheManager::cacheEntryPtr->RefreshAndLaunch(ReinterpretAs<const uint64_t*>(addrs), sizes, count);
+    const auto* baseAddrs = ReinterpretAs<const uint64_t*>(addrs);
+    HcclResult ret = HCCL_SUCCESS;
+    EXCEPTION_CATCH(
+        ret = AicpuTaskCacheManager::cacheEntryPtr->RefreshAndLaunch(baseAddrs, sizes, count), ret = HCCL_E_INTERNAL);
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR("[HcommAicpuTsTaskCacheExecute] RefreshAndLaunch error, ret[%d]", ret);
     }

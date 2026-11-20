@@ -452,6 +452,45 @@ TEST_F(HcommAicpuTsTaskCacheCAdptTest, Execute_CountMismatch_ReturnsInternal)
     EXPECT_EQ(HcommAicpuTsTaskCacheExecute("tag1", addrs, sizes, 1), HCCL_E_INTERNAL);
 }
 
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Execute_ReplayException_ReturnsInternalAndClearsContext)
+{
+    AicpuTaskCacheEntry entry;
+    uint64_t baseAddrs[] = {TEST_BASE_ADDR_0, TEST_BASE_ADDR_1};
+    uint64_t sizes[] = {TEST_MEM_SIZE_0, TEST_MEM_SIZE_1};
+    ASSERT_EQ(entry.InitCacheEntry(baseAddrs, sizes, 2), HCCL_SUCCESS);
+    auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
+    ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+    const char* tag = "replay_exception";
+    AicpuTaskCacheManager::cacheTag = tag;
+    SetCacheHitState(&entry);
+
+    // Only the reserved SQ slot is free. The failed status check makes LaunchNewTask throw.
+    rtsq_->sqDepth_ = TEST_SQ_DEPTH;
+    rtsq_->sqHead_ = rtsq_->QuerySqHead();
+    ASSERT_LT(rtsq_->sqHead_, TEST_SQ_DEPTH);
+    rtsq_->sqTail_ = (rtsq_->sqHead_ + TEST_SQ_DEPTH - 1) % TEST_SQ_DEPTH;
+    bool statusChecked = false;
+    rtsq_->SetCheckExecStatusCallback([&statusChecked](bool isTimeout) {
+        EXPECT_FALSE(isTimeout);
+        statusChecked = true;
+        return HCCL_E_INTERNAL;
+    });
+
+    void* addrs[] = {reinterpret_cast<void*>(baseAddrs[0]), reinterpret_cast<void*>(baseAddrs[1])};
+    HcommResult ret = HCCL_SUCCESS;
+    ASSERT_NO_THROW(ret = HcommAicpuTsTaskCacheExecute(tag, addrs, sizes, 2));
+    EXPECT_TRUE(statusChecked);
+    EXPECT_EQ(ret, HCCL_E_INTERNAL);
+    EXPECT_TRUE(AicpuTaskCacheManager::cacheTag.empty());
+    EXPECT_FALSE(AicpuTaskCacheManager::isHit);
+    EXPECT_EQ(AicpuTaskCacheManager::cacheEntryPtr, nullptr);
+}
+
 // ===================== HcommAicpuTsTaskCacheClear Tests =====================
 
 TEST_F(HcommAicpuTsTaskCacheCAdptTest, Clear_DeviceNotSupport_ReturnsNotSupport)
@@ -522,7 +561,7 @@ TEST_F(HcommAicpuTsTaskCacheCAdptTest, Workflow_LookupStartAddEndLookupExecute)
     EXPECT_TRUE(isHit2);
     EXPECT_EQ(AicpuTaskCacheManager::cacheEntryPtr, entry);
 
-    // Step 6: Execute (count mismatch returns error, does not reset context)
+    // Step 6: Execute with a mismatched count.
     void* wrongAddrs[] = {(void*)TEST_BASE_ADDR_0};
     uint64_t wrongSizes[] = {TEST_MEM_SIZE_0};
     EXPECT_EQ(HcommAicpuTsTaskCacheExecute("c_adpt_full_workflow", wrongAddrs, wrongSizes, 1), HCCL_E_INTERNAL);
