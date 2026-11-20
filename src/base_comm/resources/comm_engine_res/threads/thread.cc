@@ -751,6 +751,25 @@ std::unordered_map<ThreadHandle, std::shared_ptr<hccl::Thread>> g_collCommThread
 std::mutex g_collCommThreadMapMtx;
 // 进程级销毁回调：HcommThreadDestroy 移除句柄后触发，供上层擦除缓存的裸句柄（防地址复用误判）
 HcommThreadDestroyCallback g_threadDestroyCallback = nullptr;
+
+// 统一 handle→Thread 解析：校验非空、加锁查 g_collCommThreadMap、持 shared_ptr 引用防析构。
+// 调用方按需自行 dynamic_cast 到派生类或直接用基类接口。
+static HcommResult GetThreadByHandle(ThreadHandle handle, std::shared_ptr<hccl::Thread>& thread)
+{
+    CHK_PRT_RET(handle == 0, HCCL_ERROR("[%s] thread handle is 0", __func__), HCOMM_E_PARA);
+    {
+        std::lock_guard<std::mutex> lock(g_collCommThreadMapMtx);
+        auto it = g_collCommThreadMap.find(handle);
+        CHK_PRT_RET(
+            it == g_collCommThreadMap.end(),
+            HCCL_ERROR(
+                "[%s] thread handle[0x%llx] not found in registry", __func__, static_cast<unsigned long long>(handle)),
+            HCOMM_E_NOT_FOUND);
+        thread = it->second; // 持引用期间对象不会被析构
+    }
+    CHK_PRT_RET(thread == nullptr, HCCL_ERROR("[%s] thread is null", __func__), HCOMM_E_PTR);
+    return HCOMM_SUCCESS;
+}
 } // namespace
 #endif
 
@@ -791,15 +810,13 @@ HcommResult HcommThreadFillEntityRtsq(ThreadHandle handle, HcommThreadEntity* en
 #else
     CHK_PTR_NULL(entity);
     std::shared_ptr<hccl::Thread> thread;
-    {
-        std::lock_guard<std::mutex> lock(g_collCommThreadMapMtx);
-        auto it = g_collCommThreadMap.find(handle);
-        CHK_PRT_RET(
-            it == g_collCommThreadMap.end(),
-            HCCL_ERROR("[%s] invalid thread handle[0x%llx]", __func__, static_cast<unsigned long long>(handle)),
-            HCOMM_E_PTR);
-        thread = it->second;
-    }
+    HcommResult ret = GetThreadByHandle(handle, thread);
+    CHK_PRT_RET(
+        ret != HCOMM_SUCCESS,
+        HCCL_ERROR(
+            "[%s] GetThreadByHandle fail, thread[0x%llx], ret[%d]", __func__, static_cast<unsigned long long>(handle),
+            static_cast<int>(ret)),
+        ret);
     auto* threadPtr = dynamic_cast<hccl::AicpuTsThread*>(thread.get());
     CHK_PTR_NULL(threadPtr);
     return static_cast<HcommResult>(threadPtr->FillThreadEntityRtsq(*entity));
@@ -825,18 +842,14 @@ HcommResult HcommThreadGetStreamLite(ThreadHandle handle, void** streamLite)
     return static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT);
 #else
     CHK_PTR_NULL(streamLite);
-    CHK_PRT_RET(handle == 0, HCCL_ERROR("[%s] thread is 0", __func__), HCOMM_E_PTR);
     std::shared_ptr<hccl::Thread> thread;
-    {
-        std::lock_guard<std::mutex> lock(g_collCommThreadMapMtx);
-        auto it = g_collCommThreadMap.find(handle);
-        CHK_PRT_RET(
-            it == g_collCommThreadMap.end(),
-            HCCL_ERROR("[%s] invalid thread handle[0x%llx]", __func__, static_cast<unsigned long long>(handle)),
-            HCOMM_E_PTR);
-        thread = it->second; // 持引用期间对象不会被析构
-    }
-    CHK_PTR_NULL(thread);
+    HcommResult ret = GetThreadByHandle(handle, thread);
+    CHK_PRT_RET(
+        ret != HCOMM_SUCCESS,
+        HCCL_ERROR(
+            "[%s] GetThreadByHandle fail, thread[0x%llx], ret[%d]", __func__, static_cast<unsigned long long>(handle),
+            static_cast<int>(ret)),
+        ret);
     *streamLite = thread->GetStreamLitePtr();
     CHK_PRT_RET(
         *streamLite == nullptr,
@@ -854,19 +867,43 @@ HcommResult HcommThreadIsFakeDeviceRes(ThreadHandle handle, bool* isFake)
     return static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT);
 #else
     CHK_PTR_NULL(isFake);
-    CHK_PRT_RET(handle == 0, HCCL_ERROR("[%s] thread is 0", __func__), HCOMM_E_PTR);
     std::shared_ptr<hccl::Thread> thread;
-    {
-        std::lock_guard<std::mutex> lock(g_collCommThreadMapMtx);
-        auto it = g_collCommThreadMap.find(handle);
-        CHK_PRT_RET(
-            it == g_collCommThreadMap.end(),
-            HCCL_ERROR("[%s] invalid thread handle[0x%llx]", __func__, static_cast<unsigned long long>(handle)),
-            HCOMM_E_PTR);
-        thread = it->second; // 持引用期间对象不会被析构
-    }
-    CHK_PTR_NULL(thread);
+    HcommResult ret = GetThreadByHandle(handle, thread);
+    CHK_PRT_RET(
+        ret != HCOMM_SUCCESS,
+        HCCL_ERROR(
+            "[%s] GetThreadByHandle fail, thread[0x%llx], ret[%d]", __func__, static_cast<unsigned long long>(handle),
+            static_cast<int>(ret)),
+        ret);
     *isFake = thread->IsFakeDeviceRes();
+    return HCOMM_SUCCESS;
+#endif
+}
+
+HcommResult HcommThreadSetStatus(ThreadHandle handle, ThreadStatus status)
+{
+#ifndef CCL_KERNEL_AICPU
+    (void)handle;
+    (void)status;
+    return static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT);
+#else
+    std::shared_ptr<hccl::Thread> thread;
+    HcommResult ret = GetThreadByHandle(handle, thread);
+    CHK_PRT_RET(
+        ret != HCOMM_SUCCESS,
+        HCCL_ERROR(
+            "[%s] GetThreadByHandle fail, thread[0x%llx], ret[%d]", __func__, static_cast<unsigned long long>(handle),
+            static_cast<int>(ret)),
+        ret);
+    auto* aicpuTsThread = dynamic_cast<hccl::AicpuTsThread*>(thread.get());
+    CHK_PRT_RET(
+        aicpuTsThread == nullptr,
+        HCCL_ERROR("[%s] thread handle type mismatch[0x%llx]", __func__, static_cast<unsigned long long>(handle)),
+        HCOMM_E_PTR);
+    aicpuTsThread->SetStatus(status);
+    HCCL_INFO(
+        "[%s] set thread[0x%llx] status[%u].", __func__, static_cast<unsigned long long>(handle),
+        static_cast<uint8_t>(status));
     return HCOMM_SUCCESS;
 #endif
 }
@@ -877,17 +914,14 @@ HcommResult HcommThreadRegisterCacheCallback(ThreadHandle handle)
     (void)handle;
     return static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT);
 #else
-    CHK_PRT_RET(handle == 0, HCCL_ERROR("[%s] thread is 0", __func__), HCOMM_E_PTR);
     std::shared_ptr<hccl::Thread> thread;
-    {
-        std::lock_guard<std::mutex> lock(g_collCommThreadMapMtx);
-        auto it = g_collCommThreadMap.find(handle);
-        CHK_PRT_RET(
-            it == g_collCommThreadMap.end(),
-            HCCL_ERROR("[%s] invalid thread handle[0x%llx]", __func__, static_cast<unsigned long long>(handle)),
-            HCOMM_E_PTR);
-        thread = it->second; // 持引用期间对象不会被析构
-    }
+    HcommResult ret = GetThreadByHandle(handle, thread);
+    CHK_PRT_RET(
+        ret != HCOMM_SUCCESS,
+        HCCL_ERROR(
+            "[%s] GetThreadByHandle fail, thread[0x%llx], ret[%d]", __func__, static_cast<unsigned long long>(handle),
+            static_cast<int>(ret)),
+        ret);
     auto* threadPtr = dynamic_cast<hccl::AicpuTsThread*>(thread.get());
     CHK_PRT_RET(
         threadPtr == nullptr,
@@ -910,7 +944,7 @@ HcommResult HcommThreadDestroy(ThreadHandle handle)
     (void)handle;
     return static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT);
 #else
-    CHK_PRT_RET(handle == 0, HCCL_ERROR("[%s] thread is 0", __func__), HCOMM_E_PTR);
+    CHK_PRT_RET(handle == 0, HCCL_ERROR("[%s] thread handle is 0", __func__), HCOMM_E_PARA);
     HcommThreadDestroyCallback callback = nullptr;
     {
         std::lock_guard<std::mutex> lock(g_collCommThreadMapMtx);
@@ -919,7 +953,7 @@ HcommResult HcommThreadDestroy(ThreadHandle handle)
             erased == 0,
             HCCL_WARNING(
                 "[%s] thread handle[0x%llx] not found in registry", __func__, static_cast<unsigned long long>(handle)),
-            HCOMM_E_PTR);
+            HCOMM_E_NOT_FOUND);
         callback = g_threadDestroyCallback;
     }
     // 在锁外回调：销毁回调（如 order 控制流 Registry 反注册）持各自互斥，避免锁序嵌套

@@ -161,10 +161,15 @@ int32_t HcommThreadSynchronize(ThreadHandle thread)
     if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HCCL_INFO("[%s] Running on A5.", __func__);
         hccl::AicpuTsThread* aicpuTsThreadPtr = dynamic_cast<hccl::AicpuTsThread*>(threadPtr);
+        CHK_PTR_NULL(aicpuTsThreadPtr);
         uint32_t sqHead{0};
         uint32_t sqTail{0};
         HCCL_INFO("[%s] Start waiting for RTSQ's head == tail.", __func__);
         do {
+            if (aicpuTsThreadPtr->IsExceptionState()) {
+                HCCL_ERROR("[%s] thread is in exception state, exit sync loop.", __func__);
+                return HCCL_E_INTERNAL;
+            }
             CHK_RET(aicpuTsThreadPtr->GetSqHeadAndTail(sqHead, sqTail));
         } while (sqHead != sqTail);
         HCCL_INFO("[%s] SUCCESS. RTSQ's head == tail.", __func__);

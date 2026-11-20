@@ -1692,3 +1692,23 @@ TEST_F(hcclCommTaskExceptionLiteTest, UtC_GetOpIndex_When_Normal_Expect_ReturnCo
     u32 idx = HcclCommTaskExceptionLite::GetInstance().GetOpIndex(&taskInfo);
     EXPECT_EQ(idx, 200u); // 方案 C：断言返回值等于设置的 opIndex
 }
+
+// AicpuTsThread 状态置位与读取
+TEST_F(hcclCommTaskExceptionLiteTest, Ut_AicpuTsThread_Status_SetAndCheck)
+{
+    AicpuTsThread thread{std::string()};
+    EXPECT_FALSE(thread.IsExceptionState()); // 默认正常
+    thread.SetStatus(ThreadStatus::THREAD_EXCEPTION);
+    EXPECT_TRUE(thread.IsExceptionState()); // 置异常后
+    thread.SetStatus(ThreadStatus::THREAD_EXCEPTION);
+    EXPECT_TRUE(thread.IsExceptionState()); // 幂等，仍异常
+    thread.SetStatus(ThreadStatus::THREAD_NORMAL);
+    EXPECT_FALSE(thread.IsExceptionState()); // 恢复正常后
+}
+
+// HcommThreadSetStatus 在 UT 环境（未定义 CCL_KERNEL_AICPU）下返回 HCOMM_E_NOT_SUPPORT
+TEST_F(hcclCommTaskExceptionLiteTest, Ut_HcommThreadSetStatus_When_NotAicpuKernel_Expect_ReturnNotSupport)
+{
+    HcommResult ret = HcommThreadSetStatus(0, ThreadStatus::THREAD_EXCEPTION);
+    EXPECT_EQ(ret, HCOMM_E_NOT_SUPPORT);
+}

@@ -115,6 +115,24 @@ Launched by the host side (`AicpuThreadLaunchMgr::CpuQueueNamecardLaunch`/`CpuNo
 | `uint32_t RunDpuQueueNamecardRestore(void* args)` | Queue namecard delivery entry (param block `DpuQueueNamecardParam`): validates the SQ/CQ descriptors and the handle, looks up the entity by `threadHandle`, and backfills the namecard (`SetQueueNamecard`); an unregistered entity (race between thread destruction and delivery) only logs a warning and returns success. |
 | `uint32_t RunCpuThreadNotifyAddrUpdate(void* args)` | Notify address update entry (param block `CpuThreadNotifyAddrUpdateParam`): validates that handle/capacity/addresses are non-zero, looks up the entity by `threadHandle`, and backfills the new notify addressing (`UpdateNotifyInfo`); an unregistered entity is an error. |
 
+### device_thread_pub.h (device-side thread C interface family)
+
+Declared in `comm_engine/thread/device/device_thread_pub.h`, implemented in `thread.cc`. The host side (without `CCL_KERNEL_AICPU` defined) uniformly returns `HCOMM_E_NOT_SUPPORT`; the device-side (with `CCL_KERNEL_AICPU` defined) error-code contract is as follows:
+
+| Interface | Description |
+|-----------|-------------|
+| `HcommResult HcommThreadCreateAicpu(const char* uniqueId, size_t uniqueIdLen, ThreadHandle* handle)` | Creates and initializes an AICPU thread, registers it in the global thread table, and returns the handle. Null `uniqueId`/`handle` returns `HCOMM_E_PTR`; a thread `Init` failure propagates its return code. |
+| `HcommResult HcommThreadFillEntityRtsq(ThreadHandle handle, HcommThreadEntity* entity)` | Refreshes the RTSQ runtime snapshot in a preallocated `ThreadEntity`. Null `entity` returns `HCOMM_E_PTR`; `handle==0` returns `HCOMM_E_PARA`; unregistered handle returns `HCOMM_E_NOT_FOUND`; non-`AicpuTsThread` handle type returns `HCOMM_E_PTR`. |
+| `HcommResult HcommThreadUnwrapHandle(ThreadHandle* handle)` | Unwraps a device `ThreadEntity` handle in place; null `handle` returns `HCOMM_E_PTR`; ABI mismatch returns `HCOMM_E_PARA`/`HCOMM_E_INTERNAL`. |
+| `HcommResult HcommThreadGetStreamLite(ThreadHandle handle, void** streamLite)` | Queries the `StreamLite` pointer associated with a thread. Null `streamLite` out-param returns `HCOMM_E_PTR`; `handle==0` returns `HCOMM_E_PARA`; unregistered handle returns `HCOMM_E_NOT_FOUND`; null `StreamLite` returns `HCOMM_E_PTR`. |
+| `HcommResult HcommThreadIsFakeDeviceRes(ThreadHandle handle, bool* isFake)` | Queries whether a thread is a GE-exported stub thread. Null `isFake` out-param returns `HCOMM_E_PTR`; `handle==0` returns `HCOMM_E_PARA`; unregistered handle returns `HCOMM_E_NOT_FOUND`. |
+| `HcommResult HcommThreadSetStatus(ThreadHandle handle, ThreadStatus status)` | Sets the AICPU TS thread status (taskexception sets `THREAD_EXCEPTION` on detecting an error CQE; one-way, no reset path). `handle==0` returns `HCOMM_E_PARA`; unregistered handle returns `HCOMM_E_NOT_FOUND`; non-`AicpuTsThread` handle type returns `HCOMM_E_PTR`. |
+| `HcommResult HcommThreadRegisterCacheCallback(ThreadHandle handle)` | Registers the RTSQ task cache callback. `handle==0` returns `HCOMM_E_PARA`; unregistered handle returns `HCOMM_E_NOT_FOUND`; non-`AicpuTsThread` handle type returns `HCOMM_E_PTR`. |
+| `HcommResult HcommThreadDestroy(ThreadHandle handle)` | Destroys a thread and removes it from the global table. `handle==0` returns `HCOMM_E_PARA`; unregistered handle (`erase==0`) returns `HCOMM_E_NOT_FOUND`. |
+| `HcommResult HcommThreadRegisterDestroyCallback(HcommThreadDestroyCallback callback)` | Registers a process-level destroy callback (single slot; a later registration overwrites the previous one). |
+
+**Error-code semantics**: Interfaces that resolve handles via the `GetThreadByHandle` helper (`FillEntityRtsq`/`GetStreamLite`/`IsFakeDeviceRes`/`SetStatus`/`RegisterCacheCallback`) uniformly return `HCOMM_E_PARA` (invalid parameter) for `handle==0` and `HCOMM_E_NOT_FOUND` (resource not found) for an unregistered handle. Although `Destroy` does not go through `GetThreadByHandle` (it performs `erase` rather than `find`), its `handle==0` and unregistered error codes are aligned with the above.
+
 ---
 
 ## Call Cycle

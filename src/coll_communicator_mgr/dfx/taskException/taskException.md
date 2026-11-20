@@ -337,6 +337,8 @@ sequenceDiagram
                 StreamLite-->>HcclCommTaskExceptionLite: cqeException, cqeStatus
 
                 alt 存在异常CQE
+                    HcclCommTaskExceptionLite->>HcclCommTaskExceptionLite: HcommThreadSetStatus(thread, THREAD_EXCEPTION)
+                    Note right of HcclCommTaskExceptionLite: 标记线程异常状态，使 HcommThreadSynchronize 退出 sqHead != sqTail 死循环
                     HcclCommTaskExceptionLite->>HcclCommTaskExceptionLite: PrintTaskExceptionBySqeId
                     Note right of HcclCommTaskExceptionLite: 打印Task/EID/Group/OpData
                     HcclCommTaskExceptionLite->>HcclCommTaskExceptionLite: ReportErrMsg
@@ -657,7 +659,7 @@ classDiagram
 | `GetInstance()` | 公有静态 | 无 | `HcclCommTaskExceptionLite&` | 获取单例实例 |
 | `Init(u32)` | 公有 | [in] devId | void | 初始化设备ID |
 | `Call()` | 公有 | 无 | void | 守护线程回调入口，调用 HandleExceptionCqe；失败后设置 stopCall_ 防止刷屏 |
-| `HandleExceptionCqe()` | 私有 | 无 | `HcclResult` | 遍历所有通信域的所有线程，检测 CQE 异常并处理 |
+| `HandleExceptionCqe()` | 私有 | 无 | `HcclResult` | 遍历所有通信域的所有线程，检测 CQE 异常并处理；检测到 error CQE 时调用 `HcommThreadSetStatus(thread, THREAD_EXCEPTION)` 标记线程异常状态，使 `HcommThreadSynchronize` 能退出 sqHead != sqTail 死循环 |
 | `GetThreadCqe(Thread*, rtLogicCqReport_t&, CqeStatus&)` | 私有 | [in] thread, [out] cqeException, [out] cqeStatus | `HcclResult` | 通过 CqReportRecv 获取指定线程的 CQE 异常信息 |
 | `ProcessCqe(CollCommAicpu*, const rtLogicCqReport_t&, const CqeStatus&, const vector<pair<string,CollCommAicpuMgr*>>&)` | 私有 | [in] aicpuComm, [in] exceptionInfo, [in] cqeStatus, [in] aicpuCommInfo | `HcclResult` | 处理 CQE 异常：打印 TaskException + 上报 Host + NotifyWait 超时时打印全通信域信息 |
 | `ReportErrMsg(CollCommAicpu*, const rtLogicCqReport_t&)` | 私有 | [in] aicpuComm, [in] exceptionInfo | `HcclResult` | 检查 IsErrorReported，未上报时生成 ErrorMessageReport 通过 HDC 上报 Host，并通过 Mailbox 通知 TSFW，然后 SetErrorReported(true) |

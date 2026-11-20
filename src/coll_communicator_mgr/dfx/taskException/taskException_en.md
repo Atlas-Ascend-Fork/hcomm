@@ -337,6 +337,8 @@ sequenceDiagram
                 StreamLite-->>HcclCommTaskExceptionLite: cqeException, cqeStatus
 
                 alt Exception CQE exists
+                    HcclCommTaskExceptionLite->>HcclCommTaskExceptionLite: HcommThreadSetStatus(thread, THREAD_EXCEPTION)
+                    Note right of HcclCommTaskExceptionLite: Mark thread exception state, enables HcommThreadSynchronize to break out of sqHead != sqTail polling loop
                     HcclCommTaskExceptionLite->>HcclCommTaskExceptionLite: PrintTaskExceptionBySqeId
                     Note right of HcclCommTaskExceptionLite: Print Task/EID/Group/OpData
                     HcclCommTaskExceptionLite->>HcclCommTaskExceptionLite: ReportErrMsg
@@ -657,7 +659,7 @@ classDiagram
 | `GetInstance()` | Public static | None | `HcclCommTaskExceptionLite&` | Gets the singleton instance. |
 | `Init(u32)` | Public | [in] devId | void | Initializes the device ID. |
 | `Call()` | Public | None | void | Daemon thread callback entry point. Calls HandleExceptionCqe. Sets stopCall_ on failure to prevent flooding. |
-| `HandleExceptionCqe()` | Private | None | `HcclResult` | Traverses all threads in all communication domains, detects and handles CQE exceptions. |
+| `HandleExceptionCqe()` | Private | None | `HcclResult` | Traverses all threads in all communication domains, detects and handles CQE exceptions. On detecting an error CQE, calls `HcommThreadSetStatus(thread, THREAD_EXCEPTION)` to mark the thread exception state, enabling `HcommThreadSynchronize` to break out of the sqHead != sqTail polling loop. |
 | `GetThreadCqe(Thread*, rtLogicCqReport_t&, CqeStatus&)` | Private | [in] thread, [out] cqeException, [out] cqeStatus | `HcclResult` | Gets CQE exception information for the specified thread through CqReportRecv. |
 | `ProcessCqe(CollCommAicpu*, const rtLogicCqReport_t&, const CqeStatus&, const vector<pair<string,CollCommAicpuMgr*>>&)` | Private | [in] aicpuComm, [in] exceptionInfo, [in] cqeStatus, [in] aicpuCommInfo | `HcclResult` | Processes CQE exceptions: prints TaskException, reports to Host, prints all communication domain information on NotifyWait timeout. |
 | `ReportErrMsg(CollCommAicpu*, const rtLogicCqReport_t&)` | Private | [in] aicpuComm, [in] exceptionInfo | `HcclResult` | Checks IsErrorReported. If not reported, generates ErrorMessageReport, reports to Host through HDC, notifies TSFW through Mailbox, and sets ErrorReported(true). |

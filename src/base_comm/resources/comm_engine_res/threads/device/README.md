@@ -115,6 +115,24 @@ device/
 | `uint32_t RunDpuQueueNamecardRestore(void* args)` | 队列名片投递入口（参数块 `DpuQueueNamecardParam`）：校验 SQ/CQ 描述与句柄后按 `threadHandle` 反查实体，回填名片（`SetQueueNamecard`）；实体未登记（线程销毁与投递竞争）仅告警并返回成功。 |
 | `uint32_t RunCpuThreadNotifyAddrUpdate(void* args)` | notify 地址更新入口（参数块 `CpuThreadNotifyAddrUpdateParam`）：校验句柄/容量/地址非零后按 `threadHandle` 反查实体，回填新 notify 寻址（`UpdateNotifyInfo`）；实体未登记报错。 |
 
+### device_thread_pub.h（device 侧线程 C 接口族）
+
+声明于 `comm_engine/thread/device/device_thread_pub.h`，实现于 `thread.cc`。host 侧（未定义 `CCL_KERNEL_AICPU`）统一返回 `HCOMM_E_NOT_SUPPORT`；device 侧（定义 `CCL_KERNEL_AICPU`）的错误码契约如下：
+
+| 接口 | 说明 |
+|------|------|
+| `HcommResult HcommThreadCreateAicpu(const char* uniqueId, size_t uniqueIdLen, ThreadHandle* handle)` | 创建并初始化 AICPU 线程，注册到全局线程表并返回句柄。`uniqueId`/`handle` 为空返回 `HCOMM_E_PTR`；线程 `Init` 失败透传其返回码。 |
+| `HcommResult HcommThreadFillEntityRtsq(ThreadHandle handle, HcommThreadEntity* entity)` | 刷新预分配 `ThreadEntity` 的 RTSQ 运行时快照。`entity` 为空返回 `HCOMM_E_PTR`；`handle==0` 返回 `HCOMM_E_PARA`；句柄未注册返回 `HCOMM_E_NOT_FOUND`；句柄非 `AicpuTsThread` 类型返回 `HCOMM_E_PTR`。 |
+| `HcommResult HcommThreadUnwrapHandle(ThreadHandle* handle)` | 原地解包 device `ThreadEntity` 句柄；`handle` 为空返回 `HCOMM_E_PTR`；ABI 不匹配返回 `HCOMM_E_PARA`/`HCOMM_E_INTERNAL`。 |
+| `HcommResult HcommThreadGetStreamLite(ThreadHandle handle, void** streamLite)` | 查询线程关联的 `StreamLite` 指针。`streamLite` 出参为空返回 `HCOMM_E_PTR`；`handle==0` 返回 `HCOMM_E_PARA`；句柄未注册返回 `HCOMM_E_NOT_FOUND`；`StreamLite` 为空返回 `HCOMM_E_PTR`。 |
+| `HcommResult HcommThreadIsFakeDeviceRes(ThreadHandle handle, bool* isFake)` | 查询线程是否为 GE 导出的桩线程。`isFake` 出参为空返回 `HCOMM_E_PTR`；`handle==0` 返回 `HCOMM_E_PARA`；句柄未注册返回 `HCOMM_E_NOT_FOUND`。 |
+| `HcommResult HcommThreadSetStatus(ThreadHandle handle, ThreadStatus status)` | 设置 AICPU TS 线程状态（taskexception 检测到 error CQE 时置 `THREAD_EXCEPTION`，单向置位无复位）。`handle==0` 返回 `HCOMM_E_PARA`；句柄未注册返回 `HCOMM_E_NOT_FOUND`；句柄非 `AicpuTsThread` 类型返回 `HCOMM_E_PTR`。 |
+| `HcommResult HcommThreadRegisterCacheCallback(ThreadHandle handle)` | 注册 RTSQ 任务缓存回调。`handle==0` 返回 `HCOMM_E_PARA`；句柄未注册返回 `HCOMM_E_NOT_FOUND`；句柄非 `AicpuTsThread` 类型返回 `HCOMM_E_PTR`。 |
+| `HcommResult HcommThreadDestroy(ThreadHandle handle)` | 销毁线程并从全局表移除。`handle==0` 返回 `HCOMM_E_PARA`；句柄未注册（`erase==0`）返回 `HCOMM_E_NOT_FOUND`。 |
+| `HcommResult HcommThreadRegisterDestroyCallback(HcommThreadDestroyCallback callback)` | 注册进程级销毁回调（单槽，后注册覆盖先注册）。 |
+
+**错误码语义统一**：经 `GetThreadByHandle` 助手解析句柄的接口（`FillEntityRtsq`/`GetStreamLite`/`IsFakeDeviceRes`/`SetStatus`/`RegisterCacheCallback`），`handle==0` 统一返回 `HCOMM_E_PARA`（参数非法），句柄未注册返回 `HCOMM_E_NOT_FOUND`（资源未找到）。`Destroy` 虽不走 `GetThreadByHandle`（做 `erase` 而非 `find`），但 `handle==0` 与未注册的错误码已与上述统一。
+
 ---
 
 ## 调用周期

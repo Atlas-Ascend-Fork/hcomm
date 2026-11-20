@@ -15,9 +15,17 @@
 #define HCOMM_DEVICE_THREAD_PUB_H
 
 #include <stddef.h>
+#include <stdint.h>
 #include "hcomm_res_defs.h"
 #include "hcomm_res_entity_defs.h"
 #include "common/result_defs_pub.h"
+
+// AICPU TS Thread状态枚举。taskexception 背景线程检测到 error CQE 时置 THREAD_EXCEPTION，
+// 使dpu算法中调用的 HcommThreadSynchronize 能退出 sqHead != sqTail 死循环。单向置位，无复位路径（dpu 无快恢）。
+enum class ThreadStatus : uint8_t {
+    THREAD_NORMAL = 0,
+    THREAD_EXCEPTION = 1,
+};
 
 /**
  * @brief Create and init an AICPU thread described by uniqueId; register its ownership and return the handle.
@@ -62,6 +70,18 @@ HcommResult HcommThreadGetStreamLite(ThreadHandle handle, void** streamLite);
  * @return HcommResult HCOMM_SUCCESS on success, error code otherwise
  */
 HcommResult HcommThreadIsFakeDeviceRes(ThreadHandle handle, bool* isFake);
+
+/**
+ * @brief Set the status of an AICPU TS thread. Called by the taskexception background thread (set THREAD_EXCEPTION
+ *        when an error CQE is detected, so that HcommThreadSynchronize can break out of its sqHead != sqTail polling
+ *        loop). THREAD_EXCEPTION is one-way (no reset path; dpu has no fast recovery).
+ *        Idempotent (safe to call repeatedly).
+ * @param[in] handle thread handle, must be an AicpuTsThread handle
+ * @param[in] status target status to set
+ * @return HcommResult HCOMM_SUCCESS on success, error code otherwise.
+ *         @note Only supports AicpuTsThread handles; non-AicpuTsThread handles return HCOMM_E_PTR.
+ */
+HcommResult HcommThreadSetStatus(ThreadHandle handle, ThreadStatus status);
 
 /**
  * @brief Register the rtsq task cache callbacks for a thread (used by the AICPU task cache).

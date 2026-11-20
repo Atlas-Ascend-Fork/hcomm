@@ -166,6 +166,57 @@ TEST_F(SyncDataDeviceTest, ut_HcommThreadSynchronize_When_ThreadIsValid_Expect_R
     threadPtr = nullptr;
 }
 
+// 线程置异常后，HcommThreadSynchronize 应返回 HCCL_E_INTERNAL 退出死循环
+// 本用例在调用前置位，验证循环入口的 IsExceptionState() 检查生效：置位后立即返回 HCCL_E_INTERNAL。
+TEST_F(SyncDataDeviceTest, ut_HcommThreadSynchronize_When_ExceptionState_Expect_ReturnIsHCCL_E_INTERNAL)
+{
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+
+    hccl::Thread* threadPtr = new (std::nothrow) hccl::AicpuTsThread(std::string());
+    ASSERT_NE(threadPtr, nullptr);
+
+    hccl::AicpuTsThread* aicpuTsThreadPtr = dynamic_cast<hccl::AicpuTsThread*>(threadPtr);
+    ASSERT_NE(aicpuTsThreadPtr, nullptr);
+    aicpuTsThreadPtr->SetStatus(ThreadStatus::THREAD_EXCEPTION);
+
+    ThreadHandle thread = reinterpret_cast<ThreadHandle>(threadPtr);
+    int32_t ret = HcommThreadSynchronize(thread);
+
+    EXPECT_EQ(ret, HCCL_E_INTERNAL);
+
+    delete threadPtr;
+    threadPtr = nullptr;
+}
+
+// 轮询中置位：GetSqHeadAndTail 首轮返回 head!=tail 使循环继续，并在桩内置 THREAD_EXCEPTION，
+// 第二轮循环 IsExceptionState() 为真即返回 HCCL_E_INTERNAL，验证"轮询中置位退出"核心修复路径
+TEST_F(SyncDataDeviceTest, ut_HcommThreadSynchronize_When_ExceptionSetDuringPolling_Expect_ReturnIsHCCL_E_INTERNAL)
+{
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+
+    hccl::AicpuTsThread* aicpuTsThreadPtr = new (std::nothrow) hccl::AicpuTsThread(std::string());
+    ASSERT_NE(aicpuTsThreadPtr, nullptr);
+    ASSERT_FALSE(aicpuTsThreadPtr->IsExceptionState());
+
+    // mock GetSqHeadAndTail：首轮返回 head!=tail 使 do-while 继续，并在桩内置位 THREAD_EXCEPTION
+    MOCKER_CPP(&hccl::AicpuTsThread::GetSqHeadAndTail, HcclResult(hccl::AicpuTsThread::*)(uint32_t&, uint32_t&) const)
+        .expects(once())
+        .will(invoke(+[](hccl::AicpuTsThread* self, uint32_t& sqHead, uint32_t& sqTail) -> HcclResult {
+            sqHead = 1;
+            sqTail = 0;
+            const_cast<hccl::AicpuTsThread*>(self)->SetStatus(ThreadStatus::THREAD_EXCEPTION);
+            return HCCL_SUCCESS;
+        }));
+
+    ThreadHandle thread = reinterpret_cast<ThreadHandle>(aicpuTsThreadPtr);
+    int32_t ret = HcommThreadSynchronize(thread);
+
+    EXPECT_EQ(ret, HCCL_E_INTERNAL);
+
+    delete aicpuTsThreadPtr;
+    aicpuTsThreadPtr = nullptr;
+}
+
 // timeout 字段为 0 时，轮询不做超时判断，flag 稍后置位仍返回 SUCCESS
 TEST_F(SyncDataDeviceTest, ut_HcommWaitResponse_When_ExecTimeoutIsZero_Expect_WaitUntilFlagSetReturnSuccess)
 {

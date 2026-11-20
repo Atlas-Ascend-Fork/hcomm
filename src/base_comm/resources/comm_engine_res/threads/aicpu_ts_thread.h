@@ -11,15 +11,18 @@
 #ifndef AICPU_TS_THREAD_H
 #define AICPU_TS_THREAD_H
 
+#include <atomic>
 #include <vector>
 #include <functional>
 #include "thread.h"
 #include "aicpu_ts_thread_interface.h"
 #include "common/dev_type_utils_pub.h"
 #include "hccl_dispatcher_ctx.h"
+#include "comm_engine/thread/device/device_thread_pub.h"
 #include "comm_engine/thread/device/dfx/dfx_circular_queue_pub.h"
 
 namespace hccl {
+
 class AicpuTsThread : public Thread {
 public:
     AicpuTsThread(StreamType streamType, uint32_t notifyNum, const NotifyLoadType notifyLoadType);
@@ -80,6 +83,11 @@ public:
     ThreadEntityResources* GetThreadEntityResources(CommEngine targetEngine) const;
 #endif
     HcclResult GetSqHeadAndTail(uint32_t& sqHead, uint32_t& sqTail) const;
+    bool IsExceptionState() const
+    {
+        return exceptionState_.load(std::memory_order_acquire) != ThreadStatus::THREAD_NORMAL;
+    }
+    void SetStatus(ThreadStatus status) { exceptionState_.store(status, std::memory_order_release); }
     bool GetMaster() const override;
     void SetIsMaster(bool isMaster) override;
 
@@ -133,6 +141,8 @@ private:
     // Thread私有dispatcher：dispatcher归属Thread，确保(dispatcher, stream)配对稳定
     DispatcherCtxPtr threadDispatcherCtx_{nullptr};
     std::string threadDispatcherCommId_;
+    // taskexception 检测到 error CQE 时置 THREAD_EXCEPTION；单向置位无复位（dpu 无快恢）
+    std::atomic<ThreadStatus> exceptionState_{ThreadStatus::THREAD_NORMAL};
 };
 
 } // namespace hccl

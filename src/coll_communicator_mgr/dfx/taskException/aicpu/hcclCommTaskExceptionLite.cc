@@ -124,6 +124,16 @@ HcclResult HcclCommTaskExceptionLite::HandleExceptionCqe()
                     streamLite->GetId()),
                 ret);
 
+            // 检测到 error CQE 时，标记线程异常状态，使 HcommThreadSynchronize 能退出 sqHead != sqTail 死循环
+            if (cqeStatus == dfx::CqeStatus::kCqeException) {
+                HcommResult markRet = HcommThreadSetStatus(thread, ThreadStatus::THREAD_EXCEPTION);
+                if (markRet != HCOMM_SUCCESS) {
+                    HCCL_ERROR(
+                        "[%s]HcommThreadSetStatus fail, thread[0x%llx], ret[%d]", __func__,
+                        static_cast<unsigned long long>(thread), static_cast<int>(markRet));
+                }
+            }
+
             ret = ProcessCqe(aicpuComm, cqeException, cqeStatus, aicpuCommInfo);
             CHK_PRT_RET(
                 ret != HCCL_SUCCESS,

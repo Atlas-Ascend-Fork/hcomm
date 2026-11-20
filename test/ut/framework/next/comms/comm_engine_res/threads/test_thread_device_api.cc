@@ -57,8 +57,10 @@ private:
     void* streamLitePtr_;
 };
 
-// 参数校验（device 分支）：空指针/空句柄 → HCOMM_E_PTR
-TEST_F(ThreadDeviceApiTest, ParamChecks_NullArgs_Expect_EPtr)
+// 参数校验（device 分支）：空指针/空句柄
+// handle==0 经 GetThreadByHandle 校验返回 HCOMM_E_PARA；Destroy 的 handle==0 统一为 HCOMM_E_PARA；
+// 出参为 null 经 CHK_PTR_NULL 返回 HCCL_E_PTR（==HCOMM_E_PTR）；UnwrapHandle/CreateAicpu 各自独立校验仍返回 HCOMM_E_PTR
+TEST_F(ThreadDeviceApiTest, ParamChecks_NullArgs_Expect_ErrorCode)
 {
     EXPECT_EQ(HcommThreadCreateAicpu(nullptr, 0, nullptr), static_cast<HcommResult>(HCOMM_E_PTR));
     EXPECT_EQ(HcommThreadCreateAicpu("t", 1, nullptr), static_cast<HcommResult>(HCOMM_E_PTR));
@@ -66,12 +68,12 @@ TEST_F(ThreadDeviceApiTest, ParamChecks_NullArgs_Expect_EPtr)
     EXPECT_EQ(HcommThreadUnwrapHandle(nullptr), HCOMM_E_PTR);
     EXPECT_EQ(HcommThreadUnwrapHandle(&nullHandle), HCOMM_E_PTR);
     void* streamLite = nullptr;
-    EXPECT_EQ(HcommThreadGetStreamLite(0, &streamLite), static_cast<HcommResult>(HCOMM_E_PTR));
+    EXPECT_EQ(HcommThreadGetStreamLite(0, &streamLite), static_cast<HcommResult>(HCOMM_E_PARA));
     EXPECT_EQ(HcommThreadGetStreamLite(0, nullptr), static_cast<HcommResult>(HCOMM_E_PTR));
-    EXPECT_EQ(HcommThreadRegisterCacheCallback(0), static_cast<HcommResult>(HCOMM_E_PTR));
-    EXPECT_EQ(HcommThreadDestroy(0), static_cast<HcommResult>(HCOMM_E_PTR));
+    EXPECT_EQ(HcommThreadRegisterCacheCallback(0), static_cast<HcommResult>(HCOMM_E_PARA));
+    EXPECT_EQ(HcommThreadDestroy(0), static_cast<HcommResult>(HCOMM_E_PARA));
     bool isFake = false;
-    EXPECT_EQ(HcommThreadIsFakeDeviceRes(0, &isFake), static_cast<HcommResult>(HCOMM_E_PTR));
+    EXPECT_EQ(HcommThreadIsFakeDeviceRes(0, &isFake), static_cast<HcommResult>(HCOMM_E_PARA));
 }
 
 TEST_F(ThreadDeviceApiTest, UnwrappedEntityCanQueryRegisteredThreadStream)
@@ -88,7 +90,7 @@ TEST_F(ThreadDeviceApiTest, UnwrappedEntityCanQueryRegisteredThreadStream)
     entity.compatThreadHandle = rawHandle;
     ThreadHandle handle = reinterpret_cast<ThreadHandle>(&entity);
     void* streamLite = nullptr;
-    EXPECT_EQ(HcommThreadGetStreamLite(handle, &streamLite), static_cast<HcommResult>(HCOMM_E_PTR));
+    EXPECT_EQ(HcommThreadGetStreamLite(handle, &streamLite), static_cast<HcommResult>(HCOMM_E_NOT_FOUND));
     EXPECT_EQ(HcommThreadUnwrapHandle(&handle), static_cast<HcommResult>(HCOMM_SUCCESS));
     EXPECT_EQ(handle, rawHandle);
     EXPECT_EQ(HcommThreadGetStreamLite(handle, &streamLite), static_cast<HcommResult>(HCOMM_SUCCESS));
@@ -96,30 +98,31 @@ TEST_F(ThreadDeviceApiTest, UnwrappedEntityCanQueryRegisteredThreadStream)
     EXPECT_EQ(HcommThreadDestroy(rawHandle), static_cast<HcommResult>(HCOMM_SUCCESS));
 }
 
-// 未注册（伪造）句柄：查询/分类/destroy 统一返回 HCOMM_E_PTR（拒绝裸解引用未注册句柄，防 UAF/ABA）
-TEST_F(ThreadDeviceApiTest, UnregisteredHandle_QueryRejected_DestroyRejected)
+// 未注册（伪造）句柄：GetStreamLite/IsFakeDeviceRes 经 GetThreadByHandle 未找到 → HCOMM_E_NOT_FOUND；
+// Destroy 走 erase 未注册 → HCOMM_E_NOT_FOUND
+TEST_F(ThreadDeviceApiTest, UnregisteredHandle_QueryNotFound_DestroyNotFound)
 {
     FakeDeviceThread thread(reinterpret_cast<void*>(0x1234));
     ThreadHandle handle = reinterpret_cast<ThreadHandle>(&thread);
 
     HcommThreadEntity entity{};
     void* streamLite = nullptr;
-    EXPECT_EQ(HcommThreadGetStreamLite(handle, &streamLite), static_cast<HcommResult>(HCOMM_E_PTR));
+    EXPECT_EQ(HcommThreadGetStreamLite(handle, &streamLite), static_cast<HcommResult>(HCOMM_E_NOT_FOUND));
 
     bool isFake = true;
-    EXPECT_EQ(HcommThreadIsFakeDeviceRes(handle, &isFake), static_cast<HcommResult>(HCOMM_E_PTR));
+    EXPECT_EQ(HcommThreadIsFakeDeviceRes(handle, &isFake), static_cast<HcommResult>(HCOMM_E_NOT_FOUND));
 
-    EXPECT_EQ(HcommThreadDestroy(handle), static_cast<HcommResult>(HCOMM_E_PTR));
-    EXPECT_EQ(HcommThreadDestroy(handle), static_cast<HcommResult>(HCOMM_E_PTR));
+    EXPECT_EQ(HcommThreadDestroy(handle), static_cast<HcommResult>(HCOMM_E_NOT_FOUND));
+    EXPECT_EQ(HcommThreadDestroy(handle), static_cast<HcommResult>(HCOMM_E_NOT_FOUND));
 }
 
-// StreamLite 为空（未注册句柄）→ E_PTR
-TEST_F(ThreadDeviceApiTest, GetStreamLite_NullStream_Expect_EPtr)
+// 未注册句柄（FakeDeviceThread 不在 map）→ GetThreadByHandle 未找到 → HCOMM_E_NOT_FOUND
+TEST_F(ThreadDeviceApiTest, GetStreamLite_UnregisteredHandle_Expect_NotFound)
 {
     FakeDeviceThread thread(nullptr);
     ThreadHandle handle = reinterpret_cast<ThreadHandle>(&thread);
     void* streamLite = nullptr;
-    EXPECT_EQ(HcommThreadGetStreamLite(handle, &streamLite), static_cast<HcommResult>(HCOMM_E_PTR));
+    EXPECT_EQ(HcommThreadGetStreamLite(handle, &streamLite), static_cast<HcommResult>(HCOMM_E_NOT_FOUND));
 }
 
 // 真实创建/销毁（依赖 AicpuTsThread 桩的 Init）：成功则句柄非空可销毁，失败不崩溃
@@ -150,7 +153,7 @@ TEST_F(ThreadDeviceApiTest, UnwrappedEntityQueriesRegisteredThread)
     entity.compatThreadHandle = rawHandle;
 
     void* streamLite = nullptr;
-    EXPECT_EQ(HcommThreadGetStreamLite(entityHandle, &streamLite), HCOMM_E_PTR);
+    EXPECT_EQ(HcommThreadGetStreamLite(entityHandle, &streamLite), HCOMM_E_NOT_FOUND);
     ThreadHandle resolved = entityHandle;
     ASSERT_EQ(HcommThreadUnwrapHandle(&resolved), HCOMM_SUCCESS);
     EXPECT_EQ(resolved, rawHandle);
@@ -158,7 +161,7 @@ TEST_F(ThreadDeviceApiTest, UnwrappedEntityQueriesRegisteredThread)
     EXPECT_EQ(streamLite, expectedStream);
     EXPECT_EQ(HcommThreadGetStreamLite(rawHandle, &streamLite), HCOMM_SUCCESS);
     EXPECT_EQ(streamLite, expectedStream);
-    EXPECT_EQ(HcommThreadGetStreamLite(1, &streamLite), HCOMM_E_PTR);
+    EXPECT_EQ(HcommThreadGetStreamLite(1, &streamLite), HCOMM_E_NOT_FOUND);
 
     static ThreadHandle destroyedHandle = 0;
     destroyedHandle = 0;
@@ -167,16 +170,16 @@ TEST_F(ThreadDeviceApiTest, UnwrappedEntityQueriesRegisteredThread)
             destroyedHandle = handle;
         }),
         HCOMM_SUCCESS);
-    EXPECT_EQ(HcommThreadDestroy(entityHandle), HCOMM_E_PTR);
+    EXPECT_EQ(HcommThreadDestroy(entityHandle), HCOMM_E_NOT_FOUND);
     EXPECT_EQ(HcommThreadDestroy(rawHandle), HCOMM_SUCCESS);
     EXPECT_EQ(destroyedHandle, rawHandle);
-    EXPECT_EQ(HcommThreadGetStreamLite(entityHandle, &streamLite), HCOMM_E_PTR);
-    EXPECT_EQ(HcommThreadGetStreamLite(rawHandle, &streamLite), HCOMM_E_PTR);
+    EXPECT_EQ(HcommThreadGetStreamLite(entityHandle, &streamLite), HCOMM_E_NOT_FOUND);
+    EXPECT_EQ(HcommThreadGetStreamLite(rawHandle, &streamLite), HCOMM_E_NOT_FOUND);
     // Entity 仍存活但对应线程已销毁，解包后仍须由 raw 注册表拒绝查询。
     resolved = entityHandle;
     ASSERT_EQ(HcommThreadUnwrapHandle(&resolved), HCOMM_SUCCESS);
-    EXPECT_EQ(HcommThreadGetStreamLite(resolved, &streamLite), HCOMM_E_PTR);
-    EXPECT_EQ(HcommThreadDestroy(rawHandle), HCOMM_E_PTR);
+    EXPECT_EQ(HcommThreadGetStreamLite(resolved, &streamLite), HCOMM_E_NOT_FOUND);
+    EXPECT_EQ(HcommThreadDestroy(rawHandle), HCOMM_E_NOT_FOUND);
 }
 
 TEST_F(ThreadDeviceApiTest, UnwrapRejectsInvalidAndUninitializedEntity)
@@ -212,19 +215,41 @@ TEST_F(ThreadDeviceApiTest, GeFakeRawHandleSurvivesUnwrap)
     EXPECT_EQ(HcommThreadDestroy(resolved), HCOMM_SUCCESS);
 }
 
-// 未注册（伪造）句柄：注册回调被拒（HCOMM_E_PTR）
-TEST_F(ThreadDeviceApiTest, RegisterCacheCallback_UnregisteredHandle_Expect_EPtr)
+// 未注册（伪造）句柄：GetThreadByHandle 未找到 → HCOMM_E_NOT_FOUND
+TEST_F(ThreadDeviceApiTest, RegisterCacheCallback_UnregisteredHandle_Expect_NotFound)
 {
     auto stream = std::make_unique<Hccl::StreamLite>(126, 7, 0, 0);
     FakeDeviceThread thread(reinterpret_cast<void*>(stream.get()));
     ThreadHandle handle = reinterpret_cast<ThreadHandle>(&thread);
-    EXPECT_EQ(HcommThreadRegisterCacheCallback(handle), static_cast<HcommResult>(HCOMM_E_PTR));
+    EXPECT_EQ(HcommThreadRegisterCacheCallback(handle), static_cast<HcommResult>(HCOMM_E_NOT_FOUND));
 }
 
-// 真实注册链（失败分支）：线程无 StreamLite → E_PTR
-TEST_F(ThreadDeviceApiTest, RegisterCacheCallback_NullStream_Expect_EPtr)
+// 未注册句柄（FakeDeviceThread 不在 map）→ GetThreadByHandle 未找到 → HCOMM_E_NOT_FOUND
+TEST_F(ThreadDeviceApiTest, RegisterCacheCallback_NullStream_Expect_NotFound)
 {
     FakeDeviceThread thread(nullptr);
     ThreadHandle handle = reinterpret_cast<ThreadHandle>(&thread);
-    EXPECT_EQ(HcommThreadRegisterCacheCallback(handle), static_cast<HcommResult>(HCOMM_E_PTR));
+    EXPECT_EQ(HcommThreadRegisterCacheCallback(handle), static_cast<HcommResult>(HCOMM_E_NOT_FOUND));
+}
+
+// HcommThreadSetStatus 参数校验：未注册句柄 → GetThreadByHandle 未找到 → HCOMM_E_NOT_FOUND
+TEST_F(ThreadDeviceApiTest, SetStatus_UnregisteredHandle_Expect_NotFound)
+{
+    FakeDeviceThread thread(reinterpret_cast<void*>(0x1234));
+    ThreadHandle handle = reinterpret_cast<ThreadHandle>(&thread);
+    EXPECT_EQ(
+        HcommThreadSetStatus(handle, ThreadStatus::THREAD_EXCEPTION), static_cast<HcommResult>(HCOMM_E_NOT_FOUND));
+}
+
+// HcommThreadSetStatus 成功路径：注册线程后置 THREAD_EXCEPTION → HCOMM_SUCCESS 且状态写入生效
+TEST_F(ThreadDeviceApiTest, SetStatus_RegisteredHandle_Expect_SuccessAndStateSet)
+{
+    hccl::AicpuTsThread mockThread{std::string()};
+    MOCKER_CPP_VIRTUAL(mockThread, &hccl::AicpuTsThread::Init).stubs().will(returnValue(HCCL_SUCCESS));
+    ThreadHandle handle = 0;
+    ASSERT_EQ(HcommThreadCreateAicpu("t", 1, &handle), static_cast<HcommResult>(HCOMM_SUCCESS));
+    EXPECT_EQ(HcommThreadSetStatus(handle, ThreadStatus::THREAD_EXCEPTION), static_cast<HcommResult>(HCOMM_SUCCESS));
+    // handle 是 HcommThreadCreateAicpu 返回的裸 AicpuTsThread*，验证状态真正写入
+    EXPECT_TRUE(reinterpret_cast<hccl::AicpuTsThread*>(handle)->IsExceptionState());
+    EXPECT_EQ(HcommThreadDestroy(handle), static_cast<HcommResult>(HCOMM_SUCCESS));
 }
