@@ -24,7 +24,7 @@
 
 Creates communication channels. This API is a resource management API. Based on the created network endpoints, it creates communication channels in batches according to the given channel description information, providing the data transmission infrastructure for point-to-point communication or collective communication.
 
-After this API is executed, only the channel objects are created, and **link connections are not established immediately**. The caller needs to subsequently drive the link establishment state machine through the [HcommChannelGetStatus](HcommChannelGetStatus.md) API and perform communication operations after the channel state becomes ready.
+After this API is executed, only the channel objects are created, and **link connections are not established immediately**. The caller needs to subsequently drive the link establishment state machine through the [HcommChannelGetStatus](HcommChannelGetStatus.md) API until all channels in the batch are ready. The caller can then perform communication operations.
 
 ## Function Prototype
 

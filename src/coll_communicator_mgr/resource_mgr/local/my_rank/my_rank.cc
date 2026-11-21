@@ -117,40 +117,44 @@ inline const char* GetTlsStatusStr(Hccl::TlsStatus tlsStatus)
     return "UNKNOWN";
 }
 
-// 批量建链状态归类：只要还有通道处于 CONNECTING（非 READY 非终态）就返回 HCCL_E_AGAIN 继续轮询；
-// 全批 READY 返回 HCCL_SUCCESS；有 FAILED / TIMEOUT 返回 HCCL_E_NETWORK；其余（RES_LOC_UNAVAIL /
-// RES_RMT_UNAVAIL）返回 HCCL_E_UNAVAIL。
+// 批量建链状态归类：存在非 READY 且非失败终态的通道则返回 HCCL_E_AGAIN 继续轮询；
+// 全批 READY 返回 HCCL_SUCCESS；网络失败优先返回 HCCL_E_NETWORK，仅有资源不足时返回 HCCL_E_UNAVAIL
 // 注：枚举值经 hcomm:: 限定——全局枚举 HcommChannelStatus 与本枚举的 READY / CONNECTING 同名
 static HcclResult ClassifyChannelStatus(const int32_t* statusList, uint32_t channelNum)
 {
-    uint32_t connectingCount = 0;
+    uint32_t readyCount = 0;
     uint32_t failCount = 0;
-    bool hasResUnavailable = false;
+    bool hasNetworkFail = false;
     for (uint32_t i = 0; i < channelNum; ++i) {
         if (statusList[i] == hcomm::HCOMM_CHANNEL_STATUS_READY) {
-            continue;
-        }
-        if (statusList[i] == hcomm::HCOMM_CHANNEL_STATUS_CONNECTING) {
-            connectingCount++;
+            readyCount++;
         } else if (
             statusList[i] == hcomm::HCOMM_CHANNEL_STATUS_FAILED
             || statusList[i] == hcomm::HCOMM_CHANNEL_STATUS_TIMEOUT) {
-            // 失败与超时归一类，对外都报 HCCL_E_NETWORK
             failCount++;
-        } else {
-            hasResUnavailable = true;
+            hasNetworkFail = true;
+        } else if (
+            statusList[i] == hcomm::HCOMM_CHANNEL_STATUS_RES_LOC_UNAVAIL
+            || statusList[i] == hcomm::HCOMM_CHANNEL_STATUS_RES_RMT_UNAVAIL) {
+            failCount++;
         }
     }
-    if (connectingCount > 0) {
+    if (readyCount + failCount < channelNum) {
         return HCCL_E_AGAIN;
     }
-    if (failCount > 0) {
+    if (readyCount == channelNum) {
+        return HCCL_SUCCESS;
+    }
+    if (hasNetworkFail) {
+        HCCL_ERROR(
+            "[%s] NETWORK, readyCount[%u], failCount[%u], channelNum[%u]", __func__, readyCount, failCount, channelNum);
         return HCCL_E_NETWORK;
     }
-    if (hasResUnavailable) {
-        return HCCL_E_UNAVAIL;
-    }
-    return HCCL_SUCCESS;
+    // 整批均已到达终态且不存在网络失败，剩余失败仅为资源不足
+    HCCL_WARNING(
+        "[%s] RESOURCE UNAVAILABLE, readyCount[%u], failCount[%u], channelNum[%u]", __func__, readyCount, failCount,
+        channelNum);
+    return HCCL_E_UNAVAIL;
 }
 
 } // namespace MyRankUtils
@@ -1303,9 +1307,22 @@ HcclResult MyRank::WaitForChannelsReady(
 
         // 3. 处理资源不足（属于可预期回退场景）
         if (ret == HCCL_E_UNAVAIL) {
+            auto elapsed
+                = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startTime)
+                      .count();
             HCCL_WARNING(
-                "[%s] channel connect resource unavailable, channelNum[%u], retryCount[%u]", __func__, channelNum,
-                retryCount);
+                "[%s] channel connect resource unavailable, channelNum[%u], elapsed[%lld]ms, retryCount[%u]", __func__,
+                channelNum, elapsed, retryCount);
+            for (uint32_t i = 0; i < channelNum; ++i) {
+                const int32_t status = statusList[i];
+                if (status != hcomm::HCOMM_CHANNEL_STATUS_RES_LOC_UNAVAIL
+                    && status != hcomm::HCOMM_CHANNEL_STATUS_RES_RMT_UNAVAIL) {
+                    continue;
+                }
+                HCCL_WARNING(
+                    "[%s] channel resource unavailable, channelIndex[%u], remoteRank[%u], status[%s]", __func__, i,
+                    channelDescs[i].remoteRank, logger::ChannelStatusUtils::ToString(status).c_str());
+            }
             return ret;
         }
 

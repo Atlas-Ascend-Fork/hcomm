@@ -260,8 +260,7 @@ TEST_F(HcommCAdptTest, ut_HcommChannelGetStatus_Aicpu_When_SocketTimeout_Return_
     HcommCAdptClearChannelMap();
 }
 
-// HandleAicpuStatus: 混合状态（READY+FAILED）→ 未全 READY，FAILED 真实返回，READY 报 CONNECTING
-TEST_F(HcommCAdptTest, ut_HcommChannelGetStatus_Aicpu_When_MixedReadyFailed_Return_FailedAndConnecting)
+TEST_F(HcommCAdptTest, ut_HcommChannelGetStatus_Aicpu_When_MixedReadyFailed_Return_ReadyAndFailed)
 {
     auto ch1 = std::make_shared<HcommCAdptFakeChannel>(COMM_ENGINE_AICPU, hcomm::ChannelStatus::READY);
     auto ch2 = std::make_shared<HcommCAdptFakeChannel>(COMM_ENGINE_AICPU, hcomm::ChannelStatus::FAILED);
@@ -270,10 +269,55 @@ TEST_F(HcommCAdptTest, ut_HcommChannelGetStatus_Aicpu_When_MixedReadyFailed_Retu
     int32_t statusList[2] = {0, 0};
     HcommResult ret = HcommChannelGetStatus(handles, 2, statusList);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    EXPECT_EQ(statusList[0], hcomm::HCOMM_CHANNEL_STATUS_CONNECTING);
+    EXPECT_EQ(statusList[0], hcomm::HCOMM_CHANNEL_STATUS_READY);
     EXPECT_EQ(statusList[1], hcomm::HCOMM_CHANNEL_STATUS_FAILED);
+    EXPECT_FALSE(ch1->IsDeviceEntityReady());
+    EXPECT_FALSE(ch2->IsDeviceEntityReady());
 
     HcommCAdptClearChannelMap();
+}
+
+TEST_F(HcommCAdptTest, ut_HcommChannelGetStatus_Aicpu_When_NotAllReady_Return_HostStatus)
+{
+    struct StatusCase {
+        hcomm::ChannelStatus hostStatus;
+        int32_t expectedStatus;
+    };
+    const StatusCase statusCases[] = {
+        {hcomm::ChannelStatus::INIT, hcomm::HCOMM_CHANNEL_STATUS_CONNECTING},
+        {hcomm::ChannelStatus::SOCKET_OK, hcomm::HCOMM_CHANNEL_STATUS_CONNECTING},
+        {hcomm::ChannelStatus::FAILED, hcomm::HCOMM_CHANNEL_STATUS_FAILED},
+        {hcomm::ChannelStatus::SOCKET_TIMEOUT, hcomm::HCOMM_CHANNEL_STATUS_TIMEOUT},
+        {hcomm::ChannelStatus::RES_LOC_UNAVAIL, hcomm::HCOMM_CHANNEL_STATUS_RES_LOC_UNAVAIL},
+        {hcomm::ChannelStatus::RES_RMT_UNAVAIL, hcomm::HCOMM_CHANNEL_STATUS_RES_RMT_UNAVAIL},
+    };
+    const CommEngine engines[] = {COMM_ENGINE_AICPU, COMM_ENGINE_AICPU_TS};
+    for (CommEngine engine : engines) {
+        SCOPED_TRACE(static_cast<int32_t>(engine));
+        for (const auto& statusCase : statusCases) {
+            SCOPED_TRACE(statusCase.hostStatus.Describe());
+            auto readyChannel = std::make_shared<HcommCAdptFakeChannel>(engine, hcomm::ChannelStatus::READY);
+            auto otherChannel = std::make_shared<HcommCAdptFakeChannel>(engine, statusCase.hostStatus);
+            ChannelHandle handles[2] = {
+                HcommCAdptRegisterChannel(readyChannel),
+                HcommCAdptRegisterChannel(otherChannel),
+            };
+            int32_t statusList[2] = {
+                hcomm::HCOMM_CHANNEL_STATUS_CONNECTING,
+                hcomm::HCOMM_CHANNEL_STATUS_CONNECTING,
+            };
+            EXPECT_EQ(HcommChannelGetStatus(handles, 2, statusList), HCCL_SUCCESS);
+            EXPECT_EQ(statusList[0], hcomm::HCOMM_CHANNEL_STATUS_READY);
+            EXPECT_EQ(statusList[1], statusCase.expectedStatus);
+            int32_t singleStatus = hcomm::HCOMM_CHANNEL_STATUS_CONNECTING;
+            EXPECT_EQ(HcommChannelGetStatus(&handles[1], 1, &singleStatus), HCCL_SUCCESS);
+            EXPECT_EQ(singleStatus, statusCase.expectedStatus);
+            // 单条 READY 表示 host 链路已就绪，此时两条通道的 device 侧实体均未就绪
+            EXPECT_FALSE(readyChannel->IsDeviceEntityReady());
+            EXPECT_FALSE(otherChannel->IsDeviceEntityReady());
+            HcommCAdptClearChannelMap();
+        }
+    }
 }
 
 // HandleAivStatus: 未全 READY（含 CONNECTING）→ 返回 CONNECTING

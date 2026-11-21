@@ -31,7 +31,7 @@ When **IS_SHARED_QUEUE** is set to **true** in **config**, the shared Jetty mode
 - For channels created by calling this API multiple times with the same **endpointHandle**, if the source and destination **endpointPair**s are the same, the same underlying Jetty resource is shared, enabling reuse of communication resources.
 - It is suitable for scenarios that require frequent creation/destruction of communication channels, significantly reducing the link establishment overhead.
 
-After this API is executed, only the channel objects are created, and **link connections are not established immediately**. The caller needs to subsequently drive the link establishment state machine through the [HcommChannelGetStatus](HcommChannelGetStatus.md) API and perform communication operations after the channel state becomes ready.
+After this API is executed, only the channel objects are created, and **link connections are not established immediately**. The caller needs to subsequently drive the link establishment state machine through the [HcommChannelGetStatus](HcommChannelGetStatus.md) API until all channels in the batch are ready. The caller can then perform communication operations.
 
 ## Function Prototype
 

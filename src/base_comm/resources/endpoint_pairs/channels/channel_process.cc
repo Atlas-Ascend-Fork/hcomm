@@ -96,6 +96,7 @@ HcclResult ChannelProcess::CreateChannelsLoop(
     int32_t deviceId = 0;
     CHK_RET(hrtGetDevice(&deviceId));
 
+    // 注册进程退出钩子，供通道销毁流程在退出期跳过 device 销毁 kernel 下发
     if (engine == COMM_ENGINE_AICPU || engine == COMM_ENGINE_AICPU_TS) {
         ProcessExitFlag::RegisterExitHook();
     }
@@ -1261,6 +1262,7 @@ HcclResult ChannelProcess::RemoveSingleChannel(
     }
     CHK_SMART_PTR_NULL(itC->second);
     const CommEngine engine = itC->second->GetEngine();
+    // 收集 AICPU/AICPU_TS 通道的 device 句柄，供销毁 kernel 批量清理 device 侧通道资源
     if (engine == COMM_ENGINE_AICPU || engine == COMM_ENGINE_AICPU_TS) {
         const auto itDestroy = ChannelRegistry().ChannelDestroyHandleMap().find(hostKey);
         if (itDestroy != ChannelRegistry().ChannelDestroyHandleMap().end()) {

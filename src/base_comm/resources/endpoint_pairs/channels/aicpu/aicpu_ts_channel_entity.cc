@@ -33,13 +33,7 @@ HcclResult AicpuTsChannelEntity::HandleStatus(
     }
     if (!allReady) {
         for (uint32_t i = 0; i < listNum; i++) {
-            if (linkStatusList[i] == HCOMM_CHANNEL_STATUS_FAILED) {
-                statusList[i] = HCOMM_CHANNEL_STATUS_FAILED;
-            } else if (linkStatusList[i] == HCOMM_CHANNEL_STATUS_TIMEOUT) {
-                statusList[i] = HCOMM_CHANNEL_STATUS_TIMEOUT;
-            } else {
-                statusList[i] = HCOMM_CHANNEL_STATUS_CONNECTING;
-            }
+            statusList[i] = linkStatusList[i];
         }
         return HCCL_SUCCESS;
     }

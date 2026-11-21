@@ -148,7 +148,7 @@ typedef enum {
  *       其中细分状态值仅供调用方辅助定位失败原因，不作为对外契约。
  */
 typedef enum {
-    HCOMM_CHANNEL_STATUS_READY = 0,           ///< 建链完成，通道就绪
+    HCOMM_CHANNEL_STATUS_READY = 0,           ///< 通道链路已就绪
     HCOMM_CHANNEL_STATUS_CONNECTING = 1,      ///< 建链进行中，需继续调用本接口推动建链
     HCOMM_CHANNEL_STATUS_FAILED_INTERNAL = 2, ///< 建链失败
 } HcommChannelStatus;
@@ -202,6 +202,11 @@ extern HcommResult HcommChannelCreateWithConfig(
     EndpointHandle endpointHandle, CommEngine engine, HcommChannelDesc* channelDescs, uint32_t channelNum,
     HcommChannelConfig config, ChannelHandle* channels);
 
+/**
+ * @brief 查询通道建链状态并推进状态机。
+ * @note AICPU 和 AICPU_TS 通道可在 device 侧通道实体初始化前返回 READY，表示 host 侧链路已就绪。
+ *       调用方应轮询同一批通道，一次调用成功且整批通道均为 READY 后方可进行通信。
+ */
 extern HcommResult HcommChannelGetStatus(const ChannelHandle* channelList, uint32_t listNum, int32_t* statusList);
 
 extern HcommResult HcommChannelDestroy(const ChannelHandle* channels, uint32_t channelNum);

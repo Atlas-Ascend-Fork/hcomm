@@ -29,7 +29,7 @@
 - 使用相同endpointHandle多次调用本接口创建的Channel，若源目的endpointPair相同，则共享同一个底层Jetty资源，实现通信资源的复用。
 - 适用于需要频繁创建/销毁通信通道的场景，可显著降低建链开销。
 
-该接口执行后仅完成通道对象的创建，**不会立即建立链路连接**。调用者需在后续通过[HcommChannelGetStatus](HcommChannelGetStatus.md)接口推动建链状态机，直至通道状态变为就绪后方可进行通信操作。
+该接口执行后仅完成通道对象的创建，**不会立即建立链路连接**。调用者需在后续通过[HcommChannelGetStatus](HcommChannelGetStatus.md)接口推动建链状态机，直至整批通道就绪后方可进行通信操作。
 
 ## 函数原型
 

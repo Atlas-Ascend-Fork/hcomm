@@ -22,7 +22,9 @@
 
 ## Description
 
-Queries the link establishment status of communication channels and advances the link establishment state machine by one step. Each call performs one round of link establishment advancement for all channels passed in and returns the current status. The caller must call this API repeatedly until the channel status becomes ready or failed. Communication operations can be performed only after the channel is ready.
+Queries the link establishment status of communication channels and advances the link establishment state machine by one step. Each call performs one round of link establishment advancement for all channels passed in and returns the current status. Continue calling this API until all channels in the batch are ready or a channel ultimately fails to establish its link. Communication can begin only after all channels in the batch are ready.
+
+For AICPU and AICPU_TS channels, an individual `HCOMM_CHANNEL_STATUS_READY` value means the host-side link is ready. The device-side channel entity may still need initialization. Poll the same batch of channels. The batch is ready when a single successful call reports `HCOMM_CHANNEL_STATUS_READY` for every channel.
 
 ## Function Prototype
 
@@ -36,7 +38,7 @@ HcommResult HcommChannelGetStatus(const ChannelHandle *channelList, uint32_t lis
 | --- | --- | --- |
 | channelList | Input | Array of channel handles whose statuses are to be queried. Each element identifies a created communication channel.<br>For the definition of the ChannelHandle type, see [ChannelHandle](../../datatype_definition/ChannelHandle.md).<br>This parameter cannot be a null pointer. Each channel handle in the array must be a valid handle created by [HcommChannelCreate](HcommChannelCreate.md). |
 | listNum | Input | Number of channels to be queried.<br>Unit: number. Value range: [1, 1048576].<br>This parameter must be greater than 0. |
-| statusList | Output | Array of channel statuses, used to return the current status of each channel, corresponding one-to-one with **channelList**.<br>This parameter cannot be a null pointer.<br>An array allocated by the caller, with space for at least **listNum** elements.<br>Status values are defined as follows:<br>**0**: link establishment is complete and the channel is ready.<br>**1**: link establishment is in progress. Call this API again to advance the link establishment.<br>**2**: link establishment failure.<br>**3**: link establishment timeout.<br>**4**: link establishment failure due to insufficient local resources. In the current version, only CCU resource insufficiency can be identified and reported.<br>**5**: link establishment failure due to insufficient peer resources. In the current version, only CCU resource insufficiency can be identified and reported. |
+| statusList | Output | Array of channel statuses, used to return the current status of each channel, corresponding one-to-one with **channelList**.<br>This parameter cannot be a null pointer.<br>An array allocated by the caller, with space for at least **listNum** elements.<br>Status values are defined as follows:<br>**0**: the channel link is ready. Communication can begin once all channels in the batch are ready.<br>**1**: link establishment is in progress. Call this API again to advance the link establishment.<br>**2**: link establishment failure.<br>**3**: link establishment timeout.<br>**4**: link establishment failure due to insufficient local resources. In the current version, only CCU resource insufficiency can be identified and reported.<br>**5**: link establishment failure due to insufficient peer resources. In the current version, only CCU resource insufficiency can be identified and reported. |
 
 ## Return Value
 

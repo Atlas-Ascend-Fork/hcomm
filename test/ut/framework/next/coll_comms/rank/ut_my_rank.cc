@@ -575,10 +575,33 @@ TEST_F(MyRankTest, Ut_When_BatchCreateChannels_Expect_SUCCESS)
     EXPECT_EQ(
         myRank->WaitForChannelsReady(channelDesc, hostChannelHandleList, 3, COMM_ENGINE_AICPU_TS), HCCL_E_UNAVAIL);
 
-    // 未知状态（else 分支）→ E_UNAVAIL
-    g_stubStatusFirst = 999;
-    g_stubStatus = 999;
-    g_stubStatusCallCount = 0;
+    // 未知状态继续轮询，下一轮全 READY 后成功。
+    for (int32_t unknownStatus : {-1, 999}) {
+        g_stubStatusFirst = unknownStatus;
+        g_stubStatus = static_cast<int32_t>(hcomm::HCOMM_CHANNEL_STATUS_READY);
+        g_stubStatusCallCount = 0;
+        EXPECT_EQ(
+            myRank->WaitForChannelsReady(channelDesc, hostChannelHandleList, 3, COMM_ENGINE_AICPU_TS), HCCL_SUCCESS);
+        EXPECT_EQ(g_stubStatusCallCount, 2u);
+    }
+
+    // READY 与失败终态混合时，首轮查询后直接返回对应错误。
+    int32_t mixedStatusList[3]
+        = {hcomm::HCOMM_CHANNEL_STATUS_READY, hcomm::HCOMM_CHANNEL_STATUS_FAILED, hcomm::HCOMM_CHANNEL_STATUS_READY};
+    MOCKER(HcommChannelGetStatus).reset();
+    MOCKER(HcommChannelGetStatus)
+        .expects(exactly(1))
+        .with(mockcpp::any(), eq(3u), outBoundP(mixedStatusList, sizeof(mixedStatusList)))
+        .will(returnValue(static_cast<HcommResult>(HCCL_SUCCESS)));
+    EXPECT_EQ(
+        myRank->WaitForChannelsReady(channelDesc, hostChannelHandleList, 3, COMM_ENGINE_AICPU_TS), HCCL_E_NETWORK);
+
+    mixedStatusList[1] = hcomm::HCOMM_CHANNEL_STATUS_RES_RMT_UNAVAIL;
+    MOCKER(HcommChannelGetStatus).reset();
+    MOCKER(HcommChannelGetStatus)
+        .expects(exactly(1))
+        .with(mockcpp::any(), eq(3u), outBoundP(mixedStatusList, sizeof(mixedStatusList)))
+        .will(returnValue(static_cast<HcommResult>(HCCL_SUCCESS)));
     EXPECT_EQ(
         myRank->WaitForChannelsReady(channelDesc, hostChannelHandleList, 3, COMM_ENGINE_AICPU_TS), HCCL_E_UNAVAIL);
     unsetenv("HCCL_DFS_CONFIG");
