@@ -2233,6 +2233,21 @@ namespace TaskGraphGeneratorV3 {
             }
         }
 
+        // DFX 计数指令（卡死检测 head/tail）判定：业务把计数槽的 device 进程映射址作为立即数烧进指令，
+        // 绕开了 SQE args 的 dev→vir 翻译链；该口径跨 device 数值重复，GetSlice 的映射址换算兜底也无法
+        // 唯一归属设备，且计数不承载集合通信数据语义。命中已登记计数区间时调用方应跳过切片解析与数据
+        // 节点构建，但必须保留 notify/CKE 记账，否则后续 Wait CKE 永远等不到 → 误判死锁。
+        // MS 寻址（msMode != 0）不经过 GM 地址，不参与判定。
+        bool IsDfxCounterTransMem(
+            const CcuGraphStateV3* curCcuTask, uint16_t msMode, uint64_t xsValue, uint64_t xdValue, uint64_t len)
+        {
+            if (msMode != 0) {
+                return false;
+            }
+            const StorageManager& storage = curCcuTask->GetStorageManager();
+            return storage.IsDfxCounterRange(xsValue, len) || storage.IsDfxCounterRange(xdValue, len);
+        }
+
         // TransformTransMem指令：使用UB进行数据搬移
         HcclResult TransformTransMemInstr(
             const CcuRep::CcuInstr* instr, CcuGraphStateV3* curCcuTask, uint32_t queId, bool& isContinue,
@@ -2305,26 +2320,37 @@ namespace TaskGraphGeneratorV3 {
                     CHK_GET_XN_V3(curCcuTask, queId, xsId, xsValue);
                     xsValue = (srcMode == 1) ? UpdateAddress(xsValue, loopGroupParam) :
                                                UpdateAddressWithoutStride(xsValue, loopGroupParam);
-                    CHK_RET(curCcuTask->GetSlice(xsValue, len, srcSlice));
                 }
                 CHK_GET_XN_V3(curCcuTask, queId, xdId, xdValue);
                 xdValue = (dstMode == 1) ? UpdateAddress(xdValue, loopGroupParam) :
                                            UpdateAddressWithoutStride(xdValue, loopGroupParam);
-                CHK_RET(curCcuTask->GetSlice(xdValue, len, dstSlice));
-                if (rmtDeviceId != deviceId) {
-                    if (reduceEn) {
-                        AddWriteReduce(
-                            deviceId, rmtDeviceId, queId, curCcuTask, srcSlice, dstSlice, checkerDataType,
-                            checkerReduceOp);
-                    } else {
-                        AddWrite(deviceId, rmtDeviceId, queId, curCcuTask, srcSlice, dstSlice);
-                    }
+                // DFX 计数指令跳过切片解析与数据节点构建，notify 与末尾 CKE set 记账照常执行，
+                // 详见 IsDfxCounterTransMem 注释。
+                if (IsDfxCounterTransMem(curCcuTask, msMode, xsValue, xdValue, len)) {
+                    HCCL_VM_INFO(
+                        "Skip DFX counter instruction, instruction=TransMem, dmaOpCode={}, xsAddr=0x{:x}, "
+                        "xdAddr=0x{:x}, len=0x{:x}, {}",
+                        dmaOpCode, xsValue, xdValue, len, curCcuTask->Describe());
                 } else {
-                    if (reduceEn) {
-                        AddLocalReduce(
-                            deviceId, queId, curCcuTask, srcSlice, dstSlice, checkerDataType, checkerReduceOp);
+                    if (msMode == 0) {
+                        CHK_RET(curCcuTask->GetSlice(xsValue, len, srcSlice));
+                    }
+                    CHK_RET(curCcuTask->GetSlice(xdValue, len, dstSlice));
+                    if (rmtDeviceId != deviceId) {
+                        if (reduceEn) {
+                            AddWriteReduce(
+                                deviceId, rmtDeviceId, queId, curCcuTask, srcSlice, dstSlice, checkerDataType,
+                                checkerReduceOp);
+                        } else {
+                            AddWrite(deviceId, rmtDeviceId, queId, curCcuTask, srcSlice, dstSlice);
+                        }
                     } else {
-                        AddLocalCopy(deviceId, queId, curCcuTask, srcSlice, dstSlice);
+                        if (reduceEn) {
+                            AddLocalReduce(
+                                deviceId, queId, curCcuTask, srcSlice, dstSlice, checkerDataType, checkerReduceOp);
+                        } else {
+                            AddLocalCopy(deviceId, queId, curCcuTask, srcSlice, dstSlice);
+                        }
                     }
                 }
                 // 写notify信息
@@ -2352,29 +2378,40 @@ namespace TaskGraphGeneratorV3 {
                 CHK_GET_XN_V3(curCcuTask, queId, xsId, xsValue);
                 xsValue = (srcMode == 1) ? UpdateAddress(xsValue, loopGroupParam) :
                                            UpdateAddressWithoutStride(xsValue, loopGroupParam);
-                CHK_RET(curCcuTask->GetSlice(xsValue, len, srcSlice));
-                if (msMode == 1) {
-                    CHK_RET(GenSliceFromMs(UpdateMSId(instr->v2.transMem.xdId, loopGroupParam), len, dstSlice));
-                } else {
+                if (msMode == 0) {
                     CHK_GET_XN_V3(curCcuTask, queId, xdId, xdValue);
                     xdValue = (dstMode == 1) ? UpdateAddress(xdValue, loopGroupParam) :
                                                UpdateAddressWithoutStride(xdValue, loopGroupParam);
-                    CHK_RET(curCcuTask->GetSlice(xdValue, len, dstSlice));
                 }
-                if (rmtDeviceId != deviceId) {
-                    if (reduceEn) {
-                        AddReadReduce(
-                            deviceId, rmtDeviceId, queId, curCcuTask, srcSlice, dstSlice, checkerDataType,
-                            checkerReduceOp);
-                    } else {
-                        AddRead(deviceId, rmtDeviceId, queId, curCcuTask, srcSlice, dstSlice);
-                    }
+                // DFX 计数指令跳过切片解析与数据节点构建，末尾 CKE set 记账照常执行，
+                // 详见 IsDfxCounterTransMem 注释。
+                if (IsDfxCounterTransMem(curCcuTask, msMode, xsValue, xdValue, len)) {
+                    HCCL_VM_INFO(
+                        "Skip DFX counter instruction, instruction=TransMem, dmaOpCode={}, xsAddr=0x{:x}, "
+                        "xdAddr=0x{:x}, len=0x{:x}, {}",
+                        dmaOpCode, xsValue, xdValue, len, curCcuTask->Describe());
                 } else {
-                    if (reduceEn) {
-                        AddLocalReduce(
-                            deviceId, queId, curCcuTask, srcSlice, dstSlice, checkerDataType, checkerReduceOp);
+                    CHK_RET(curCcuTask->GetSlice(xsValue, len, srcSlice));
+                    if (msMode == 1) {
+                        CHK_RET(GenSliceFromMs(UpdateMSId(instr->v2.transMem.xdId, loopGroupParam), len, dstSlice));
                     } else {
-                        AddLocalCopy(deviceId, queId, curCcuTask, srcSlice, dstSlice);
+                        CHK_RET(curCcuTask->GetSlice(xdValue, len, dstSlice));
+                    }
+                    if (rmtDeviceId != deviceId) {
+                        if (reduceEn) {
+                            AddReadReduce(
+                                deviceId, rmtDeviceId, queId, curCcuTask, srcSlice, dstSlice, checkerDataType,
+                                checkerReduceOp);
+                        } else {
+                            AddRead(deviceId, rmtDeviceId, queId, curCcuTask, srcSlice, dstSlice);
+                        }
+                    } else {
+                        if (reduceEn) {
+                            AddLocalReduce(
+                                deviceId, queId, curCcuTask, srcSlice, dstSlice, checkerDataType, checkerReduceOp);
+                        } else {
+                            AddLocalCopy(deviceId, queId, curCcuTask, srcSlice, dstSlice);
+                        }
                     }
                 }
 

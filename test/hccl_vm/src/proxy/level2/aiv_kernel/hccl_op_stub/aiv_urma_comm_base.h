@@ -252,6 +252,10 @@ public:
         notifyBase_ = FLAG1_OFFSET;
     }
 
+    __aicore__ inline void HeadCounter() {}
+
+    __aicore__ inline void TailCounter() {}
+
     __aicore__ inline uint64_t GetPeerCommInfoBase(uint32_t) { return 0; }
 
     __aicore__ inline uint64_t ReadPeerOutputAddr(uint32_t) { return 0; }
