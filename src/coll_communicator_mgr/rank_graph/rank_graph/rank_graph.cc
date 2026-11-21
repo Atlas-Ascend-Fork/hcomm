@@ -643,8 +643,12 @@ HcclResult RankGraph::GetIpIndex(RankId rankId, const IpAddress& ipAddr, uint32_
         HCCL_WARNING("[RankGraph::GetIpIndex] rankId [%u] not in ipIndexMap", rankId);
         return HCCL_E_NOT_FOUND;
     }
-    auto addrIt = rankIt->second.find(ipAddr);
-    if (addrIt == rankIt->second.end()) {
+    const auto& entries = rankIt->second;
+    auto addrIt = std::lower_bound(
+        entries.begin(), entries.end(), ipAddr, [](const std::pair<IpAddress, uint32_t>& entry, const IpAddress& addr) {
+            return entry.first < addr;
+        });
+    if (addrIt == entries.end() || ipAddr < addrIt->first) {
         HCCL_WARNING("[RankGraph::GetIpIndex] ipAddr[%s] not found for rankId [%u]", ipAddr.GetIpStr().c_str(), rankId);
         return HCCL_E_NOT_FOUND;
     }
@@ -1210,14 +1214,14 @@ HcclResult RankGraph::CreateSubRankGraphImpl(
     }
 
     // 继承父图 ipIndexMap_，子图 rankId 是 rankIds 数组下标，需做映射
-    std::unordered_map<RankId, std::map<IpAddress, uint32_t>> subIpIndexMap;
+    std::unordered_map<RankId, RankIpIndexList> subIpIndexMap;
     for (RankId subRankId = 0; subRankId < static_cast<RankId>(subRankIds.size()); ++subRankId) {
         auto it = ipIndexMap_.find(subRankIds[subRankId]);
         if (it != ipIndexMap_.end()) {
             subIpIndexMap[subRankId] = it->second;
         }
     }
-    subRankGraph->SetIpIndexMap(std::move(subIpIndexMap));
+    CHK_RET(subRankGraph->SetIpIndexMap(std::move(subIpIndexMap)));
 
     // step2: subRankGraph添加subPeers
     RankId2PeerMap peers; // 保存Peer指针以便后续执行Add操作

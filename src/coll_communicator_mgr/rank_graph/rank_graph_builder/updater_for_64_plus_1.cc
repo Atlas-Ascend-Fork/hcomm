@@ -161,8 +161,23 @@ HcclResult UpdaterFor64Plus1::AddPeer2BackupLinks(
     TRY_CATCH_RETURN(peer2PlanePort = GetPortFromSet(peer2PlanePorts, 0););
 
     // 匹配了对应的端口后，去ranktableinfo中查对应端口的地址信息
-    IpAddress backD2PlaneAddr = backupPeer->GetPortAddrMapLayer0()[backD2PlanePort][0];
-    IpAddress peer2PlaneAddr = peer->GetPortAddrMapLayer0()[peer2PlanePort][0];
+    const auto& backD2PlanePortMap = backupPeer->GetPortAddrMapLayer0();
+    const auto backD2PlaneIter = backD2PlanePortMap.find(backD2PlanePort);
+    if (backD2PlaneIter == backD2PlanePortMap.end() || backD2PlaneIter->second.empty()) {
+        HCCL_ERROR(
+            "[UpdaterFor64Plus1][%s] cannot find addr of port[%s] in ranktable", __func__, backD2PlanePort.c_str());
+        return HCCL_E_PARA;
+    }
+    IpAddress backD2PlaneAddr = backD2PlaneIter->second[0];
+
+    const auto& peer2PlanePortMap = peer->GetPortAddrMapLayer0();
+    const auto peer2PlaneIter = peer2PlanePortMap.find(peer2PlanePort);
+    if (peer2PlaneIter == peer2PlanePortMap.end() || peer2PlaneIter->second.empty()) {
+        HCCL_ERROR(
+            "[UpdaterFor64Plus1][%s] cannot find addr of port[%s] in ranktable", __func__, peer2PlanePort.c_str());
+        return HCCL_E_PARA;
+    }
+    IpAddress peer2PlaneAddr = peer2PlaneIter->second[0];
 
     // 组装成NetInstance的conninterface，加入peer和backupPeer
     if (backD2PlaneEdges->GetSourceIFace() == nullptr || peer2PlaneEdges->GetSourceIFace() == nullptr) {

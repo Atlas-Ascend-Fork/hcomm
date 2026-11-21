@@ -101,6 +101,14 @@ void NetInstance::AddLink(const shared_ptr<NetInstance::Link>& link)
     NodeId srcNodeId = link->GetSourceNode()->GetNodeId();
     NodeId dstNodeId = link->GetTargetNode()->GetNodeId();
 
+    // 不变量：边的两端必须已通过 AddNode/AddPeer/AddFabric 注册；否则 TraverseNode 类遍历会漏掉该边端点
+    // （F7 仅入边邻居兜底依赖此不变量）。此处显式告警，防止新增构图路径时静默回归。
+    if (!vGraph.HasNode(srcNodeId) || !vGraph.HasNode(dstNodeId)) {
+        HCCL_WARNING(
+            "[NetInstance::AddLink] edge endpoint not registered: src[%llu] dst[%llu], link[%s]", srcNodeId, dstNodeId,
+            link->Describe().c_str());
+    }
+
     bool hasLink = false;
     vGraph.TraverseEdge(srcNodeId, dstNodeId, [&](shared_ptr<NetInstance::Link> edge) {
         if (*edge == *link) {
@@ -586,7 +594,7 @@ void NetInstance::Peer::SetPortPortAddrMapLayer0(std::map<std::string, std::vect
     portAddrMapLayer0_ = std::move(portAddrMap);
 }
 
-std::map<std::string, std::vector<IpAddress>> NetInstance::Peer::GetPortAddrMapLayer0() const
+const std::map<std::string, std::vector<IpAddress>>& NetInstance::Peer::GetPortAddrMapLayer0() const
 {
     return portAddrMapLayer0_;
 }

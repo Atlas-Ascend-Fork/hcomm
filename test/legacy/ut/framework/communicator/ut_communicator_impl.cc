@@ -28,6 +28,7 @@
 #include "invalid_params_exception.h"
 #include "orion_adapter_tsd.h"
 #include "orion_adapter_hccp.h"
+#include "rdma_handle_manager.h"
 #include "hccp.h"
 #include "op_base_v2.h"
 #include "hccp_ctx.h"
@@ -4217,7 +4218,8 @@ TEST_F(LogicSuperPodRecoveryTest, Ut_LogicSuperPod_When_ServerReplaced_Expect_Re
             }
         }
         RankGraphBuildResult recovered;
-        ASSERT_EQ(bridge->recoverBuild(restored, topo, 0, false, "", recovered), HCCL_SUCCESS);
+        // recoverBuild 按右值消费入参，而 restored 在同一 layer 循环内复用，故传入拷贝
+        ASSERT_EQ(bridge->recoverBuild(RankTableInfo(restored), topo, 0, false, "", recovered), HCCL_SUCCESS);
         ASSERT_NE(recovered.rankGraph, nullptr);
         const auto* instance = recovered.rankGraph->GetNetInstanceByRankId(layer, 0);
         ASSERT_NE(instance, nullptr);
@@ -4247,4 +4249,229 @@ TEST_F(LogicSuperPodRecoveryTest, Ut_LogicSuperPod_When_ReplacementIdTooLong_Exp
     EXPECT_EQ(DiffRankUpdater(changePath_.c_str(), table_), HCCL_E_PARA);
     EXPECT_EQ(table_.ranks[0].devicePort, hccl::DEFAULT_VALUE_TCPPORT);
     EXPECT_EQ(table_.ranks[0].rankLevelInfos[1].netInstId, "sp_0_idx_0_A");
+}
+
+TEST_F(CommunicatorImplTest, Ut_AppendLocalDieId_When_MultiRankWithNeighbor_Expect_NeighborDieIdSet)
+{
+    // 邻居遍历：3 rank，peer0(myRank) 与 peer1 直连，peer2 无直连边
+    CommunicatorImpl comm;
+    comm.rankGraph = std::make_unique<RankGraph>(0);
+
+    u32 netLayer = 0;
+    string netInstId = "test";
+    auto netInstance = std::make_shared<InnerNetInstance>(netLayer, netInstId);
+
+    auto peer0 = std::make_shared<NetInstance::Peer>(0, 0, 0, 0);
+    auto peer1 = std::make_shared<NetInstance::Peer>(1, 1, 1, 0);
+    auto peer2 = std::make_shared<NetInstance::Peer>(2, 2, 2, 0);
+    for (const auto& peer : {peer0, peer1, peer2}) {
+        peer->AddNetInstance(netInstance);
+        netInstance->AddRankId(peer->GetRankId());
+        ASSERT_EQ(HCCL_SUCCESS, netInstance->AddNode(peer));
+        comm.rankGraph->AddPeer(peer);
+    }
+    comm.rankGraph->AddNetInstance(netInstance);
+
+    IpAddress addr(0);
+    std::set<std::string> ports = {"0/1"};
+    std::set<LinkProtocol> protocols = {LinkProtocol::UB_CTP};
+    auto srcIface = std::make_shared<NetInstance::ConnInterface>(
+        addr, ports, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols);
+    auto dstIface = std::make_shared<NetInstance::ConnInterface>(
+        addr, ports, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols);
+    auto link = std::make_shared<NetInstance::Link>(peer0, peer1, srcIface, dstIface, LinkType::PEER2PEER, protocols);
+    netInstance->AddLink(link);
+
+    comm.myRank = 0;
+    comm.rankSize = 3;
+
+    // 打桩 dieId 查询，避免真实 RTS/RDMA 依赖（HrtGetDevice 系列已由 fixture SetUp 统一打桩）
+    MOCKER_CPP(&RdmaHandleManager::Get).stubs().will(returnValue(reinterpret_cast<RdmaHandle>(0x1)));
+    MOCKER_CPP(&RdmaHandleManager::GetDieAndFuncId)
+        .stubs()
+        .will(returnValue(std::make_pair(static_cast<uint32_t>(7), static_cast<uint32_t>(0))));
+
+    EXPECT_NO_THROW(comm.AppendLocalDieIdForLinks());
+
+    EXPECT_EQ(srcIface->GetLocalDieId(), 7u);
+}
+
+TEST_F(CommunicatorImplTest, Ut_AppendLocalDieId_When_OnlyInboundLink_Expect_TargetIfaceDieIdSet)
+{
+    // 仅存在 peer1->peer0 单向入边时，peer1 仍须进入邻居集合
+    CommunicatorImpl comm;
+    comm.rankGraph = std::make_unique<RankGraph>(0);
+
+    u32 netLayer = 0;
+    string netInstId = "test";
+    auto netInstance = std::make_shared<InnerNetInstance>(netLayer, netInstId);
+
+    auto peer0 = std::make_shared<NetInstance::Peer>(0, 0, 0, 0);
+    auto peer1 = std::make_shared<NetInstance::Peer>(1, 1, 1, 0);
+    for (const auto& peer : {peer0, peer1}) {
+        peer->AddNetInstance(netInstance);
+        netInstance->AddRankId(peer->GetRankId());
+        ASSERT_EQ(HCCL_SUCCESS, netInstance->AddNode(peer));
+        comm.rankGraph->AddPeer(peer);
+    }
+    comm.rankGraph->AddNetInstance(netInstance);
+
+    IpAddress addr(0);
+    std::set<std::string> ports = {"0/1"};
+    std::set<LinkProtocol> protocols = {LinkProtocol::UB_CTP};
+    auto srcIface = std::make_shared<NetInstance::ConnInterface>(
+        addr, ports, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols);
+    auto dstIface = std::make_shared<NetInstance::ConnInterface>(
+        addr, ports, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols);
+    netInstance->AddLink(
+        std::make_shared<NetInstance::Link>(peer1, peer0, srcIface, dstIface, LinkType::PEER2PEER, protocols));
+
+    comm.myRank = 0;
+    comm.rankSize = 2;
+
+    MOCKER_CPP(&RdmaHandleManager::Get).stubs().will(returnValue(reinterpret_cast<RdmaHandle>(0x1)));
+    MOCKER_CPP(&RdmaHandleManager::GetDieAndFuncId)
+        .stubs()
+        .will(returnValue(std::make_pair(static_cast<uint32_t>(7), static_cast<uint32_t>(0))));
+
+    EXPECT_NO_THROW(comm.AppendLocalDieIdForLinks());
+
+    EXPECT_EQ(dstIface->GetLocalDieId(), 7u);
+    EXPECT_EQ(srcIface->GetLocalDieId(), 0u);
+}
+
+TEST_F(CommunicatorImplTest, Ut_AppendLocalDieId_When_FabricNeighbor_Expect_FabricIfaceDieIdSet)
+{
+    CommunicatorImpl comm;
+    comm.rankGraph = std::make_unique<RankGraph>(0);
+
+    u32 netLayer = 0;
+    string netInstId = "test";
+    auto netInstance = std::make_shared<InnerNetInstance>(netLayer, netInstId);
+    auto peer0 = std::make_shared<NetInstance::Peer>(0, 0, 0, 0);
+    peer0->AddNetInstance(netInstance);
+    netInstance->AddRankId(peer0->GetRankId());
+    ASSERT_EQ(HCCL_SUCCESS, netInstance->AddNode(peer0));
+    comm.rankGraph->AddPeer(peer0);
+    comm.rankGraph->AddNetInstance(netInstance);
+
+    auto fabric = std::make_shared<NetInstance::Fabric>(static_cast<FabricId>(0));
+    netInstance->AddFabric(fabric);
+
+    IpAddress addr(0);
+    std::set<std::string> ports = {"0/1"};
+    std::set<LinkProtocol> protocols = {LinkProtocol::UB_CTP};
+    auto srcIface = std::make_shared<NetInstance::ConnInterface>(
+        addr, ports, AddrPosition::DEVICE, LinkType::PEER2NET, protocols);
+    auto dstIface = std::make_shared<NetInstance::ConnInterface>(
+        addr, ports, AddrPosition::DEVICE, LinkType::PEER2NET, protocols);
+    netInstance->AddLink(
+        std::make_shared<NetInstance::Link>(peer0, fabric, srcIface, dstIface, LinkType::PEER2NET, protocols));
+
+    comm.myRank = 0;
+    comm.rankSize = 2; // 避免 rankSize==1 提前返回
+
+    MOCKER_CPP(&RdmaHandleManager::Get).stubs().will(returnValue(reinterpret_cast<RdmaHandle>(0x1)));
+    MOCKER_CPP(&RdmaHandleManager::GetDieAndFuncId)
+        .stubs()
+        .will(returnValue(std::make_pair(static_cast<uint32_t>(5), static_cast<uint32_t>(0))));
+
+    EXPECT_NO_THROW(comm.AppendLocalDieIdForLinks());
+    EXPECT_EQ(srcIface->GetLocalDieId(), 5u);
+}
+
+TEST_F(CommunicatorImplTest, Ut_AppendLocalDieId_When_MultiLevel_Expect_AllLevelsProcessed)
+{
+    CommunicatorImpl comm;
+    comm.rankGraph = std::make_unique<RankGraph>(0);
+
+    auto inner = std::make_shared<InnerNetInstance>(0, "inner");
+    auto clos = std::make_shared<ClosNetInstance>(1, "clos");
+    auto peer0 = std::make_shared<NetInstance::Peer>(0, 0, 0, 0);
+    auto peer1 = std::make_shared<NetInstance::Peer>(1, 1, 1, 0);
+    for (const auto& peer : {peer0, peer1}) {
+        peer->AddNetInstance(inner);
+        inner->AddRankId(peer->GetRankId());
+        ASSERT_EQ(HCCL_SUCCESS, inner->AddNode(peer));
+        peer->AddNetInstance(clos);
+        clos->AddRankId(peer->GetRankId());
+        ASSERT_EQ(HCCL_SUCCESS, clos->AddNode(peer));
+        comm.rankGraph->AddPeer(peer);
+    }
+    comm.rankGraph->AddNetInstance(inner);
+    comm.rankGraph->AddNetInstance(clos);
+
+    IpAddress addr(0);
+    std::set<std::string> ports = {"0/1"};
+    std::set<LinkProtocol> protocols = {LinkProtocol::UB_CTP};
+    auto innerSrc = std::make_shared<NetInstance::ConnInterface>(
+        addr, ports, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols);
+    auto innerDst = std::make_shared<NetInstance::ConnInterface>(
+        addr, ports, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols);
+    inner->AddLink(
+        std::make_shared<NetInstance::Link>(peer0, peer1, innerSrc, innerDst, LinkType::PEER2PEER, protocols));
+    auto closSrc = std::make_shared<NetInstance::ConnInterface>(
+        addr, ports, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols);
+    auto closDst = std::make_shared<NetInstance::ConnInterface>(
+        addr, ports, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols);
+    clos->AddLink(std::make_shared<NetInstance::Link>(peer0, peer1, closSrc, closDst, LinkType::PEER2PEER, protocols));
+
+    comm.myRank = 0;
+    comm.rankSize = 2;
+
+    MOCKER_CPP(&RdmaHandleManager::Get).stubs().will(returnValue(reinterpret_cast<RdmaHandle>(0x1)));
+    MOCKER_CPP(&RdmaHandleManager::GetDieAndFuncId)
+        .stubs()
+        .will(returnValue(std::make_pair(static_cast<uint32_t>(7), static_cast<uint32_t>(0))));
+
+    EXPECT_NO_THROW(comm.AppendLocalDieIdForLinks());
+    EXPECT_EQ(innerSrc->GetLocalDieId(), 7u);
+    EXPECT_EQ(closSrc->GetLocalDieId(), 7u);
+}
+
+TEST_F(CommunicatorImplTest, Ut_AppendLocalDieId_When_Hop2Link_Expect_DieIdSet)
+{
+    CommunicatorImpl comm;
+    comm.rankGraph = std::make_unique<RankGraph>(0);
+
+    auto netInstance = std::make_shared<InnerNetInstance>(0, "inner");
+    auto peer0 = std::make_shared<NetInstance::Peer>(0, 0, 0, 0);
+    auto peer1 = std::make_shared<NetInstance::Peer>(1, 1, 1, 0);
+    auto peer2 = std::make_shared<NetInstance::Peer>(2, 2, 2, 0);
+    for (const auto& peer : {peer0, peer1, peer2}) {
+        peer->AddNetInstance(netInstance);
+        netInstance->AddRankId(peer->GetRankId());
+        ASSERT_EQ(HCCL_SUCCESS, netInstance->AddNode(peer));
+        comm.rankGraph->AddPeer(peer);
+    }
+    comm.rankGraph->AddNetInstance(netInstance);
+
+    IpAddress addr(0);
+    std::set<std::string> ports = {"0/1"};
+    std::set<LinkProtocol> protocols = {LinkProtocol::UB_CTP};
+    auto hop1Src = std::make_shared<NetInstance::ConnInterface>(
+        addr, ports, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols);
+    auto hop1Dst = std::make_shared<NetInstance::ConnInterface>(
+        addr, ports, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols);
+    netInstance->AddLink(
+        std::make_shared<NetInstance::Link>(peer0, peer1, hop1Src, hop1Dst, LinkType::PEER2PEER, protocols));
+    // peer2 仅通过 hop=2 的绕路类链路与本卡相连
+    auto hop2Src = std::make_shared<NetInstance::ConnInterface>(
+        addr, ports, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols);
+    auto hop2Dst = std::make_shared<NetInstance::ConnInterface>(
+        addr, ports, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols);
+    netInstance->AddLink(std::make_shared<NetInstance::Link>(
+        peer0, peer2, hop2Src, hop2Dst, LinkType::PEER2PEER, protocols, LinkDirection::BOTH, 2));
+
+    comm.myRank = 0;
+    comm.rankSize = 3;
+
+    MOCKER_CPP(&RdmaHandleManager::Get).stubs().will(returnValue(reinterpret_cast<RdmaHandle>(0x1)));
+    MOCKER_CPP(&RdmaHandleManager::GetDieAndFuncId)
+        .stubs()
+        .will(returnValue(std::make_pair(static_cast<uint32_t>(11), static_cast<uint32_t>(0))));
+
+    EXPECT_NO_THROW(comm.AppendLocalDieIdForLinks());
+    EXPECT_EQ(hop1Src->GetLocalDieId(), 11u);
+    EXPECT_EQ(hop2Src->GetLocalDieId(), 11u);
 }

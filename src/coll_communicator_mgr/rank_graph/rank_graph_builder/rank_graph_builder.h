@@ -11,6 +11,7 @@
 #ifndef RANK_GRAPH_BUILDER_H
 #define RANK_GRAPH_BUILDER_H
 
+#include <cstdint>
 #include <memory>
 #include <functional>
 #include <map>
@@ -41,8 +42,7 @@ public:
     std::unique_ptr<RankTableInfo> GetRankTableInfo();
     std::shared_ptr<hccl::TopoInfo> GetTopoInfo();
     std::unique_ptr<RankGraph> RecoverBuild(
-        const RankTableInfo& rankTableInfo, const hccl::TopoInfo& topoInfo, RankId myRank,
-        bool enableVirtualGroups = false);
+        RankTableInfo rankTableInfo, const hccl::TopoInfo& topoInfo, RankId myRank, bool enableVirtualGroups = false);
     HcclResult SetEndpointDesc();
 
 private:
@@ -63,16 +63,22 @@ private:
     u32 availableLayers_{0};
     LayerSelector layerSelector_;
 
+    // vnic查询缓存<(localDeviceId, targetDeviceId), ip>：构建期单线程无需加锁；
+    // 仅缓存查询成功结果，失败沿原异常路径传播保持可重试语义
+    std::map<std::uint64_t, IpAddress> vnicIpCache_{};
+
     // 判断该真实层号是否需要建图；未配置选层时沿用默认构图。
     bool IsLayerSelected(u32 netLayer) const;
     // 根据拓扑还原后本 rank 的候选层解析策略并保存掩码；不检查算子可达性。
     HcclResult CheckSelectedLayers();
     // 从保留的本地归属初始化 innerRanks，不补回被禁用的 layer 0 通信边。
     HcclResult InitInnerRanksFromLocalGroups();
+
+    IpAddress GetVnicIp(u32 localDeviceId, u32 targetDeviceId);
     HcclResult CheckMyRankInRankTable() const;
     HcclResult CheckNetLayerFromPhyTopo(const u32 netLayer) const;
     HcclResult BuildRankGraph(bool enableVirtualGroups);
-    void BuildIpIndexMap();
+    HcclResult BuildIpIndexMap();
     HcclResult BuildFromRankTable();
     void RestoreSymmetricLevel0View();
     HcclResult BuildPeer2PeerLinks();
@@ -90,11 +96,18 @@ private:
 
 std::map<PlaneId, FabricId> GetFabricsFromAddrInfo(const std::vector<AddressInfo>& rankAddrs);
 std::vector<std::shared_ptr<PhyTopo::Link>> GetPeer2NetPhyLinks(u32 netLayer, LocalId localId);
+// 建链上下文：与物理边/peer数据分离，避免自由函数参数膨胀
+struct ConnIfaceBuildCtx {
+    u32 localDeviceId{0};
+    std::optional<LinkType> linkTypeOverride{std::nullopt};
+    std::optional<u32> targetDeviceId{std::nullopt};
+    std::map<std::uint64_t, IpAddress>* vnicIpCache{nullptr};
+};
+
 std::vector<std::shared_ptr<NetInstance::ConnInterface>> ConstructConnIFromPhyTopoConnIAndPortMap(
     std::shared_ptr<PhyTopo::ConnInterface> phyConnIFace,
     const std::map<std::string, std::vector<IpAddress>>& portAddrMap, const TopoType topoType, const u32 topoInstId,
-    u32 localDeviceId, std::optional<LinkType> linkTypeOverride = std::nullopt,
-    std::optional<u32> targetDeviceId = std::nullopt);
+    const ConnIfaceBuildCtx& ctx);
 std::vector<std::shared_ptr<NetInstance::Link>> ConstructLinks(
     std::shared_ptr<NetInstance::Peer> srcPeer, std::shared_ptr<NetInstance::Peer> dstPeer,
     std::vector<std::shared_ptr<NetInstance::ConnInterface>> sourceIfaces,

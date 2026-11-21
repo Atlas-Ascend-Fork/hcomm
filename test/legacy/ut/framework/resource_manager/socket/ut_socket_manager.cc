@@ -207,9 +207,9 @@ TEST_F(SocketManagerTest, Ut_BuildSocketConfig_When_RankGraphHasIpIndex_Expect_K
     MOCKER_CPP(&SocketManager::BatchAddWhiteList).stubs();
 
     // 模拟多网卡 rank：rank0 本端 IP 编号为 1，rank3 对端 IP 编号为 2（非默认 0）
-    std::unordered_map<RankId, std::map<IpAddress, uint32_t>> ipIndexMap;
-    ipIndexMap[0][GetAnIpAddress(0)] = 1;
-    ipIndexMap[3][GetAnIpAddress(3)] = 2;
+    std::unordered_map<RankId, RankIpIndexList> ipIndexMap;
+    ipIndexMap[0] = {{GetAnIpAddress(0), 1}};
+    ipIndexMap[3] = {{GetAnIpAddress(3), 2}};
     impl.rankGraph = make_unique<RankGraph>(0);
     impl.rankGraph->SetIpIndexMap(std::move(ipIndexMap));
 

@@ -11,11 +11,13 @@
 #ifndef RANK_GRAPH_H
 #define RANK_GRAPH_H
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 #include "log.h"
 #include "net_instance.h"
@@ -31,6 +33,7 @@ namespace Hccl {
 
 using Level2Id2NetInst = std::vector<std::unordered_map<std::string, std::shared_ptr<NetInstance>>>;
 using RankId2PeerMap = std::unordered_map<RankId, std::shared_ptr<NetInstance::Peer>>;
+using RankIpIndexList = std::vector<std::pair<IpAddress, uint32_t>>; // (addr, ipIndex) 有序表，按 IpAddress 升序
 constexpr u32 MAX_NET_LAYER = 8;
 static_assert(MAX_NET_LAYER == MAX_VALUE_NETLAYER + 1, "RankGraph layer count must match RankTable layer range");
 
@@ -116,10 +119,28 @@ public:
 
     // 按 addr 和 rankId 查询 ipIndex（打平所有 netLayer 去重排序后的下标）
     HcclResult GetIpIndex(RankId rankId, const IpAddress& ipAddr, uint32_t& ipIndex) const;
-    // 设置 ipIndex 映射表（由 RankGraphBuilder 在构建完成后统一设置）
-    void SetIpIndexMap(std::unordered_map<RankId, std::map<IpAddress, uint32_t>>&& ipIndexMap)
+    // 设置 ipIndex 映射表（仅由 BuildIpIndexMap / CreateSubRankGraph 等内部生产者调用）
+    // 约定：每个 rank 的列表按 IpAddress 非降序（去重由 BuildIpIndexMap 保证），GetIpIndex 的 lower_bound
+    // 依赖该有序性；入口校验一次，违约属内部实现缺陷（非调用方入参错误），返回 HCCL_E_INTERNAL 且不安装映射，
+    // 避免在无序区间上 lower_bound 的未定义行为。
+    HcclResult SetIpIndexMap(std::unordered_map<RankId, RankIpIndexList>&& ipIndexMap)
     {
+        for (const auto& entry : ipIndexMap) {
+            const bool sorted = std::is_sorted(
+                entry.second.begin(), entry.second.end(),
+                [](const std::pair<IpAddress, uint32_t>& lhs, const std::pair<IpAddress, uint32_t>& rhs) {
+                    return lhs.first < rhs.first;
+                });
+            if (!sorted) {
+                HCCL_ERROR(
+                    "[RankGraph][SetIpIndexMap] internal invariant violated: ipIndex list of rank[%u] is not "
+                    "sorted by IpAddress",
+                    entry.first);
+                return HCCL_E_INTERNAL;
+            }
+        }
         ipIndexMap_ = std::move(ipIndexMap);
+        return HCCL_SUCCESS;
     }
 
     // 未指定选层时继承父域策略；显式选层只能保留父图已有层，不重新编号。
@@ -157,9 +178,8 @@ private:
     bool level0PcieFallback_{false};             // 本rank的level0是否为无UB兜底层
     u32 logicSuperPodSplitLayer_{MAX_NET_LAYER}; // 逻辑超节点拆分生效的目标层，MAX_NET_LAYER表示未生效
     bool logicSuperPodSplitEnabled_{false};      // 是否已启用逻辑超节点拆分
-    std::map<RankId, std::string> logicSuperPodGroupIds_; // rankId→逻辑ID，SetLogicSuperPodSplit时拷入
-    std::unordered_map<RankId, std::map<IpAddress, uint32_t>>
-        ipIndexMap_; // ipIndex 映射表，由 RankGraphBuilder 统一设置
+    std::map<RankId, std::string> logicSuperPodGroupIds_;    // rankId→逻辑ID，SetLogicSuperPodSplit时拷入
+    std::unordered_map<RankId, RankIpIndexList> ipIndexMap_; // ipIndex 映射表，由 RankGraphBuilder 统一设置
     std::optional<BuildLayerSelection> buildLayerSelection_;
     std::unordered_map<RankId, std::string> layer0NetInstIds_;
     // 保存原 Peer 的层号和接口供再次选层；不访问其 NetInstance，也不作为子图接口公开。

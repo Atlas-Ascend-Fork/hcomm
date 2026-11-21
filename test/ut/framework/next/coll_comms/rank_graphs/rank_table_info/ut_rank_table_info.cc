@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <limits>
 #include <set>
+#include <type_traits>
 #include <utility>
 #include "json/common/json_parse_util.h"
 #include "orion_adapter_rts.h"
@@ -1514,4 +1515,144 @@ TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_ForcedParallelD
     ASSERT_EQ(info.ranks.size(), 1280U);
     EXPECT_EQ(info.ranks[0].rankId, 0U);
     EXPECT_EQ(info.ranks[1279].rankId, 1279U);
+}
+
+// NewRankInfo / AddressInfo 需支持 noexcept 移动构造/赋值，
+// 避免 std::sort / 容器扩容因自定义析构退化为元素级深拷贝。
+TEST_F(RankTableInfoParserTest, Ut_NewRankInfoAndAddressInfo_When_Move_Expect_NoexceptMoveEnabled)
+{
+    static_assert(
+        std::is_nothrow_move_constructible<hccl::NewRankInfo>::value,
+        "NewRankInfo should support noexcept move construction");
+    static_assert(
+        std::is_nothrow_move_assignable<hccl::NewRankInfo>::value,
+        "NewRankInfo should support noexcept move assignment");
+    static_assert(
+        std::is_nothrow_move_constructible<AddressInfo>::value,
+        "AddressInfo should support noexcept move construction");
+    static_assert(
+        std::is_nothrow_move_assignable<AddressInfo>::value, "AddressInfo should support noexcept move assignment");
+
+    hccl::NewRankInfo rankSrc;
+    rankSrc.rankId = 7U;
+    rankSrc.rankLevelInfos.emplace_back();
+    hccl::NewRankInfo rankDst(std::move(rankSrc));
+    EXPECT_EQ(7U, rankDst.rankId);
+    EXPECT_EQ(1U, rankDst.rankLevelInfos.size());
+    EXPECT_TRUE(rankSrc.rankLevelInfos.empty());
+
+    AddressInfo addrSrc;
+    addrSrc.socketPort_ = 9U;
+    addrSrc.backupAddrs.emplace_back(IpAddress("192.168.1.1"));
+    AddressInfo addrDst(std::move(addrSrc));
+    EXPECT_EQ(9U, addrDst.socketPort_);
+    EXPECT_EQ(1U, addrDst.backupAddrs.size());
+    EXPECT_TRUE(addrSrc.backupAddrs.empty());
+}
+
+// GetRankDeviceListenPortMap 无功能改动（reserve + emplace(move) 微优化），
+// 用例保证产出内容与“朴素实现”完全一致：每 rank -> {各层 addr->socketPort,
+// hccl::DEVICE_PORT_KEY_IPADDRESS->devicePort}， 且同一 addr 重复出现时保留首次插入的端口（insert 不覆盖语义）。
+TEST_F(RankTableInfoParserTest, Ut_GetRankDeviceListenPortMap_When_MultiLevelAddr_Expect_ContentConsistent)
+{
+    RankTableInfo rankTableInfo;
+
+    // rank 0：两个 level，其中 192.168.1.1 在 level1 重复出现（验证去重/首次生效）
+    hccl::NewRankInfo rank0;
+    rank0.rankId = 0;
+    rank0.devicePort = 6666;
+    RankLevelInfo rank0Level0;
+    rank0Level0.netLayer = 0;
+    AddressInfo r0a0;
+    r0a0.addr = IpAddress("192.168.1.1", AF_INET);
+    r0a0.socketPort_ = 101;
+    AddressInfo r0a1;
+    r0a1.addr = IpAddress("192.168.1.2", AF_INET);
+    r0a1.socketPort_ = 102;
+    rank0Level0.rankAddrs.push_back(r0a0);
+    rank0Level0.rankAddrs.push_back(r0a1);
+    RankLevelInfo rank0Level1;
+    rank0Level1.netLayer = 1;
+    AddressInfo r0a2;
+    r0a2.addr = IpAddress("192.168.1.1", AF_INET);
+    r0a2.socketPort_ = 201; // 同 addr 不同 port，应被首次插入覆盖保持 101
+    rank0Level1.rankAddrs.push_back(r0a2);
+    rank0.rankLevelInfos.push_back(rank0Level0);
+    rank0.rankLevelInfos.push_back(rank0Level1);
+    rankTableInfo.ranks.push_back(rank0);
+
+    hccl::NewRankInfo rank1;
+    rank1.rankId = 1;
+    rank1.devicePort = 7777;
+    RankLevelInfo rank1Level0;
+    rank1Level0.netLayer = 0;
+    AddressInfo r1a0;
+    r1a0.addr = IpAddress("192.168.2.1", AF_INET);
+    r1a0.socketPort_ = 301;
+    rank1Level0.rankAddrs.push_back(r1a0);
+    rank1.rankLevelInfos.push_back(rank1Level0);
+    rankTableInfo.ranks.push_back(rank1);
+
+    auto portMap = rankTableInfo.GetRankDeviceListenPortMap();
+    ASSERT_EQ(portMap.size(), 2U);
+
+    const auto& m0 = portMap.at(0);
+    EXPECT_EQ(m0.size(), 3U);
+    EXPECT_EQ(m0.at(IpAddress("192.168.1.1", AF_INET)), 101U);
+    EXPECT_EQ(m0.at(IpAddress("192.168.1.2", AF_INET)), 102U);
+    EXPECT_EQ(m0.at(hccl::DEVICE_PORT_KEY_IPADDRESS), 6666U);
+
+    // rank 1：{192.168.2.1, hccl::DEVICE_PORT_KEY_IPADDRESS}
+    const auto& m1 = portMap.at(1);
+    EXPECT_EQ(m1.size(), 2U);
+    EXPECT_EQ(m1.at(IpAddress("192.168.2.1", AF_INET)), 301U);
+    EXPECT_EQ(m1.at(hccl::DEVICE_PORT_KEY_IPADDRESS), 7777U);
+}
+
+TEST_F(RankTableInfoParserTest, Ut_GetRankDeviceListenPortMap_When_EmptyRanks_Expect_EmptyMap)
+{
+    RankTableInfo rankTableInfo;
+    auto portMap = rankTableInfo.GetRankDeviceListenPortMap();
+    EXPECT_TRUE(portMap.empty());
+}
+
+TEST_F(RankTableInfoParserTest, Ut_GetRankDeviceListenPortMap_When_RankNoAddrs_Expect_OnlyDevicePort)
+{
+    RankTableInfo rankTableInfo;
+    hccl::NewRankInfo rank0;
+    rank0.rankId = 0;
+    rank0.devicePort = 5555;
+    rankTableInfo.ranks.push_back(rank0);
+
+    auto portMap = rankTableInfo.GetRankDeviceListenPortMap();
+    ASSERT_EQ(portMap.size(), 1U);
+    const auto& m0 = portMap.at(0);
+    ASSERT_EQ(m0.size(), 1U);
+    EXPECT_EQ(m0.at(hccl::DEVICE_PORT_KEY_IPADDRESS), 5555U);
+}
+
+TEST_F(RankTableInfoParserTest, Ut_GetRankDeviceListenPortMap_When_SameAddrAcrossRanks_Expect_IndependentEntries)
+{
+    RankTableInfo rankTableInfo;
+    for (u32 rankId = 0; rankId < 2U; ++rankId) {
+        hccl::NewRankInfo rankInfo;
+        rankInfo.rankId = rankId;
+        rankInfo.devicePort = 6000U + rankId;
+        RankLevelInfo level0;
+        level0.netLayer = 0;
+        AddressInfo addrInfo;
+        addrInfo.addr = IpAddress("10.0.0.1", AF_INET);
+        addrInfo.socketPort_ = 100U + rankId;
+        level0.rankAddrs.push_back(addrInfo);
+        rankInfo.rankLevelInfos.push_back(level0);
+        rankTableInfo.ranks.push_back(rankInfo);
+    }
+
+    auto portMap = rankTableInfo.GetRankDeviceListenPortMap();
+    ASSERT_EQ(portMap.size(), 2U);
+    // 同一 IP 在两个 rank 下分别保留各自端口
+    EXPECT_EQ(portMap.at(0).at(IpAddress("10.0.0.1", AF_INET)), 100U);
+    EXPECT_EQ(portMap.at(0).at(hccl::DEVICE_PORT_KEY_IPADDRESS), 6000U);
+    EXPECT_EQ(portMap.at(1).at(IpAddress("10.0.0.1", AF_INET)), 101U);
+    EXPECT_EQ(portMap.at(1).at(hccl::DEVICE_PORT_KEY_IPADDRESS), 6001U);
 }

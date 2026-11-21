@@ -215,7 +215,7 @@ TEST_F(SnapShotParserTest, Ut_ConfigSnapshot_When_GraphInitialized_Expect_Replay
             HcclCommConfigInit(&parentConfig);
             ASSERT_EQ(
                 HCCL_SUCCESS, bridge->recoverBuild(
-                                  ranks, topo, 0, false,
+                                  RankTableInfo(ranks), topo, 0, false,
                                   subComm ? parentConfig.hcclUseNetLayer : comm.config.hcclUseNetLayer, built));
             const auto parent = built.rankGraph;
             if (subComm) {
@@ -249,7 +249,8 @@ TEST_F(SnapShotParserTest, Ut_ConfigSnapshot_When_GraphInitialized_Expect_Replay
             } else {
                 RankGraphBuildResult replayed{};
                 ASSERT_EQ(
-                    HCCL_SUCCESS, bridge->recoverBuild(ranks, topo, 0, false, restored.hcclUseNetLayer, replayed));
+                    HCCL_SUCCESS,
+                    bridge->recoverBuild(RankTableInfo(ranks), topo, 0, false, restored.hcclUseNetLayer, replayed));
                 EXPECT_EQ(item.expected, replayed.rankGraph->GetLevels(0));
                 EXPECT_EQ(4U, replayed.rankGraph->GetRankSize());
                 EXPECT_EQ(ranks.rankCount, replayed.rankTableInfo.rankCount);

@@ -28,8 +28,8 @@ struct RankGraphBuildResult {
     hccl::TopoInfo topoInfo;
 };
 
-// 修改回调签名或表布局时同步升级。
-constexpr uint32_t RANK_GRAPH_BUILDER_BRIDGE_VERSION = 2;
+// 修改回调签名（含入参所有权语义）或表布局时同步升级。
+constexpr uint32_t RANK_GRAPH_BUILDER_BRIDGE_VERSION = 3;
 
 // 同一 HCOMM 包内 hccl_v2 与 hcomm 之间的函数指针表，两端随包一起构建、更新。
 // 本结构只描述调用签名，不包含 RankGraphBuilder 实现；版本与长度在注册时校验。
@@ -48,7 +48,7 @@ struct RankGraphBuilderBridge {
         RankGraphBuildResult& result);
     // 从故障恢复快照重建拓扑，对应 provider 的 RecoverBuildImpl。
     using RecoverBuildFunc = HcclResult (*)(
-        const RankTableInfo& rankTable, const hccl::TopoInfo& topoInfo, RankId myRank, bool enableVirtualGroups,
+        RankTableInfo&& rankTable, const hccl::TopoInfo& topoInfo, RankId myRank, bool enableVirtualGroups,
         const char* netLayerExpression, RankGraphBuildResult& result);
     // 将 unique_ptr 所有权交给 hcomm，并返回携带 hcomm 侧 deleter 的 shared_ptr。
     using AdoptRankGraphFunc

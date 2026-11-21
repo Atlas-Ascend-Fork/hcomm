@@ -100,11 +100,12 @@ namespace EnumNameDetail {
         std::string Describe() const                                                                                 \
         {                                                                                                            \
             /* POD 表：首次解析 #__VA_ARGS__；视图指向字面量，不分配堆内存。 */                \
-            static ::Hccl::EnumNameDetail::NameView enumNames[__COUNT__];                                            \
+            constexpr unsigned int enumCapacity = static_cast<unsigned int>(__COUNT__);                              \
+            static ::Hccl::EnumNameDetail::NameView enumNames[enumCapacity];                                         \
             static const unsigned int enumCount                                                                      \
-                = ::Hccl::EnumNameDetail::ParseNames(#__VA_ARGS__, enumNames, static_cast<unsigned int>(__COUNT__)); \
+                = ::Hccl::EnumNameDetail::ParseNames(#__VA_ARGS__, enumNames, enumCapacity);                         \
             const unsigned int enumValue = static_cast<unsigned int>(value);                                         \
-            if (enumValue >= enumCount) {                                                                            \
+            if ((enumValue >= enumCount) || (enumValue >= enumCapacity)) {                                           \
                 return std::string(#enumClass) + "::Invalid";                                                        \
             }                                                                                                        \
             const ::Hccl::EnumNameDetail::NameView& enumName = enumNames[enumValue];                                 \

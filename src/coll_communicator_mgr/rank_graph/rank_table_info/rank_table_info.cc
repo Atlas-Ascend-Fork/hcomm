@@ -374,15 +374,21 @@ HcclResult RankTableInfo::UpdateRankTable(const RankTableInfo& localRankInfo)
 std::unordered_map<u32, std::unordered_map<IpAddress, u32>> RankTableInfo::GetRankDeviceListenPortMap()
 {
     std::unordered_map<u32, std::unordered_map<IpAddress, u32>> ranklListenPortMap;
+    ranklListenPortMap.reserve(ranks.size()); // 预分配外层，消除 rehash
     for (auto& rankinfo : ranks) {
         std::unordered_map<IpAddress, u32> listenPortMap;
+        size_t addrCnt = 0;
+        for (auto& rankLevelInfo : rankinfo.rankLevelInfos) {
+            addrCnt += rankLevelInfo.rankAddrs.size();
+        }
+        listenPortMap.reserve(addrCnt + 1); // 预分配内层（含 hccl::DEVICE_PORT_KEY_IPADDRESS 占位），消除 rehash
         for (auto& rankLevelInfo : rankinfo.rankLevelInfos) {
             for (auto& rankAddr : rankLevelInfo.rankAddrs) {
                 listenPortMap.insert(std::make_pair(rankAddr.addr, rankAddr.socketPort_));
             }
         }
         listenPortMap.insert(std::make_pair(hccl::DEVICE_PORT_KEY_IPADDRESS, rankinfo.devicePort));
-        ranklListenPortMap.insert(std::make_pair(rankinfo.rankId, listenPortMap));
+        ranklListenPortMap.emplace(rankinfo.rankId, std::move(listenPortMap)); // 移动替代一次内层深拷贝
     }
     return ranklListenPortMap;
 }

@@ -17,6 +17,10 @@
 #include <iostream>
 #include <new>
 #include <unistd.h>
+#include <cstdint>
+#include <map>
+#include <type_traits>
+#include <utility>
 #include "hccl/hccl_comm.h"
 #include "coll_comm_config.h"
 
@@ -25,6 +29,7 @@
 
 #include "detour_service.h"
 #include "internal_exception.h"
+#include "network_api_exception.h"
 #include "phy_topo.h"
 #include "phy_topo_builder.h"
 #include "rank_graph_test_data_builder.h"
@@ -189,7 +194,7 @@ TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_UbFabric_Expect_Peer
     const std::map<std::string, std::vector<IpAddress>> portAddrMap = {{"port0", {addr}}, {"port1", {addr}}};
 
     auto ifaces = ConstructConnIFromPhyTopoConnIAndPortMap(
-        phyIface, portAddrMap, Hccl::TopoType::CLOS, 0, 0, LinkType::PEER2NET);
+        phyIface, portAddrMap, Hccl::TopoType::CLOS, 0, ConnIfaceBuildCtx{0U, LinkType::PEER2NET});
 
     ASSERT_EQ(1U, ifaces.size());
     EXPECT_EQ(LinkType::PEER2NET, ifaces[0]->GetLinkType());
@@ -207,7 +212,8 @@ TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_UbPeer_Expect_Peer2P
     const IpAddress addr("192.168.1.1");
     const std::map<std::string, std::vector<IpAddress>> portAddrMap = {{"port0", {addr}}};
 
-    auto ifaces = ConstructConnIFromPhyTopoConnIAndPortMap(phyIface, portAddrMap, Hccl::TopoType::MESH_1D, 0, 0);
+    auto ifaces = ConstructConnIFromPhyTopoConnIAndPortMap(
+        phyIface, portAddrMap, Hccl::TopoType::MESH_1D, 0, ConnIfaceBuildCtx{0U});
 
     ASSERT_EQ(1U, ifaces.size());
     EXPECT_EQ(LinkType::PEER2PEER, ifaces[0]->GetLinkType());
@@ -1035,7 +1041,8 @@ TEST_F(RankGraphBuilderTest, Ut_BuilderBridge_When_ZeroHeaderDefault_Expect_Buil
         HCCL_SUCCESS, bridge->buildFromRankTable(rankTable, "unused", 0, legacyDefault.hcclUseNetLayer, defaultResult));
     ASSERT_NO_FATAL_FAILURE(CheckSelectedGraph(defaultResult.rankGraph.get(), {0, 1, 2}));
     ASSERT_EQ(
-        HCCL_SUCCESS, bridge->recoverBuild(rankTable, *topo, 0, false, legacyDefault.hcclUseNetLayer, defaultResult));
+        HCCL_SUCCESS,
+        bridge->recoverBuild(RankTableInfo(rankTable), *topo, 0, false, legacyDefault.hcclUseNetLayer, defaultResult));
     ASSERT_NO_FATAL_FAILURE(CheckSelectedGraph(defaultResult.rankGraph.get(), {0, 1, 2}));
     std::unique_ptr<RankGraph> child;
     ASSERT_EQ(
@@ -1059,18 +1066,22 @@ TEST_F(RankGraphBuilderTest, Ut_BuilderBridge_When_InvalidConfig_Expect_KeepPrev
     HcclCommConfigInit(&config);
     ASSERT_EQ(EOK, strcpy_s(config.hcclUseNetLayer, sizeof(config.hcclUseNetLayer), "2"));
     RankGraphBuildResult result{};
-    ASSERT_EQ(HCCL_SUCCESS, bridge->recoverBuild(rankTable, topo, 0, false, config.hcclUseNetLayer, result));
+    ASSERT_EQ(
+        HCCL_SUCCESS, bridge->recoverBuild(RankTableInfo(rankTable), topo, 0, false, config.hcclUseNetLayer, result));
     const auto previous = result.rankGraph;
     EXPECT_EQ(HCCL_E_PTR, bridge->buildFromString("", "", 0, nullptr, result));
     EXPECT_EQ(HCCL_E_PTR, bridge->buildFromRankTable(rankTable, "", 0, nullptr, result));
-    EXPECT_EQ(HCCL_E_PTR, bridge->recoverBuild(rankTable, topo, 0, false, nullptr, result));
+    EXPECT_EQ(HCCL_E_PTR, bridge->recoverBuild(RankTableInfo(rankTable), topo, 0, false, nullptr, result));
     ASSERT_EQ(EOK, strcpy_s(config.hcclUseNetLayer, sizeof(config.hcclUseNetLayer), "bad"));
     EXPECT_EQ(HCCL_E_PARA, bridge->buildFromString("", "", 0, config.hcclUseNetLayer, result));
     EXPECT_EQ(HCCL_E_PARA, bridge->buildFromRankTable(rankTable, "", 0, config.hcclUseNetLayer, result));
-    EXPECT_EQ(HCCL_E_PARA, bridge->recoverBuild(rankTable, topo, 0, false, config.hcclUseNetLayer, result));
+    EXPECT_EQ(
+        HCCL_E_PARA, bridge->recoverBuild(RankTableInfo(rankTable), topo, 0, false, config.hcclUseNetLayer, result));
     for (const auto* expression : {"3", "not(0,1,2)"}) {
         ASSERT_EQ(EOK, strcpy_s(config.hcclUseNetLayer, sizeof(config.hcclUseNetLayer), expression));
-        EXPECT_EQ(HCCL_E_PARA, bridge->recoverBuild(rankTable, topo, 0, false, config.hcclUseNetLayer, result));
+        EXPECT_EQ(
+            HCCL_E_PARA,
+            bridge->recoverBuild(RankTableInfo(rankTable), topo, 0, false, config.hcclUseNetLayer, result));
     }
     EXPECT_EQ(previous, result.rankGraph);
     EXPECT_EQ(rankTable.rankCount, result.rankTableInfo.rankCount);
@@ -1138,7 +1149,8 @@ TEST_F(RankGraphBuilderTest, Ut_BuilderBridge_When_ConfiguredBuildAndRecovery_Ex
             SCOPED_TRACE(enableVirtualGroups);
             ASSERT_EQ(
                 HCCL_SUCCESS,
-                bridge->recoverBuild(ranks, *topo, 0, enableVirtualGroups, config.hcclUseNetLayer, recovered));
+                bridge->recoverBuild(
+                    RankTableInfo(ranks), *topo, 0, enableVirtualGroups, config.hcclUseNetLayer, recovered));
             CheckSelectedGraph(recovered.rankGraph.get(), item.expected);
             EXPECT_EQ(enableVirtualGroups, recovered.rankGraph->IsVirtualGroupsEnabled());
             EXPECT_EQ(ranks.rankCount, recovered.rankTableInfo.rankCount);
@@ -1591,8 +1603,8 @@ TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_PcieRemoteRank_Expec
     auto phyIface = std::make_shared<PhyTopo::ConnInterface>(
         std::set<std::string>{"d2h"}, AddrPosition::DEVICE, LinkType::PEER2NET,
         std::set<LinkProtocol>{LinkProtocol::PCIE});
-    auto ifaces
-        = ConstructConnIFromPhyTopoConnIAndPortMap(phyIface, {}, Hccl::TopoType::CLOS, 7, 0, LinkType::PEER2NET, 1);
+    auto ifaces = ConstructConnIFromPhyTopoConnIAndPortMap(
+        phyIface, {}, Hccl::TopoType::CLOS, 7, ConnIfaceBuildCtx{0U, LinkType::PEER2NET, 1U});
     ASSERT_EQ(1U, ifaces.size());
     EXPECT_EQ(vnicIp, ifaces.front()->GetAddr());
 }
@@ -1829,7 +1841,7 @@ TEST_F(ApplyLogicSuperPodIdTest, Ut_LogicSuperPod_When_RecoveredFromSnapshot_Exp
     RankGraphBuildResult recovered;
     ASSERT_EQ(
         bridge->recoverBuild(
-            restoredTable, built.topoInfo, RANK_0, built.rankGraph->IsVirtualGroupsEnabled(), "", recovered),
+            std::move(restoredTable), built.topoInfo, RANK_0, built.rankGraph->IsVirtualGroupsEnabled(), "", recovered),
         HCCL_SUCCESS);
     EXPECT_EQ(recovered.rankTableInfo.logicSuperPodGroupIds, expectedGroups);
     EXPECT_TRUE(recovered.rankGraph->GetPaths(TARGET_LAYER, RANK_0, RANK_2).empty());
@@ -1865,7 +1877,10 @@ TEST_F(ApplyLogicSuperPodIdTest, Ut_LogicSuperPod_When_ServerUnconfigured_Expect
     ASSERT_NE(bridge, nullptr);
 
     RankGraphBuildResult baseline;
-    ASSERT_EQ(bridge->recoverBuild(table, MakeSuperpodTopo(false), RANK_0, false, "", baseline), HCCL_SUCCESS);
+    // recoverBuild 按右值消费入参，而 table 后续仍需用于 buildFromRankTable，故传入拷贝
+    // recoverBuild 按右值消费入参，而 table 后续仍需用于 buildFromRankTable，故传入拷贝
+    ASSERT_EQ(
+        bridge->recoverBuild(RankTableInfo(table), MakeSuperpodTopo(false), RANK_0, false, "", baseline), HCCL_SUCCESS);
     ASSERT_NE(baseline.rankGraph, nullptr);
     ASSERT_FALSE(baseline.rankGraph->GetPaths(TARGET_LAYER, RANK_0, RANK_2).empty());
     PhyTopo::GetInstance()->Clear();
@@ -1888,7 +1903,7 @@ TEST_F(ApplyLogicSuperPodIdTest, Ut_LogicSuperPod_When_ServerUnconfigured_Expect
     RankGraphBuildResult recovered;
     ASSERT_EQ(
         bridge->recoverBuild(
-            restoredTable, built.topoInfo, RANK_2, built.rankGraph->IsVirtualGroupsEnabled(), "", recovered),
+            std::move(restoredTable), built.topoInfo, RANK_2, built.rankGraph->IsVirtualGroupsEnabled(), "", recovered),
         HCCL_SUCCESS);
     ASSERT_NE(recovered.rankGraph, nullptr);
     EXPECT_TRUE(recovered.rankGraph->GetPaths(TARGET_LAYER, RANK_2, RANK_0).empty());
@@ -1916,7 +1931,8 @@ TEST_F(ApplyLogicSuperPodIdTest, Ut_LogicSuperPod_When_ServerMissingSplitLayer_E
     ASSERT_NE(bridge, nullptr);
 
     RankGraphBuildResult baseline;
-    ASSERT_EQ(bridge->recoverBuild(table, topo, RANK_0, false, "", baseline), HCCL_SUCCESS);
+    // recoverBuild 按右值消费入参，而 table 后续仍需用于 buildFromRankTable，故传入拷贝
+    ASSERT_EQ(bridge->recoverBuild(RankTableInfo(table), topo, RANK_0, false, "", baseline), HCCL_SUCCESS);
     ASSERT_NE(baseline.rankGraph, nullptr);
     ASSERT_FALSE(baseline.rankGraph->GetPaths(TARGET_LAYER, RANK_0, RANK_2).empty());
     const auto interPaths = baseline.rankGraph->GetPaths(interLayer, RANK_0, RANK_2);
@@ -2093,7 +2109,7 @@ TEST_F(TableRewriteBuildTest, Ut_Build_When_SplitTwoGroups_Expect_GroupedQueries
     const auto* bridge = GetRankGraphBuilderBridge();
     ASSERT_NE(bridge, nullptr);
     RankGraphBuildResult result;
-    ASSERT_EQ(bridge->recoverBuild(table, topo, RANK_0, false, "", result), HCCL_SUCCESS);
+    ASSERT_EQ(bridge->recoverBuild(std::move(table), topo, RANK_0, false, "", result), HCCL_SUCCESS);
     auto graph = result.rankGraph;
     ASSERT_NE(graph, nullptr);
 
@@ -2147,7 +2163,7 @@ TEST_F(TableRewriteBuildTest, Ut_Build_When_NoLogicIdConfigured_Expect_OriginalG
     const auto* bridge = GetRankGraphBuilderBridge();
     ASSERT_NE(bridge, nullptr);
     RankGraphBuildResult result;
-    ASSERT_EQ(bridge->recoverBuild(table, topo, RANK_0, false, "", result), HCCL_SUCCESS);
+    ASSERT_EQ(bridge->recoverBuild(std::move(table), topo, RANK_0, false, "", result), HCCL_SUCCESS);
     auto graph = result.rankGraph;
     ASSERT_NE(graph, nullptr);
     // 原ID单实例4个rank，无任何后缀实例
@@ -2188,7 +2204,7 @@ TEST_F(TableRewriteBuildTest, Ut_Build_When_TwoPhysicalSuperpods_Expect_BothRewr
     const auto* bridge = GetRankGraphBuilderBridge();
     ASSERT_NE(bridge, nullptr);
     RankGraphBuildResult result;
-    ASSERT_EQ(bridge->recoverBuild(table, topo, RANK_0, false, "", result), HCCL_SUCCESS);
+    ASSERT_EQ(bridge->recoverBuild(std::move(table), topo, RANK_0, false, "", result), HCCL_SUCCESS);
     auto graph = result.rankGraph;
     ASSERT_NE(graph, nullptr);
     EXPECT_NE(graph->GetNetInstanceByNetInstId(TARGET_LAYER, "sp_0_idx_0_A"), nullptr);
@@ -2283,4 +2299,422 @@ TEST_F(RankGraphBuilderTest, Ut_BuildAndRecover_When_SourceChanges_Expect_Groupi
         EXPECT_EQ(graph->GetNetInstanceByRankId(1, 0)->GetRankIds().size(), 2U);
         EXPECT_FALSE(graph->GetPaths(1, 0, 2).empty());
     }
+}
+
+namespace {
+// vnic 缓存键与实现保持一致：(localDeviceId << 32) | targetDeviceId
+constexpr std::uint64_t MakeVnicCacheKey(u32 localDeviceId, u32 targetDeviceId)
+{
+    return (static_cast<std::uint64_t>(localDeviceId) << 32) | targetDeviceId;
+}
+
+constexpr u32 STUB_VNIC_IP_NUM = 8;
+const char* const STUB_VNIC_IPS[STUB_VNIC_IP_NUM]
+    = {"192.168.200.0", "192.168.200.1", "192.168.200.2", "192.168.200.3",
+       "192.168.200.4", "192.168.200.5", "192.168.200.6", "192.168.200.7"};
+
+// 可成功返回的 vnic 查询桩，按 deviceId 返回不同的 vnic IP
+void StubVnicIpQueryByDevice(u32 phyId, Hccl::DeviceIdType deviceIdType, u32 deviceId, IpAddress& vnicIp)
+{
+    (void)phyId;
+    (void)deviceIdType;
+    vnicIp = IpAddress(STUB_VNIC_IPS[deviceId % STUB_VNIC_IP_NUM]);
+}
+
+// deviceId==1 时抛出 NetworkApiException；mockcpp 在 mock 边界会把非 mockcpp 异常统一改写为
+// mockcpp::Exception（what() 保留原始描述），故用例按 mockcpp::Exception 断言，
+// 生产侧 catch(HcclException) 的"查询失败→跳过该对建链"降级路径由 HLT/ST 覆盖
+void StubVnicIpQueryFailOnDevice1(u32 phyId, Hccl::DeviceIdType deviceIdType, u32 deviceId, IpAddress& vnicIp)
+{
+    (void)phyId;
+    (void)deviceIdType;
+    if (deviceId == 1U) {
+        throw NetworkApiException("ut vnic query fail");
+    }
+    vnicIp = IpAddress(STUB_VNIC_IPS[deviceId % STUB_VNIC_IP_NUM]);
+}
+} // namespace
+
+TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_PcieMultiPort_Expect_VnicQueryOnce)
+{
+    const IpAddress vnicIp("192.168.100.2");
+    MOCKER(HrtRaSocketGetVnicIpInfos).expects(once()).with(eq(0U), mockcpp::any(), eq(1U), outBound(vnicIp));
+    auto phyIface = std::make_shared<PhyTopo::ConnInterface>(
+        std::set<std::string>{"d2h", "d2h2"}, AddrPosition::DEVICE, LinkType::PEER2NET,
+        std::set<LinkProtocol>{LinkProtocol::PCIE});
+    auto ifaces = ConstructConnIFromPhyTopoConnIAndPortMap(
+        phyIface, {}, Hccl::TopoType::CLOS, 7, ConnIfaceBuildCtx{0U, LinkType::PEER2NET, 1U});
+    ASSERT_EQ(1U, ifaces.size());
+    EXPECT_EQ(vnicIp, ifaces.front()->GetAddr());
+    EXPECT_EQ((std::set<std::string>{"d2h"}), ifaces.front()->GetPorts());
+}
+
+TEST_F(RankGraphBuilderTest, Ut_Build_When_PcieFallbackMultiRank_Expect_VnicQueryOncePerDevice)
+{
+    PhyTopo::GetInstance()->Clear();
+    const std::vector<IpAddress> vnicIps = {
+        IpAddress("192.168.200.0"), IpAddress("192.168.200.1"), IpAddress("192.168.200.2"), IpAddress("192.168.200.3")};
+    for (u32 deviceId = 0; deviceId < vnicIps.size(); ++deviceId) {
+        MOCKER(HrtRaSocketGetVnicIpInfos)
+            .expects(once())
+            .with(eq(0U), eq(Hccl::DeviceIdType::DEVICE_ID_TYPE_PHY_ID), eq(deviceId), outBound(vnicIps[deviceId]));
+    }
+    RankTableInfo rankTable = test::MakeRankTable4pForBuilder();
+    // 模拟rank_info_detect_client插入兜底level0时写入的pcie_fallback显式标记（本rank即rank0）
+    rankTable.ranks[0].rankLevelInfos[0].pcieFallback = true;
+    RankGraphBuilder builder;
+    auto graph = builder.RecoverBuild(rankTable, test::MakeFourPeerBuilderTopo(), 0);
+    ASSERT_NE(nullptr, graph);
+    EXPECT_EQ(true, graph->IsLevel0PcieFallback());
+    // 兜底链路统一注册为单个MESH_1D topoInst，覆盖inner域全部rank
+    auto* layer0 = graph->GetNetInstanceByRankId(0, 0);
+    ASSERT_NE(nullptr, layer0);
+    std::vector<u32> topoRanks;
+    u32 rankNum = 0;
+    ASSERT_EQ(HCCL_SUCCESS, layer0->GetRanksByTopoInst(0, topoRanks, rankNum));
+    EXPECT_EQ(4U, rankNum);
+    EXPECT_EQ((std::vector<u32>{0, 1, 2, 3}), topoRanks);
+}
+
+TEST_F(RankGraphBuilderTest, Ut_GetVnicIp_When_CacheHit_Expect_NoBottomQuery)
+{
+    MOCKER(HrtRaSocketGetVnicIpInfos).expects(never());
+    RankGraphBuilder builder;
+    builder.vnicIpCache_[MakeVnicCacheKey(0U, 1U)] = IpAddress("192.168.100.2");
+    EXPECT_EQ(IpAddress("192.168.100.2"), builder.GetVnicIp(0, 1));
+    EXPECT_EQ(1U, builder.vnicIpCache_.size());
+}
+
+TEST_F(RankGraphBuilderTest, Ut_GetVnicIp_When_QueryFail_Expect_NotCachedAndRetryable)
+{
+    MOCKER(HrtRaSocketGetVnicIpInfos).stubs().will(throws(NetworkApiException("ut")));
+    RankGraphBuilder builder;
+    EXPECT_THROW(builder.GetVnicIp(0, 1), mockcpp::Exception);
+    EXPECT_TRUE(builder.vnicIpCache_.empty());
+    EXPECT_THROW(builder.GetVnicIp(0, 1), mockcpp::Exception);
+    EXPECT_TRUE(builder.vnicIpCache_.empty());
+}
+
+TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_CachePassed_Expect_QueryOnceAndCached)
+{
+    const IpAddress vnicIp("192.168.100.2");
+    MOCKER(HrtRaSocketGetVnicIpInfos).expects(once()).with(eq(0U), mockcpp::any(), eq(1U), outBound(vnicIp));
+    auto phyIface = std::make_shared<PhyTopo::ConnInterface>(
+        std::set<std::string>{"d2h", "d2h2"}, AddrPosition::DEVICE, LinkType::PEER2NET,
+        std::set<LinkProtocol>{LinkProtocol::PCIE});
+    std::map<std::uint64_t, IpAddress> vnicIpCache;
+    auto ifaces = ConstructConnIFromPhyTopoConnIAndPortMap(
+        phyIface, {}, Hccl::TopoType::CLOS, 7, ConnIfaceBuildCtx{0U, LinkType::PEER2NET, 1U, &vnicIpCache});
+    ASSERT_EQ(1U, ifaces.size());
+    ASSERT_EQ(1U, vnicIpCache.size());
+    EXPECT_EQ(vnicIp, vnicIpCache.at(MakeVnicCacheKey(0U, 1U)));
+
+    // 第二次调用应命中缓存，不再查询底层
+    auto ifacesAgain = ConstructConnIFromPhyTopoConnIAndPortMap(
+        phyIface, {}, Hccl::TopoType::CLOS, 7, ConnIfaceBuildCtx{0U, LinkType::PEER2NET, 1U, &vnicIpCache});
+    ASSERT_EQ(1U, ifacesAgain.size());
+    EXPECT_EQ(vnicIp, ifacesAgain.front()->GetAddr());
+}
+
+TEST_F(RankGraphBuilderTest, Ut_RecoverBuild_When_StaleVnicCache_Expect_CacheCleared)
+{
+    MOCKER(HrtRaSocketGetVnicIpInfos).stubs().will(invoke(StubVnicIpQueryByDevice));
+    RankTableInfo rankTable = test::MakeRankTable4pForBuilder();
+    rankTable.ranks[0].rankLevelInfos[0].pcieFallback = true;
+    RankGraphBuilder builder;
+    builder.vnicIpCache_[MakeVnicCacheKey(0U, 999U)] = IpAddress("10.0.0.1"); // 模拟 builder 复用前的残留缓存
+
+    auto graph = builder.RecoverBuild(rankTable, test::MakeFourPeerBuilderTopo(), 0);
+    ASSERT_NE(nullptr, graph);
+    EXPECT_EQ(builder.vnicIpCache_.count(MakeVnicCacheKey(0U, 999U)), 0U); // 构建入口清缓存，残留项不应保留
+}
+
+TEST_F(RankGraphBuilderTest, Ut_BuildPcieFallback_When_VnicQueryFail_Expect_ExceptionAndNotCached)
+{
+    MOCKER(HrtRaSocketGetVnicIpInfos).stubs().will(invoke(StubVnicIpQueryFailOnDevice1));
+    RankTableInfo rankTable = test::MakeRankTable4pForBuilder();
+    rankTable.ranks[0].rankLevelInfos[0].pcieFallback = true;
+    RankGraphBuilder builder;
+
+    // mock 边界把 NetworkApiException 改写为 mockcpp::Exception，异常会穿透 RecoverBuild
+    EXPECT_THROW(builder.RecoverBuild(rankTable, test::MakeFourPeerBuilderTopo(), 0), mockcpp::Exception);
+    EXPECT_EQ(builder.vnicIpCache_.count(MakeVnicCacheKey(0U, 1U)), 0U); // 失败的 deviceId 不写入缓存
+}
+
+TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_PortMissing_Expect_SkipNoOutOfRange)
+{
+    const std::set<std::string> phyPorts = {"portMissing"};
+    const std::set<LinkProtocol> protocols = {LinkProtocol::UB_CTP};
+    auto phyIface
+        = std::make_shared<PhyTopo::ConnInterface>(phyPorts, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols);
+    const std::map<std::string, std::vector<IpAddress>> portAddrMap = {{"otherPort", {IpAddress("192.168.1.1")}}};
+
+    std::vector<std::shared_ptr<NetInstance::ConnInterface>> ifaces;
+    EXPECT_NO_THROW(
+        ifaces = ConstructConnIFromPhyTopoConnIAndPortMap(
+            phyIface, portAddrMap, Hccl::TopoType::MESH_1D, 0, ConnIfaceBuildCtx{0U}));
+    EXPECT_TRUE(ifaces.empty());
+}
+
+TEST_F(RankGraphBuilderTest, Ut_GetPortAddrMapLayer0_When_Called_Expect_ConstRef)
+{
+    auto peer = std::make_shared<NetInstance::Peer>(0, 0, 0, 0);
+    static_assert(
+        std::is_same<
+            decltype(peer->GetPortAddrMapLayer0()), const std::map<std::string, std::vector<IpAddress>>&>::value,
+        "GetPortAddrMapLayer0 should return const reference");
+    const auto& portAddrMap = peer->GetPortAddrMapLayer0();
+    EXPECT_TRUE(portAddrMap.empty());
+}
+
+TEST_F(RankGraphBuilderTest, Ut_GetPortAddrMapLayer0_When_PopulatedAndMissingPort_Expect_RefNoCopy)
+{
+    auto peer = std::make_shared<NetInstance::Peer>(0, 0, 0, 0);
+    std::map<std::string, std::vector<IpAddress>> portAddrMap
+        = {{"0/0", {IpAddress("192.168.1.1")}}, {"0/1", {IpAddress("192.168.1.2")}}};
+    peer->SetPortPortAddrMapLayer0(portAddrMap);
+
+    const auto& first = peer->GetPortAddrMapLayer0();
+    const auto& second = peer->GetPortAddrMapLayer0();
+    EXPECT_EQ(&first, &second); // 返回同一成员对象，无深拷贝
+    EXPECT_EQ(2U, first.size());
+    EXPECT_EQ(IpAddress("192.168.1.1"), first.at("0/0").at(0));
+
+    auto it = first.find("nonexistent");
+    EXPECT_EQ(first.end(), it); // 缺失端口判空，不越界
+}
+
+TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_EmptyProtocols_Expect_SkipNoLink)
+{
+    const IpAddress addr("192.168.1.1");
+    const std::map<std::string, std::vector<IpAddress>> portAddrMap = {{"port0", {addr}}};
+    auto phyIface = std::make_shared<PhyTopo::ConnInterface>(
+        std::set<std::string>{"port0"}, AddrPosition::DEVICE, LinkType::PEER2PEER, std::set<LinkProtocol>{});
+
+    std::vector<std::shared_ptr<NetInstance::ConnInterface>> ifaces;
+    EXPECT_NO_THROW(
+        ifaces = ConstructConnIFromPhyTopoConnIAndPortMap(
+            phyIface, portAddrMap, Hccl::TopoType::MESH_1D, 0, ConnIfaceBuildCtx{0U}));
+    // 空协议集不建链：不产生空协议 ConnInterface，下游 processLinks/GetFirstLinkProtocol 不会解引用空 begin()
+    EXPECT_TRUE(ifaces.empty());
+}
+
+TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_EmptyProtocolsAndPorts_Expect_EmptyNoCrash)
+{
+    auto phyIface = std::make_shared<PhyTopo::ConnInterface>(
+        std::set<std::string>{}, AddrPosition::DEVICE, LinkType::PEER2PEER, std::set<LinkProtocol>{});
+
+    std::vector<std::shared_ptr<NetInstance::ConnInterface>> ifaces;
+    EXPECT_NO_THROW(
+        ifaces
+        = ConstructConnIFromPhyTopoConnIAndPortMap(phyIface, {}, Hccl::TopoType::MESH_1D, 0, ConnIfaceBuildCtx{0U}));
+    EXPECT_TRUE(ifaces.empty());
+}
+
+TEST_F(RankGraphBuilderTest, Ut_RecoverBuild_When_RvalueRankTable_Expect_BuildSuccess)
+{
+    PhyTopo::GetInstance()->Clear();
+    RankGraphBuilder builder;
+    RankTableInfo rankTable = test::MakeRankTable2p();
+    ASSERT_FALSE(rankTable.ranks.empty());
+
+    auto graph = builder.RecoverBuild(std::move(rankTable), test::MakeTwoPeerClosTopo(), 0);
+    ASSERT_NE(nullptr, graph);
+    EXPECT_EQ(2U, graph->GetRankSize());
+}
+
+TEST_F(RankGraphBuilderTest, Ut_RecoverBuild_When_LvalueRankTable_Expect_SourceIntact)
+{
+    PhyTopo::GetInstance()->Clear();
+    RankGraphBuilder builder;
+    RankTableInfo rankTable = test::MakeRankTable2p();
+    const size_t rankNum = rankTable.ranks.size();
+    ASSERT_NE(0U, rankNum);
+
+    auto graph = builder.RecoverBuild(rankTable, test::MakeTwoPeerClosTopo(), 0);
+    ASSERT_NE(nullptr, graph);
+    EXPECT_EQ(rankNum, rankTable.ranks.size()); // 左值拷贝，源不变
+}
+
+TEST_F(RankGraphBuilderTest, Ut_BuildIpIndexMap_When_DuplicateAddrs_Expect_IpIndexContiguous)
+{
+    auto level0 = test::MakeRankLevel(
+        0, "inner", NetType::TOPO_FILE_DESC,
+        {test::MakeAddress("192.168.1.1", {"0/0"}), test::MakeAddress("192.168.1.1", {"0/1"}),
+         test::MakeAddress("192.168.1.2", {"0/0"})});
+    auto level1 = test::MakeRankLevel(1, "clos", NetType::CLOS, {test::MakeAddress("192.168.1.3", {"0/0"})});
+    RankTableInfo rankTable = test::MakeRankTable({test::MakeRankInfo(0, 0, 0, {level0, level1})});
+
+    RankGraphBuilder builder;
+    builder.rankTable_ = std::make_unique<RankTableInfo>(rankTable);
+    builder.rankGraph_ = std::make_unique<RankGraph>(0);
+    builder.BuildIpIndexMap();
+
+    std::set<uint32_t> indices;
+    for (const char* ip : {"192.168.1.1", "192.168.1.2", "192.168.1.3"}) {
+        uint32_t idx = 0;
+        ASSERT_EQ(HCCL_SUCCESS, builder.rankGraph_->GetIpIndex(0, IpAddress(ip), idx));
+        indices.insert(idx);
+    }
+    EXPECT_EQ((std::set<uint32_t>{0U, 1U, 2U}), indices);
+}
+
+TEST_F(RankGraphBuilderTest, Ut_BuildIpIndexMap_When_RankHasNoAddr_Expect_NotFound)
+{
+    RankTableInfo rankTable = test::MakeRankTable({test::MakeRankInfo(0, 0, 0, {})});
+    RankGraphBuilder builder;
+    builder.rankTable_ = std::make_unique<RankTableInfo>(rankTable);
+    builder.rankGraph_ = std::make_unique<RankGraph>(0);
+    builder.BuildIpIndexMap();
+
+    uint32_t idx = 5U;
+    EXPECT_EQ(HCCL_E_NOT_FOUND, builder.rankGraph_->GetIpIndex(0, IpAddress("192.168.1.1"), idx));
+}
+
+TEST_F(RankGraphBuilderTest, Ut_BuildIpIndexMap_When_CompareWithSetImpl_Expect_SameResult)
+{
+    auto defaultAddr = test::MakeAddress("192.168.1.9", {"0/2"});
+    defaultAddr.addr = Hccl::IpAddress(); // 默认地址：实现与参考实现均应跳过
+    auto level0 = test::MakeRankLevel(
+        0, "inner", NetType::TOPO_FILE_DESC,
+        {test::MakeAddress("192.168.1.3", {"0/0"}), test::MakeAddress("192.168.1.1", {"0/0"}),
+         test::MakeAddress("192.168.1.1", {"0/1"}), defaultAddr});
+    auto level1 = test::MakeRankLevel(1, "clos", NetType::CLOS, {test::MakeAddress("192.168.1.2", {"0/0"})});
+    auto rank0 = test::MakeRankInfo(0, 0, 0, {level0, level1});
+    auto rank1 = test::MakeRankInfo(
+        1, 1, 1,
+        {test::MakeRankLevel(0, "inner", NetType::TOPO_FILE_DESC, {test::MakeAddress("192.168.2.1", {"0/0"})})});
+    RankTableInfo rankTable = test::MakeRankTable({rank0, rank1});
+
+    // 参考实现：std::set 去重排序
+    std::map<std::pair<RankId, IpAddress>, uint32_t> expected;
+    for (const auto& rankInfo : rankTable.ranks) {
+        std::set<IpAddress> sortedAddrs;
+        for (const auto& levelInfo : rankInfo.rankLevelInfos) {
+            for (const auto& addrInfo : levelInfo.rankAddrs) {
+                if (!(addrInfo.addr == IpAddress())) {
+                    sortedAddrs.insert(addrInfo.addr);
+                }
+            }
+        }
+        uint32_t i = 0;
+        for (const auto& addr : sortedAddrs) {
+            expected[{rankInfo.rankId, addr}] = i++;
+        }
+    }
+
+    RankGraphBuilder builder;
+    builder.rankTable_ = std::make_unique<RankTableInfo>(rankTable);
+    builder.rankGraph_ = std::make_unique<RankGraph>(0);
+    builder.BuildIpIndexMap();
+
+    // 默认地址不应进入映射表
+    uint32_t defaultIdx = 42U;
+    EXPECT_EQ(HCCL_E_NOT_FOUND, builder.rankGraph_->GetIpIndex(0, Hccl::IpAddress(), defaultIdx));
+    EXPECT_EQ(42U, defaultIdx);
+
+    for (const auto& kv : expected) {
+        uint32_t idx = 0;
+        ASSERT_EQ(HCCL_SUCCESS, builder.rankGraph_->GetIpIndex(kv.first.first, kv.first.second, idx));
+        EXPECT_EQ(kv.second, idx);
+    }
+    uint32_t idx = 0;
+    EXPECT_EQ(HCCL_E_NOT_FOUND, builder.rankGraph_->GetIpIndex(0, IpAddress("192.168.9.9"), idx));
+}
+
+namespace {
+
+std::shared_ptr<NetInstance::Peer> FindPeerByLocalId(NetInstance* netInst, LocalId localId)
+{
+    for (const auto& it : netInst->GetPeers()) {
+        if (it.second->GetLocalId() == localId) {
+            return it.second;
+        }
+    }
+    return nullptr;
+}
+
+std::shared_ptr<NetInstance::Peer>
+FindPeerLinkedToReplaced(const UpdaterFor64Plus1& updater, NetInstance* netInst, LocalId replacedLocalId)
+{
+    auto phyGraph = PhyTopo::GetInstance()->GetTopoGraph(0);
+    if (phyGraph == nullptr) {
+        return nullptr;
+    }
+    for (const auto& it : netInst->GetPeers()) {
+        const auto localId = it.second->GetLocalId();
+        if (localId == BACKUP_LOCAL_ID) {
+            continue;
+        }
+        if (!updater.IsSameX(localId, replacedLocalId) && !updater.IsSameY(localId, replacedLocalId)) {
+            continue;
+        }
+        if (!phyGraph->HasEdge(PhyTopo::Peer::GetId(localId), PhyTopo::Peer::GetId(replacedLocalId))) {
+            continue;
+        }
+        return it.second;
+    }
+    return nullptr;
+}
+
+// MakeRankTable2x2(true) 的 backup localId=512 与 topo 中的 64 不一致，此处归一为 64 保证两者对齐
+RankTableInfo MakeRankTable2x2WithTopoBackupLocalId()
+{
+    RankTableInfo rankTable = test::MakeRankTable2x2(true);
+    for (auto& rank : rankTable.ranks) {
+        if (rank.localId == BACKUP_LOCAL_ID) {
+            rank.localId = 64U;
+            rank.deviceId = 64U;
+        }
+    }
+    return rankTable;
+}
+
+} // namespace
+
+TEST_F(RankGraphBuilderTest, Ut_AddPeer2BackupLinks_When_BackupPortMissing_Expect_E_Para)
+{
+    RankTableInfo rankTable = MakeRankTable2x2WithTopoBackupLocalId();
+    RankGraphBuilder rankGraphBuilder;
+    std::unique_ptr<RankGraph> rankGraph
+        = rankGraphBuilder.RecoverBuild(rankTable, test::MakeTwoByTwoPlusBackupTopo(), 0);
+    ASSERT_NE(rankGraph, nullptr);
+    NetInstance* netInst = rankGraph->GetNetInstanceByNetInstId(0, "az0-rack0");
+    ASSERT_NE(netInst, nullptr);
+    ASSERT_NE(PhyTopo::GetInstance()->GetTopoGraph(0), nullptr);
+
+    UpdaterFor64Plus1 updater;
+    constexpr LocalId replacedLocalId = 1U;
+    auto backupPeer = FindPeerByLocalId(netInst, 64U);
+    auto peer = FindPeerLinkedToReplaced(updater, netInst, replacedLocalId);
+    ASSERT_NE(backupPeer, nullptr);
+    ASSERT_NE(peer, nullptr);
+
+    backupPeer->SetPortPortAddrMapLayer0({});
+    EXPECT_EQ(updater.AddPeer2BackupLinks(peer, backupPeer, replacedLocalId, netInst, &rankTable), HCCL_E_PARA);
+    // 旧实现 map[port][0] 缺键会静默插入；新实现必须保持表为空
+    EXPECT_TRUE(backupPeer->GetPortAddrMapLayer0().empty());
+}
+
+TEST_F(RankGraphBuilderTest, Ut_AddPeer2BackupLinks_When_PeerPortMissing_Expect_E_Para)
+{
+    RankTableInfo rankTable = MakeRankTable2x2WithTopoBackupLocalId();
+    RankGraphBuilder rankGraphBuilder;
+    std::unique_ptr<RankGraph> rankGraph
+        = rankGraphBuilder.RecoverBuild(rankTable, test::MakeTwoByTwoPlusBackupTopo(), 0);
+    ASSERT_NE(rankGraph, nullptr);
+    NetInstance* netInst = rankGraph->GetNetInstanceByNetInstId(0, "az0-rack0");
+    ASSERT_NE(netInst, nullptr);
+    ASSERT_NE(PhyTopo::GetInstance()->GetTopoGraph(0), nullptr);
+
+    UpdaterFor64Plus1 updater;
+    constexpr LocalId replacedLocalId = 1U;
+    auto backupPeer = FindPeerByLocalId(netInst, 64U);
+    auto peer = FindPeerLinkedToReplaced(updater, netInst, replacedLocalId);
+    ASSERT_NE(backupPeer, nullptr);
+    ASSERT_NE(peer, nullptr);
+
+    peer->SetPortPortAddrMapLayer0({});
+    EXPECT_EQ(updater.AddPeer2BackupLinks(peer, backupPeer, replacedLocalId, netInst, &rankTable), HCCL_E_PARA);
+    EXPECT_TRUE(peer->GetPortAddrMapLayer0().empty());
 }

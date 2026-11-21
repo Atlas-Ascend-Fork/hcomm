@@ -12,6 +12,9 @@
 #include "gtest/gtest.h"
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>
+#include <map>
+#include <unordered_map>
+#include <utility>
 #include "rank_gph.h"
 #include "rank_graph_v2.h"
 #include "rank_graph_builder.h"
@@ -651,6 +654,82 @@ TEST_F(RankGraphTest, ut_NeedUpdateTopoInstForSubGraph_When_TopoInstIsNull_Expec
     netInstance.topoInsts_.emplace(topoInstId, nullptr);
 
     EXPECT_EQ(false, NeedUpdateTopoInstForSubGraph(&netInstance, topoInstId, myRank));
+}
+
+// 未命中地址时返回 NOT_FOUND 且不改出参
+TEST_F(RankGraphTest, Ut_GetIpIndex_When_RankExists_Expect_IndexMatchesSortedOrder)
+{
+    RankGraph rankGraph(0);
+    std::unordered_map<RankId, RankIpIndexList> ipIndexMap;
+    ipIndexMap[0] = {{IpAddress("192.168.1.1"), 0}, {IpAddress("192.168.1.2"), 1}, {IpAddress("192.168.1.3"), 2}};
+    rankGraph.SetIpIndexMap(std::move(ipIndexMap));
+
+    uint32_t idx = 99U;
+    EXPECT_EQ(HCCL_SUCCESS, rankGraph.GetIpIndex(0, IpAddress("192.168.1.2"), idx));
+    EXPECT_EQ(1U, idx);
+    EXPECT_EQ(HCCL_E_NOT_FOUND, rankGraph.GetIpIndex(0, IpAddress("192.168.1.9"), idx));
+    EXPECT_EQ(1U, idx);
+}
+
+TEST_F(RankGraphTest, Ut_GetIpIndex_When_RankIdMissing_Expect_ReturnNotFound)
+{
+    RankGraph rankGraph(0);
+    std::unordered_map<RankId, RankIpIndexList> ipIndexMap;
+    ipIndexMap[0] = {{IpAddress("192.168.1.1"), 0}};
+    rankGraph.SetIpIndexMap(std::move(ipIndexMap));
+
+    uint32_t idx = 77U;
+    EXPECT_EQ(HCCL_E_NOT_FOUND, rankGraph.GetIpIndex(3, IpAddress("192.168.1.1"), idx));
+    EXPECT_EQ(77U, idx);
+}
+
+// 未排序输入直接拒绝，避免 lower_bound 在无序区间上的未定义行为
+TEST_F(RankGraphTest, Ut_SetIpIndexMap_When_Unsorted_Expect_E_Internal)
+{
+    RankGraph rankGraph(0);
+    std::unordered_map<RankId, RankIpIndexList> ipIndexMap;
+    ipIndexMap[0] = {{IpAddress("192.168.1.2"), 0}, {IpAddress("192.168.1.1"), 1}};
+
+    EXPECT_EQ(HCCL_E_INTERNAL, rankGraph.SetIpIndexMap(std::move(ipIndexMap)));
+
+    // 校验失败时不得安装映射表
+    uint32_t idx = 42U;
+    EXPECT_EQ(HCCL_E_NOT_FOUND, rankGraph.GetIpIndex(0, IpAddress("192.168.1.1"), idx));
+    EXPECT_EQ(42U, idx);
+}
+
+TEST_F(RankGraphTest, Ut_SetIpIndexMap_When_Sorted_Expect_Success)
+{
+    RankGraph rankGraph(0);
+    std::unordered_map<RankId, RankIpIndexList> ipIndexMap;
+    ipIndexMap[0] = {{IpAddress("192.168.1.1"), 0}, {IpAddress("192.168.1.2"), 1}};
+
+    EXPECT_EQ(HCCL_SUCCESS, rankGraph.SetIpIndexMap(std::move(ipIndexMap)));
+
+    uint32_t idx = 0U;
+    EXPECT_EQ(HCCL_SUCCESS, rankGraph.GetIpIndex(0, IpAddress("192.168.1.2"), idx));
+    EXPECT_EQ(1U, idx);
+}
+
+// 子图继承父图映射，子 rankId 为 rankIds 数组下标
+TEST_F(RankGraphTest, Ut_CreateSubRankGraph_When_ParentHasIpIndex_Expect_SameMapping)
+{
+    auto rankGraph = create4pclosRankGraph(myRank);
+    std::unordered_map<RankId, RankIpIndexList> ipIndexMap;
+    ipIndexMap[0] = {{IpAddress("192.168.1.1"), 0}};
+    ipIndexMap[3] = {{IpAddress("192.168.1.3"), 1}};
+    rankGraph->SetIpIndexMap(std::move(ipIndexMap));
+
+    std::vector<u32> subRankIds = {0, 3};
+    std::unique_ptr<RankGraph> subRankGraph;
+    ASSERT_EQ(HCCL_SUCCESS, rankGraph->CreateSubRankGraph(subRankIds, subRankGraph));
+    ASSERT_NE(nullptr, subRankGraph);
+
+    uint32_t idx = 0;
+    EXPECT_EQ(HCCL_SUCCESS, subRankGraph->GetIpIndex(0, IpAddress("192.168.1.1"), idx));
+    EXPECT_EQ(0U, idx);
+    EXPECT_EQ(HCCL_SUCCESS, subRankGraph->GetIpIndex(1, IpAddress("192.168.1.3"), idx));
+    EXPECT_EQ(1U, idx);
 }
 
 namespace {

@@ -29,14 +29,6 @@ DetourService& DetourService::GetInstance()
 
 DetourService::DetourService(const PhyTopo* phyTopo) { this->phyTopo = phyTopo; }
 
-struct DetourData {
-    NodeId detourPhyPeerId{0};
-    NodeId srcPhyPeerId{0};
-    NodeId dstPhyPeerId{0};
-    shared_ptr<NetInstance::Peer> srcNetInstPeer{nullptr};
-    shared_ptr<NetInstance::Peer> dstNetInstPeer{nullptr};
-};
-
 vector<shared_ptr<PhyTopo::Link>>
 GetLinks(NodeId srcId, NodeId dstId, const shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>>& phyTopoGraph)
 {
@@ -59,6 +51,13 @@ HcclResult AddDetourLink(
     const shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>>& phyTopoGraph,
     [[maybe_unused]] const RankTableInfo* rankTable)
 {
+    // peer 为空时下游会直接解引用（GetPortAddrMapLayer0/AddConnInterface），在建链前 fail-fast
+    if (data.srcNetInstPeer == nullptr || data.dstNetInstPeer == nullptr) {
+        HCCL_ERROR(
+            "[DetourService][InsertDetourLinks][%s] srcVirtPeer[%p] dstVirtPeer[%p] is nullptr", __func__,
+            static_cast<const void*>(data.srcNetInstPeer.get()), static_cast<const void*>(data.dstNetInstPeer.get()));
+        return HCCL_E_PTR;
+    }
     vector<shared_ptr<PhyTopo::Link>> src2detVec;
     TRY_CATCH_RETURN(src2detVec = GetLinks(data.srcPhyPeerId, data.detourPhyPeerId, phyTopoGraph););
     vector<shared_ptr<PhyTopo::Link>> det2dstVec;
@@ -103,8 +102,25 @@ HcclResult AddDetourLink(
             }
 
             // 取出对应的端口，然后去ranktableInfo中查对应端口的地址信息
-            IpAddress src2detAddr = data.srcNetInstPeer->GetPortAddrMapLayer0()[*src2detPorts.begin()][0];
-            IpAddress det2dstAddr = data.dstNetInstPeer->GetPortAddrMapLayer0()[*det2dstPorts.begin()][0];
+            const auto& src2detPortMap = data.srcNetInstPeer->GetPortAddrMapLayer0();
+            const auto src2detIter = src2detPortMap.find(*src2detPorts.begin());
+            if (src2detIter == src2detPortMap.end() || src2detIter->second.empty()) {
+                HCCL_ERROR(
+                    "[DetourService][InsertDetourLinks][%s] cannot find addr of port[%s] in ranktable", __func__,
+                    src2detPorts.begin()->c_str());
+                return HCCL_E_PARA;
+            }
+            IpAddress src2detAddr = src2detIter->second[0];
+
+            const auto& det2dstPortMap = data.dstNetInstPeer->GetPortAddrMapLayer0();
+            const auto det2dstIter = det2dstPortMap.find(*det2dstPorts.begin());
+            if (det2dstIter == det2dstPortMap.end() || det2dstIter->second.empty()) {
+                HCCL_ERROR(
+                    "[DetourService][InsertDetourLinks][%s] cannot find addr of port[%s] in ranktable", __func__,
+                    det2dstPorts.begin()->c_str());
+                return HCCL_E_PARA;
+            }
+            IpAddress det2dstAddr = det2dstIter->second[0];
 
             // 构造InterFace对象用于后续生成Link
             shared_ptr<NetInstance::ConnInterface> sourceIface = make_shared<NetInstance::ConnInterface>(
@@ -125,10 +141,6 @@ HcclResult AddDetourLink(
             innerNetInst->AddLink(recvEdge);
 
             data.srcNetInstPeer->AddConnInterface(0, sourceIface);
-            if (data.dstNetInstPeer == nullptr) {
-                HCCL_ERROR("[DetourService][InsertDetourLinks][%s] dstVirtPeer is nullptr", __func__);
-                return HCCL_E_PTR;
-            }
             data.dstNetInstPeer->AddConnInterface(0, targetIface);
 
             HCCL_DEBUG(

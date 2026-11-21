@@ -26,6 +26,28 @@ using namespace std;
 constexpr u32 PEER2NET_LINK_HOP = 2;
 constexpr std::string_view PCIE_PLANE_PREFIX = "pcie:";
 
+namespace {
+    // 带缓存的vnic查询：底层 HrtRaSocketGetVnicIpInfos 已按 targetDeviceId 做进程级缓存，但每次进入仍需持锁
+    // 并打印INFO日志；本层按 (localDeviceId,targetDeviceId) 再缓存一层以消除该开销。
+    // vnicIpCache为空时保持原直查行为；查询失败沿原异常路径抛出且不写缓存（两层缓存键不同，勿互相删除）
+    IpAddress QueryVnicIp(u32 localDeviceId, u32 targetDeviceId, std::map<std::uint64_t, IpAddress>* vnicIpCache)
+    {
+        const std::uint64_t cacheKey = (static_cast<std::uint64_t>(localDeviceId) << 32) | targetDeviceId;
+        if (vnicIpCache != nullptr) {
+            auto it = vnicIpCache->find(cacheKey);
+            if (it != vnicIpCache->end()) {
+                return it->second;
+            }
+        }
+        IpAddress vnicIp;
+        HrtRaSocketGetVnicIpInfos(localDeviceId, DeviceIdType::DEVICE_ID_TYPE_PHY_ID, targetDeviceId, vnicIp);
+        if (vnicIpCache != nullptr) {
+            vnicIpCache->emplace(cacheKey, vnicIp);
+        }
+        return vnicIp;
+    }
+} // namespace
+
 unique_ptr<RankGraph> RankGraphBuilder::Build(const string& ranktableM, const string& topoPath, RankId myRank)
 {
     // 计时范围：Build 入口的 topo 构建 + ranktable JSON 解析；不含文件读取/CRC 与 BuildRankGraph。
@@ -314,10 +336,10 @@ HcclResult RankGraphBuilder::AddTopoDescFabricInfo()
                 const PlaneId planeId = std::string(PCIE_PLANE_PREFIX) + std::to_string(link->GetTopoInstId());
                 auto peerNode = peers_.at(rankId);
                 vector<shared_ptr<NetInstance::ConnInterface>> peerIfaces;
+                const ConnIfaceBuildCtx ctx{localDeviceId, LinkType::PEER2NET, peerNode->GetDeviceId(), &vnicIpCache_};
                 TRY_CATCH_RETURN(peerIfaces = ConstructConnIFromPhyTopoConnIAndPortMap(
                                      link->GetSourceIFace(), peerNode->GetPortAddrMapLayer0(), link->GetTopoType(),
-                                     link->GetTopoInstId(), localDeviceId, LinkType::PEER2NET,
-                                     peerNode->GetDeviceId()););
+                                     link->GetTopoInstId(), ctx););
                 if (peerIfaces.empty()) {
                     continue;
                 }
@@ -724,12 +746,13 @@ HcclResult RankGraphBuilder::BuildPeer2PeerLinks()
             shared_ptr<NetInstance::Peer> dstPeer = peers_.at(dstRankId);
 
             for (shared_ptr<PhyTopo::Link> phyLink : phyLinks) {
+                const ConnIfaceBuildCtx ctx{localDeviceId, std::nullopt, std::nullopt, &vnicIpCache_};
                 auto sourceIfaces = ConstructConnIFromPhyTopoConnIAndPortMap(
                     phyLink->GetSourceIFace(), srcPeer->GetPortAddrMapLayer0(), phyLink->GetTopoType(),
-                    phyLink->GetTopoInstId(), localDeviceId);
+                    phyLink->GetTopoInstId(), ctx);
                 auto targetIfaces = ConstructConnIFromPhyTopoConnIAndPortMap(
                     phyLink->GetTargetIFace(), dstPeer->GetPortAddrMapLayer0(), phyLink->GetTopoType(),
-                    phyLink->GetTopoInstId(), localDeviceId);
+                    phyLink->GetTopoInstId(), ctx);
                 if (sourceIfaces.empty() || targetIfaces.empty()) {
                     // 没有可用的接口。
                     HCCL_WARNING(
@@ -787,10 +810,8 @@ HcclResult RankGraphBuilder::BuildPcieFallbackLinks(NetInstance* innerNetInstanc
             IpAddress dstIp;
             bool vnicQueryOk = false;
             try {
-                HrtRaSocketGetVnicIpInfos(
-                    localDeviceId, DeviceIdType::DEVICE_ID_TYPE_PHY_ID, srcPeer->GetDeviceId(), srcIp);
-                HrtRaSocketGetVnicIpInfos(
-                    localDeviceId, DeviceIdType::DEVICE_ID_TYPE_PHY_ID, dstPeer->GetDeviceId(), dstIp);
+                srcIp = GetVnicIp(localDeviceId, srcPeer->GetDeviceId());
+                dstIp = GetVnicIp(localDeviceId, dstPeer->GetDeviceId());
                 vnicQueryOk = true;
             } catch (const HcclException& e) {
                 HCCL_ERROR(
@@ -885,21 +906,31 @@ HcclResult RankGraphBuilder::UpdateTopoInstForMyRankOnly()
 std::vector<std::shared_ptr<NetInstance::ConnInterface>> ConstructConnIFromPhyTopoConnIAndPortMap(
     std::shared_ptr<PhyTopo::ConnInterface> phyConnIFace,
     const std::map<std::string, std::vector<IpAddress>>& portAddrMap, const TopoType topoType, const u32 topoInstId,
-    u32 localDeviceId, std::optional<LinkType> linkTypeOverride, std::optional<u32> targetDeviceId)
+    const ConnIfaceBuildCtx& ctx)
 {
     std::vector<std::shared_ptr<NetInstance::ConnInterface>> netConnIFaces;
     std::set<string> phyPorts = phyConnIFace->GetPorts();
     std::map<IpAddress, std::set<string>> addr2Ports;
+    // vnic查询结果只依赖targetDeviceId，与端口无关，提到端口循环外整条物理边仅查询一次
+    // 不变量：进入 rank graph 的链路协议集非空（下游直接解引用 begin()）；空协议集无法推导链路语义，入口跳过建链
+    const std::set<LinkProtocol>& linkProtocols = phyConnIFace->GetLinkProtocols();
+    if (linkProtocols.empty()) {
+        HCCL_WARNING(
+            "[RankGraphBuilder][%s] physical link has empty protocols, skip building conn interface", __func__);
+        return netConnIFaces;
+    }
+    const bool isPcieLink = *linkProtocols.begin() == LinkProtocol::PCIE;
+    IpAddress pcieVnicIp;
+    if (isPcieLink && !phyPorts.empty()) {
+        pcieVnicIp = QueryVnicIp(ctx.localDeviceId, ctx.targetDeviceId.value_or(ctx.localDeviceId), ctx.vnicIpCache);
+    }
     for (auto port : phyPorts) {
-        if (*(phyConnIFace->GetLinkProtocols().begin()) == LinkProtocol::PCIE) {
-            IpAddress tempIp;
-            HrtRaSocketGetVnicIpInfos(
-                localDeviceId, DeviceIdType::DEVICE_ID_TYPE_PHY_ID, targetDeviceId.value_or(localDeviceId), tempIp);
-            auto it = addr2Ports.find(tempIp);
+        if (isPcieLink) {
+            auto it = addr2Ports.find(pcieVnicIp);
             if (it == addr2Ports.end()) {
                 std::set<std::string> newPorts;
                 newPorts.insert("d2h");
-                addr2Ports[tempIp] = newPorts;
+                addr2Ports[pcieVnicIp] = newPorts;
             } else {
                 it->second.insert("d2h");
             }
@@ -928,9 +959,7 @@ std::vector<std::shared_ptr<NetInstance::ConnInterface>> ConstructConnIFromPhyTo
 
     for (auto it = addr2Ports.begin(); it != addr2Ports.end(); ++it) {
         // fabric路径(peer-fabric边)必须显式指定为PEER2NET; 未指定时按P2P语义推导, 兼容BuildPeer2PeerLinks调用方
-        auto linkType = linkTypeOverride.value_or(
-            *(phyConnIFace->GetLinkProtocols().begin()) == LinkProtocol::PCIE ? LinkType::PEER2NET :
-                                                                                LinkType::PEER2PEER);
+        auto linkType = ctx.linkTypeOverride.value_or(isPcieLink ? LinkType::PEER2NET : LinkType::PEER2PEER);
         shared_ptr<NetInstance::ConnInterface> netConnIFace = make_shared<NetInstance::ConnInterface>(
             it->first, it->second, phyConnIFace->GetPos(), linkType, phyConnIFace->GetLinkProtocols(), topoType,
             topoInstId);
@@ -982,6 +1011,11 @@ std::vector<std::shared_ptr<PhyTopo::Link>> GetPeer2PeerPhyLinks(
     return links;
 }
 
+IpAddress RankGraphBuilder::GetVnicIp(u32 localDeviceId, u32 targetDeviceId)
+{
+    return QueryVnicIp(localDeviceId, targetDeviceId, &vnicIpCache_);
+}
+
 HcclResult RankGraphBuilder::CheckMyRankInRankTable() const
 {
     if (myRank_ >= static_cast<s32>(rankTable_->rankCount)) {
@@ -995,6 +1029,8 @@ HcclResult RankGraphBuilder::CheckMyRankInRankTable() const
 
 HcclResult RankGraphBuilder::BuildRankGraph(bool enableVirtualGroups)
 {
+    // 每次构建重置vnic查询缓存，避免builder实例复用时残留上次结果
+    vnicIpCache_.clear();
     // 校验myRank在rankTable中
     CHK_RET(CheckMyRankInRankTable());
     // 先完成主线拓扑还原，再解析选层，避免选中的 layer 1 随后被合入 layer 0。
@@ -1022,7 +1058,7 @@ HcclResult RankGraphBuilder::BuildRankGraph(bool enableVirtualGroups)
     }
 
     // 打平所有 netLayer 的 rankAddrs，按 rank 去重排序，构建 ipIndex 映射表
-    BuildIpIndexMap();
+    CHK_RET(BuildIpIndexMap());
 
     // 设置endpoint
     CHK_RET(SetEndpointDesc());
@@ -1055,27 +1091,34 @@ HcclResult RankGraphBuilder::BuildRankGraph(bool enableVirtualGroups)
     return HCCL_SUCCESS;
 }
 
-void RankGraphBuilder::BuildIpIndexMap()
+HcclResult RankGraphBuilder::BuildIpIndexMap()
 {
     // ipIndex 是原始地址的稳定编号；选层仅限制接口和边，不重排硬件地址索引。
     // 打平所有 netLayer 的 rankAddrs，按 rank 去重排序，用排序后的下标作为 ipIndex
-    std::unordered_map<RankId, std::map<IpAddress, uint32_t>> ipIndexMap;
+    std::unordered_map<RankId, RankIpIndexList> ipIndexMap;
     for (const auto& rankInfo : rankTable_->ranks) {
-        std::set<IpAddress> sortedAddrs;
+        std::vector<IpAddress> sortedAddrs;
         for (const auto& levelInfo : rankInfo.rankLevelInfos) {
             for (const auto& addrInfo : levelInfo.rankAddrs) {
                 if (addrInfo.addr == IpAddress()) {
                     continue;
                 }
-                sortedAddrs.insert(addrInfo.addr);
+                sortedAddrs.push_back(addrInfo.addr);
             }
         }
-        uint32_t idx = 0;
-        for (const auto& addr : sortedAddrs) {
-            ipIndexMap[rankInfo.rankId][addr] = idx++;
+        std::sort(sortedAddrs.begin(), sortedAddrs.end());
+        sortedAddrs.erase(std::unique(sortedAddrs.begin(), sortedAddrs.end()), sortedAddrs.end());
+        if (sortedAddrs.empty()) {
+            continue;
         }
+        RankIpIndexList entries;
+        entries.reserve(sortedAddrs.size());
+        for (uint32_t idx = 0; idx < static_cast<uint32_t>(sortedAddrs.size()); ++idx) {
+            entries.emplace_back(sortedAddrs[idx], idx);
+        }
+        ipIndexMap[rankInfo.rankId] = std::move(entries);
     }
-    rankGraph_->SetIpIndexMap(std::move(ipIndexMap));
+    return rankGraph_->SetIpIndexMap(std::move(ipIndexMap));
 }
 
 std::unique_ptr<RankTableInfo> RankGraphBuilder::GetRankTableInfo() { return move(rankTable_); }
@@ -1083,17 +1126,16 @@ std::unique_ptr<RankTableInfo> RankGraphBuilder::GetRankTableInfo() { return mov
 std::shared_ptr<hccl::TopoInfo> RankGraphBuilder::GetTopoInfo() { return topoInfo_; }
 
 unique_ptr<RankGraph> RankGraphBuilder::RecoverBuild(
-    const RankTableInfo& rankTableInfo, const hccl::TopoInfo& topoInfo, RankId myRank, bool enableVirtualGroups)
+    RankTableInfo rankTableInfo, const hccl::TopoInfo& topoInfo, RankId myRank, bool enableVirtualGroups)
 {
     topoInfo_ = std::make_shared<hccl::TopoInfo>(topoInfo);
     if (hccl::PhyTopoBuilder::GetInstance().RecoverBuild(*topoInfo_) != HCCL_SUCCESS) {
         return nullptr;
     }
 
-    rankTable_ = make_unique<RankTableInfo>(rankTableInfo);
-    HCCL_INFO(
-        "[%s] RankTable[%s] RankTableInfo[%s]", __func__, rankTable_->Describe().c_str(),
-        rankTableInfo.Describe().c_str());
+    // 日志前移：先打印后移动，避免打印moved-from对象
+    HCCL_INFO("[%s] RankTableInfo[%s]", __func__, rankTableInfo.Describe().c_str());
+    rankTable_ = make_unique<RankTableInfo>(std::move(rankTableInfo));
 
     this->myRank_ = myRank;
     HcclResult graphRet = BuildRankGraph(enableVirtualGroups);

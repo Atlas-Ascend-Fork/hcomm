@@ -369,13 +369,13 @@ namespace {
     }
 
     HcclResult RecoverBuildImpl(
-        const RankTableInfo& rankTable, const hccl::TopoInfo& topoInfo, RankId myRank, bool enableVirtualGroups,
+        RankTableInfo&& rankTable, const hccl::TopoInfo& topoInfo, RankId myRank, bool enableVirtualGroups,
         const char* netLayerExpression, RankGraphBuildResult& result)
     {
         return RunBuild(
             __func__,
             [&](RankGraphBuilder& rankGraphBuilder) {
-                return rankGraphBuilder.RecoverBuild(rankTable, topoInfo, myRank, enableVirtualGroups);
+                return rankGraphBuilder.RecoverBuild(std::move(rankTable), topoInfo, myRank, enableVirtualGroups);
             },
             result, netLayerExpression);
     }

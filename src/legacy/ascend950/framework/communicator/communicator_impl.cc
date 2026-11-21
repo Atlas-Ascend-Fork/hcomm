@@ -17,7 +17,6 @@
 #include "link_data_adapter.h"
 #include <memory>
 #include <cstring>
-#include <fstream>
 #include <op_type.h>
 #include <adapter_error_manager_pub.h>
 #include "orion_adapter_rts.h"
@@ -2582,8 +2581,10 @@ HcclResult CommunicatorImpl::RecoverRankGraphData(SnapShotComm& snapShotComm, co
 
     RankGraphBuildResult buildResult{};
     // 恢复构建也由 hcomm 完成，并返回同一版本的 graph、rank table 和 topo 快照。
+    // 注意：recoverBuild 以右值消费快照 ranktable（F4 移动语义）。若本次恢复失败，
+    // snapShotComm.rankTableInfo 已被移空，调用方不可再使用同一快照重试恢复。
     ret = bridge->recoverBuild(
-        snapShotComm.rankTableInfo, snapShotComm.topoInfo, myRank, snapShotComm.enableVirtualGroups,
+        std::move(snapShotComm.rankTableInfo), snapShotComm.topoInfo, myRank, snapShotComm.enableVirtualGroups,
         config.hcclUseNetLayer, buildResult);
     CHK_PRT_RET(
         ret != HCCL_SUCCESS,
@@ -3424,7 +3425,6 @@ void CommunicatorImpl::AppendLocalDieIdForLinks()
                 continue;
             }
             u32 dieId = GetLocalDieId(MakePortData(myRank, *iface), *(link->GetLinkProtocols().begin()));
-            HCCL_INFO("[CommunicatorImpl][AppendLocalDieIdForLinks] get link dieid[%u]", dieId);
             iface->SetLocalDieId(dieId);
         }
     };
@@ -3433,16 +3433,26 @@ void CommunicatorImpl::AppendLocalDieIdForLinks()
         auto netInstance = rankGraph->GetNetInstanceByRankId(level, myRank);
         auto& vGraph = netInstance->GetGraph();
 
-        // Process fabric links
-        for (auto fabric : netInstance->GetFabrics()) {
-            auto dstRankNode = fabric->GetNodeId();
-            processLinks(vGraph.GetEdges(srcRankNode, dstRankNode), true);
-            processLinks(vGraph.GetEdges(dstRankNode, srcRankNode), false);
+        // 先收集本卡邻居集合（fabric + 出边）并去重，替代原 O(rankSize) 全表双向 GetEdges；
+        // 仅有入边的邻居用 HasEdge 兜底（仅哈希判定、不取边/不拷贝 vector），为正确性保留的有意取舍
+        std::set<NodeId> neighborNodes;
+        for (const auto& fabric : netInstance->GetFabrics()) {
+            neighborNodes.insert(fabric->GetNodeId());
         }
+        vGraph.TraverseEdge(srcRankNode, [&](std::shared_ptr<NetInstance::Link> link) {
+            neighborNodes.insert(link->GetTargetNode()->GetNodeId());
+        });
+        // 构图不保证 peer 边成对（按方向跳过/单删），故遍历本 level 图节点兜底（内联 TraverseNode 避免跨 SO 调用）
+        vGraph.TraverseNode([&](NodeId nodeId, const std::shared_ptr<NetInstance::Node>&) {
+            if (nodeId == srcRankNode || neighborNodes.count(nodeId) != 0) {
+                return;
+            }
+            if (vGraph.HasEdge(nodeId, srcRankNode)) {
+                neighborNodes.insert(nodeId);
+            }
+        });
 
-        // Process direct peer links
-        for (u32 dstRank = 0; dstRank < rankSize; ++dstRank) {
-            auto dstRankNode = rankGraph->GetPeer(dstRank)->GetNodeId();
+        for (auto dstRankNode : neighborNodes) {
             processLinks(vGraph.GetEdges(srcRankNode, dstRankNode), true);
             processLinks(vGraph.GetEdges(dstRankNode, srcRankNode), false);
         }

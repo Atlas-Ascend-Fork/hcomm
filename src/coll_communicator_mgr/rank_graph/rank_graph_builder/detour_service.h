@@ -33,6 +33,19 @@ private:
     const PhyTopo* phyTopo{nullptr};
 };
 
+// 绕路建链所需的最小数据
+struct DetourData {
+    NodeId detourPhyPeerId{0};
+    NodeId srcPhyPeerId{0};
+    NodeId dstPhyPeerId{0};
+    std::shared_ptr<NetInstance::Peer> srcNetInstPeer{nullptr};
+    std::shared_ptr<NetInstance::Peer> dstNetInstPeer{nullptr};
+};
+
+HcclResult AddDetourLink(
+    NetInstance* innerNetInst, const DetourData& data,
+    const std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>>& phyTopoGraph, const RankTableInfo* rankTable);
+
 void SetDetourTable4P(
     const std::set<u32>& tableIdSet, unordered_map<LocalId, unordered_map<LocalId, vector<LocalId>>>& detourTable);
 } // namespace Hccl

@@ -155,7 +155,7 @@ HcclResult RankInfoDetectClient::Setup(RankTableInfo& rankTable)
 
     // 5. 接收完整 rankTable
     CHK_RET(RecvRankTable());
-    rankTable = rankTable_;
+    rankTable = std::move(rankTable_);
     return HCCL_SUCCESS;
 }
 
