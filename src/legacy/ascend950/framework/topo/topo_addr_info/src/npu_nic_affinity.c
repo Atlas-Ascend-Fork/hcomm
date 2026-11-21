@@ -31,9 +31,6 @@
 #ifndef HCA_NET_PATH_TEMPLATE
 #define HCA_NET_PATH_TEMPLATE "/sys/class/infiniband/%s/device/net"
 #endif
-#ifndef HCA_LIST_PATH
-#define HCA_LIST_PATH "/sys/class/infiniband"
-#endif
 #define MAX_PATH_LEN 512
 #define MAX_GROUP_CNT 16
 #define MAX_HCA_COUNT 64
@@ -393,29 +390,44 @@ static TopoAddrResult EnumerateNicNames(AffinityInfo* info)
         TOPO_ERR("EnumerateNicNames: invalid argument (info=%p)", info);
         return TOPO_ERR_PARA;
     }
-    DIR* dir = opendir(HCA_LIST_PATH);
-    if (dir == NULL) {
-        TOPO_WARN("EnumerateNicNames: opendir(%s) failed, errno=%d(%s)", HCA_LIST_PATH, errno, strerror(errno));
+    IbvVerbsOps ops;
+    if (hal_get_ibv_ops(&ops) != 0) {
         return TOPO_ERR_SYSCALL;
     }
-
-    for (struct dirent* entry = readdir(dir); entry != NULL; entry = readdir(dir)) {
-        if (entry->d_name[0] == '.') {
+    int numDevices = 0;
+    struct ibv_device** deviceList = ops.getDeviceList(&numDevices);
+    if (deviceList == NULL) {
+        TOPO_WARN("EnumerateNicNames: ibv_get_device_list failed, errno=%d(%s)", errno, strerror(errno));
+        return TOPO_ERR_SYSCALL;
+    }
+    for (int devIdx = 0; devIdx < numDevices; devIdx++) {
+        const char* name = ops.getDeviceName(deviceList[devIdx]);
+        if (name == NULL || name[0] == '\0') {
             continue;
         }
-        if (strlen(entry->d_name) >= MAX_NAME_LEN) {
+        if (strlen(name) >= MAX_NAME_LEN) {
             continue;
         }
-        /* 同一HCA对应多条地址记录，DedupNetNic 去重后只保留名字一次，并顺带累计 nicCount */
+        /* 逐个 open 探测 HCA 是否可用：打不开的设备跳过不登记；成功后立即 close，仅作探测、不持有句柄 */
+        struct ibv_context* context = ops.openDevice(deviceList[devIdx]);
+        if (context == NULL) {
+            TOPO_WARN("EnumerateNicNames: ibv_open_device failed, hca=%s, errno=%d(%s)", name, errno, strerror(errno));
+            continue;
+        }
+        int closeRet = ops.closeDevice(context);
+        if (closeRet != 0) {
+            TOPO_WARN(
+                "EnumerateNicNames: ibv_close_device failed, hca=%s, ret=%d(%s)", name, closeRet, strerror(closeRet));
+        }
         unsigned int nicIdx = 0;
-        if (DedupNetNic(info, entry->d_name, &nicIdx) == TOPO_ERR_MEMORY) {
+        if (DedupNetNic(info, name, &nicIdx) == TOPO_ERR_MEMORY) {
             break;
         }
     }
-    closedir(dir);
+    ops.freeDeviceList(deviceList);
 
     if (info->nicCount == 0) {
-        TOPO_INFO("EnumerateNicNames: no HCA enumerated under %s", HCA_LIST_PATH);
+        TOPO_INFO("EnumerateNicNames: no HCA reported by libibverbs");
         return TOPO_ERR_NOT_FOUND;
     }
     return TOPO_SUCCESS;

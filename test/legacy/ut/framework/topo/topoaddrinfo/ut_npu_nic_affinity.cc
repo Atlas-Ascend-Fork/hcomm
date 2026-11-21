@@ -13,10 +13,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <dlfcn.h>
 #include <sys/stat.h>
 #include <ifaddrs.h>
 #include <arpa/inet.h>
 #include <net/if.h>
+#include <string>
 #include <vector>
 #include <stdarg.h>
 #include "npu_nic_affinity.h"
@@ -25,6 +27,8 @@
 #include "hal.h"
 #include "securec.h"
 #include "topo_addr_info_log.h"
+
+extern "C" void reinit_ibv_ops();
 
 static void TestLogRecord(int moduleId, int level, const char* fmt, ...)
 {
@@ -87,9 +91,30 @@ static void SetupFakeNet(const char* ethName, const char* ipStr)
     g_fakeIfaddr = ifa;
 }
 
+/* ──────── 假 HCA：名字登记到 libibverbs 设备列表（枚举用），并创建 sysfs 目录（HcaToIp 用） ──────── */
+static bool g_ibvAvailable = false;                 /* libibverbs 是否可加载 */
+static bool g_ibvListFail = false;                  /* ibv_get_device_list 是否返回 NULL */
+static std::vector<std::string> g_ibvDevNames;      /* ibv_get_device_list 返回的设备名 */
+static std::vector<std::string> g_ibvOpenFailNames; /* ibv_open_device 失败的设备名 */
+static bool g_ibvMissingSymbol = false;             /* true=libibverbs 缺少必需符号 */
+static bool g_ibvUnversionedFail = false; /* true=libibverbs.so 加载失败（模拟无 dev 符号链接） */
+static int g_ibvDlopenCount = 0;          /* libibverbs dlopen 调用次数 */
+static int g_ibvDlcloseCount = 0;         /* 加载失败分支 dlclose 调用次数 */
+
+static void RegisterFakeHca(const char* hca)
+{
+    for (size_t i = 0; i < g_ibvDevNames.size(); i++) {
+        if (g_ibvDevNames[i] == hca) {
+            return;
+        }
+    }
+    g_ibvDevNames.push_back(hca);
+}
+
 /* ──────── 创建 /tmp/ut_hca/<hca>/device/net/<eth> ──────── */
 static void SetupFakeHca(const char* hca, const char* eth)
 {
+    RegisterFakeHca(hca);
     char path[512];
     sprintf_s(path, sizeof(path), "/tmp/ut_hca/%s/device/net", hca);
     char p[512];
@@ -109,6 +134,7 @@ static void SetupFakeHca(const char* hca, const char* eth)
 
 static void TeardownFakeHca()
 {
+    g_ibvDevNames.clear();
     char cmd[256];
     sprintf_s(cmd, sizeof(cmd), "rm -rf /tmp/ut_hca");
     system(cmd);
@@ -217,6 +243,119 @@ extern "C" int mock_topo_info(int devId, char* nicName, int nicNameLen, int* top
     return 0;
 }
 
+/* ──────── Mock libibverbs（生产代码经 hal_dlopen/hal_dlsym 动态加载） ────────
+   设备列表来自 g_ibvDevNames（由 SetupFakeHca 登记）；g_ibvAvailable=false 模拟库缺失，
+   g_ibvListFail=true 模拟 ibv_get_device_list 返回 NULL，
+   g_ibvOpenFailNames 中的设备模拟 ibv_open_device 失败。 */
+static void* g_fakeIbvHandle = (void*)0x1b5;
+static void* g_fakeIbvContext = (void*)0x1c7;
+
+extern "C" void** mock_ibv_get_device_list(int* numDevices)
+{
+    if (g_ibvListFail) {
+        return NULL;
+    }
+    static void* devices[MAX_NPU_COUNT * 2 + 1]; /* 容纳 Fallback_HcaCountCap 的 65 个名字 */
+    size_t devCnt = g_ibvDevNames.size();
+    if (devCnt > MAX_NPU_COUNT * 2) {
+        devCnt = MAX_NPU_COUNT * 2;
+    }
+    for (size_t i = 0; i < devCnt; i++) {
+        devices[i] = const_cast<char*>(g_ibvDevNames[i].c_str());
+    }
+    devices[devCnt] = NULL;
+    if (numDevices != NULL) {
+        *numDevices = (int)devCnt;
+    }
+    return devices;
+}
+
+/* 假设备指针即设备名指针，取名字时原样返回 */
+extern "C" const char* mock_ibv_get_device_name(void* device) { return static_cast<const char*>(device); }
+
+/* 指定名字的设备模拟打开失败，其余返回假 context */
+extern "C" void* mock_ibv_open_device(void* device)
+{
+    const char* name = static_cast<const char*>(device);
+    for (size_t i = 0; i < g_ibvOpenFailNames.size(); i++) {
+        if (g_ibvOpenFailNames[i] == name) {
+            return NULL;
+        }
+    }
+    return g_fakeIbvContext;
+}
+
+extern "C" int mock_ibv_close_device(void* context)
+{
+    (void)context;
+    return 0;
+}
+
+extern "C" void mock_ibv_free_device_list(void** deviceList) { (void)deviceList; }
+
+/* 只接管 libibverbs 的加载，其它库（如 libdcmi.so）仍走真实 dlopen/dlsym；
+   两个候选库名分别匹配，以覆盖"无 dev 符号链接、仅运行库"的回退命中路径 */
+extern "C" void* mock_dlopen_ibv(const char* filename, int flag)
+{
+    bool isPreferred = (strcmp(filename, "libibverbs.so") == 0);
+    bool isFallback = (strcmp(filename, "libibverbs.so.1") == 0);
+    if (isPreferred || isFallback) {
+        g_ibvDlopenCount++;
+        if (!g_ibvAvailable) {
+            return NULL;
+        }
+        return (isPreferred && g_ibvUnversionedFail) ? NULL : g_fakeIbvHandle;
+    }
+    return dlopen(filename, flag);
+}
+
+/* 加载失败分支会关闭句柄：假句柄不能交给真实 dlclose，单独接管并计数 */
+extern "C" void mock_dlclose_ibv(void* handle)
+{
+    (void)handle;
+    g_ibvDlcloseCount++;
+}
+
+extern "C" void* mock_dlsym_ibv(void* handle, const char* symbol)
+{
+    if (handle != g_fakeIbvHandle) {
+        return dlsym(handle, symbol);
+    }
+    if (g_ibvMissingSymbol && strcmp(symbol, "ibv_free_device_list") == 0) {
+        return NULL;
+    }
+    if (strcmp(symbol, "ibv_get_device_list") == 0) {
+        return (void*)mock_ibv_get_device_list;
+    }
+    if (strcmp(symbol, "ibv_get_device_name") == 0) {
+        return (void*)mock_ibv_get_device_name;
+    }
+    if (strcmp(symbol, "ibv_open_device") == 0) {
+        return (void*)mock_ibv_open_device;
+    }
+    if (strcmp(symbol, "ibv_close_device") == 0) {
+        return (void*)mock_ibv_close_device;
+    }
+    if (strcmp(symbol, "ibv_free_device_list") == 0) {
+        return (void*)mock_ibv_free_device_list;
+    }
+    return NULL;
+}
+
+/* 复位 libibverbs mock 状态与生产侧加载缓存：缓存跨用例存活，复位后用例与执行顺序无关 */
+static void ResetIbvMock()
+{
+    g_ibvAvailable = true;
+    g_ibvListFail = false;
+    g_ibvMissingSymbol = false;
+    g_ibvUnversionedFail = false;
+    g_ibvDlopenCount = 0;
+    g_ibvDlcloseCount = 0;
+    g_ibvDevNames.clear();
+    g_ibvOpenFailNames.clear();
+    reinit_ibv_ops();
+}
+
 class NpuNicAffinityTest : public testing::Test {
 protected:
     void SetUp() override
@@ -251,6 +390,12 @@ protected:
             .stubs()
             .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
             .will(mockcpp::invoke(mock_topo_info));
+        /* 生产代码经 hal_dlopen/hal_dlsym 动态加载 libibverbs 枚举 HCA：默认模拟可用，
+           设备列表由 SetupFakeHca 登记，设备默认可打开 */
+        ResetIbvMock();
+        MOCKER(hal_dlopen).stubs().with(mockcpp::any(), mockcpp::any()).will(mockcpp::invoke(mock_dlopen_ibv));
+        MOCKER(hal_dlsym).stubs().with(mockcpp::any(), mockcpp::any()).will(mockcpp::invoke(mock_dlsym_ibv));
+        MOCKER(hal_dlclose).stubs().with(mockcpp::any()).will(mockcpp::invoke(mock_dlclose_ibv));
 
         remove("/tmp/ut_virtualTopology.xml");
         memset_s(g_pi, sizeof(g_pi), 0, sizeof(g_pi));
@@ -268,6 +413,14 @@ protected:
         TeardownFakeHca();
         system("rm -rf /tmp/ut_hca_sym_target"); /* 符号链接用例的真实目录 */
         TeardownFakeNet();
+        g_ibvAvailable = false;
+        g_ibvListFail = false;
+        g_ibvMissingSymbol = false;
+        g_ibvUnversionedFail = false;
+        g_ibvDlopenCount = 0;
+        g_ibvDlcloseCount = 0;
+        g_ibvDevNames.clear();
+        g_ibvOpenFailNames.clear();
         g_topo_DlogRecord = NULL;
         g_topo_CheckLogLevel = NULL;
         GlobalMockObject::verify();
@@ -1610,6 +1763,143 @@ TEST_F(NpuNicAffinityTest, Fallback_NoXml_Basic)
     AssertRoceIpOk(0, "10.0.0.1");
 }
 
+/* HCA 枚举全部来自 libibverbs：设备列表里的每个名字各查询一次 */
+TEST_F(NpuNicAffinityTest, Fallback_VerbsEnumeration)
+{
+    S(1, 0);
+    /* hrn5_0 有假 sysfs 路径可解出 IP；verbs_only 只用于确认枚举来源是 verbs */
+    g_ibvDevNames = {"hrn5_0", "verbs_only"};
+    Affine(0, "hrn5_0");
+    AssertRoceIpOk(0, "10.0.0.1");
+    EXPECT_EQ(g_driverCallCount, 2); /* 由 verbs 枚举出的 2 个 HCA 各查询一次 */
+}
+
+/* libibverbs 没有可用设备 → 回退构建失败 */
+TEST_F(NpuNicAffinityTest, Fallback_VerbsEmptyList)
+{
+    S(1, 0);
+    TeardownFakeHca(); /* 设备列表清空 */
+    Affine(0, "hrn5_0");
+    AssertRoceIpFail(0, TOPO_ERR_NOT_FOUND);
+    EXPECT_EQ(g_driverCallCount, 0);
+}
+
+/* ibv_get_device_list 返回 NULL → 回退构建失败 */
+TEST_F(NpuNicAffinityTest, Fallback_IbvDeviceListFail)
+{
+    S(1, 0);
+    g_ibvListFail = true;
+    Affine(0, "hrn5_0");
+    AssertRoceIpFail(0, TOPO_ERR_SYSCALL);
+    EXPECT_EQ(g_driverCallCount, 0);
+}
+
+/* 打不开的 HCA 不登记：只查询打开成功的设备 */
+TEST_F(NpuNicAffinityTest, Fallback_VerbsOpenFailSkip)
+{
+    S(1, 0);
+    g_ibvDevNames = {"hrn5_0", "bad_hca"};
+    g_ibvOpenFailNames = {"bad_hca"};
+    Affine(0, "hrn5_0");
+    AssertRoceIpOk(0, "10.0.0.1");
+    EXPECT_EQ(g_driverCallCount, 1); /* bad_hca 打开失败被跳过，仅查询 hrn5_0 */
+}
+
+/* 全部 HCA 都打不开 → 没有可登记的设备，回退构建失败 */
+TEST_F(NpuNicAffinityTest, Fallback_VerbsAllOpenFail)
+{
+    S(1, 0);
+    g_ibvOpenFailNames = {"hrn5_0"};
+    Affine(0, "hrn5_0");
+    AssertRoceIpFail(0, TOPO_ERR_NOT_FOUND);
+    EXPECT_EQ(g_driverCallCount, 0);
+}
+
+/* 入参为空 → 直接返回错误，不触发库加载 */
+TEST_F(NpuNicAffinityTest, Error_GetIbvOpsNullArgument)
+{
+    reinit_ibv_ops();
+    g_ibvDlopenCount = 0;
+    EXPECT_EQ(hal_get_ibv_ops(NULL), -1);
+    EXPECT_EQ(g_ibvDlopenCount, 0);
+}
+
+/* 1825 核心场景：libibverbs 缺失（未安装驱动链接）→ 加载失败且不生成 L3；
+   失败态缓存后不再重复 dlopen；恢复可用态后可正常生成 L3 */
+TEST_F(NpuNicAffinityTest, Fallback_IbvLibraryMissingThenAvailable)
+{
+    S(1, 0);
+    Affine(0, "hrn5_0");
+    g_ibvAvailable = false;
+    reinit_ibv_ops();
+    g_ibvDlopenCount = 0;
+
+    /* ① 库缺失：加载失败，L3 层不生成 */
+    char ip[64] = {0};
+    EXPECT_EQ(GetRoceIpFromXml(0, ip, sizeof(ip)), TOPO_ERR_SYSCALL);
+    NetLayer layer;
+    memset_s(&layer, sizeof(layer), 0, sizeof(layer));
+    EXPECT_NE(ProcessLayerRoce(0, &layer), TOPO_SUCCESS);
+    EXPECT_EQ(layer.addr_count, 0);
+
+    /* ② 失败态已缓存：再次调用不再尝试 dlopen */
+    int dlopenCount = g_ibvDlopenCount;
+    EXPECT_NE(ProcessLayerRoce(0, &layer), TOPO_SUCCESS);
+    EXPECT_EQ(g_ibvDlopenCount, dlopenCount);
+
+    /* ③ 恢复可用态：复位加载缓存后可正常枚举并生成 L3 */
+    g_ibvAvailable = true;
+    reinit_ibv_ops();
+    EXPECT_EQ(ProcessLayerRoce(0, &layer), 0);
+    EXPECT_EQ(layer.net_layer, 3);
+    EXPECT_EQ(layer.addr_count, 1);
+    EXPECT_STREQ(layer.rank_addr_list[0].addr, "10.0.0.1");
+}
+
+/* 现实常见发行版形态：只装运行库 libibverbs.so.1、无 libibverbs.so 符号链接 →
+   回退命中，L3 正常生成；计数为 2 同时锁死"首选库→回退库"的尝试顺序与库名拼写
+   （顺序颠倒或回退库名写错时，首次即成功或两次都失败，计数不为 2） */
+TEST_F(NpuNicAffinityTest, Fallback_IbvUnversionedLibraryMissing)
+{
+    S(1, 0);
+    Affine(0, "hrn5_0");
+    g_ibvUnversionedFail = true;
+    reinit_ibv_ops();
+    g_ibvDlopenCount = 0;
+
+    NetLayer layer;
+    memset_s(&layer, sizeof(layer), 0, sizeof(layer));
+    EXPECT_EQ(ProcessLayerRoce(0, &layer), 0);
+    EXPECT_EQ(layer.net_layer, 3);
+    EXPECT_EQ(layer.addr_count, 1);
+    EXPECT_STREQ(layer.rank_addr_list[0].addr, "10.0.0.1");
+    EXPECT_EQ(g_ibvDlopenCount, 2); /* 先试 libibverbs.so 失败，回退 libibverbs.so.1 成功 */
+
+    /* 加载成功后进入缓存：不再重复 dlopen */
+    int dlopenCount = g_ibvDlopenCount;
+    EXPECT_EQ(ProcessLayerRoce(0, &layer), 0);
+    EXPECT_EQ(g_ibvDlopenCount, dlopenCount);
+}
+
+/* libibverbs 存在但缺少必需符号 → 加载失败并释放句柄，失败态缓存 */
+TEST_F(NpuNicAffinityTest, Fallback_IbvSymbolMissing)
+{
+    S(1, 0);
+    Affine(0, "hrn5_0");
+    g_ibvMissingSymbol = true;
+    reinit_ibv_ops();
+    g_ibvDlopenCount = 0;
+    g_ibvDlcloseCount = 0;
+
+    AssertRoceIpFail(0, TOPO_ERR_SYSCALL);
+    EXPECT_EQ(g_ibvDlcloseCount, 1); /* 失败分支关闭句柄，避免引用计数泄漏 */
+
+    int dlopenCount = g_ibvDlopenCount;
+    AssertRoceIpFail(0, TOPO_ERR_SYSCALL);
+    EXPECT_EQ(g_ibvDlopenCount, dlopenCount); /* 失败态缓存：不再重复加载 */
+    EXPECT_EQ(g_ibvDlcloseCount, 1);
+}
+
 /* XML 能解析但其中无 NIC 定义 → 同样回退驱动接口 */
 TEST_F(NpuNicAffinityTest, Fallback_XmlNoNic)
 {
@@ -1660,8 +1950,8 @@ TEST_F(NpuNicAffinityTest, Fallback_RoundRobinWrapAround)
     EXPECT_EQ(got[1], got[3]);
 }
 
-/* 枚举过滤：. 开头的目录项与超长名（≥64）不进 nicNames，不产生驱动查询 */
-TEST_F(NpuNicAffinityTest, Fallback_SkipHiddenAndLongName)
+/* 枚举过滤：超长名（≥64）不进 nicNames，不产生驱动查询 */
+TEST_F(NpuNicAffinityTest, Fallback_SkipLongName)
 {
     S(1, 0);
     Affine(0, "hrn5_0");
@@ -1669,14 +1959,10 @@ TEST_F(NpuNicAffinityTest, Fallback_SkipHiddenAndLongName)
     char longName[80];
     memset_s(longName, sizeof(longName), 'x', sizeof(longName) - 1);
     longName[sizeof(longName) - 1] = '\0';
-    char cmd[512];
-    sprintf_s(cmd, sizeof(cmd), "mkdir -p /tmp/ut_hca/.hidden_hca/device/net/ethH");
-    system(cmd);
-    sprintf_s(cmd, sizeof(cmd), "mkdir -p /tmp/ut_hca/%s/device/net/ethL", longName);
-    system(cmd);
+    RegisterFakeHca(longName);
 
     AssertRoceIpOk(0, "10.0.0.1");
-    EXPECT_EQ(g_driverCallCount, 1); /* 仅 hrn5_0 被查询：隐藏项与超长名在枚举期被过滤 */
+    EXPECT_EQ(g_driverCallCount, 1); /* 仅 hrn5_0 被查询：超长名在枚举期被过滤 */
 }
 
 /* 枚举上限：超过 MAX_HCA_COUNT(64) 的 HCA 被截断 */
@@ -1686,7 +1972,6 @@ TEST_F(NpuNicAffinityTest, Fallback_HcaCountCap)
     TeardownFakeHca(); /* 清掉默认 hrn5_0，只保留本用例构造的 65 个 HCA */
     const int total = 65;
     char buf[32];
-    char cmd[512];
     std::vector<std::string> hcas(total);
     std::vector<std::string> eths(total);
     std::vector<std::string> ips(total);
@@ -1706,7 +1991,7 @@ TEST_F(NpuNicAffinityTest, Fallback_HcaCountCap)
     }
     BuildFakeNetChain(&g_fakeIfaddr, ethPtrs.data(), ipPtrs.data(), total);
 
-    /* 只查询前 64 个（readdir 序），第 65 个被上限截断；枚举序不可控，不断言具体 IP */
+    /* 只查询前 64 个（登记序即枚举序），第 65 个被上限截断；不断言具体 IP */
     char ip[64] = {0};
     ASSERT_EQ(GetRoceIpFromXml(0, ip, sizeof(ip)), 0);
     EXPECT_EQ(g_driverCallCount, 64);
@@ -1758,33 +2043,11 @@ TEST_F(NpuNicAffinityTest, Fallback_NoUbAffinity)
     AssertRoceIpFail(0);
 }
 
-/* HCA 枚举目录为空 → 回退构建失败 */
-TEST_F(NpuNicAffinityTest, Fallback_HcaListEmptyDir)
-{
-    S(1, 0);
-    char cmd[256];
-    sprintf_s(cmd, sizeof(cmd), "rm -rf /tmp/ut_hca && mkdir -p /tmp/ut_hca");
-    system(cmd);
-    AssertRoceIpFail(0, TOPO_ERR_NOT_FOUND);
-    EXPECT_EQ(g_driverCallCount, 0);
-}
-
-/* HCA 枚举目录不可打开（普通文件，opendir 得 ENOTDIR）→ 回退构建失败 */
-TEST_F(NpuNicAffinityTest, Fallback_HcaListOpenFail)
-{
-    S(1, 0);
-    char cmd[256];
-    sprintf_s(cmd, sizeof(cmd), "rm -rf /tmp/ut_hca && touch /tmp/ut_hca");
-    system(cmd);
-    AssertRoceIpFail(0, TOPO_ERR_SYSCALL);
-    EXPECT_EQ(g_driverCallCount, 0);
-}
-
-/* 枚举不按 d_type 过滤：sysfs 下 HCA 目录项是符号链接，链接项仍须可枚举并解析出 IP */
+/* HCA 名来自 libibverbs，IP 解析仍走 sysfs 路径：链接目录同样可解析 */
 TEST_F(NpuNicAffinityTest, Fallback_HcaEntrySymlink)
 {
     S(1, 0);
-    TeardownFakeHca(); /* 清掉默认 hrn5_0，枚举目录里只留符号链接项 */
+    TeardownFakeHca(); /* 清掉默认 hrn5_0 的目录与设备登记 */
     char cmd[512];
     sprintf_s(
         cmd, sizeof(cmd), "rm -rf /tmp/ut_hca_sym_target && mkdir -p /tmp/ut_hca_sym_target/real_hca/device/net/eth0");
@@ -1793,6 +2056,7 @@ TEST_F(NpuNicAffinityTest, Fallback_HcaEntrySymlink)
     system(cmd);
     sprintf_s(cmd, sizeof(cmd), "ln -s /tmp/ut_hca_sym_target/real_hca /tmp/ut_hca/sym_hca");
     system(cmd);
+    RegisterFakeHca("sym_hca");
     SetupFakeNet("eth0", "10.0.0.1");
     Affine(0, "sym_hca");
 

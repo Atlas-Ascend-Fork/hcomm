@@ -36,6 +36,8 @@
 #define DRIVER_DRFAULT_INSTALL_PATH "/usr/local/Ascend"
 #define DRIVER_TOPO_FILE_DIR_PATH "driver/topo/950"
 #define MAX_TOPO_FILENAME_LEN (64)
+#define IBV_LIB_NAME "libibverbs.so"
+#define IBV_LIB_NAME_FALLBACK "libibverbs.so.1"
 
 #define HAL_TRUE (1)
 #define HAL_FALSE (0)
@@ -104,11 +106,15 @@ void* hal_dlopen(const char* filename, int flag) { return dlopen(filename, flag)
 
 void* hal_dlsym(void* handle, const char* symbol) { return dlsym(handle, symbol); }
 
+void hal_dlclose(void* handle) { (void)dlclose(handle); }
+
 // 测试代码,用于UT测试
 #ifdef OPEN_HCCL_TEST
 static void* dcmi = NULL;
 static void* acl = NULL;
 static int isInit = HAL_FALSE;
+static IbvVerbsOps ibvOps = {NULL, NULL, NULL, NULL, NULL};
+static int ibvLoadFailed = HAL_FALSE;
 /**
  * @brief 重置文件级 static 变量，用于UT打桩，不涉及多线程执行
  */
@@ -117,6 +123,12 @@ void reinit()
     dcmi = NULL;
     acl = NULL;
     isInit = HAL_FALSE;
+}
+
+void reinit_ibv_ops()
+{
+    (void)memset_s(&ibvOps, sizeof(ibvOps), 0, sizeof(ibvOps));
+    ibvLoadFailed = HAL_FALSE;
 }
 #endif
 
@@ -210,6 +222,57 @@ static int load_dcmiv2_get_topo_info_by_device_id_and_nic_name()
         return -1;
     }
     isInit = HAL_TRUE;
+    pthread_mutex_unlock(&mutex);
+    return 0;
+}
+
+int hal_get_ibv_ops(IbvVerbsOps* ops)
+{
+    if (ops == NULL) {
+        TOPO_ERR("hal_get_ibv_ops: invalid argument, ops is NULL");
+        return -1;
+    }
+    static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+#ifndef OPEN_HCCL_TEST
+    static IbvVerbsOps ibvOps = {NULL, NULL, NULL, NULL, NULL};
+    static int ibvLoadFailed = HAL_FALSE;
+#endif
+    pthread_mutex_lock(&mutex);
+    if (ibvOps.getDeviceList != NULL) {
+        *ops = ibvOps;
+        pthread_mutex_unlock(&mutex);
+        return 0;
+    }
+    if (ibvLoadFailed == HAL_TRUE) {
+        pthread_mutex_unlock(&mutex);
+        return -1;
+    }
+    void* handle = hal_dlopen(IBV_LIB_NAME, RTLD_NOW);
+    if (handle == NULL) {
+        handle = hal_dlopen(IBV_LIB_NAME_FALLBACK, RTLD_NOW);
+    }
+    if (handle == NULL) {
+        TOPO_WARN("hal_get_ibv_ops: failed to dlopen %s or %s", IBV_LIB_NAME, IBV_LIB_NAME_FALLBACK);
+        ibvLoadFailed = HAL_TRUE;
+        pthread_mutex_unlock(&mutex);
+        return -1;
+    }
+    IbvVerbsOps loaded = {NULL, NULL, NULL, NULL, NULL};
+    loaded.getDeviceList = hal_dlsym(handle, "ibv_get_device_list");
+    loaded.getDeviceName = hal_dlsym(handle, "ibv_get_device_name");
+    loaded.openDevice = hal_dlsym(handle, "ibv_open_device");
+    loaded.closeDevice = hal_dlsym(handle, "ibv_close_device");
+    loaded.freeDeviceList = hal_dlsym(handle, "ibv_free_device_list");
+    if (loaded.getDeviceList == NULL || loaded.getDeviceName == NULL || loaded.openDevice == NULL
+        || loaded.closeDevice == NULL || loaded.freeDeviceList == NULL) {
+        TOPO_WARN("hal_get_ibv_ops: required ibv symbols missing");
+        hal_dlclose(handle);
+        ibvLoadFailed = HAL_TRUE;
+        pthread_mutex_unlock(&mutex);
+        return -1;
+    }
+    ibvOps = loaded;
+    *ops = loaded;
     pthread_mutex_unlock(&mutex);
     return 0;
 }
@@ -442,9 +505,11 @@ int hal_get_topo_info_by_device_id_and_nic_name(int dev_id, char* nic_name, int 
         TOPO_INFO("hal_get_topo_info_by_device_id_and_nic_name: dcmi topo interface is not available");
         return -1;
     }
-    if (dcmiv2_get_topo_info_by_device_id_and_nic_name(dev_id, nic_name, nic_name_len, topo_type) != 0) {
-        TOPO_ERR(
-            "hal_get_topo_info_by_device_id_and_nic_name: dcmi query failed, dev_id=%d, nic_name=%s", dev_id, nic_name);
+    int ret = dcmiv2_get_topo_info_by_device_id_and_nic_name(dev_id, nic_name, nic_name_len, topo_type);
+    if (ret != 0) {
+        TOPO_WARN(
+            "hal_get_topo_info_by_device_id_and_nic_name: dcmi query failed ret=%d, dev_id=%d, nic_name=%s", ret,
+            dev_id, nic_name);
         return -1;
     }
     return 0;

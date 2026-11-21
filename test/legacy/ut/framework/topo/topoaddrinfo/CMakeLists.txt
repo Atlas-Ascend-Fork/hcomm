@@ -22,11 +22,10 @@ target_sources(hccl_v2_utest PRIVATE
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/framework/topo/topo_addr_info/src/topo_addr_info_log.c
 )
 
-# 覆盖路径宏，使测试在 /tmp 下构造假文件系统
+# 覆盖路径宏，使测试在 /tmp 下构造假文件系统（HCA 枚举由 mock libibverbs 提供设备名）
 target_compile_definitions(hccl_v2_utest PRIVATE
     XML_PATH="/tmp/ut_virtualTopology.xml"
     HCA_NET_PATH_TEMPLATE="/tmp/ut_hca/%s/device/net"
-    HCA_LIST_PATH="/tmp/ut_hca"
 )
 
 # 拦截 getifaddrs/freeifaddrs，返回假网络接口数据

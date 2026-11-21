@@ -647,7 +647,7 @@ int ServerGetRootinfo(int npu_id, unsigned mainboard_id, void* buf, size_t* len)
         if (ProcessLayer(npu_id, &layer, &ueList, &netInfo->levelInfos[i], &spod_info) == 0) {
             RankAddNetLayer(&rank, &layer);
         } else {
-            TOPO_ERR(
+            TOPO_WARN(
                 "NPU phy id %d ProcessLayer %d failed, MainBoardId %u", npu_id, netInfo->levelInfos[i].level,
                 mainboard_id);
         }

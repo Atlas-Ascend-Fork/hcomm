@@ -46,6 +46,14 @@ typedef struct {
     unsigned int ueNum;
 } UEList;
 
+typedef struct {
+    struct ibv_device** (*getDeviceList)(int* numDevices);
+    const char* (*getDeviceName)(struct ibv_device* device);
+    struct ibv_context* (*openDevice)(struct ibv_device* device);
+    int (*closeDevice)(struct ibv_context* context);
+    void (*freeDeviceList)(struct ibv_device** deviceList);
+} IbvVerbsOps;
+
 int HalGetUBEntityList(int phyId, UEList* ueList);
 
 struct dcmi_pcie_info_all {
@@ -142,11 +150,14 @@ int get_server_id(char* server_id, size_t buf_size);
 
 int hal_get_driver_install_path(char* value_buf, size_t buf_size);
 
+int hal_get_ibv_ops(IbvVerbsOps* ops);
+
 /**
  * 添加一层适配，便于测试
  */
 void* hal_dlopen(const char* filename, int flag);
 void* hal_dlsym(void* handle, const char* symbol);
+void hal_dlclose(void* handle);
 
 #ifdef __cplusplus
 }

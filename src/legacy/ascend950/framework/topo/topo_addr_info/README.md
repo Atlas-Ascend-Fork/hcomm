@@ -34,4 +34,4 @@
 |:-------| :-----------|
 |0  | 由于是mesh组网为主，因此有多对通信地址， 在topo addr info中表达为每个NPU上每个端口的地址， 地址类型为EID |
 |1  | 根据组网平面填写地址， 多平面组网时，地址数量于平面数量相同 ， 集合通信在不同平面之间做流量分担 ，地址类型为EID|
-|2  |地址规划域层1相同， 地址类型为IP地址。 RoCE IP地址来源：优先解析拓扑XML（/var/run/ascend-topologyd/virtualTopology.xml）提取NPU×NIC亲和分组；XML不可用（文件缺失/解析失败/无NIC定义）时回退到驱动topo接口，先枚举系统 HCA 名（RoCE 网卡设备名，即 /sys/class/infiniband 下的设备名），再逐个查询各NPU与该 HCA 的拓扑类型（驱动接口dcmiv2_get_topo_info_by_device_id_and_nic_name），类型为DCMI_TOPO_TYPE_UB的NPU×HCA记为亲和并构建亲和矩阵；最终依据亲和关系轮询分发各NPU的RoCE IP|
+|2  |地址规划域层1相同， 地址类型为IP地址。 RoCE IP地址来源：优先解析拓扑XML（/var/run/ascend-topologyd/virtualTopology.xml）提取NPU×NIC亲和分组；XML不可用（文件缺失/解析失败/无NIC定义）时回退到驱动topo接口，先通过 libibverbs 的 ibv_get_device_list 枚举本进程可用的 HCA 名，再逐个查询各NPU与该 HCA 的拓扑类型（驱动接口dcmiv2_get_topo_info_by_device_id_and_nic_name），类型为DCMI_TOPO_TYPE_UB的NPU×HCA记为亲和并构建亲和矩阵；最终依据亲和关系轮询分发各NPU的RoCE IP|
