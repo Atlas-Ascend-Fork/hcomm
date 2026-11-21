@@ -48,35 +48,85 @@ RS_ATTRI_VISI_DEF int RsNdaGetDirectFlag(unsigned int phyId, unsigned int rdevIn
     return ret;
 }
 
+/*
+ * 950 机型（天成 POD / A+K Server / A+X Server）的 D2N UB 直连 mainboard_id 白名单。
+ * mainboard_id 取值随 product 不同而不同，须先按 productType 定位分组再匹配 mainboard_id。
+ * 960/350 未纳入本表：这两类产品的 D2N UB 直连板型尚未确认，且 mainboard_id 存在跨产品取值碰撞，
+ * 为避免误判为 DIRECT_FLAG_UB，暂按 DIRECT_FLAG_PCIE 处理；确认后在此补充分组即可。
+ */
+static const uint8_t gUbMainboardIdList950[] = {
+    0x03, 0x05, 0x07,                                           /* 天成 POD */
+    0x21, 0x23, 0x25, 0x27, 0x29, 0x2B, 0x2D, 0x2F, 0x31, 0x33, /* A+K Server */
+    0x44, 0x46, 0x48, 0x4A, 0x4C,                               /* A+X Server */
+};
+
+struct NdaUbMainboardGroup {
+    enum ProductType productType;
+    const uint8_t *mainboardIdList;
+    unsigned int mainboardIdNum;
+};
+
+static const struct NdaUbMainboardGroup gUbMainboardIdTable[] = {
+    {PRODUCT_TYPE_950, gUbMainboardIdList950, sizeof(gUbMainboardIdList950) / sizeof(gUbMainboardIdList950[0])},
+};
+
+STATIC const struct NdaUbMainboardGroup *RsNdaFindUbMainboardGroup(enum ProductType productType)
+{
+    unsigned int i = 0;
+
+    for (; i < sizeof(gUbMainboardIdTable) / sizeof(gUbMainboardIdTable[0]); i++) {
+        if (gUbMainboardIdTable[i].productType == productType) {
+            return &gUbMainboardIdTable[i];
+        }
+    }
+    return NULL;
+}
+
+STATIC bool RsNdaMatchUbMainboardId(const struct NdaUbMainboardGroup *group, uint64_t mainboardId)
+{
+    unsigned int i = 0;
+
+    for (; i < group->mainboardIdNum; i++) {
+        if ((uint64_t)group->mainboardIdList[i] == mainboardId) {
+            return true;
+        }
+    }
+    return false;
+}
+
 STATIC int RsNdaGetDirectFlagByDevAttr(unsigned int logicId)
 {
-    /* 支持 D2N UB 直连的 mainboard_id 白名单：天成 POD、A+K Server、A+X Server 系列机型；
-     * 不在白名单内的机型（含 PCIE 标卡等）一律按 DIRECT_FLAG_PCIE 处理 */
-    static const uint8_t ubMainboardIdList[] = {
-        0x03, 0x05, 0x07,                                           /* 天成 POD */
-        0x21, 0x23, 0x25, 0x27, 0x29, 0x2B, 0x2D, 0x2F, 0x31, 0x33, /* A+K Server */
-        0x44, 0x46, 0x48, 0x4A, 0x4C,                               /* A+X Server */
-    };
+    const struct NdaUbMainboardGroup *group = NULL;
     int directFlag = DIRECT_FLAG_PCIE;
+    enum ProductType productType;
     int64_t mainboardId = 0;
-    unsigned int i = 0;
     int ret = 0;
 
-    ret = DlHalGetDeviceInfo(logicId, MODULE_TYPE_SYSTEM, INFO_TYPE_MAINBOARD_ID, &mainboardId);
-    if (ret != 0) {
-        hccp_warn_rma("DlHalGetDeviceInfo unsuccessful, ret:%d logicId:%u, use DIRECT_FLAG_PCIE as default", ret,
-            logicId);
+    productType = RsGetProductType((int)logicId);
+    CHK_PRT_RETURN(productType == PRODUCT_TYPE_INVALID,
+        hccp_warn_rma("RsGetProductType failed, logicId:%u productType:%d, use DIRECT_FLAG_PCIE as default", logicId,
+            productType),
+        directFlag);
+
+    group = RsNdaFindUbMainboardGroup(productType);
+    if (group == NULL) {
+        hccp_info_rma("product_type:%d has no ub mainboard_id whitelist, logicId:%u directFlag:%d", productType,
+            logicId, directFlag);
         return directFlag;
     }
 
-    for (; i < sizeof(ubMainboardIdList) / sizeof(ubMainboardIdList[0]); i++) {
-        if ((uint64_t)ubMainboardIdList[i] == (uint64_t)mainboardId) {
-            directFlag = DIRECT_FLAG_UB;
-            break;
-        }
+    ret = DlHalGetDeviceInfo(logicId, MODULE_TYPE_SYSTEM, INFO_TYPE_MAINBOARD_ID, &mainboardId);
+    CHK_PRT_RETURN(ret != 0,
+        hccp_warn_rma("DlHalGetDeviceInfo unsuccessful, ret:%d logicId:%u, use DIRECT_FLAG_PCIE as default", ret,
+            logicId),
+        directFlag);
+
+    if (RsNdaMatchUbMainboardId(group, (uint64_t)mainboardId)) {
+        directFlag = DIRECT_FLAG_UB;
     }
 
-    hccp_info_rma("mainboard_id:0x%llx directFlag:%d", (unsigned long long)mainboardId, directFlag);
+    hccp_info_rma("product_type:%d mainboard_id:0x%llx directFlag:%d", productType, (unsigned long long)mainboardId,
+        directFlag);
     return directFlag;
 }
 

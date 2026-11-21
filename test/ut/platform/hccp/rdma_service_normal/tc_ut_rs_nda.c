@@ -185,6 +185,8 @@ void TcRsInitNdaCb()
     gStubExtDevAttr.ext_cap = IBV_EXTEND_DEV_NDA | IBV_EXTEND_DEV_NDR;
     gStubQueryRet = 0;
     mocker_clean();
+    /* productType 命中白名单产品（950），RsNdaGetDirectFlagByDevAttr 才会查询 mainboard_id */
+    mocker(RsGetProductType, 100, PRODUCT_TYPE_950);
     mocker_invoke((stub_fn_t)DlHalGetDeviceInfo, DlHalGetDeviceInfoMainboardStub, 1);
     mocker_invoke(RsIbvOpenExtend, RsIbvOpenExtendStub, 1);
     mocker_invoke(RsIbvQueryDeviceExtend, RsIbvQueryDeviceExtendStub, 1);
@@ -200,6 +202,7 @@ void TcRsInitNdaCb()
     rdevCb.rsCb = gRsCb;
     gStubQueryRet = -1;
     mocker_clean();
+    mocker(RsGetProductType, 100, PRODUCT_TYPE_950);
     mocker_invoke((stub_fn_t)DlHalGetDeviceInfo, DlHalGetDeviceInfoMainboardStub, 1);
     mocker_invoke(RsIbvOpenExtend, RsIbvOpenExtendStub, 1);
     mocker_invoke(RsIbvQueryDeviceExtend, RsIbvQueryDeviceExtendStub, 1);
@@ -214,6 +217,7 @@ void TcRsInitNdaCb()
     gRsCb = calloc(1, sizeof(struct rs_cb));
     rdevCb.rsCb = gRsCb;
     mocker_clean();
+    mocker(RsGetProductType, 100, PRODUCT_TYPE_950);
     mocker_invoke((stub_fn_t)DlHalGetDeviceInfo, DlHalGetDeviceInfoMainboardStub, 1);
     mocker_invoke(RsIbvOpenExtend, RsIbvOpenExtendNullStub, 1);
     ret = RsInitNdaCb(&rdevCb);
@@ -245,6 +249,8 @@ void TcRsInitNdaCbDirectFlag()
 
     mocker_clean();
     gNdaMainboardRet = 0;
+    /* productType 命中白名单产品（950），mainboard_id 判定才生效 */
+    mocker(RsGetProductType, 100, PRODUCT_TYPE_950);
     mocker_invoke((stub_fn_t)DlHalGetDeviceInfo, DlHalGetDeviceInfoMainboardStub, 64);
     /* ibCtxEx 返回 NULL，跳过 extDevCap 查询，仅验证 directFlag 判定 */
     mocker_invoke(RsIbvOpenExtend, RsIbvOpenExtendNullStub, 64);
@@ -267,8 +273,23 @@ void TcRsInitNdaCbDirectFlag()
         EXPECT_INT_EQ(rdevCb.directFlag, DIRECT_FLAG_PCIE);
     }
 
+    /* productType 不属于白名单产品（如 910B）时，不查询 mainboard_id，直接判定为 PCIE */
+    mocker_clean();
+    gNdaMainboardRet = 0;
+    mocker(RsGetProductType, 100, PRODUCT_TYPE_910B);
+    mocker_invoke(RsIbvOpenExtend, RsIbvOpenExtendNullStub, 1);
+    memset(&rdevCb, 0, sizeof(rdevCb));
+    rdevCb.rsCb = gRsCb;
+    ret = RsInitNdaCb(&rdevCb);
+    EXPECT_INT_EQ(ret, 0);
+    EXPECT_INT_EQ(rdevCb.directFlag, DIRECT_FLAG_PCIE);
+
     /* mainboard_id 查询失败 -> 告警降级，返回 0 且 directFlag 默认 DIRECT_FLAG_PCIE */
+    mocker_clean();
     gNdaMainboardRet = -1;
+    mocker(RsGetProductType, 100, PRODUCT_TYPE_950);
+    mocker_invoke((stub_fn_t)DlHalGetDeviceInfo, DlHalGetDeviceInfoMainboardStub, 1);
+    mocker_invoke(RsIbvOpenExtend, RsIbvOpenExtendNullStub, 1);
     memset(&rdevCb, 0, sizeof(rdevCb));
     rdevCb.rsCb = gRsCb;
     ret = RsInitNdaCb(&rdevCb);
