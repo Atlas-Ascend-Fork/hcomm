@@ -20,6 +20,7 @@
 #include "orion_adapter_rts.h"
 #include "communicator_impl.h"
 #include "data_type.h"
+#include "common/cast_utils_pub.h"
 namespace Hccl {
 #define UNUSED(x) (void)(x)
 
@@ -312,16 +313,16 @@ void ProfilingHandler::FillProfTaskSpecificInfo(const TaskInfo& taskInfo, Msprof
     switch (taskType) {
         case TaskParamType::TASK_SDMA:
         case TaskParamType::TASK_RDMA:
-            profInfo->srcAddr = static_cast<u64>(reinterpret_cast<uintptr_t>(taskPara.DMA.src));
-            profInfo->dstAddr = static_cast<u64>(reinterpret_cast<uintptr_t>(taskPara.DMA.dst));
+            profInfo->srcAddr = ReinterpretAs<u64>(taskPara.DMA.src);
+            profInfo->dstAddr = ReinterpretAs<u64>(taskPara.DMA.dst);
             profInfo->dataSize = static_cast<u32>(taskPara.DMA.size);
             profInfo->notifyID = taskPara.DMA.notifyID;
             profInfo->linkType = static_cast<uint16_t>(taskPara.DMA.linkType);
             break;
         case TaskParamType::TASK_REDUCE_INLINE:
         case TaskParamType::TASK_REDUCE_TBE:
-            profInfo->srcAddr = static_cast<u64>(reinterpret_cast<uintptr_t>(taskPara.Reduce.src));
-            profInfo->dstAddr = static_cast<u64>(reinterpret_cast<uintptr_t>(taskPara.Reduce.dst));
+            profInfo->srcAddr = ReinterpretAs<u64>(taskPara.Reduce.src);
+            profInfo->dstAddr = ReinterpretAs<u64>(taskPara.Reduce.dst);
             profInfo->dataSize = static_cast<u32>(taskPara.Reduce.size);
             profInfo->notifyID = taskPara.Reduce.notifyID;
             profInfo->linkType = static_cast<uint16_t>(taskPara.Reduce.linkType);
@@ -377,14 +378,14 @@ void ProfilingHandler::FillDpuTaskParaDetails(const TaskInfo& taskInfo, MsprofDp
     switch (taskInfo.taskParam_.taskType) {
         case TaskParamType::TASK_DPU_INLINE_WRITE:
         case TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY:
-            dpuProfInfo->srcAddr = static_cast<u64>(reinterpret_cast<uintptr_t>(taskPara.DMA.src));
-            dpuProfInfo->dstAddr = static_cast<u64>(reinterpret_cast<uintptr_t>(taskPara.DMA.dst));
+            dpuProfInfo->srcAddr = ReinterpretAs<u64>(taskPara.DMA.src);
+            dpuProfInfo->dstAddr = ReinterpretAs<u64>(taskPara.DMA.dst);
             dpuProfInfo->dataSize = static_cast<u32>(taskPara.DMA.size);
             dpuProfInfo->notifyID = taskPara.DMA.notifyID;
             break;
         case TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY:
-            dpuProfInfo->srcAddr = static_cast<u64>(reinterpret_cast<uintptr_t>(taskPara.Reduce.src));
-            dpuProfInfo->dstAddr = static_cast<u64>(reinterpret_cast<uintptr_t>(taskPara.Reduce.dst));
+            dpuProfInfo->srcAddr = ReinterpretAs<u64>(taskPara.Reduce.src);
+            dpuProfInfo->dstAddr = ReinterpretAs<u64>(taskPara.Reduce.dst);
             dpuProfInfo->dataSize = static_cast<u32>(taskPara.Reduce.size);
             dpuProfInfo->notifyID = taskPara.Reduce.notifyID;
             break;
@@ -514,18 +515,14 @@ void ProfilingHandler::GetHCCLReportData(const TaskInfo& taskInfo, HCCLReportDat
             switch (taskType) {
                 case TaskParamType::TASK_DPU_INLINE_WRITE:
                 case TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY:
-                    hcclReportData.dpuProfInfo.srcAddr
-                        = static_cast<u64>(reinterpret_cast<uintptr_t>(taskPara.DMA.src));
-                    hcclReportData.dpuProfInfo.dstAddr
-                        = static_cast<u64>(reinterpret_cast<uintptr_t>(taskPara.DMA.dst));
+                    hcclReportData.dpuProfInfo.srcAddr = ReinterpretAs<u64>(taskPara.DMA.src);
+                    hcclReportData.dpuProfInfo.dstAddr = ReinterpretAs<u64>(taskPara.DMA.dst);
                     hcclReportData.dpuProfInfo.dataSize = static_cast<u32>(taskPara.DMA.size);
                     hcclReportData.dpuProfInfo.notifyID = taskPara.DMA.notifyID;
                     break;
                 case TaskParamType::TASK_DPU_WRITE_REDUCE_WITH_NOTIFY:
-                    hcclReportData.dpuProfInfo.srcAddr
-                        = static_cast<u64>(reinterpret_cast<uintptr_t>(taskPara.Reduce.src));
-                    hcclReportData.dpuProfInfo.dstAddr
-                        = static_cast<u64>(reinterpret_cast<uintptr_t>(taskPara.Reduce.dst));
+                    hcclReportData.dpuProfInfo.srcAddr = ReinterpretAs<u64>(taskPara.Reduce.src);
+                    hcclReportData.dpuProfInfo.dstAddr = ReinterpretAs<u64>(taskPara.Reduce.dst);
                     hcclReportData.dpuProfInfo.dataSize = static_cast<u32>(taskPara.Reduce.size);
                     hcclReportData.dpuProfInfo.notifyID = taskPara.Reduce.notifyID;
                     break;
@@ -541,18 +538,16 @@ void ProfilingHandler::GetHCCLReportData(const TaskInfo& taskInfo, HCCLReportDat
             switch (taskType) {
                 case TaskParamType::TASK_SDMA:
                 case TaskParamType::TASK_RDMA:
-                    hcclReportData.profInfo.srcAddr = static_cast<u64>(reinterpret_cast<uintptr_t>(taskPara.DMA.src));
-                    hcclReportData.profInfo.dstAddr = static_cast<u64>(reinterpret_cast<uintptr_t>(taskPara.DMA.dst));
+                    hcclReportData.profInfo.srcAddr = ReinterpretAs<u64>(taskPara.DMA.src);
+                    hcclReportData.profInfo.dstAddr = ReinterpretAs<u64>(taskPara.DMA.dst);
                     hcclReportData.profInfo.dataSize = static_cast<u32>(taskPara.DMA.size);
                     hcclReportData.profInfo.notifyID = taskPara.DMA.notifyID;
                     hcclReportData.profInfo.linkType = static_cast<uint16_t>(taskPara.DMA.linkType);
                     break;
                 case TaskParamType::TASK_REDUCE_INLINE:
                 case TaskParamType::TASK_REDUCE_TBE:
-                    hcclReportData.profInfo.srcAddr
-                        = static_cast<u64>(reinterpret_cast<uintptr_t>(taskPara.Reduce.src));
-                    hcclReportData.profInfo.dstAddr
-                        = static_cast<u64>(reinterpret_cast<uintptr_t>(taskPara.Reduce.dst));
+                    hcclReportData.profInfo.srcAddr = ReinterpretAs<u64>(taskPara.Reduce.src);
+                    hcclReportData.profInfo.dstAddr = ReinterpretAs<u64>(taskPara.Reduce.dst);
                     hcclReportData.profInfo.dataSize = static_cast<u32>(taskPara.Reduce.size);
                     hcclReportData.profInfo.notifyID = taskPara.Reduce.notifyID;
                     hcclReportData.profInfo.linkType = static_cast<uint16_t>(taskPara.Reduce.linkType);
