@@ -22,6 +22,7 @@
 #include "externalinput_pub.h"
 #include "hccl_dispatcher_ctx.h"
 #include "workflow_pub.h"
+#include "aicpu_ts_channel_helper.h"
 #include "binary_stream.h"
 #include "roce_transport_lite_impl.h"
 #include "ub_transport_lite_impl.h"
@@ -309,5 +310,28 @@ TEST_F(AicpuChannelProcessTest, Ut_ParsePackData_WhenTwoRoceBlobs_IndependentHan
     destroyRes2.channelList = static_cast<void*>(&handle2);
     destroyRes2.listNum = 1U;
     EXPECT_EQ(AicpuChannelProcess::AicpuChannelDestroy(&destroyRes2), HCCL_SUCCESS);
+    EXPECT_EQ(AicpuChannelProcess::transportMap_.size(), static_cast<size_t>(0));
+}
+
+// ctx 模式下 host 侧传给 device 侧 destroy 的 channelList 存的是 ctx 指针而非真实 device handle，
+// AicpuChannelDestroy 须先解包出 ctx->deviceChannel 再索引 transportMap_，否则 transport 无法命中导致内存泄露。
+TEST_F(AicpuChannelProcessTest, Ut_AicpuChannelDestroy_WhenCtxHandle_UnwrapAndDestroyTransport)
+{
+    std::vector<char> data = BuildRocePackData();
+    ChannelHandle transportHandle = 0ULL;
+    ASSERT_EQ(AicpuChannelProcess::ParsePackData(data, transportHandle), HCCL_SUCCESS);
+    ASSERT_NE(transportHandle, 0ULL);
+    ASSERT_EQ(AicpuChannelProcess::transportMap_.size(), static_cast<size_t>(1));
+
+    HcommAicpuChannelCtx ctx{};
+    ctx.abiHeader.version = HCOMM_AICPU_CHANNEL_CTX_VERSION;
+    ctx.abiHeader.magicWord = HCOMM_AICPU_CHANNEL_CTX_MAGIC_WORD;
+    ctx.deviceChannel = reinterpret_cast<void*>(transportHandle);
+
+    ChannelHandle ctxHandle = reinterpret_cast<ChannelHandle>(&ctx);
+    HcclChannelUrmaRes destroyRes{};
+    destroyRes.channelList = static_cast<void*>(&ctxHandle);
+    destroyRes.listNum = 1U;
+    EXPECT_EQ(AicpuChannelProcess::AicpuChannelDestroy(&destroyRes), HCCL_SUCCESS);
     EXPECT_EQ(AicpuChannelProcess::transportMap_.size(), static_cast<size_t>(0));
 }

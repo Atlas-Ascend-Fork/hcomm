@@ -126,8 +126,9 @@ private:
         ChannelHandle* channelHandles, ChannelHandle* hostChannelHandles, uint32_t listNum,
         HcommChannelKind channelKind, aclrtBinHandle binHandle);
     static HcclResult ChannelResumeConcurrency(const ChannelHandle* channelList, uint32_t channelNum);
-    static HcclResult
-    RemoveSingleChannel(int32_t deviceId, ChannelHandle inHandle, std::vector<ChannelHandle>& deviceHandles);
+    static HcclResult RemoveSingleChannel(
+        int32_t deviceId, ChannelHandle inHandle, std::vector<ChannelHandle>& deviceHandles,
+        std::vector<std::shared_ptr<Channel>>* retainedChannels);
 
     static std::unordered_map<ChannelHandle, std::shared_ptr<Channel>> g_ChannelMap;
     static std::unordered_map<DeviceChannelKey, ChannelHandle, DeviceChannelKeyHash> g_ChannelD2HMap;

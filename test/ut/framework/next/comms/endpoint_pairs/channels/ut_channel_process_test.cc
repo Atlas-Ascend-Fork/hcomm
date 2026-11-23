@@ -38,7 +38,10 @@ public:
 
 class FakeChannelForProcess : public hcomm::Channel {
 public:
-    explicit FakeChannelForProcess(hcomm::HcommChannelKind kind) : kind_(kind) {}
+    explicit FakeChannelForProcess(hcomm::HcommChannelKind kind, CommEngine engine = COMM_ENGINE_RESERVED) : kind_(kind)
+    {
+        engine_ = engine;
+    }
 
     hcomm::HcommChannelKind GetChannelKind() const override { return kind_; }
     HcclResult Init() override { return HCCL_SUCCESS; }
@@ -737,4 +740,66 @@ TEST_F(TestChannelProcess, Ut_ConvertToLinkStatus_When_ResUnavail_Expect_Correct
     // 显式校验资源不足码值, 锁定 STC V2.0 契约
     EXPECT_EQ(hcomm::HCOMM_CHANNEL_STATUS_RES_LOC_UNAVAIL, 4);
     EXPECT_EQ(hcomm::HCOMM_CHANNEL_STATUS_RES_RMT_UNAVAIL, 5);
+}
+
+// RemoveSingleChannel：AICPU 类通道需下发 destroy kernel，句柄入队且 Channel 被保留（ctx 存活到 destroy kernel 返回）。
+TEST_F(TestChannelProcess, Ut_RemoveSingleChannel_WhenAicpuEngine_PushHandleAndRetain)
+{
+    auto ch = std::make_shared<FakeChannelForProcess>(hcomm::HcommChannelKind::AICPU_TS_ROCE, COMM_ENGINE_AICPU);
+    hcomm::Channel* rawPtr = ch.get();
+    ChannelHandle handle = RegisterFakeChannel(ch);
+
+    std::vector<ChannelHandle> deviceHandles;
+    std::vector<std::shared_ptr<hcomm::Channel>> retainedChannels;
+    HcclResult ret = hcomm::ChannelProcess::RemoveSingleChannel(0, handle, deviceHandles, &retainedChannels);
+
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    ASSERT_EQ(deviceHandles.size(), 1U);
+    EXPECT_EQ(deviceHandles[0], handle);
+    ASSERT_EQ(retainedChannels.size(), 1U);
+    EXPECT_EQ(retainedChannels[0].get(), rawPtr);
+    EXPECT_EQ(hcomm::ChannelProcess::g_ChannelMap.size(), 0U);
+    EXPECT_EQ(hcomm::ChannelProcess::g_ChannelD2HMap.size(), 0U);
+}
+
+// RemoveSingleChannel：非 AICPU 通道（如 CCU）无 AICPU device 侧资源，句柄不入队（不下发 destroy kernel）。
+TEST_F(TestChannelProcess, Ut_RemoveSingleChannel_WhenNonAicpuEngine_NotPushHandle)
+{
+    auto ch = std::make_shared<FakeChannelForProcess>(hcomm::HcommChannelKind::AICPU_TS_ROCE, COMM_ENGINE_CCU);
+    hcomm::Channel* rawPtr = ch.get();
+    ChannelHandle handle = RegisterFakeChannel(ch);
+
+    std::vector<ChannelHandle> deviceHandles;
+    std::vector<std::shared_ptr<hcomm::Channel>> retainedChannels;
+    HcclResult ret = hcomm::ChannelProcess::RemoveSingleChannel(0, handle, deviceHandles, &retainedChannels);
+
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_TRUE(deviceHandles.empty());
+    ASSERT_EQ(retainedChannels.size(), 1U);
+    EXPECT_EQ(retainedChannels[0].get(), rawPtr);
+    EXPECT_EQ(hcomm::ChannelProcess::g_ChannelMap.size(), 0U);
+    EXPECT_EQ(hcomm::ChannelProcess::g_ChannelD2HMap.size(), 0U);
+}
+
+// RemoveSingleChannel：retainedChannels 为 nullptr（对应 binHandle 为空、不下发 destroy kernel），
+// Channel 不保留所有权，应在 erase 时按原时机释放。
+TEST_F(TestChannelProcess, Ut_RemoveSingleChannel_WhenRetainNull_ReleaseChannel)
+{
+    std::weak_ptr<hcomm::Channel> weak;
+    ChannelHandle handle = 0;
+    {
+        auto ch = std::make_shared<FakeChannelForProcess>(hcomm::HcommChannelKind::AICPU_TS_ROCE, COMM_ENGINE_AICPU);
+        weak = ch;
+        handle = RegisterFakeChannel(ch);
+    }
+
+    std::vector<ChannelHandle> deviceHandles;
+    HcclResult ret = hcomm::ChannelProcess::RemoveSingleChannel(0, handle, deviceHandles, nullptr);
+
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    ASSERT_EQ(deviceHandles.size(), 1U);
+    EXPECT_EQ(deviceHandles[0], handle);
+    EXPECT_TRUE(weak.expired());
+    EXPECT_EQ(hcomm::ChannelProcess::g_ChannelMap.size(), 0U);
+    EXPECT_EQ(hcomm::ChannelProcess::g_ChannelD2HMap.size(), 0U);
 }

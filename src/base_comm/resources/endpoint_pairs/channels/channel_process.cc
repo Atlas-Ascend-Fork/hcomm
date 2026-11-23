@@ -1014,8 +1014,9 @@ ChannelProcess::ChannelKernelDestroy(ChannelHandle* channelHandles, uint32_t lis
     return HCCL_SUCCESS;
 }
 
-HcclResult
-ChannelProcess::RemoveSingleChannel(int32_t deviceId, ChannelHandle inHandle, std::vector<ChannelHandle>& deviceHandles)
+HcclResult ChannelProcess::RemoveSingleChannel(
+    int32_t deviceId, ChannelHandle inHandle, std::vector<ChannelHandle>& deviceHandles,
+    std::vector<std::shared_ptr<Channel>>* retainedChannels)
 {
     DeviceChannelKey key{deviceId, inHandle};
     auto itH = g_ChannelD2HMap.find(key);
@@ -1034,11 +1035,21 @@ ChannelProcess::RemoveSingleChannel(int32_t deviceId, ChannelHandle inHandle, st
             __func__, deviceId, inHandle, mappedHandle);
         return HcclResult::HCCL_E_NOT_FOUND;
     }
-    deviceHandles.push_back(inHandle);
+    CHK_SMART_PTR_NULL(itC->second);
+    const CommEngine engine = itC->second->GetEngine();
+    if (engine == COMM_ENGINE_AICPU || engine == COMM_ENGINE_AICPU_TS) {
+        // 仅 AICPU 类通道需要下发 destroy kernel，其他引擎（CCU/AIV 等）通道无 device 侧资源需回收。
+        deviceHandles.push_back(inHandle);
+    }
 
     HCCL_INFO(
         "[Hcomm][%s] erase channel: deviceId[%d], inHandle[0x%llx], mappedHandle[0x%llx], ptr[%p]", __func__, deviceId,
         inHandle, mappedHandle, itC->second.get());
+
+    if (retainedChannels != nullptr) {
+        // device destroy 仍需通过 ctx 解包实际句柄，移除索引后保留 Channel/ctx 的所有权。
+        retainedChannels->push_back(itC->second);
+    }
 
     g_ChannelMap.erase(itC);
 
@@ -1064,11 +1075,18 @@ HcclResult ChannelProcess::ChannelDestroy(const ChannelHandle* channels, uint32_
     CHK_RET(hrtGetDevice(&deviceId));
 
     std::vector<ChannelHandle> deviceHandles;
+    deviceHandles.reserve(channelNum);
+    // 在同步 device 销毁调用返回前持有 Channel；无 kernel 的路径保持原有释放时机。
+    std::vector<std::shared_ptr<Channel>> retainedChannels;
+    auto* channelsToRetain = binHandle != nullptr ? &retainedChannels : nullptr;
+    if (channelsToRetain != nullptr) {
+        retainedChannels.reserve(channelNum);
+    }
 
     {
         std::lock_guard<std::mutex> lock(g_ChannelMapMtx);
         for (uint32_t i = 0; i < channelNum; ++i) {
-            HcclResult ret = RemoveSingleChannel(deviceId, channels[i], deviceHandles);
+            HcclResult ret = RemoveSingleChannel(deviceId, channels[i], deviceHandles, channelsToRetain);
             if (ret != HCCL_SUCCESS) {
                 return ret;
             }

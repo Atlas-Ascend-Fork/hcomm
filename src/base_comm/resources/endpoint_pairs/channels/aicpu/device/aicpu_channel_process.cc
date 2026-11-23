@@ -247,6 +247,14 @@ HcclResult AicpuChannelProcess::AicpuChannelDestroy(HcclChannelUrmaRes* commPara
     ChannelHandle* channelList = ReinterpretAs<ChannelHandle*>(commParam->channelList);
     for (u32 index = 0; index < commParam->listNum; ++index) {
         ChannelHandle handle = channelList[index];
+        // 句柄可能是 ctx 句柄（ctx 内存地址），先解包出 device 侧真实句柄再查表，否则 transport 泄漏。
+        HcclResult unwrapRet = UnwrapChannelHandle(handle);
+        if (unwrapRet != HCCL_SUCCESS) {
+            HCCL_ERROR(
+                "[AicpuChannelProcess][%s] index[%u] unwrap handle[0x%llx] failed, ret[0x%016llx]", __func__, index,
+                channelList[index], HCCL_ERROR_CODE(unwrapRet));
+            continue;
+        }
 
         auto it = transportMap_.find(handle);
         if (it != transportMap_.end()) {
