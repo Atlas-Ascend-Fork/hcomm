@@ -108,7 +108,7 @@ static const NetInfo g_netInfoList[] = {
                 .ueNum = 1,
                 .instanceIdFunc = GetNetInstanceIdForOsMeshGroup,
                 .ueList = {
-                    {.dieId = UDIE_1, .feId = 3, .type =UE_TYPE_MESH},
+                    {.dieId = UDIE_1, .feId = 3, .type = UE_TYPE_MESH}
                 }
             },
             { // level 1 为clos平面
@@ -117,25 +117,25 @@ static const NetInfo g_netInfoList[] = {
                 .ueNum = 2,
                 .instanceIdFunc = GetNetInstanceIdForOS,
                 .ueList = {
-                    {.dieId = UDIE_1, .feId = 2, .type =UE_TYPE_CLOS_PORTS},
-                    {.dieId = UDIE_1, .feId = 2, .type =UE_TYPE_CLOS}
-                },
+                    {.dieId = UDIE_1, .feId = 2, .type = UE_TYPE_CLOS_PORTS},
+                    {.dieId = UDIE_1, .feId = 2, .type = UE_TYPE_CLOS}
+                }
             },
-            CLOS_LEVEL3,
-        },
-   },
-   {
+            CLOS_LEVEL3
+        }
+    },
+    {
         .mainBoardId = {MAIN_BOARD_ID_SERVER_8PMESH, MAIN_BOARD_INVALID},
         .spodType = TOPO_TYPE_IGNORE,
-        .levelNum = 3, 
+        .levelNum = 3,
         {
-            {  // level 0 为OS内通信
+            { // level 0 为OS内通信
                 .level = 0,
                 .netType = NET_TYPE_TOPO_FILE_DESC,
                 .ueNum = 1,
                 .instanceIdFunc = GetNetInstanceIdForPod,
                 .ueList = {
-                    {.dieId = UDIE_1, .feId = MAX_UE_ID, .type = UE_TYPE_MESH},
+                    {.dieId = UDIE_1, .feId = MAX_UE_ID, .type = UE_TYPE_MESH}
                 }
             },
             { // level 1 为超平面
@@ -144,58 +144,78 @@ static const NetInfo g_netInfoList[] = {
                 .ueNum = 1,
                 .instanceIdFunc = GetNetInstanceIdForSuperPod,
                 .ueList = { // 8口scaleup
-                    {.dieId = UDIE_0, .feId = 3, .type = UE_TYPE_CLOS},
-                },
+                    {.dieId = UDIE_0, .feId = 3, .type = UE_TYPE_CLOS}
+                }
             },
-            CLOS_LEVEL3,
-        },
-   },
-   {
+            CLOS_LEVEL3
+        }
+    },
+    {
         .mainBoardId = {MAIN_BOARD_ID_SERVER_8PMESH_UBOE, MAIN_BOARD_INVALID},
         .spodType = TOPO_TYPE_IGNORE,
-        .levelNum = 4, 
+        .levelNum = 4,
         {
             {
-                .level = 0, .netType = NET_TYPE_TOPO_FILE_DESC, .ueNum = 1,
+                .level = 0,
+                .netType = NET_TYPE_TOPO_FILE_DESC,
+                .ueNum = 1,
                 .instanceIdFunc = GetNetInstanceIdForPod,
-                .ueList = { {.dieId = UDIE_1, .feId = MAX_UE_ID, .type = UE_TYPE_MESH}, }
+                .ueList = {
+                    {.dieId = UDIE_1, .feId = MAX_UE_ID, .type = UE_TYPE_MESH}
+                }
             },
             {
-                .level = 1, .netType = NET_TYPE_CLOS, .ueNum = 1,
+                .level = 1,
+                .netType = NET_TYPE_CLOS,
+                .ueNum = 1,
                 .instanceIdFunc = GetNetInstanceIdForSuperPod,
-                .ueList = { {.dieId = UDIE_0, .feId = 3, .type =UE_TYPE_CLOS} },
+                .ueList = {
+                    {.dieId = UDIE_0, .feId = 3, .type = UE_TYPE_CLOS}
+                }
             },
-            { 
-                .level = 2, .netType = NET_TYPE_CLOS, .ueNum = 1, .instanceIdFunc = GetNetInstanceIdForCluster,
-                .ueList = { {.dieId = UDIE_0, .feId = 0, .type =UE_TYPE_UBOE, .ports = "1/8"} } 
+            {
+                .level = 2,
+                .netType = NET_TYPE_CLOS,
+                .ueNum = 1,
+                .instanceIdFunc = GetNetInstanceIdForCluster,
+                .ueList = {
+                    {.dieId = UDIE_0, .feId = 0, .type = UE_TYPE_UBOE, .ports = "1/8"}
+                }
             },
-            CLOS_LEVEL3,
-        },
-   },
-   {// 由两个8 NPU服务器组成一个16NPU的小超节点，共16个NPU组成fullmesh组网
+            CLOS_LEVEL3
+        }
+    },
+    { // 由两个8 NPU服务器组成一个16NPU的小超节点，共16个NPU组成fullmesh组网
         .mainBoardId = {MAIN_BOARD_ID_SERVER_8PMESH_UBOE, MAIN_BOARD_INVALID},
-        .spodType = TOPO_TYPE_SERVER_16FM,  // 两个服务器组16p fullmesh
-        .levelNum = 3, 
+        .spodType = TOPO_TYPE_SERVER_16FM, // 两个服务器组16p fullmesh
+        .levelNum = 3,
         {
             {
-                .level = 0, .netType = NET_TYPE_TOPO_FILE_DESC, .ueNum = 2,
+                .level = 0,
+                .netType = NET_TYPE_TOPO_FILE_DESC,
+                .ueNum = 2,
                 .instanceIdFunc = GetNetInstanceIdForSuperPod,
-                .ueList = { 
-                    {.dieId = UDIE_0, .feId = MAX_UE_ID, .type = UE_TYPE_MESH}, 
+                .ueList = {
+                    {.dieId = UDIE_0, .feId = MAX_UE_ID, .type = UE_TYPE_MESH},
                     {.dieId = UDIE_1, .feId = MAX_UE_ID, .type = UE_TYPE_MESH}
                 }
             },
             { // 支持UBOE出口
-                .level = 2, .netType = NET_TYPE_CLOS, .ueNum = 1, .instanceIdFunc = GetNetInstanceIdForCluster,
-                .ueList = { {.dieId = UDIE_0, .feId = 0, .type =UE_TYPE_UBOE, .ports = "1/8"} },
+                .level = 2,
+                .netType = NET_TYPE_CLOS,
+                .ueNum = 1,
+                .instanceIdFunc = GetNetInstanceIdForCluster,
+                .ueList = {
+                    {.dieId = UDIE_0, .feId = 0, .type = UE_TYPE_UBOE, .ports = "1/8"}
+                }
             },
-            CLOS_LEVEL3,
-        },
-   },
-   {
-        .mainBoardId = { MAIN_BOARD_ID_SERVER_8PMESH_NOSP_UBOE, MAIN_BOARD_INVALID}, // 这种形态无超平面，但是有UBOE
+            CLOS_LEVEL3
+        }
+    },
+    {
+        .mainBoardId = {MAIN_BOARD_ID_SERVER_8PMESH_NOSP_UBOE, MAIN_BOARD_INVALID}, // 这种形态无超平面，但是有UBOE
         .spodType = TOPO_TYPE_IGNORE,
-        .levelNum = 3, 
+        .levelNum = 3,
         {
             {
                 .level = 0,
@@ -203,56 +223,65 @@ static const NetInfo g_netInfoList[] = {
                 .ueNum = 1,
                 .instanceIdFunc = GetNetInstanceIdForOS,
                 .ueList = {
-                    {.dieId = UDIE_1, .feId = MAX_UE_ID, .type = UE_TYPE_MESH},
+                    {.dieId = UDIE_1, .feId = MAX_UE_ID, .type = UE_TYPE_MESH}
                 }
             },
-            { 
-                .level = 2, .netType = NET_TYPE_CLOS, .ueNum = 1, .instanceIdFunc = GetNetInstanceIdForCluster,
-                .ueList = { {.dieId = UDIE_0, .feId = 0, .type =UE_TYPE_UBOE, .ports = "1/8"} } 
+            {
+                .level = 2,
+                .netType = NET_TYPE_CLOS,
+                .ueNum = 1,
+                .instanceIdFunc = GetNetInstanceIdForCluster,
+                .ueList = {
+                    {.dieId = UDIE_0, .feId = 0, .type = UE_TYPE_UBOE, .ports = "1/8"}
+                }
             },
-            CLOS_LEVEL3,
-        },
-   },
-   {
+            CLOS_LEVEL3
+        }
+    },
+    {
         .mainBoardId = {MAIN_BOARD_ID_SERVER_8PMESH_NOSP, MAIN_BOARD_INVALID}, // 无超平面，无UBOE
         .spodType = TOPO_TYPE_IGNORE,
         .levelNum = 2,
         {
             {
-                .level = 0, .netType = NET_TYPE_TOPO_FILE_DESC, .ueNum = 1,
+                .level = 0,
+                .netType = NET_TYPE_TOPO_FILE_DESC,
+                .ueNum = 1,
                 .instanceIdFunc = GetNetInstanceIdForOS,
-                .ueList = { {.dieId = UDIE_1, .feId = MAX_UE_ID, .type = UE_TYPE_MESH} }
+                .ueList = {
+                    {.dieId = UDIE_1, .feId = MAX_UE_ID, .type = UE_TYPE_MESH}
+                }
             },
-            CLOS_LEVEL3,
-        },
-   },
-   {
+            CLOS_LEVEL3
+        }
+    },
+    {
         .mainBoardId = {MAIN_BOARD_ID_SERVER_TYPE1, MAIN_BOARD_INVALID},
         .spodType = TOPO_TYPE_IGNORE,
-        .levelNum = 3, 
+        .levelNum = 3,
         {
             {
                 .level = 0,
                 .ueNum = 1,
                 .ueList = {
-                    {.dieId = 1, .feId = MAX_UE_ID, .type = UE_TYPE_MESH},
+                    {.dieId = 1, .feId = MAX_UE_ID, .type = UE_TYPE_MESH}
                 }
             },
             {
                 .level = 1,
                 .ueNum = 2,
                 .ueList = {
-                    {.dieId = 0, .feId = 3, .type =UE_TYPE_CLOS },
-                    {.dieId = 1, .feId = 2, .type =UE_TYPE_CLOS },
+                    {.dieId = 0, .feId = 3, .type = UE_TYPE_CLOS},
+                    {.dieId = 1, .feId = 2, .type = UE_TYPE_CLOS}
                 }
             },
-            CLOS_LEVEL3,
-        },
-   },
-   {
+            CLOS_LEVEL3
+        }
+    },
+    {
         .mainBoardId = {MAIN_BOARD_ID_POD_FLEX, MAIN_BOARD_ID_POD_FLEX_RTP, MAIN_BOARD_INVALID},
         .spodType = TOPO_TYPE_IGNORE,
-        .levelNum = 4, 
+        .levelNum = 4,
         {
             {
                 .level = 0,
@@ -260,7 +289,7 @@ static const NetInfo g_netInfoList[] = {
                 .netType = NET_TYPE_TOPO_FILE_DESC,
                 .instanceIdFunc = GetNetInstanceIdForPodFlex,
                 .ueList = {
-                    {.dieId = 0, .feId = MAX_UE_ID, .type = UE_TYPE_MESH},
+                    {.dieId = 0, .feId = MAX_UE_ID, .type = UE_TYPE_MESH}
                 }
             },
             {
@@ -269,20 +298,25 @@ static const NetInfo g_netInfoList[] = {
                 .netType = NET_TYPE_CLOS,
                 .instanceIdFunc = GetNetInstanceIdForSuperPod,
                 .ueList = {
-                    {.dieId = 1, .feId = 2, .type =UE_TYPE_CLOS },
+                    {.dieId = 1, .feId = 2, .type = UE_TYPE_CLOS}
                 }
             },
-            { 
-                .level = 2, .netType = NET_TYPE_CLOS, .ueNum = 1, .instanceIdFunc = GetNetInstanceIdForCluster,
-                .ueList = { {.dieId = UDIE_0, .feId = 0, .type = UE_TYPE_UB_RTP, .ports = "0/8"} } 
+            {
+                .level = 2,
+                .netType = NET_TYPE_CLOS,
+                .ueNum = 1,
+                .instanceIdFunc = GetNetInstanceIdForCluster,
+                .ueList = {
+                    {.dieId = UDIE_0, .feId = 0, .type = UE_TYPE_UB_RTP, .ports = "0/8"}
+                }
             },
-            CLOS_LEVEL3, // level2 and level3 will not exist at same time
-        },
-   },
-   {
+            CLOS_LEVEL3 // level2 and level3 will not exist at same time
+        }
+    },
+    {
         .mainBoardId = {MAIN_BOARD_ID_SERVER_550EL_100, MAIN_BOARD_INVALID},
         .spodType = TOPO_TYPE_IGNORE,
-        .levelNum = 3, 
+        .levelNum = 3,
         {
             {
                 .level = 0,
@@ -290,7 +324,7 @@ static const NetInfo g_netInfoList[] = {
                 .netType = NET_TYPE_CLOS,
                 .instanceIdFunc = GetNetInstanceIdForPod,
                 .ueList = {
-                    {.dieId = 1, .feId = 2, .type = UE_TYPE_CLOS},
+                    {.dieId = 1, .feId = 2, .type = UE_TYPE_CLOS}
                 }
             },
             {
@@ -299,16 +333,16 @@ static const NetInfo g_netInfoList[] = {
                 .netType = NET_TYPE_CLOS,
                 .instanceIdFunc = GetNetInstanceIdForSuperPod,
                 .ueList = {
-                    {.dieId = 1, .feId = 2, .type = UE_TYPE_CLOS },
+                    {.dieId = 1, .feId = 2, .type = UE_TYPE_CLOS}
                 }
             },
-            CLOS_LEVEL3,
-        },
-   },
-   {
+            CLOS_LEVEL3
+        }
+    },
+    {
         .mainBoardId = {MAIN_BOARD_ID_SERVER_550EL_200, MAIN_BOARD_INVALID},
         .spodType = TOPO_TYPE_IGNORE,
-        .levelNum = 3, 
+        .levelNum = 3,
         {
             {
                 .level = 0,
@@ -317,7 +351,7 @@ static const NetInfo g_netInfoList[] = {
                 .instanceIdFunc = GetNetInstanceIdForPod,
                 .ueList = {
                     {.dieId = 0, .feId = 2, .type = UE_TYPE_CLOS},
-                    {.dieId = 1, .feId = 2, .type = UE_TYPE_CLOS},
+                    {.dieId = 1, .feId = 2, .type = UE_TYPE_CLOS}
                 }
             },
             {
@@ -327,13 +361,13 @@ static const NetInfo g_netInfoList[] = {
                 .instanceIdFunc = GetNetInstanceIdForSuperPod,
                 .ueList = {
                     {.dieId = 0, .feId = 2, .type = UE_TYPE_CLOS},
-                    {.dieId = 1, .feId = 2, .type = UE_TYPE_CLOS},
+                    {.dieId = 1, .feId = 2, .type = UE_TYPE_CLOS}
                 }
             },
-            CLOS_LEVEL3,
-        },
-   },
-   {
+            CLOS_LEVEL3
+        }
+    },
+    {
         .mainBoardId = {MAIN_BOARD_ID_SERVER_650E_4P, MAIN_BOARD_INVALID},
         .spodType = TOPO_TYPE_IGNORE,
         .levelNum = 3,
@@ -345,16 +379,21 @@ static const NetInfo g_netInfoList[] = {
                 .instanceIdFunc = GetNetInstanceIdForOS,
                 .ueList = {
                     {.dieId = UDIE_0, .feId = MAX_UE_ID, .type = UE_TYPE_MESH},
-                    {.dieId = UDIE_1, .feId = MAX_UE_ID, .type = UE_TYPE_MESH},
+                    {.dieId = UDIE_1, .feId = MAX_UE_ID, .type = UE_TYPE_MESH}
                 }
             },
             {
-                .level = 2, .netType = NET_TYPE_CLOS, .ueNum = 1, .instanceIdFunc = GetNetInstanceIdForCluster,
-                .ueList = { {.dieId = UDIE_1, .feId = 0, .type = UE_TYPE_UBOE, .ports = "1/8"} }
+                .level = 2,
+                .netType = NET_TYPE_CLOS,
+                .ueNum = 1,
+                .instanceIdFunc = GetNetInstanceIdForCluster,
+                .ueList = {
+                    {.dieId = UDIE_1, .feId = 0, .type = UE_TYPE_UBOE, .ports = "1/8"}
+                }
             },
-            CLOS_LEVEL3,
-        },
-   },
+            CLOS_LEVEL3
+        }
+    }
 };
 
 int ServerGetRootinfoLen(size_t* len)
