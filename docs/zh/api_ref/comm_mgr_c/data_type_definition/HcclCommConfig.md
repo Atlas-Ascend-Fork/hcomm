@@ -321,7 +321,7 @@ typedef struct HcclCommConfigDef {
 
 - **hcclChannelSqDepth**：用于配置通信发送队列（SQ）深度，目前仅支持Ascend 950PR&950DT系列产品，且仅在AIV展开模式和UB_CTP、UB_RTP协议下可配置。配置值会向上调整为最近的2的整数次幂，调整后的有效取值范围为[16, 设备的max_jfs_depth]。其余场景下保持为无效值。当hcclChannelSqDepth与hcclChannelScqDepth同时配置时，hcclChannelScqDepth不得小于hcclChannelSqDepth（HOST、AIV场景），否则通道创建返回HCCL_E_PARA。
 
-- **hcclChannelScqDepth**：用于配置通信发送完成队列（SCQ）深度，目前仅支持Ascend 950PR&950DT系列产品，且仅在AIV展开模式和UB_CTP、UBC_TP、UB_RTP协议下可配置。配置值会向上调整为最近的2的整数次幂，调整后的有效取值范围为[64, 32768]。未配置时使用默认深度32768。其余场景下保持为无效值。当hcclChannelSqDepth与hcclChannelScqDepth同时配置时，hcclChannelScqDepth不得小于hcclChannelSqDepth（HOST、AIV场景），否则通道创建返回HCCL_E_PARA。
+- **hcclChannelScqDepth**：用于配置通信发送完成队列（SCQ）深度，目前仅支持Ascend 950PR&950DT系列产品，且仅在AIV展开模式和UB_CTP、UBC_TP、UB_RTP协议下可配置。配置值会向上调整为最近的2的整数次幂，调整后的有效取值范围为[64, 32768]。独占队列未配置该字段时，默认深度为32768。共享jetty模式会校验配置的深度，实际深度由共享队列决定。在不支持配置该字段的场景中，该字段不生效。当hcclChannelSqDepth与hcclChannelScqDepth同时配置时，hcclChannelScqDepth不得小于hcclChannelSqDepth（HOST、AIV场景），否则通道创建返回HCCL_E_PARA。
 
 - **hcclUseNetLayer**：配置通信域允许使用的Net Layer，仅支持Ascend 950PR&950DT系列产品。V13新增字段，默认为空字符串（未配置），旧版本配置不读取此字段。容量为32字节，包含字符串结束符，表达式最多31字节。
 
@@ -363,4 +363,4 @@ typedef struct HcclCommConfigDef {
 | hcclAlgo | 配置项hcclAlgo（通信域粒度配置）> 环境变量[HCCL_ALGO](https://gitcode.com/cann/hccl/blob/master/docs/zh/user_guide/hccl_env/HCCL_ALGO.md)（全局配置）> 自适应选择算法。 |
 | hcclRetryEnable | 配置项hcclRetryEnable（通信域粒度配置）> 环境变量[HCCL_OP_RETRY_ENABLE](https://gitcode.com/cann/hccl/blob/master/docs/zh/user_guide/hccl_env/HCCL_OP_RETRY_ENABLE.md)（全局配置）> 默认值0。 |
 | hcclRetryParams | 配置项hcclRetryParams（通信域粒度配置）> 环境变量[HCCL_OP_RETRY_PARAMS](https://gitcode.com/cann/hccl/blob/master/docs/zh/user_guide/hccl_env/HCCL_OP_RETRY_PARAMS.md)（全局配置）> 默认配置（MaxCnt：1，HoldTime：5000，IntervalTime：1000）。 |
-| hcclUseNetLayer | 独立通信域：非空通信域参数 > 环境变量HCCL_USE_NET_LAYER > 原有默认行为。子通信域：非空子域参数 > 继承父域，不重新读取环境变量。 |
+| hcclUseNetLayer | 独立通信域：非空通信域参数 > 环境变量[HCCL_USE_NET_LAYER](https://gitcode.com/cann/hccl/blob/master/docs/zh/user_guide/hccl_env/HCCL_USE_NET_LAYER.md) > 原有默认行为。子通信域：非空子域参数 > 继承父域，不重新读取环境变量。 |

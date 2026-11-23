@@ -8,13 +8,13 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include <cstddef>
 #include <cstring>
+
 #include "snap_shot_parse.h"
 #include "checkcrc.h"
 #include "ip_address.h"
 #include "comm_manager.h"
-#include <cstddef>
-#include <cstring>
 #include "coll_comm_config.h"
 #include "comm_config_pub.h"
 
