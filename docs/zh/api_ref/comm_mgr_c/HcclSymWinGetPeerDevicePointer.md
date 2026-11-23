@@ -3,7 +3,7 @@
 ## 产品支持情况
 
 <!-- npu="950" id1 -->
-- Ascend 950PR&950DT系列产品：UB Memory场景支持，URMA场景不支持
+- Ascend 950PR&950DT系列产品：支持
 <!-- end id1 -->
 <!-- npu="A3" id2 -->
 - Atlas A3系列产品：不支持
@@ -60,11 +60,12 @@ HcclResult HcclSymWinGetPeerDevicePointer(HcclCommSymWindow winHandle, size_t of
 ## 约束说明
 
 <!-- npu="950" id9 -->
-- 针对Ascend 950PR&950DT系列产品，仅支持UB Memory场景，输入的peerMemberId必须是LSA WorldTeam的member ID。
+- 针对Ascend 950PR&950DT系列产品，UB Memory场景支持，URMA场景不支持，输入的peerMemberId必须是LSA WorldTeam的member ID。
 - UB Memory场景会在运行时校验member ID，超出`[0, lsaTeamSize)`时返回`HCCL_E_PARA`。
 - UB Memory场景会在运行时校验offset，超出`[0, 窗口用户size)`时返回`HCCL_E_PARA`。
 <!-- end id9 -->
 - 该接口在HOST侧调用，返回对端Device地址。
+- 本接口符号由`libhcomm.so`提供；Release构建下仅由HOST侧版本脚本`src/legacy/ascend910/framework/hcomm.map`导出，非Release构建不挂载该脚本。设备侧库`libccl_kernel.so`与`libaicpu_custom.so`不导出该符号。调用方应链接`libhcomm.so`，或通过`dlsym`从`libhcomm.so`加载本接口符号，不得从设备侧库中查找。
 - 接口失败时*ptr一定为nullptr，调用方不得沿用上一次查询得到的地址。
 - winHandle对应的窗口解注册（[HcclCommSymWinDeregister](HcclCommSymWinDeregister.md)）后，通过本接口获取的地址失效。
 

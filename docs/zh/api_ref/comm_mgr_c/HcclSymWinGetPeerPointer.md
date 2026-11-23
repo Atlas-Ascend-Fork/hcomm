@@ -3,7 +3,7 @@
 ## 产品支持情况
 
 <!-- npu="950" id1 -->
-- Ascend 950PR&950DT系列产品：UB Memory场景支持，URMA场景不支持
+- Ascend 950PR&950DT系列产品：支持
 <!-- end id1 -->
 <!-- npu="A3" id2 -->
 - Atlas A3系列产品：支持
@@ -55,7 +55,7 @@ HcclResult HcclSymWinGetPeerPointer(HcclCommSymWindow winHandle, size_t offset, 
 - 针对Atlas A3系列产品，仅支持HCCS链路通信场景。
 <!-- end id7 -->
 <!-- npu="950" id9 -->
-- 针对Ascend 950PR&950DT系列产品，仅支持UB Memory场景，输入的peerRank必须是LSA WorldTeam的member ID。
+- 针对Ascend 950PR&950DT系列产品，UB Memory场景支持，URMA场景不支持，输入的peerRank必须是LSA WorldTeam的member ID。
 - UB Memory场景会在运行时校验member ID，超出`[0, lsaTeamSize)`时返回`HCCL_E_PARA`。
 <!-- end id9 -->
 - 该接口仅支持通信算子展开模式为AI CPU的场景。
