@@ -276,14 +276,35 @@ RankTableInfo::RankTableInfo(Hccl::BinaryStream& binaryStream)
 
 HcclResult RankTableInfo::GetBinStream(bool isContainLocId, Hccl::BinaryStream& binaryStream) const
 {
+    return GetBinStream(isContainLocId, binaryStream, false);
+}
+
+HcclResult RankTableInfo::GetBinStream(bool isContainLocId, Hccl::BinaryStream& binaryStream, bool allowEmpty) const
+{
     if (ranks.size() == 0) {
-        RPT_INPUT_ERR(
-            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
-            std::vector<std::string>({"0", "ranks", "non-empty"}));
-        HCCL_ERROR(
-            "[%s][%s] errNo[0x%016llx] ranks size is zero", LOG_KEYWORDS_INIT_GROUP.c_str(),
-            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA));
-        return HCCL_E_PARA;
+        if (!allowEmpty) {
+            RPT_INPUT_ERR(
+                true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+                std::vector<std::string>({"0", "ranks", "non-empty"}));
+            HCCL_ERROR(
+                "[%s][%s] errNo[0x%016llx] ranks size is zero", LOG_KEYWORDS_INIT_GROUP.c_str(),
+                LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA));
+            return HCCL_E_PARA;
+        }
+        // 空表走同一编码路径（下方 rankCount/ranks 计数天然写 0），反序列化侧完整消费；
+        // 唯一差异：version 缺省空串时对齐 "2.0"，避免空表作为合并初始表时 version 传空
+        if (version.empty()) {
+            binaryStream << std::string("2.0");
+        } else {
+            binaryStream << version;
+        }
+        binaryStream << rankCount;
+        const size_t emptyRanksSize = 0;
+        binaryStream << emptyRanksSize;
+        binaryStream << detour;
+        binaryStream << logicSuperPodSplitLayer;
+        binaryStream << logicSuperPodGroupIds.size();
+        return HCCL_SUCCESS;
     }
     HCCL_INFO("[%s] version[%s] rankCount[%u] ranks size[%u]", __func__, version.c_str(), rankCount, ranks.size());
 
@@ -299,6 +320,11 @@ HcclResult RankTableInfo::GetBinStream(bool isContainLocId, Hccl::BinaryStream& 
         binaryStream << rankId << groupId;
     }
     return HCCL_SUCCESS;
+}
+
+HcclResult RankTableInfo::SerializeAllowEmpty(Hccl::BinaryStream& binaryStream) const
+{
+    return GetBinStream(true, binaryStream, true);
 }
 
 vector<char> RankTableInfo::GetUniqueId(bool isContainLocId) const

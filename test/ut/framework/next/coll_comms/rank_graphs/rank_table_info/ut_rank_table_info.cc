@@ -196,6 +196,68 @@ TEST_F(RankTableInfoParserTest, Ut_GetBinStream_When_Normal_Expect_Success)
     }
 }
 
+// 空表帧 roundtrip（mesh 零连接组载体，见 SerializeAllowEmpty）：字段宽度须与 GetBinStream 逐字段
+// 同宽（rankCount u32 + ranks 计数 size_t）——ranks 计数若按 u32 写 4 字节，反序列化读 8 字节会
+// 消费 detour 字节错位，detour=true 时 ranksSize 被解成 2^32 抛 InvalidParamsException
+TEST_F(RankTableInfoParserTest, Ut_SerializeAllowEmpty_When_Empty_Expect_Roundtrip)
+{
+    for (const bool detour : {false, true}) {
+        RankTableInfo emptyTable;
+        emptyTable.detour = detour; // version 缺省空串，验证 "2.0" 兜底
+        BinaryStream binStream;
+        EXPECT_EQ(emptyTable.SerializeAllowEmpty(binStream), HCCL_SUCCESS);
+
+        RankTableInfo parsed(binStream); // 反序列化不抛异常（含 logic group metadata 截断校验）
+        EXPECT_EQ(parsed.version, "2.0");
+        EXPECT_EQ(parsed.rankCount, 0U);
+        EXPECT_TRUE(parsed.ranks.empty());
+        EXPECT_EQ(parsed.detour, detour);
+        // 逻辑分组尾字段随空帧写出（splitLayer 缺省值）且分组映射为空
+        EXPECT_EQ(parsed.logicSuperPodSplitLayer, emptyTable.logicSuperPodSplitLayer);
+        EXPECT_TRUE(parsed.logicSuperPodGroupIds.empty());
+        // 流被完整消费（无残留字节：残留说明字段宽度错位）
+        EXPECT_EQ(binStream.GetRemainingSize(), 0);
+    }
+}
+
+// 空帧携带非缺省逻辑分组拆分层（A5 配置）的 roundtrip：splitLayer 值随帧保留
+TEST_F(RankTableInfoParserTest, Ut_SerializeAllowEmpty_When_CustomSplitLayer_Expect_Preserved)
+{
+    RankTableInfo emptyTable;
+    emptyTable.detour = true;
+    emptyTable.logicSuperPodSplitLayer = 3; // 非缺省（缺省 MAX_VALUE_NETLAYER+1=8）
+    BinaryStream binStream;
+    EXPECT_EQ(emptyTable.SerializeAllowEmpty(binStream), HCCL_SUCCESS);
+
+    RankTableInfo parsed(binStream);
+    EXPECT_EQ(parsed.logicSuperPodSplitLayer, 3U);
+    EXPECT_TRUE(parsed.logicSuperPodGroupIds.empty());
+    EXPECT_EQ(binStream.GetRemainingSize(), 0);
+}
+
+// 非空表委托 GetBinStream（行为等价性：两者序列化输出逐字节一致）
+TEST_F(RankTableInfoParserTest, Ut_SerializeAllowEmpty_When_NonEmpty_Expect_DelegateGetBinStream)
+{
+    RankTableInfo table;
+    table.version = "2.0";
+    table.rankCount = 1;
+    hccl::NewRankInfo rankInfo{};
+    rankInfo.rankId = 0;
+    rankInfo.rankLevelInfos.emplace_back(RankLevelInfo{});
+    table.ranks.emplace_back(rankInfo);
+
+    BinaryStream viaAllowEmpty;
+    EXPECT_EQ(table.SerializeAllowEmpty(viaAllowEmpty), HCCL_SUCCESS);
+    BinaryStream viaGetBinStream;
+    EXPECT_EQ(table.GetBinStream(true, viaGetBinStream), HCCL_SUCCESS);
+
+    std::vector<char> bytesA;
+    viaAllowEmpty.Dump(bytesA);
+    std::vector<char> bytesB;
+    viaGetBinStream.Dump(bytesB);
+    EXPECT_EQ(bytesA, bytesB);
+}
+
 TEST_F(RankTableInfoParserTest, Ut_RankTableInfo_When_RankNEQ_Expect_E_PARA)
 {
     RankTableInfo rankTableInfo;

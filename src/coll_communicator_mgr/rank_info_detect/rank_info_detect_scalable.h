@@ -12,6 +12,7 @@
 #define HCCL_RANK_INFO_DETECT_SCALABLE_H
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
@@ -36,6 +37,14 @@ constexpr u32 SCALABLE_INVALID_INDEX = 0xFFFFFFFF;
 struct RootMeshInfo {
     char ip[IP_ADDRESS_BUFFER_LEN]{0};
     u32 meshPort{HCCL_INVALID_PORT};
+};
+
+// mesh 对端交换结果分类：空槽反推依据
+enum class MeshPeerState : u8 {
+    PENDING = 0,     // 尚未尝试（预算耗尽提前退出）：状态未知，不整组反推
+    UNREACHABLE,     // 建链被明确拒绝（TCP_CONNECT，对端 root 进程不在）：可整组反推
+    CONNECT_TIMEOUT, // 建链等待超时/未知失败，不整组反推；
+    EXCHANGE_FAILED, // 已建链但交换未收齐：对端组状态未知，只告警不反推
 };
 
 // 所有 root 的信息，用于root间mesh建链
@@ -86,14 +95,18 @@ private:
     HcclResult SetupMeshListen(u32& meshPort, u32 serverPort);
     void ReleaseListenSocketResources(
         const std::shared_ptr<Socket>& listenSocket, const IpAddress& hostIp, u32 portOffset) const;
-    HcclResult RootMeshAllGather(const RankTableInfo& localRankTable);
+    HcclResult RootMeshAllGather(
+        const RankTableInfo& localRankTable, const std::string& localFailedList, u32 totalRankNum,
+        std::chrono::steady_clock::time_point acceptStartTime);
     HcclResult MeshConnectToLargerRoots(u32 timeoutSec);
     HcclResult MeshAcceptSmallerRoots(u32 timeoutSec);
     HcclResult MeshAcceptSmallerRootsCore(u32 timeoutSec);
     HcclResult ExchangeMeshPartial(Socket& socket, u32 peer, bool sendFirst);
     HcclResult SendMeshPartial(Socket& socket) const;
     HcclResult RecvMeshPartial(Socket& socket, u32 peer);
-    HcclResult MergeMeshPartials(u32 nRoot, RankTableInfo& rankTable);
+    HcclResult MergeMeshPartials(u32 nRoot, RankTableInfo& rankTable, std::string& failedList);
+    // 缺席 root 按分组策略反推整组 rankId 区间
+    void FillAbsentRootRankIds(const std::vector<u32>& absentRoots, std::string& globalFailedList) const;
     std::shared_ptr<Socket> MakeMeshSocket(u32 peer);
     HcclResult SetDetectServerFinalStatus(u32 serverPort, bool failed) const;
 
@@ -112,8 +125,11 @@ private:
     std::atomic<bool> scalableInfoReady_{false};
 
     std::vector<std::vector<char>> partials_{}; // 存放所有root的ranktable
+    std::vector<std::string> peerFailedLists_{};
+    std::vector<MeshPeerState> peerMeshStates_{};
+    std::string localFailedList_{}; // 本组区间压缩失败列表
+    u32 totalRankNum_{0};           // agent 上报的全局 nRanks（缺席 root 区间反推依据）
     std::atomic<u32> meshRecvCount_{0};
-    std::atomic<bool> meshFailed_{false};
 };
 
 // 进程级注册表：Get 阶段按 identifier 存 root 探测对象，Init 阶段按 identifier 查找对象后注入

@@ -16,6 +16,7 @@
 #include <atomic>
 #include <thread>
 #include <vector>
+#include <string>
 #include "socket.h"
 #include "new_rank_info.h"
 #include "rank_table_info.h"
@@ -30,9 +31,18 @@ namespace Hccl {
 
 #ifdef OPEN_HCCL_TEST
 const u32 WAIT_ERROR_BROADCAST_TIME = 1;
-#else
-const u32 WAIT_ERROR_BROADCAST_TIME = 20;
 #endif
+
+constexpr u32 MAX_ERROR_BROADCAST_WAIT_SEC = 300;
+
+// 失败 agent 上报等待窗口 = min(max(linkTimeOutSec, 0) + SOCKET_LINK_EXTRA_TIMEOUT, MAX_ERROR_BROADCAST_WAIT_SEC)。
+u32 GetErrorBroadcastWaitSeconds(s32 linkTimeOutSec);
+
+// 遗言日志的失败列表打印前缀长度上限：超长截断为前缀 + "..."，失败总数恒可见
+constexpr u32 MAX_FAILED_LIST_PRINT_LEN = 256;
+
+// 遗言日志格式化：返回截断后的打印串
+std::string FormatFailedAgentIdList(const std::string& failedAgentIdList, u64& failedCount, bool& parseOk);
 
 class RankInfoDetectClient {
 public:

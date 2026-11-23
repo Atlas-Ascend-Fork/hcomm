@@ -73,6 +73,8 @@ HcclResult RankInfoDetectService::Setup()
 {
     // 连接所有的 rank
     HCCL_INFO("[RankInfoDetectService::%s] initial detect auto-start.", __func__);
+    // 多轮 Init 复用同一 service 时防止失败列表跨轮残留
+    failedAgentIdList_.clear();
 
     HcclResult ret = GetConnections(true /*isInitCollect*/);
     if (ret != HCCL_SUCCESS) {
@@ -146,6 +148,9 @@ HcclResult RankInfoDetectService::SetupGrowLoop()
         HCCL_INFO(
             "[RankInfoDetectService::%s] grow round started, expectedNewRankCount[%u].", __func__,
             expectedNewRankCount_);
+
+        // 防止 Init/上一轮的失败列表残留到本轮广播（多轮 Init / grow 跨轮清理）
+        failedAgentIdList_.clear();
 
         HcclResult ret = GetConnections(false /*isInitCollect*/);
         if (ret != HCCL_SUCCESS) {
@@ -391,7 +396,10 @@ HcclResult RankInfoDetectService::GetConnections(bool isInitCollect)
             }
             if (!RecvAndVerifyRemoteAgentIdAndRankSize(connSocket, expectedSocketNum, previousRankNum, isInitCollect)) {
                 collectResult = HCCL_E_INTERNAL;
-                break;
+                if (shutdown_) {
+                    break;
+                }
+                continue;
             }
             expectedSocketNum--;
             isFirstAcceptTimeOut = false;
@@ -764,6 +772,7 @@ void RankInfoDetectService::SortRankTable()
     std::sort(rankTable_.ranks.begin(), rankTable_.ranks.end(), RankIdCompare);
 }
 
+// 生成本组区间压缩失败列表
 HcclResult RankInfoDetectService::FailedConnectionAgentIdString(u32 rankSize)
 {
     HCCL_INFO("[RankInfoDetectService::%s] start.", __func__);
@@ -772,25 +781,36 @@ HcclResult RankInfoDetectService::FailedConnectionAgentIdString(u32 rankSize)
     auto sockets = SnapshotConnSockets();
     for (auto it : sockets) {
         u32 rankid = 0;
-        HcclResult ret = SalStrToULong(it.first, HCCL_BASE_DECIMAL, rankid);
-        CHK_PRT_RET(
-            ret != HCCL_SUCCESS,
-            HCCL_ERROR("[RankInfoDetectService::%s] agentId[%s] strToULong fail.", __func__, it.first.c_str()),
-            HCCL_E_INTERNAL);
-        CHK_PRT_RET(
-            rankid >= rankSize,
-            HCCL_ERROR("[RankInfoDetectService::%s] invalid rank id[%u], rankSize[%u].", __func__, rankid, rankSize),
-            HCCL_E_INTERNAL);
-        connectedRank[rankid] = true;
+        if (it.first.empty() || it.first.find_first_not_of("0123456789") != std::string::npos
+            || SalStrToULong(it.first, HCCL_BASE_DECIMAL, rankid) != HCCL_SUCCESS || rankid < groupFirstRank_
+            || rankid - groupFirstRank_ >= rankSize) {
+            HCCL_WARNING(
+                "[RankInfoDetectService::%s] invalid agentId[%s], firstRank[%u], rankSize[%u], skip it.", __func__,
+                it.first.c_str(), groupFirstRank_, rankSize);
+            continue;
+        }
+        connectedRank[rankid - groupFirstRank_] = true;
     }
 
+    // 区间压缩编码：连续失败段合并为 "a-b"
+    u32 segStart = 0;
+    u32 segLast = 0;
+    bool inSegment = false;
     for (u32 i = 0; i < rankSize; i++) {
+        u32 rankId = groupFirstRank_ + i;
         if (!connectedRank[i]) {
-            if (!failedAgentIdList_.empty()) {
-                failedAgentIdList_ += ',';
+            if (!inSegment) {
+                inSegment = true;
+                segStart = rankId;
             }
-            failedAgentIdList_ += std::to_string(i);
+            segLast = rankId;
+        } else if (inSegment) {
+            AppendFailedIdSegment(failedAgentIdList_, segStart, segLast);
+            inSegment = false;
         }
+    }
+    if (inSegment) {
+        AppendFailedIdSegment(failedAgentIdList_, segStart, segLast);
     }
 
     HCCL_INFO("[RankInfoDetectService::%s] end.", __func__);
@@ -853,21 +873,49 @@ bool RankInfoDetectService::RecvAndVerifyRemoteAgentIdAndRankSize(
     // 接收RankSize
     u32 rankSize = 0;
     ret = RecvRemoteRankSize(socketAgent, rankSize);
-    CHK_PRT_RET(!ret, HCCL_ERROR("[RankInfoDetectService::%s] RecvRemoteAgentId fail.", __func__), false);
+    if (!ret) {
+        HCCL_ERROR("[RankInfoDetectService::%s] RecvRemoteRankSize fail.", __func__);
+        EraseIncompleteHandshakeConnection(agentId, isInitCollect);
+        return false;
+    }
 
     // Init：靠首个 client 反推 rankSize 并校验所有 client rankSize 一致；
     // Grow：root 已知 expectedNewRankCount_，不依赖 client 反向告知、也不校验 rankSize
     //          （Grow新 rank 发的 rankSize 语义不同，强校验会误判 fail）
     if (isInitCollect) {
         expectedSocketNum = (previousRankSize == 0) ? rankSize : expectedSocketNum;
-        CHK_PRT_RET(
-            !VerifyRemoteRankSize(previousRankSize, rankSize),
-            HCCL_ERROR("[RankInfoDetectService::%s] VerifyRemoteRankSize fail, rankSize[%u]", __func__, rankSize),
-            false);
+        if (!VerifyRemoteRankSize(previousRankSize, rankSize)) {
+            HCCL_ERROR("[RankInfoDetectService::%s] VerifyRemoteRankSize fail, rankSize[%u]", __func__, rankSize);
+            EraseIncompleteHandshakeConnection(agentId, isInitCollect);
+            return false;
+        }
     }
 
     HCCL_INFO("[RankInfoDetectService::%s] end.", __func__);
     return true;
+}
+
+// 半握手连接清理
+void RankInfoDetectService::EraseIncompleteHandshakeConnection(const std::string& agentId, bool isInitCollect)
+{
+    std::shared_ptr<Socket> socket;
+    {
+        std::lock_guard<std::mutex> lock(connMtx_);
+        auto iter = connSockets_.find(agentId);
+        if (iter != connSockets_.end()) {
+            socket = iter->second;
+            connSockets_.erase(iter);
+        }
+        if (!isInitCollect) {
+            newAgentIds_.erase(std::remove(newAgentIds_.begin(), newAgentIds_.end(), agentId), newAgentIds_.end());
+        }
+    }
+    if (socket != nullptr) {
+        EXCEPTION_CATCH(socket->Close(), HCCL_ERROR("[RankInfoDetectService::%s] socket Close exception", __func__));
+    }
+    HCCL_WARNING(
+        "[RankInfoDetectService::%s] incomplete handshake connection[%s] erased, isInitCollect[%d].", __func__,
+        agentId.c_str(), static_cast<int>(isInitCollect));
 }
 
 bool RankInfoDetectService::VerifyRemoteRankSize(u32& previousRankSize, u32 remoteRankSize) const
@@ -1042,11 +1090,12 @@ RankInfoDetectService::~RankInfoDetectService() { DECTOR_TRY_CATCH("RankInfoDete
 
 // ===== 以下为 scalable 多 root 用 =====
 
-HcclResult RankInfoDetectService::GetConnectionsScalable(u32 groupSize)
+HcclResult
+RankInfoDetectService::GetConnectionsScalable(u32 groupSize, std::chrono::steady_clock::time_point& acceptStartTime)
 {
     HCCL_INFO("[RankInfoDetectService::%s] start, groupSize[%u].", __func__, groupSize);
 
-    auto startTime = std::chrono::steady_clock::now();
+    acceptStartTime = std::chrono::steady_clock::now();
     auto timeOut = std::chrono::seconds(EnvConfig::GetInstance().GetSocketConfig().GetLinkTimeOut());
     u32 hostPort = serverSocket_->GetListenPort();
     auto hccpHostSocketHandle = HostSocketHandleManager::GetInstance().Get(devPhyId_, hostIp_);
@@ -1056,16 +1105,14 @@ HcclResult RankInfoDetectService::GetConnectionsScalable(u32 groupSize)
 
     // 连接 groupSize 个本组 client（含 root 自身；数量以本地推导为准，不依赖 agent 上报的 rankNum）。
     u32 expectedSocketNum = groupSize;
-    HcclResult ret = AcceptGroupConnections(hccpHostSocketHandle, hostPort, startTime, timeOut, expectedSocketNum);
-    if (ret != HCCL_SUCCESS) {
-        return ret;
-    }
-    if (GetConnSocketCount() == 0) {
-        HCCL_ERROR("[RankInfoDetectService::%s] no rank connection success.", __func__);
-        return HCCL_E_INTERNAL;
-    }
-    HCCL_INFO("[RankInfoDetectService::%s] end, all group ranks get connection socket success.", __func__);
-    return HCCL_SUCCESS;
+    HcclResult ret
+        = AcceptGroupConnections(hccpHostSocketHandle, hostPort, acceptStartTime, timeOut, expectedSocketNum);
+    const auto acceptElapsedSec
+        = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - acceptStartTime).count();
+    HCCL_INFO(
+        "[RankInfoDetectService::%s] end, ret[%d], connected[%zu], groupSize[%u], acceptElapsed[%lld s].", __func__,
+        ret, GetConnSocketCount(), groupSize, static_cast<long long>(acceptElapsedSec));
+    return ret;
 }
 
 HcclResult RankInfoDetectService::AcceptGroupConnections(
@@ -1106,14 +1153,33 @@ HcclResult RankInfoDetectService::AcceptGroupConnections(
         }
     }
 
-    // 处理异常流程
+    // 记录 agent 上报的全局 nRanks
+    totalRankNum_ = totalRankNum;
+
+    // 处理异常流程：部分失败（≥1 个连接成功）不中止，失败列表随广播下发（遗言可达性优先）
     if (expectedSocketNum > 0) {
-        // totalRankNum 为客户端上报的全局规模，按此为基数填充 failedAgentIdList_（组外 rank 也会被计入）。
-        // scalable 错误路径随后直接返回、不再广播，该列表为“临终遗言”失败通知功能预留，此处保持既有语义。
-        FailedConnectionAgentIdString(totalRankNum);
+        // 生成本组失败列表
+        if (FailedConnectionAgentIdString(groupSize) != HCCL_SUCCESS) {
+            HCCL_WARNING(
+                "[RankInfoDetectService::%s] generate failedAgentIdList failed, fallback to whole group range, "
+                "firstRank[%u], groupSize[%u].",
+                __func__, groupFirstRank_, groupSize);
+            failedAgentIdList_.clear();
+            if (groupFirstRank_ <= UINT32_MAX - groupSize + 1) {
+                AppendFailedIdSegment(failedAgentIdList_, groupFirstRank_, groupFirstRank_ + groupSize - 1);
+            } else {
+                HCCL_WARNING(
+                    "[RankInfoDetectService::%s] fallback range wraps around, firstRank[%u], groupSize[%u], skip it.",
+                    __func__, groupFirstRank_, groupSize);
+            }
+        }
         DisplayConnectedRanks();
-        HCCL_INFO("[RankInfoDetectService::%s] end, there exist non-connected ranks.", __func__);
-        return HCCL_E_INTERNAL; // scalable 场景缺连接即失败（全局表不完整）
+        HCCL_WARNING(
+            "[RankInfoDetectService::%s] exist non-connected ranks, continue to broadcast, groupSize[%u], "
+            "remaining[%u], failedAgentIdList[%s].",
+            __func__, groupSize, expectedSocketNum, failedAgentIdList_.c_str());
+        // 部分失败返回 SUSPENDING：失败列表已生成，SetupScalable 收集存活子集后走 3/4 广播遗言
+        return HCCL_E_SUSPENDING;
     }
     HCCL_INFO("[RankInfoDetectService::%s] all group connections accepted.", __func__);
     return HCCL_SUCCESS;
@@ -1158,7 +1224,7 @@ bool RankInfoDetectService::ProcessScalableConnStatus(
         // 单 root 接收逻辑会用全局 rankSize 重写计数，scalable 保持按本组剩余连接数等待。
         u32 ignoredSocketNum = expectedSocketNum;
         if (!RecvAndVerifyRemoteAgentIdAndRankSize(connSocket, ignoredSocketNum, totalRankNum, true)) {
-            return false;
+            return !shutdown_;
         }
         expectedSocketNum--;
         isFirstAcceptTimeOut = false;
@@ -1184,34 +1250,47 @@ bool RankInfoDetectService::ProcessScalableConnStatus(
     return false;
 }
 
-HcclResult
-RankInfoDetectService::SetupScalable(u32 groupSize, const std::function<HcclResult(RankTableInfo&)>& meshMergeCallback)
+HcclResult RankInfoDetectService::SetupScalable(u32 groupSize, const MeshMergeCallback& meshMergeCallback)
 {
     // server 侧 ra 引用：与 TearDown 链尾的 DeInit 配对
     s32 devId = 0;
     CHK_RET(HrtGetDevice(devId));
     TRY_CATCH_RETURN(HccpPeerManager::GetInstance().Init(devId););
+    // 多轮 Init 复用同一 service 时防止失败列表跨轮残留
+    failedAgentIdList_.clear();
 
-    // 1. 按 groupSize 连接本组 rank（client 上报的全局 nRanks 仅作一致性校验）。
-    HcclResult ret = GetConnectionsScalable(groupSize);
+    // 1. 按 groupSize 连接本组 rank（部分失败不中止，失败列表随第 4 步广播下发）。
+    std::chrono::steady_clock::time_point acceptStartTime{};
+    HcclResult ret = GetConnectionsScalable(groupSize, acceptStartTime);
     CHK_PRT_RET(
-        ret != HCCL_SUCCESS,
+        ret != HCCL_SUCCESS && ret != HCCL_E_SUSPENDING,
         HCCL_ERROR("[RankInfoDetectService::%s] GetConnectionsScalable failed, ret[%d].", __func__, ret), ret);
+    const bool partialFailed = (ret == HCCL_E_SUSPENDING);
+    const bool zeroConnected = (GetConnSocketCount() == 0);
 
-    // 2. 组内收集 localRankTable（直接复用 GetRankTable：连接恰为组内 groupSize 个）。
+    // 2. 组内收集 localRankTable
     TRY_CATCH_RETURN(CHK_RET(GetRankTable(true)););
 
     // 3. root 间 mesh allgather 合并全局表（委托 RankInfoDetectScalable 回调，service 不感知 mesh 细节）。
     if (meshMergeCallback != nullptr) {
-        ret = meshMergeCallback(rankTable_);
-        CHK_PRT_RET(
-            ret != HCCL_SUCCESS,
-            HCCL_ERROR("[RankInfoDetectService::%s] mesh merge callback failed, ret[%d].", __func__, ret), ret);
+        EXCEPTION_CATCH(
+            ret = meshMergeCallback(rankTable_, failedAgentIdList_, totalRankNum_, acceptStartTime),
+            ret = HCCL_E_INTERNAL);
+        if (ret != HCCL_SUCCESS) {
+            HCCL_WARNING(
+                "[RankInfoDetectService::%s] mesh merge callback failed, ret[%d], continue to broadcast local "
+                "consistent table and local failed list; status of unmerged groups is unknown, agent-side rankCount "
+                "check will fail the init.",
+                __func__, ret);
+        }
     }
 
-    // 4. 组内广播全局表（直接复用 BroadcastRankTable：广播的已是 mesh 合并后的全局表）。
-    TRY_CATCH_RETURN(CHK_RET(BroadcastRankTable()););
-    return HCCL_SUCCESS;
+    // 4. 组内广播全局表（直接复用 BroadcastRankTable：广播的已是 mesh 合并后的全局/缺员表）。
+    // 零连接跳过本组广播
+    if (!zeroConnected) {
+        TRY_CATCH_RETURN(CHK_RET(BroadcastRankTable()););
+    }
+    return partialFailed ? HCCL_E_SUSPENDING : HCCL_SUCCESS;
 }
 
 } // namespace Hccl

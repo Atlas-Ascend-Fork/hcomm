@@ -11,6 +11,7 @@
 #include "gtest/gtest.h"
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>
+#include <thread>
 #define private public
 #include "host_socket_handle_manager.h"
 #include "whitelist.h"
@@ -568,7 +569,7 @@ TEST_F(RankInfoDetectServiceTest, Ut_ProcessScalableConnStatus_When_GroupComplet
     EXPECT_EQ(rankInfoDetectService_->connSockets_.size(), 4U);
 }
 
-TEST_F(RankInfoDetectServiceTest, Ut_ProcessScalableConnStatus_When_RankSizeMismatch_Expect_Failure)
+TEST_F(RankInfoDetectServiceTest, Ut_ProcessScalableConnStatus_When_RankSizeMismatch_Expect_ContinueWaiting)
 {
     MOCKER_CPP(&RankInfoDetectService::IsRemoteIpInWhiteList).stubs().will(returnValue(true));
     MOCKER_CPP(&RankInfoDetectService::RecvRemoteAgentId).stubs().will(invoke(RecvRemoteAgentIdStub));
@@ -582,11 +583,15 @@ TEST_F(RankInfoDetectServiceTest, Ut_ProcessScalableConnStatus_When_RankSizeMism
     u32 expectedSocketNum = 3;
     u32 totalRankNum = 8;
     bool isFirstAcceptTimeOut = false;
-    EXPECT_FALSE(rankInfoDetectService_->ProcessScalableConnStatus(
+    // PR 行为变更：握手失败（rankSize 校验失败）后继续等待其余连接（存活 rank 不被误报为失败
+    // 随广播下发），仅 Shutdown 中止——非 shutdown 下返回 true；半握手连接已被
+    // EraseIncompleteHandshakeConnection 摘除，该 agent 计入本组失败列表
+    EXPECT_TRUE(rankInfoDetectService_->ProcessScalableConnStatus(
         rankInfoDetectService_->serverSocket_, SocketStatus::OK, groupSize, expectedSocketNum, totalRankNum,
         isFirstAcceptTimeOut));
-    EXPECT_EQ(expectedSocketNum, 3U);
+    EXPECT_EQ(expectedSocketNum, 3U); // 握手失败不递减计数，该 agent 随后由失败列表统计
     EXPECT_EQ(totalRankNum, 8U);
+    EXPECT_TRUE(rankInfoDetectService_->connSockets_.empty()); // 半握手连接已摘除
 }
 
 TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_Last_Fail_Expect_Print_Connected_Socket)
@@ -705,6 +710,64 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_Sudden_Fail)
 
     auto res1 = rankInfoDetectService_->connSockets_.size();
     EXPECT_EQ(1, res1);
+}
+
+// PR 行为变更（单 root Init 路径）：首个连接握手失败后 continue 继续等待（旧实现 break 中止），
+// 后续存活 rank 正常连入；半握手连接被 EraseIncompleteHandshakeConnection 摘除，
+// 不计入已连接，也不把后续存活 rank 误报进失败列表
+TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_HandshakeFail_Expect_ContinueWaiting)
+{
+    SetupMockSocketAndTimeoutConfig();
+    MOCKER_CPP(&RankInfoDetectService::IsRemoteIpInWhiteList).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteAgentId).stubs().will(invoke(RecvRemoteAgentIdStub));
+    MOCKER_CPP(&std::chrono::steady_clock::now)
+        .stubs()
+        .will(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0))));
+
+    // 第 1 个连接握手失败（RecvRemoteRankSize false → 摘除 + continue），后续 2 个连接握手成功
+    u32 rankSize = 2;
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteRankSize)
+        .stubs()
+        .with(mockcpp::any(), outBound(rankSize))
+        .then(returnValue(false))
+        .then(returnValue(true))
+        .then(returnValue(true));
+
+    // 连接 1（agentId "0"，握手失败）与后续存活连接（agentId "1"/"2"）均建链成功
+    MOCKER_CPP(&Socket::GetStatus)
+        .stubs()
+        .then(returnValue((SocketStatus)SocketStatus::OK))
+        .then(returnValue((SocketStatus)SocketStatus::OK))
+        .then(returnValue((SocketStatus)SocketStatus::OK));
+
+    EXPECT_EQ(rankInfoDetectService_->GetConnections(true), HcclResult::HCCL_SUCCESS);
+    // 半握手对端 "0" 已摘除；存活 rank "1"/"2" 正常连入
+    EXPECT_EQ(rankInfoDetectService_->connSockets_.size(), 2U);
+    EXPECT_EQ(rankInfoDetectService_->connSockets_.count("0"), 0U);
+    // 预期连接全部收齐：不生成失败列表（存活 rank 未被误报为失败）
+    EXPECT_TRUE(rankInfoDetectService_->failedAgentIdList_.empty());
+}
+
+// PR 行为变更：握手失败仅 Shutdown 中止 accept——shutdown_ 置位后握手失败直接 break，
+// 零连接成功时 GetConnections 返回 HCCL_E_INTERNAL（半握手连接已摘除）
+TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_ShutdownAtHandshakeFail_Expect_Abort)
+{
+    SetupMockSocketAndTimeoutConfig();
+    rankInfoDetectService_->shutdown_ = true;
+    MOCKER_CPP(&RankInfoDetectService::IsRemoteIpInWhiteList).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteAgentId).stubs().will(invoke(RecvRemoteAgentIdStub));
+    u32 rankSize = 2;
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteRankSize)
+        .stubs()
+        .with(mockcpp::any(), outBound(rankSize))
+        .will(returnValue(false));
+    MOCKER_CPP(&std::chrono::steady_clock::now)
+        .stubs()
+        .will(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0))));
+    MOCKER_CPP(&Socket::GetStatus).stubs().then(returnValue((SocketStatus)SocketStatus::OK));
+
+    EXPECT_EQ(rankInfoDetectService_->GetConnections(true), HcclResult::HCCL_E_INTERNAL);
+    EXPECT_TRUE(rankInfoDetectService_->connSockets_.empty());
 }
 
 TEST_F(RankInfoDetectServiceTest, Ut_IsRemoteIpInWhiteList_When_WhitelistDisable_Expect_True)
@@ -835,12 +898,15 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetConnectionsScalable_When_GroupComplete_E
         .then(returnValue((SocketStatus)SocketStatus::CONNECTING))
         .then(returnValue((SocketStatus)SocketStatus::OK));
 
-    EXPECT_EQ(rankInfoDetectService_->GetConnectionsScalable(2), HcclResult::HCCL_SUCCESS);
+    std::chrono::steady_clock::time_point acceptStartTime{};
+    EXPECT_EQ(rankInfoDetectService_->GetConnectionsScalable(2, acceptStartTime), HcclResult::HCCL_SUCCESS);
     EXPECT_EQ(rankInfoDetectService_->connSockets_.size(), 2U);
 }
 
-// 一直无连接时收敛为超时并返回 HCCL_E_INTERNAL（scalable 缺连接即失败，不降级）
-TEST_F(RankInfoDetectServiceTest, Ut_GetConnectionsScalable_When_Timeout_Expect_E_INTERNAL)
+// 一直无连接时收敛为超时：AcceptGroupConnections 对零连接同样返回 SUSPENDING（整组失败列表已生成），
+// GetConnectionsScalable 原样透传——SetupScalable 放行至 mesh（空帧 + 失败列表跨组传播）、
+// 跳过本组广播（无接收方）；本函数不再做 count==0 收敛
+TEST_F(RankInfoDetectServiceTest, Ut_GetConnectionsScalable_When_Timeout_Expect_E_SUSPENDING)
 {
     SetupMockSocketAndTimeoutConfig();
     // 首轮读取起始时间（0s），次轮读取执行时间（2s >= linkTimeOut 1s），触发 AcceptGroupConnections 超时分支
@@ -853,8 +919,11 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetConnectionsScalable_When_Timeout_Expect_
     g_serviceCapturedErrorCode.clear();
     MOCKER(RptInputErr).stubs().will(invoke(StubServiceRptInputErr));
 
-    EXPECT_EQ(rankInfoDetectService_->GetConnectionsScalable(2), HcclResult::HCCL_E_INTERNAL);
+    std::chrono::steady_clock::time_point acceptStartTime{};
+    EXPECT_EQ(rankInfoDetectService_->GetConnectionsScalable(2, acceptStartTime), HcclResult::HCCL_E_SUSPENDING);
     EXPECT_EQ(rankInfoDetectService_->connSockets_.size(), 0U);
+    // 整组失败区间已生成（[0,2)），供 mesh 空帧跨组传播
+    EXPECT_EQ(rankInfoDetectService_->failedAgentIdList_, "0-1");
 }
 
 // 白名单校验不通过时丢弃该连接并继续等待下一条（scalable 场景）
@@ -875,12 +944,162 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetConnectionsScalable_When_RemoteIpNotInWh
         .with(mockcpp::any(), outBound(rankSize))
         .will(returnValue(true));
 
-    EXPECT_EQ(rankInfoDetectService_->GetConnectionsScalable(1), HcclResult::HCCL_SUCCESS);
+    std::chrono::steady_clock::time_point acceptStartTime{};
+    EXPECT_EQ(rankInfoDetectService_->GetConnectionsScalable(1, acceptStartTime), HcclResult::HCCL_SUCCESS);
     EXPECT_EQ(rankInfoDetectService_->connSockets_.size(), 1U);
 }
 
-// SetupScalable：组内收集成功后 meshMergeCallback 失败时错误码透传（不再广播）
-TEST_F(RankInfoDetectServiceTest, Ut_SetupScalable_When_MeshMergeCallbackFail_Expect_ErrCodePassthrough)
+// M1：组内 accept 部分失败（≥1 个连接成功）返回 SUSPENDING 并生成本组压缩失败列表，广播由后续步骤携带
+TEST_F(RankInfoDetectServiceTest, Ut_AcceptGroupConnections_When_PartialFail_Expect_SuspendingWithFailedList)
+{
+    SetupMockSocketAndTimeoutConfig();
+    // 固定时钟：构造 startTime（0s）→ 首轮未超时（0s）→ 次轮超时（2s ≥ 1s）
+    MOCKER_CPP(&std::chrono::steady_clock::now)
+        .stubs()
+        .will(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0))))
+        .then(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0))))
+        .then(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(2))));
+    MOCKER_CPP(&RankInfoDetectService::IsRemoteIpInWhiteList).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteAgentId).stubs().will(invoke(RecvRemoteAgentIdStub));
+    u32 rankSize = 8;
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteRankSize)
+        .stubs()
+        .with(mockcpp::any(), outBound(rankSize))
+        .will(returnValue(true));
+    // 首条连接成功（rank 0），随后耗尽超时 → 剩余 1 条未连接
+    MOCKER_CPP(&Socket::GetStatus).stubs().will(returnValue((SocketStatus)SocketStatus::OK));
+    g_serviceCapturedErrorCode.clear();
+    MOCKER(RptInputErr).stubs().will(invoke(StubServiceRptInputErr));
+
+    u32 expectedSocketNum = 2;
+    auto startTime = std::chrono::steady_clock::now();
+    EXPECT_EQ(
+        rankInfoDetectService_->AcceptGroupConnections(
+            hccpSocketHandle, 60007, startTime, std::chrono::seconds(1), expectedSocketNum),
+        HcclResult::HCCL_E_SUSPENDING);
+    EXPECT_EQ(rankInfoDetectService_->connSockets_.size(), 1U);
+    EXPECT_EQ(rankInfoDetectService_->failedAgentIdList_, "1");
+    EXPECT_EQ(rankInfoDetectService_->totalRankNum_, 8U); // agent 上报的全局 nRanks 存成员，供缺席反推
+}
+
+// M2/FR4：失败列表区间压缩编码（连续段 a-b、单点 a、段间逗号）
+TEST_F(RankInfoDetectServiceTest, Ut_FailedConnectionAgentIdString_When_PartialFail_Expect_CompressedSegments)
+{
+    for (u32 rankId : {0U, 1U, 2U, 3U, 6U}) {
+        rankInfoDetectService_->connSockets_[std::to_string(rankId)] = nullptr;
+    }
+    EXPECT_EQ(rankInfoDetectService_->FailedConnectionAgentIdString(8), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(rankInfoDetectService_->failedAgentIdList_, "4-5,7");
+}
+
+// 26W 卡（65536×4 上限）全失败单段区间（SRS 4.2：消息增量 ≤64 字节的核心收益场景）
+TEST_F(RankInfoDetectServiceTest, Ut_FailedConnectionAgentIdString_When_AllFail_Expect_SingleRangeSegment)
+{
+    EXPECT_EQ(rankInfoDetectService_->FailedConnectionAgentIdString(262144), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(rankInfoDetectService_->failedAgentIdList_, "0-262143");
+}
+
+// scalable 组偏移：仅统计本组区间 [groupFirstRank_, groupFirstRank_+rankSize)，组外 rank 不误报
+TEST_F(RankInfoDetectServiceTest, Ut_FailedConnectionAgentIdString_When_GroupOffset_Expect_GroupScopedList)
+{
+    rankInfoDetectService_->groupFirstRank_ = 8;
+    for (u32 rankId : {9U, 12U, 13U}) {
+        rankInfoDetectService_->connSockets_[std::to_string(rankId)] = nullptr;
+    }
+    EXPECT_EQ(rankInfoDetectService_->FailedConnectionAgentIdString(8), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(rankInfoDetectService_->failedAgentIdList_, "8,10-11,14-15");
+}
+
+// 非法/非本组 agentId 告警跳过、不中断统计：合法连接正常标记，失败列表不被空/截断污染
+TEST_F(RankInfoDetectServiceTest, Ut_FailedConnectionAgentIdString_When_InvalidAgentId_Expect_SkipAndContinue)
+{
+    rankInfoDetectService_->connSockets_["0"] = nullptr;
+    rankInfoDetectService_->connSockets_["2"] = nullptr;
+    // 尾部非数字（SalStrToULong 仅消费数字前缀 "1"）：不得计为已连接，rank1 进失败列表
+    rankInfoDetectService_->connSockets_["1abc"] = nullptr;
+    rankInfoDetectService_->connSockets_["not_a_number"] = nullptr; // 解析失败
+    rankInfoDetectService_->connSockets_["999"] = nullptr;          // 越界（rankSize=8）
+    EXPECT_EQ(rankInfoDetectService_->FailedConnectionAgentIdString(8), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(rankInfoDetectService_->failedAgentIdList_, "1,3-7");
+}
+
+// 失败列表统计异常时保守兜底为整组区间（避免把空/截断列表当成本组无失败广播）
+TEST_F(RankInfoDetectServiceTest, Ut_AcceptGroupConnections_When_FailedListGenFail_Expect_FallbackWholeGroupRange)
+{
+    SetupMockSocketAndTimeoutConfig();
+    // 固定时钟：构造 startTime（0s）→ 首轮未超时（0s）→ 次轮超时（2s ≥ 1s）
+    MOCKER_CPP(&std::chrono::steady_clock::now)
+        .stubs()
+        .will(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0))))
+        .then(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0))))
+        .then(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(2))));
+    MOCKER_CPP(&RankInfoDetectService::IsRemoteIpInWhiteList).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteAgentId).stubs().will(invoke(RecvRemoteAgentIdStub));
+    u32 rankSize = 8;
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteRankSize)
+        .stubs()
+        .with(mockcpp::any(), outBound(rankSize))
+        .will(returnValue(true));
+    MOCKER_CPP(&Socket::GetStatus).stubs().will(returnValue((SocketStatus)SocketStatus::OK));
+    g_serviceCapturedErrorCode.clear();
+    MOCKER(RptInputErr).stubs().will(invoke(StubServiceRptInputErr));
+    // 模拟失败列表统计异常：调用点应兜底为整组区间而非空列表
+    MOCKER_CPP(&RankInfoDetectService::FailedConnectionAgentIdString)
+        .stubs()
+        .will(returnValue(HcclResult::HCCL_E_INTERNAL));
+
+    u32 expectedSocketNum = 2;
+    auto startTime = std::chrono::steady_clock::now();
+    EXPECT_EQ(
+        rankInfoDetectService_->AcceptGroupConnections(
+            hccpSocketHandle, 60007, startTime, std::chrono::seconds(1), expectedSocketNum),
+        HcclResult::HCCL_E_SUSPENDING);
+    EXPECT_EQ(rankInfoDetectService_->connSockets_.size(), 1U);
+    EXPECT_EQ(rankInfoDetectService_->failedAgentIdList_, "0-1"); // 本组 [0,2) 整组区间
+}
+
+// 兜底区间 u32 回绕守卫：firstRank 接近 UINT32_MAX 且 groupSize 较大时 first+groupSize-1 回绕，
+// 追加会被 AppendFailedIdSegment 静默截断为单点——守卫跳过追加保持空列表，由 agent 侧 rankCount
+// 校验兜底（错误防御数据来源，groupFirstRank_ 由 Get 阶段本地推导，正常不越界）
+TEST_F(RankInfoDetectServiceTest, Ut_AcceptGroupConnections_When_FallbackRangeWraps_Expect_SkipAppend)
+{
+    SetupMockSocketAndTimeoutConfig();
+    // 固定时钟：startTime（0s）→ 首轮未超时（0s）→ 次轮超时（2s ≥ 1s）
+    MOCKER_CPP(&std::chrono::steady_clock::now)
+        .stubs()
+        .will(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0))))
+        .then(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0))))
+        .then(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(2))));
+    MOCKER_CPP(&RankInfoDetectService::IsRemoteIpInWhiteList).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteAgentId).stubs().will(invoke(RecvRemoteAgentIdStub));
+    u32 rankSize = 8;
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteRankSize)
+        .stubs()
+        .with(mockcpp::any(), outBound(rankSize))
+        .will(returnValue(true));
+    MOCKER_CPP(&Socket::GetStatus).stubs().will(returnValue((SocketStatus)SocketStatus::OK));
+    g_serviceCapturedErrorCode.clear();
+    MOCKER(RptInputErr).stubs().will(invoke(StubServiceRptInputErr));
+    // 模拟失败列表统计异常触发兜底 + 构造回绕区间（firstRank=UINT32_MAX-1, groupSize=4 → last 回绕）
+    rankInfoDetectService_->groupFirstRank_ = UINT32_MAX - 1;
+    MOCKER_CPP(&RankInfoDetectService::FailedConnectionAgentIdString)
+        .stubs()
+        .will(returnValue(HcclResult::HCCL_E_INTERNAL));
+
+    // groupSize 取自 expectedSocketNum（service.cc groupSize = expectedSocketNum），须传 4 使
+    // firstRank=UINT32_MAX-1 > UINT32_MAX-3 命中守卫跳过；传 2 时守卫条件成立会走正常追加分支
+    u32 expectedSocketNum = 4;
+    auto startTime = std::chrono::steady_clock::now();
+    EXPECT_EQ(
+        rankInfoDetectService_->AcceptGroupConnections(
+            hccpSocketHandle, 60007, startTime, std::chrono::seconds(1), expectedSocketNum),
+        HcclResult::HCCL_E_SUSPENDING);
+    // 回绕区间被守卫跳过：失败列表保持空（不追加被截断的单点），由 agent 侧 rankCount 校验兜底
+    EXPECT_TRUE(rankInfoDetectService_->failedAgentIdList_.empty());
+}
+
+// M3：mesh 回调失败（参数类错误）不阻断广播，SetupScalable 返回广播结果（快速广播，遗言可达性优先）
+TEST_F(RankInfoDetectServiceTest, Ut_SetupScalable_When_MeshMergeCallbackFail_Expect_StillBroadcast)
 {
     SetupMockSocketAndTimeoutConfig();
     // 固定时钟：linkTimeOut 被 mock 为 1s，若用真实时钟，首轮 remaining = 1s - 微秒级耗时
@@ -923,10 +1142,312 @@ TEST_F(RankInfoDetectServiceTest, Ut_SetupScalable_When_MeshMergeCallbackFail_Ex
         .with(outBoundP(msg, msgLen), outBound(revMsgLen), mockcpp::any())
         .will(returnValue(true));
 
-    std::function<HcclResult(RankTableInfo&)> callback = [](RankTableInfo&) -> HcclResult {
+    MOCKER_CPP(&RankInfoDetectService::BroadcastRankTable).expects(once()).will(returnValue(HCCL_SUCCESS));
+    std::function<HcclResult(RankTableInfo&, std::string&, u32, std::chrono::steady_clock::time_point)> callback
+        = [](RankTableInfo&, std::string&, u32, std::chrono::steady_clock::time_point) -> HcclResult {
         return HCCL_E_NETWORK;
     };
-    EXPECT_EQ(rankInfoDetectService_->SetupScalable(1, callback), HcclResult::HCCL_E_NETWORK);
+    EXPECT_EQ(rankInfoDetectService_->SetupScalable(1, callback), HcclResult::HCCL_SUCCESS);
+    // 回调失败后数据自洽（半合并防护）：失败列表不被跨组内容污染（本组 groupSize=1 全连上 → 空）、
+    // rankTable 保持本组表（rankCount=1，未被半合并/未合并子表污染）——未合并组状态未知不臆造进
+    // 失败列表，agent 侧 rankCount 校验兜底报错
+    EXPECT_TRUE(rankInfoDetectService_->failedAgentIdList_.empty());
+    EXPECT_EQ(rankInfoDetectService_->rankTable_.rankCount, 1U);
+    EXPECT_EQ(rankInfoDetectService_->rankTable_.ranks.size(), 1U);
+}
+
+// 广播本身失败仍置错误（M4：广播失败/零连接 → ERROR，服务端状态不收敛 IDLE）
+TEST_F(RankInfoDetectServiceTest, Ut_SetupScalable_When_BroadcastFail_Expect_ErrCodePassthrough)
+{
+    SetupMockSocketAndTimeoutConfig();
+    MOCKER_CPP(&std::chrono::steady_clock::now)
+        .stubs()
+        .will(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0))));
+    MOCKER_CPP(&RankInfoDetectService::IsRemoteIpInWhiteList).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteAgentId).stubs().will(invoke(RecvRemoteAgentIdStub));
+    u32 rankSize = 8;
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteRankSize)
+        .stubs()
+        .with(mockcpp::any(), outBound(rankSize))
+        .will(returnValue(true));
+    MOCKER_CPP(&Socket::GetStatus)
+        .stubs()
+        .then(returnValue((SocketStatus)SocketStatus::CONNECTING))
+        .then(returnValue((SocketStatus)SocketStatus::OK));
+
+    RankTableInfo localRankTable;
+    localRankTable.version = "2.0";
+    localRankTable.rankCount = 1;
+    hccl::NewRankInfo rankInfo{};
+    rankInfo.rankId = 0;
+    rankInfo.rankLevelInfos.emplace_back(RankLevelInfo{});
+    localRankTable.ranks.emplace_back(rankInfo);
+    BinaryStream binaryStream;
+    ASSERT_EQ(localRankTable.GetBinStream(true, binaryStream), HCCL_SUCCESS);
+    binaryStream << rankInfoDetectService_->currentStep_;
+    vector<char> rankInfoMsg;
+    binaryStream.Dump(rankInfoMsg);
+    MOCKER(aclrtMallocHostWithCfg).stubs().will(returnValue(1));
+    MOCKER(HrtMallocHost).stubs().with(mockcpp::any()).will(returnValue((void*)rankInfoMsg.data()));
+    void* msg = rankInfoMsg.data();
+    u64 msgLen = rankInfoMsg.size();
+    u64& revMsgLen = msgLen;
+    MOCKER_CPP(&SocketAgent::RecvMsg)
+        .stubs()
+        .with(outBoundP(msg, msgLen), outBound(revMsgLen), mockcpp::any())
+        .will(returnValue(true));
+
+    MOCKER_CPP(&RankInfoDetectService::BroadcastRankTable).expects(once()).will(returnValue(HCCL_E_PARA));
+    std::function<HcclResult(RankTableInfo&, std::string&, u32, std::chrono::steady_clock::time_point)> callback
+        = [](RankTableInfo&, std::string&, u32, std::chrono::steady_clock::time_point) -> HcclResult {
+        return HCCL_E_NETWORK;
+    }; // mesh 回调失败也不阻断
+    EXPECT_EQ(rankInfoDetectService_->SetupScalable(1, callback), HcclResult::HCCL_E_PARA);
+}
+
+// 部分失败（GetConnectionsScalable 返回 SUSPENDING）不于第 1 步中止：收集存活子集（GetRankTable
+// 仅遍历已连接 agent），继续执行 mesh 回调与广播（遗言可达性优先），广播完成后向上透传 SUSPENDING
+// （worker 线程据此把 server 标记 ERROR，仍在 WaitComplete 轮询的 agent 快速失败）
+TEST_F(RankInfoDetectServiceTest, Ut_SetupScalable_When_PartialConnectFail_Expect_BroadcastThenSuspending)
+{
+    SetupMockSocketAndTimeoutConfig();
+    MOCKER_CPP(&RankInfoDetectService::GetConnectionsScalable).stubs().will(returnValue(HcclResult::HCCL_E_SUSPENDING));
+    // 部分失败语义：塞一个存活连接（zeroConnected 判定依据 connSockets_ 非空，空表会走跳过广播分支）
+    {
+        std::lock_guard<std::mutex> lock(rankInfoDetectService_->connMtx_);
+        rankInfoDetectService_->connSockets_["0"] = nullptr;
+    }
+    // 部分失败仍需收集存活子集：跳过收集会因空表 GetBinStream 报 E_PARA 使广播发不出去
+    MOCKER_CPP(&RankInfoDetectService::GetRankTable).expects(once()).will(returnValue(HCCL_SUCCESS));
+    bool meshCallbackInvoked = false;
+    std::function<HcclResult(RankTableInfo&, std::string&, u32, std::chrono::steady_clock::time_point)> callback =
+        [&meshCallbackInvoked](RankTableInfo&, std::string&, u32, std::chrono::steady_clock::time_point) -> HcclResult {
+        meshCallbackInvoked = true;
+        return HCCL_SUCCESS;
+    };
+    MOCKER_CPP(&RankInfoDetectService::BroadcastRankTable).expects(once()).will(returnValue(HCCL_SUCCESS));
+
+    EXPECT_EQ(rankInfoDetectService_->SetupScalable(4, callback), HcclResult::HCCL_E_SUSPENDING);
+    EXPECT_TRUE(meshCallbackInvoked);
+}
+
+// 零连接（本组全失联）编排：SUSPENDING 放行——mesh 回调仍执行（空表手工空帧 + 整组失败列表
+// 跨组传播，由其他 root 广播给其存活 agent），跳过本组广播（无接收方、空表 GetBinStream 必败），
+// 收集为空操作，最终透传 SUSPENDING
+TEST_F(RankInfoDetectServiceTest, Ut_SetupScalable_When_ZeroConnected_Expect_MeshOnlyThenSuspending)
+{
+    SetupMockSocketAndTimeoutConfig();
+    // SetupScalable 入口会 clear 失败列表（防跨轮残留），生产路径由 AcceptGroupConnections 在
+    // clear 之后生成——mock 需带副作用回填，模拟该时序。
+    // invoke 只接受函数指针（mockcpp ProcStub 模板约束），lambda 前缀 + 强制无捕获 lambda 转换
+    MOCKER_CPP(&RankInfoDetectService::GetConnectionsScalable)
+        .stubs()
+        .will(invoke(
+            +[](RankInfoDetectService* self, u32,
+                std::chrono::steady_clock::time_point& acceptStartTime) -> HcclResult {
+                self->failedAgentIdList_ = "0-3";
+                acceptStartTime = std::chrono::steady_clock::now(); // 桩值不影响断言（mesh 已打桩）
+                return HCCL_E_SUSPENDING;
+            }));
+    // 零连接：收集为空操作（无已连接 agent 可遍历）
+    MOCKER_CPP(&RankInfoDetectService::GetRankTable).expects(once()).will(returnValue(HCCL_SUCCESS));
+    bool meshCallbackInvoked = false;
+    std::function<HcclResult(RankTableInfo&, std::string&, u32, std::chrono::steady_clock::time_point)> callback
+        = [&meshCallbackInvoked](
+              RankTableInfo& rankTable, std::string& failedList, u32,
+              std::chrono::steady_clock::time_point) -> HcclResult {
+        meshCallbackInvoked = true;
+        // mesh 回调拿到整组失败列表（空表由 RootMeshAllGather 手工空帧承载，非 service 职责）
+        EXPECT_EQ(failedList, "0-3");
+        EXPECT_TRUE(rankTable.ranks.empty());
+        return HCCL_SUCCESS;
+    };
+    // 零连接跳过本组广播（无接收方）
+    MOCKER_CPP(&RankInfoDetectService::BroadcastRankTable).expects(never());
+
+    // 零连接状态（失败列表由上述 mock 副作用在 clear 之后生成）
+    {
+        std::lock_guard<std::mutex> lock(rankInfoDetectService_->connMtx_);
+        rankInfoDetectService_->connSockets_.clear();
+    }
+
+    EXPECT_EQ(rankInfoDetectService_->SetupScalable(4, callback), HcclResult::HCCL_E_SUSPENDING);
+    EXPECT_TRUE(meshCallbackInvoked);
+}
+
+// SUSPENDING 遗言路径真实收集回归（检视缺陷：跳过收集后空表广播）：走真实 GetConnectionsScalable
+// （4 连接中 1 个成功后 socket 异常 → 部分失败）+ 真实 GetRankTable（仅广播打桩——dispatcher 内部
+// epoll/线程不在 UT 环境承载范围），断言收集后 rankTable_ 为存活子集且可序列化——
+// 空表会使 mesh 交换与广播的 GetBinStream 报 E_PARA，遗言广播整体发不出去
+TEST_F(RankInfoDetectServiceTest, Ut_SetupScalable_When_PartialFail_Expect_SurvivorTableSerializable)
+{
+    SetupMockSocketAndTimeoutConfig();
+    // 固定时钟：避免 1s 预算被 duration_cast 截断为 0 误判“超时耗尽”
+    MOCKER_CPP(&std::chrono::steady_clock::now)
+        .stubs()
+        .will(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0))));
+    MOCKER_CPP(&RankInfoDetectService::IsRemoteIpInWhiteList).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteAgentId).stubs().will(invoke(RecvRemoteAgentIdStub));
+    u32 rankSize = 8;
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteRankSize)
+        .stubs()
+        .with(mockcpp::any(), outBound(rankSize))
+        .will(returnValue(true));
+    // 4 连接中首个成功（rank 0），随后 socket 异常退出循环 → 剩余 3 个未连接 → 部分失败
+    MOCKER_CPP(&Socket::GetStatus)
+        .stubs()
+        .then(returnValue((SocketStatus)SocketStatus::OK))
+        .then(returnValue((SocketStatus)SocketStatus::INVALID));
+
+    // 存活 agent 的子表消息（握手后已发出，GetRankTable 从已连接 socket 读取）
+    RankTableInfo localRankTable;
+    localRankTable.version = "2.0";
+    localRankTable.rankCount = 1;
+    hccl::NewRankInfo rankInfo{};
+    rankInfo.rankId = 0;
+    rankInfo.rankLevelInfos.emplace_back(RankLevelInfo{});
+    localRankTable.ranks.emplace_back(rankInfo);
+    BinaryStream binaryStream;
+    ASSERT_EQ(localRankTable.GetBinStream(true, binaryStream), HCCL_SUCCESS);
+    binaryStream << rankInfoDetectService_->currentStep_;
+    vector<char> rankInfoMsg;
+    binaryStream.Dump(rankInfoMsg);
+    MOCKER(aclrtMallocHostWithCfg).stubs().will(returnValue(1));
+    MOCKER(HrtMallocHost).stubs().with(mockcpp::any()).will(returnValue((void*)rankInfoMsg.data()));
+    void* msg = rankInfoMsg.data();
+    u64 msgLen = rankInfoMsg.size();
+    u64& revMsgLen = msgLen;
+    MOCKER_CPP(&SocketAgent::RecvMsg)
+        .stubs()
+        .with(outBoundP(msg, msgLen), outBound(revMsgLen), mockcpp::any())
+        .will(returnValue(true));
+
+    MOCKER_CPP(&RankInfoDetectService::BroadcastRankTable).expects(once()).will(returnValue(HCCL_SUCCESS));
+
+    EXPECT_EQ(rankInfoDetectService_->SetupScalable(4, nullptr), HcclResult::HCCL_E_SUSPENDING);
+    // 存活子集非空且可序列化（GetBinStream 对空表返回 E_PARA——检视指出的精确失败点）
+    EXPECT_EQ(rankInfoDetectService_->rankTable_.rankCount, 1U);
+    BinaryStream outStream;
+    EXPECT_EQ(rankInfoDetectService_->rankTable_.GetBinStream(true, outStream), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(rankInfoDetectService_->failedAgentIdList_, "1-3"); // 缺席 rank 区间压缩
+}
+
+// 失败列表跨轮清理（scalable 路径）——第 1 轮部分失败的列表不残留到第 2 轮成功广播
+TEST_F(RankInfoDetectServiceTest, Ut_SetupScalable_When_SecondRoundAllSuccess_Expect_NoResidualFailedList)
+{
+    SetupMockSocketAndTimeoutConfig();
+    MOCKER_CPP(&RankInfoDetectService::IsRemoteIpInWhiteList).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteAgentId).stubs().will(invoke(RecvRemoteAgentIdStub));
+    u32 rankSize = 8;
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteRankSize)
+        .stubs()
+        .with(mockcpp::any(), outBound(rankSize))
+        .will(returnValue(true));
+    // 跨轮清理关注点在失败列表，表收集与广播打桩简化
+    MOCKER_CPP(&RankInfoDetectService::GetRankTable).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankInfoDetectService::BroadcastRankTable).stubs().will(returnValue(HCCL_SUCCESS));
+    // 固定时钟：usedTime 恒为 0，避免 1s 预算被 duration_cast 截断为 0 误判“超时耗尽”（两轮共用恒定值）
+    MOCKER_CPP(&std::chrono::steady_clock::now)
+        .stubs()
+        .will(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0))));
+
+    // 第 1 轮：4 连接中 1 个成功后 socket 异常退出循环 → 部分失败（SUSPENDING）：跳过组内收集、
+    // 广播遗言后透传 SUSPENDING
+    MOCKER_CPP(&Socket::GetStatus)
+        .stubs()
+        .then(returnValue((SocketStatus)SocketStatus::OK))
+        .then(returnValue((SocketStatus)SocketStatus::INVALID))
+        // 第 2 轮：4 次连接全部成功
+        .then(returnValue((SocketStatus)SocketStatus::OK))
+        .then(returnValue((SocketStatus)SocketStatus::OK))
+        .then(returnValue((SocketStatus)SocketStatus::OK))
+        .then(returnValue((SocketStatus)SocketStatus::OK));
+
+    EXPECT_EQ(rankInfoDetectService_->SetupScalable(4, nullptr), HcclResult::HCCL_E_SUSPENDING);
+    EXPECT_EQ(rankInfoDetectService_->connSockets_.size(), 1U);
+    EXPECT_EQ(rankInfoDetectService_->failedAgentIdList_, "1-3");
+
+    // 第 2 轮复位连接（生产中每轮 worker 新建 service，此处模拟新一轮）
+    g_recvAgentIdNextRank = 0;
+    {
+        std::lock_guard<std::mutex> lock(rankInfoDetectService_->connMtx_);
+        rankInfoDetectService_->connSockets_.clear();
+    }
+    EXPECT_EQ(rankInfoDetectService_->SetupScalable(4, nullptr), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(rankInfoDetectService_->connSockets_.size(), 4U);
+    EXPECT_TRUE(rankInfoDetectService_->failedAgentIdList_.empty()); // 无第 1 轮残留
+}
+
+// 失败列表跨轮清理（单 root Setup 路径，FR1.1/FR7 回归防残留）
+TEST_F(RankInfoDetectServiceTest, Ut_Setup_When_SecondRoundAllSuccess_Expect_NoResidualFailedList)
+{
+    SetupMockSocketAndTimeoutConfig();
+    MOCKER_CPP(&RankInfoDetectService::IsRemoteIpInWhiteList).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteAgentId).stubs().will(invoke(RecvRemoteAgentIdStub));
+    u32 rankSize = 8;
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteRankSize)
+        .stubs()
+        .with(mockcpp::any(), outBound(rankSize))
+        .will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetectService::GetRankTable).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankInfoDetectService::BroadcastRankTable).stubs().will(returnValue(HCCL_SUCCESS));
+    // 固定时钟：usedTime 恒为 0，两轮均不触发超时（断点由 GetStatus 序列控制）
+    MOCKER_CPP(&std::chrono::steady_clock::now)
+        .stubs()
+        .will(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0))));
+
+    // 第 1 轮：首连接成功（expectedSocketNum 被上报 rankSize=8 重写），随后 socket 异常退出 → 部分失败 "1-7"
+    MOCKER_CPP(&Socket::GetStatus)
+        .stubs()
+        .then(returnValue((SocketStatus)SocketStatus::OK))
+        .then(returnValue((SocketStatus)SocketStatus::INVALID))
+        // 第 2 轮：8 次连接全部成功
+        .then(returnValue((SocketStatus)SocketStatus::OK))
+        .then(returnValue((SocketStatus)SocketStatus::OK))
+        .then(returnValue((SocketStatus)SocketStatus::OK))
+        .then(returnValue((SocketStatus)SocketStatus::OK))
+        .then(returnValue((SocketStatus)SocketStatus::OK))
+        .then(returnValue((SocketStatus)SocketStatus::OK))
+        .then(returnValue((SocketStatus)SocketStatus::OK))
+        .then(returnValue((SocketStatus)SocketStatus::OK));
+
+    EXPECT_EQ(rankInfoDetectService_->Setup(), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(rankInfoDetectService_->connSockets_.size(), 1U);
+    EXPECT_EQ(rankInfoDetectService_->failedAgentIdList_, "1-7");
+
+    // 第 2 轮复位连接，全部成功 → 广播列表为空，无第 1 轮残留
+    g_recvAgentIdNextRank = 0;
+    {
+        std::lock_guard<std::mutex> lock(rankInfoDetectService_->connMtx_);
+        rankInfoDetectService_->connSockets_.clear();
+    }
+    EXPECT_EQ(rankInfoDetectService_->Setup(), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(rankInfoDetectService_->connSockets_.size(), 8U);
+    EXPECT_TRUE(rankInfoDetectService_->failedAgentIdList_.empty());
+}
+
+// 26W 卡 1% 稀疏失败（每第 100 个 rank 失败，2622 个单点）——压缩串长度量级与消息上限约束
+TEST_F(RankInfoDetectServiceTest, Ut_FailedConnectionAgentIdString_When_SparseFail_Expect_BoundedLength)
+{
+    const u32 rankSize = 262144;
+    std::string expected;
+    for (u32 rankId = 0; rankId < rankSize; rankId += 100) {
+        if (!expected.empty()) {
+            expected += ',';
+        }
+        expected += std::to_string(rankId);
+    }
+    for (u32 rankId = 0; rankId < rankSize; rankId++) {
+        if (rankId % 100 == 0) {
+            continue; // 该 rank 建链失败（未连接）
+        }
+        rankInfoDetectService_->connSockets_[std::to_string(rankId)] = nullptr;
+    }
+    EXPECT_EQ(rankInfoDetectService_->FailedConnectionAgentIdString(rankSize), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(rankInfoDetectService_->failedAgentIdList_, expected);
+    EXPECT_GT(rankInfoDetectService_->failedAgentIdList_.size(), size_t(10240)); // 稀疏失败退化为单点序列（~20KB 量级）
+    // 生效上界是 mesh 失败列表上限（localFailedList_ 经 mesh 回调发送时由 SendMeshPartial 校验），而非子表缓冲上界
+    EXPECT_LT(rankInfoDetectService_->failedAgentIdList_.size(), static_cast<size_t>(MAX_MESH_FAILED_LIST_LEN));
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1057,4 +1578,44 @@ TEST_F(RankInfoDetectServiceTest, Ut_GrowStateMachine_When_TwoRounds_ExpectSocke
         EXPECT_EQ(RankInfoDetectService::GrowState::IDLE, rankInfoDetectService_->GetGrowState());
         EXPECT_EQ(rankInfoDetectService_->serverSocket_.get(), serverSocket.get());
     }
+}
+
+// 失败列表跨轮清理（grow 路径）：SetupGrowLoop 每轮起始 clear，
+// Init/上一轮残留的失败列表不随本轮 grow 广播下发（FR1.1/FR7 回归防残留）
+TEST_F(RankInfoDetectServiceTest, Ut_GrowLoop_When_RoundStart_Expect_FailedListCleared)
+{
+    SetupMockSocketAndTimeoutConfig();
+    MOCKER_CPP(&RankInfoDetectService::IsRemoteIpInWhiteList).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteAgentId).stubs().will(invoke(RecvRemoteAgentIdStub));
+    u32 rankSize = 2;
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteRankSize)
+        .stubs()
+        .with(mockcpp::any(), outBound(rankSize))
+        .will(returnValue(true));
+    // 固定时钟：避免 1s 预算被 duration_cast 截断为 0 误判"超时耗尽"
+    MOCKER_CPP(&std::chrono::steady_clock::now)
+        .stubs()
+        .will(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0))));
+    // 本用例只关注失败列表跨轮清理，表收集与广播打桩简化
+    MOCKER_CPP(&RankInfoDetectService::GetRankTableForGrow).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankInfoDetectService::BroadcastRankTableForGrow).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&Socket::GetStatus).stubs().will(returnValue((SocketStatus)SocketStatus::OK));
+    MOCKER_CPP(&Socket::Close).stubs();
+
+    EXPECT_EQ(HCCL_SUCCESS, rankInfoDetectService_->MarkGrowLoopReady());
+    // 模拟 Init/上一轮残留的失败列表
+    rankInfoDetectService_->failedAgentIdList_ = "3,5";
+
+    std::thread growThread([&]() {
+        rankInfoDetectService_->SetupGrowLoop();
+    });
+    EXPECT_EQ(HCCL_SUCCESS, rankInfoDetectService_->TriggerGrowCollect(1));
+    RankTableInfo rankTable;
+    EXPECT_EQ(HCCL_SUCCESS, rankInfoDetectService_->WaitForCollectComplete(rankTable));
+    EXPECT_EQ(RankInfoDetectService::GrowState::IDLE, rankInfoDetectService_->GetGrowState());
+
+    EXPECT_EQ(HCCL_SUCCESS, rankInfoDetectService_->Shutdown());
+    growThread.join();
+    // 本轮 grow 连接全部成功：残留列表在轮起始被 clear，未随广播下发
+    EXPECT_TRUE(rankInfoDetectService_->failedAgentIdList_.empty());
 }

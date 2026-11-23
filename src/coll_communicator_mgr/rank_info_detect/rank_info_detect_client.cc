@@ -34,6 +34,7 @@
 #include "not_support_exception.h"
 #include "phy_topo_builder.h"
 #include "preempt_port_manager_v2.h"
+#include "sal.h"
 #include "json/json_api.h"
 
 namespace Hccl {
@@ -45,6 +46,68 @@ namespace {
     // 后缀拼接本机host ip：同一服务器内rank共享同一level0实例（PCIe fullmesh），跨服务器实例隔离，
     // 与原始level0按server划分（server mac）的语义一致，跨机流量走上层网络（RoCE等）
     constexpr const char* PCIE_FALLBACK_NET_INST_ID = "l0_pcie_fallback";
+
+    // agent 侧遗言日志的失败列表打印前缀长度上限
+    bool ParseFailedId(const std::string& str, u32& value)
+    {
+        if (str.empty() || str.find_first_not_of("0123456789") != std::string::npos) {
+            return false;
+        }
+        return SalStrToULong(str, HCCL_BASE_DECIMAL, value) == HCCL_SUCCESS;
+    }
+
+    // 解析区间压缩失败列表（"a-b,c" 格式）
+    bool ParseFailedIdListCount(const std::string& failedList, u64& failedCount)
+    {
+        failedCount = 0;
+        if (failedList.empty()) {
+            return false;
+        }
+        size_t pos = 0;
+        while (pos < failedList.size()) {
+            size_t segEnd = failedList.find(',', pos);
+            if (segEnd == std::string::npos) {
+                segEnd = failedList.size();
+            }
+            const std::string segment = failedList.substr(pos, segEnd - pos);
+            const size_t dashPos = segment.find('-');
+            if (dashPos == std::string::npos) {
+                u32 rankId = 0;
+                if (!ParseFailedId(segment, rankId)) {
+                    return false;
+                }
+                failedCount += 1;
+            } else {
+                u32 first = 0;
+                u32 last = 0;
+                if (!ParseFailedId(segment.substr(0, dashPos), first)
+                    || !ParseFailedId(segment.substr(dashPos + 1), last) || last < first) {
+                    return false;
+                }
+                failedCount += static_cast<u64>(last - first) + 1;
+            }
+            pos = segEnd + 1;
+        }
+        return true;
+    }
+
+    // 打印临终遗言：格式化（截断 + 计数）
+    void PrintFailedAgentIdList(const std::string& failedAgentIdList)
+    {
+        u64 failedCount = 0;
+        bool parseOk = false;
+        const std::string printList = FormatFailedAgentIdList(failedAgentIdList, failedCount, parseOk);
+        if (parseOk) {
+            HCCL_ERROR(
+                "[%s][%s] Failed to connect agent, failedRankIdList[%s], failedCount[%llu]",
+                LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_DETECT.c_str(), printList.c_str(),
+                static_cast<unsigned long long>(failedCount));
+            return;
+        }
+        HCCL_ERROR(
+            "[%s][%s] Failed to connect agent, failedRankIdList[%s]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_DETECT.c_str(), printList.c_str());
+    }
 
     // 无UB场景兜底：探测不到UB时rootinfo中rank无level0，插入一个带本卡vnic地址的兜底level0，
     // 保证rankGraph按level0建图不抛异常；链路由RankGraphBuilder按PCIE兜底合成。
@@ -124,6 +187,25 @@ namespace {
         return topoFilePath;
     }
 } // namespace
+
+// 遗言日志格式化：超长列表截断为 MAX_FAILED_LIST_PRINT_LEN 前缀 + "..."
+std::string FormatFailedAgentIdList(const std::string& failedAgentIdList, u64& failedCount, bool& parseOk)
+{
+    std::string printList = failedAgentIdList;
+    if (printList.size() > MAX_FAILED_LIST_PRINT_LEN) {
+        printList = printList.substr(0, MAX_FAILED_LIST_PRINT_LEN) + "...";
+    }
+    parseOk = ParseFailedIdListCount(failedAgentIdList, failedCount);
+    return printList;
+}
+
+// 失败 agent 上报等待窗口：min(max(linkTimeOutSec, 0) + SOCKET_LINK_EXTRA_TIMEOUT, MAX_ERROR_BROADCAST_WAIT_SEC)。
+u32 GetErrorBroadcastWaitSeconds(s32 linkTimeOutSec)
+{
+    const u32 baseSec = (linkTimeOutSec > 0) ? static_cast<u32>(linkTimeOutSec) : 0U;
+    const u32 waitSec = baseSec + SOCKET_LINK_EXTRA_TIMEOUT;
+    return (waitSec > MAX_ERROR_BROADCAST_WAIT_SEC) ? MAX_ERROR_BROADCAST_WAIT_SEC : waitSec;
+}
 
 HcclResult RankInfoDetectClient::Setup(RankTableInfo& rankTable)
 {
@@ -222,8 +304,12 @@ HcclResult RankInfoDetectClient::CheckStatus()
                 "[%s][%s] errNo[0x%016llx] topo exchange agent get socket timeout, timeout[%lld s], rankId[%u]",
                 LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_DETECT.c_str(),
                 HCOM_ERROR_CODE(HcclResult::HCCL_E_TIMEOUT), static_cast<long long>(timeout.count()), rankId_);
-            // 建链超时后，sleep 20s，避免上层应用提前退出，确保其他正常 client 能够收到 server 发出的临终遗言
+            // 建链超时后 sleep，避免上层应用提前退出，确保其他正常 client 能够收到 server 发出的临终遗言。
+#ifdef OPEN_HCCL_TEST
             sleep(WAIT_ERROR_BROADCAST_TIME);
+#else
+            sleep(GetErrorBroadcastWaitSeconds(EnvConfig::GetInstance().GetSocketConfig().GetLinkTimeOut()));
+#endif
             return HCCL_E_TIMEOUT;
         }
 
@@ -465,10 +551,8 @@ HcclResult RankInfoDetectClient::ParseRankTable(vector<char>& rankInfoMsg)
     std::string failedAgentIdList;
     binStream >> failedAgentIdList;
     if (failedAgentIdList.size() > 0) {
-        // 建链失败时，打印 root 节点发来的临终遗言
-        HCCL_ERROR(
-            "[%s][%s] Failed to connect agent, failedRankIdList[%s]", LOG_KEYWORDS_INIT_GROUP.c_str(),
-            LOG_KEYWORDS_RANKTABLE_DETECT.c_str(), failedAgentIdList.c_str());
+        // 建链失败时，打印 root 节点发来的临终遗言（区间压缩编码 + 截断保护 + 失败总数）
+        PrintFailedAgentIdList(failedAgentIdList);
     }
     const HcclResult checkRet = remoteNetLayerCheck_.Deserialize(binStream);
     CHK_PRT_RET(

@@ -1099,6 +1099,69 @@ TEST_F(RankInfoDetectClientTest, Ut_ParseRankTable_When_FailedAgentIdListNotEmpt
     EXPECT_NE(g_clientCapturedErrorCode, "EI0015");
 }
 
+// M6：区间压缩编码与异常数据均走打印容错（截断 + 解析失败兜底），不影响后续校验路径
+TEST_F(RankInfoDetectClientTest, Ut_ParseRankTable_When_CompressedOrMalformedList_Expect_NoThrow)
+{
+    g_clientCapturedErrorCode.clear();
+    MOCKER(RptInputErr).stubs().will(invoke(StubClientRptInputErr));
+
+    vector<char> compressedMsg = BuildMockRankInfoMsg("0-3,100-101,200");
+    EXPECT_NO_THROW(rankInfoDetectClient_->ParseRankTable(compressedMsg));
+
+    vector<char> truncatedMsg = BuildMockRankInfoMsg(std::string(512, '7') + ",8-9");
+    EXPECT_NO_THROW(rankInfoDetectClient_->ParseRankTable(truncatedMsg)); // 超长列表截断为 256 前缀
+
+    vector<char> malformedMsg = BuildMockRankInfoMsg("0-,x,y--2,");
+    EXPECT_NO_THROW(rankInfoDetectClient_->ParseRankTable(malformedMsg)); // 解析失败打印原始串前缀
+    // 遗言打印走 HCCL_ERROR 日志路径，不经 RptInputErr 错误码上报（打桩为行为观测，非死桩）
+    EXPECT_TRUE(g_clientCapturedErrorCode.empty());
+}
+
+// 遗言打印核心逻辑可测化：截断 + 失败总数计数 + 畸形列表判别（行为由 FormatFailedAgentIdList 承载）
+TEST_F(RankInfoDetectClientTest, Ut_FormatFailedAgentIdList_When_CompressedOrMalformed_Expect_TruncateAndCount)
+{
+    u64 failedCount = 0;
+    bool parseOk = false;
+    // 压缩列表原样输出；总数 = 区间求和（0-3→4 + 100-101→2 + 200→1 = 7）
+    EXPECT_EQ(FormatFailedAgentIdList("0-3,100-101,200", failedCount, parseOk), "0-3,100-101,200");
+    EXPECT_TRUE(parseOk);
+    EXPECT_EQ(failedCount, 7U);
+
+    // 合法但超长（257 段、513 字符 > 256）：输出截断为 256 前缀 + "..."，计数不截断
+    std::string longList;
+    for (u32 i = 0; i < MAX_FAILED_LIST_PRINT_LEN; ++i) {
+        longList += "7,";
+    }
+    longList += "7";
+    const std::string printed = FormatFailedAgentIdList(longList, failedCount, parseOk);
+    EXPECT_TRUE(parseOk);
+    EXPECT_EQ(failedCount, static_cast<u64>(MAX_FAILED_LIST_PRINT_LEN) + 1U);
+    EXPECT_EQ(printed.size(), static_cast<size_t>(MAX_FAILED_LIST_PRINT_LEN) + 3U);
+    EXPECT_EQ(printed.substr(0, MAX_FAILED_LIST_PRINT_LEN), longList.substr(0, MAX_FAILED_LIST_PRINT_LEN));
+    EXPECT_EQ(printed.substr(MAX_FAILED_LIST_PRINT_LEN), "...");
+
+    // 畸形列表（空段/非数字/倒序区间）：parseOk=false 计数无效，短串原样输出
+    EXPECT_EQ(FormatFailedAgentIdList("0-,x,y--2,", failedCount, parseOk), "0-,x,y--2,");
+    EXPECT_FALSE(parseOk);
+
+    // 超大数字段（512 个 '7' 单段越界）：整体判解析失败，输出仍按前缀截断
+    const std::string oversized = std::string(512, '7') + ",8-9";
+    EXPECT_EQ(
+        FormatFailedAgentIdList(oversized, failedCount, parseOk),
+        oversized.substr(0, MAX_FAILED_LIST_PRINT_LEN) + "...");
+    EXPECT_FALSE(parseOk);
+}
+
+// 失败 agent 上报窗口计算：设计余量（+SOCKET_LINK_EXTRA_TIMEOUT）+ clamp 上限 + 负哨兵/0 防御分支
+TEST_F(RankInfoDetectClientTest, Ut_GetErrorBroadcastWaitSeconds_When_VariousLinkTimeout_Expect_ClampedWindow)
+{
+    EXPECT_EQ(GetErrorBroadcastWaitSeconds(60), 100U);                      // 正常配置：60 + 40
+    EXPECT_EQ(GetErrorBroadcastWaitSeconds(120), 160U);                     // 默认配置：120 + 40
+    EXPECT_EQ(GetErrorBroadcastWaitSeconds(0), SOCKET_LINK_EXTRA_TIMEOUT);  // 0 防御：纯余量
+    EXPECT_EQ(GetErrorBroadcastWaitSeconds(-1), SOCKET_LINK_EXTRA_TIMEOUT); // 负哨兵：无 s32→u32 相加回绕
+    EXPECT_EQ(GetErrorBroadcastWaitSeconds(7200), MAX_ERROR_BROADCAST_WAIT_SEC); // 合法域上限：clamp 300
+}
+
 TEST_F(RankInfoDetectClientTest, Ut_RecvRankTable_When_Normal_Expect_Success)
 {
     vector<char> rankInfoMsg = BuildMockRankInfoMsg("");

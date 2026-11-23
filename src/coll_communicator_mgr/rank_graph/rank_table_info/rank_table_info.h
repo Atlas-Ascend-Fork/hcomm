@@ -40,6 +40,9 @@ public:
     void SetSource(RankTableSource source) { source_ = source; }
     std::vector<char> GetUniqueId(bool isContainLocId) const; // 获取rankTable的字节流，供一致性校验crc时带localId使用
     HcclResult GetBinStream(bool isContainLocId, BinaryStream& binaryStream) const;
+    // allowEmpty：空表不再报 E_PARA，按同一编码布局输出全零计数帧
+    HcclResult GetBinStream(bool isContainLocId, BinaryStream& binaryStream, bool allowEmpty) const;
+    HcclResult SerializeAllowEmpty(BinaryStream& binaryStream) const;
     HcclResult Check();
     // 生成追加逻辑ID后的实例ID；空逻辑ID保持原值，超长时返回错误且不修改输出。
     static HcclResult BuildLogicSuperPodNetInstId(

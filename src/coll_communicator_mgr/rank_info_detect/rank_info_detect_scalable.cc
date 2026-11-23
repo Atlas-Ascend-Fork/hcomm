@@ -24,6 +24,7 @@
 #include "log.h"
 #include "orion_adapter_rts.h"
 #include "preempt_port_manager_v2.h"
+#include "root_group_strategy.h"
 #include "sal.h"
 #include "securec.h"
 #include "socket_agent.h"
@@ -459,16 +460,18 @@ void RankInfoDetectScalable::ScalableServerWorker(ErrContextPub errorContext)
     EXCEPTION_CATCH(
         (runRet = service->SetupScalable(
              groupSize,
-             [this](RankTableInfo& rankTable) {
-                 HcclResult gatherRet = RootMeshAllGather(rankTable);
-                 CHK_PRT_RET(
-                     gatherRet != HCCL_SUCCESS,
-                     HCCL_ERROR("[RankInfoDetectScalable] mesh allgather failed, ret[%d]", static_cast<int>(gatherRet)),
-                     gatherRet);
-                 if (scalableInfo_.nRoot <= 1) {
-                     return HCCL_SUCCESS; // 单 root 本地表即全局表
+             [this](
+                 RankTableInfo& rankTable, std::string& failedList, u32 totalRankNum,
+                 std::chrono::steady_clock::time_point acceptStartTime) {
+                 HcclResult gatherRet = RootMeshAllGather(rankTable, failedList, totalRankNum, acceptStartTime);
+                 if (gatherRet != HCCL_SUCCESS) {
+                     HCCL_ERROR("[RankInfoDetectScalable] mesh allgather failed, ret[%d]", static_cast<int>(gatherRet));
+                     return gatherRet;
                  }
-                 return MergeMeshPartials(scalableInfo_.nRoot, rankTable);
+                 if (scalableInfo_.nRoot <= 1) {
+                     return HCCL_SUCCESS; // 单 root 本地表即全局表，失败列表保持本组列表
+                 }
+                 return MergeMeshPartials(scalableInfo_.nRoot, rankTable, failedList);
              })),
         runRet = HCCL_E_INTERNAL);
 
@@ -516,6 +519,10 @@ void RankInfoDetectScalable::ReleaseMeshResources()
         TRY_CATCH_PRINT_ERROR(HostSocketHandleManager::GetInstance().Destroy(devPhyId_, meshHostIp););
     }
     partials_.clear();
+    peerFailedLists_.clear();
+    peerMeshStates_.clear();
+    localFailedList_.clear();
+    totalRankNum_ = 0;
 }
 
 // SetupScalableRoot 失败路径回滚：调用线程为 Get 阶段主线程，不做 HrtResetDevice。
@@ -667,6 +674,15 @@ namespace {
         return std::max<u32>(static_cast<u32>(timeoutSec - elapsedSec), 1);
     }
 
+    // 剩余预算按剩余对端数切片：缺席/慢对端只消耗自己的份额。
+    u32 SliceMeshWaitSeconds(u32 remainTimeSec, u32 remainPeers)
+    {
+        if (remainPeers <= 1) {
+            return remainTimeSec;
+        }
+        return std::max(remainTimeSec / remainPeers, 1U);
+    }
+
     // connect socket 作用域守卫：正常/异常路径统一 Close 并归还句柄引用（Create/Destroy 按次配对）。
     class MeshConnectSocketGuard {
     public:
@@ -692,10 +708,31 @@ namespace {
         std::shared_ptr<Socket> socket_{nullptr};
         u32 devPhyId_{0};
     };
+
+    // accept socket 作用域守卫：正常/异常路径统一 Close（与 listener 共享 socketHandle，无句柄引用需归还）。
+    class MeshAcceptSocketGuard {
+    public:
+        explicit MeshAcceptSocketGuard(std::shared_ptr<Socket> socket) : socket_(std::move(socket)) {}
+        ~MeshAcceptSocketGuard()
+        {
+            if (socket_ != nullptr) {
+                TRY_CATCH_PRINT_ERROR(socket_->Close(););
+            }
+        }
+        MeshAcceptSocketGuard(const MeshAcceptSocketGuard&) = delete;
+        MeshAcceptSocketGuard& operator=(const MeshAcceptSocketGuard&) = delete;
+        MeshAcceptSocketGuard(MeshAcceptSocketGuard&&) = delete;
+        MeshAcceptSocketGuard& operator=(MeshAcceptSocketGuard&&) = delete;
+
+    private:
+        std::shared_ptr<Socket> socket_{nullptr};
+    };
 } // namespace
 
-// root 间 mesh 全交换：每对 root 只交换各自组内子表，收齐 nRoot-1 份对端子表后由调用方合并
-HcclResult RankInfoDetectScalable::RootMeshAllGather(const RankTableInfo& localRankTable)
+// root 间 mesh 全交换：每对 root 交换各自组内子表与本组失败列表，收齐后由调用方合并。
+HcclResult RankInfoDetectScalable::RootMeshAllGather(
+    const RankTableInfo& localRankTable, const std::string& localFailedList, u32 totalRankNum,
+    std::chrono::steady_clock::time_point acceptStartTime)
 {
     HCCL_INFO(
         "[RankInfoDetectScalable::%s] start, nRoot[%u], rootIndex[%u].", __func__, scalableInfo_.nRoot,
@@ -718,14 +755,24 @@ HcclResult RankInfoDetectScalable::RootMeshAllGather(const RankTableInfo& localR
             HCCL_ERROR("[%s] invalid mesh info", __func__), HCCL_E_PARA);
     }
     BinaryStream stream;
-    CHK_RET(localRankTable.GetBinStream(true, stream));
+    // 零连接（本组全失联）时空表经 SerializeAllowEmpty 输出合法空帧
+    CHK_RET(localRankTable.SerializeAllowEmpty(stream));
+    localFailedList_ = localFailedList;
+    totalRankNum_ = totalRankNum;
     partials_.assign(nRoot, std::vector<char>{});
+    peerFailedLists_.assign(nRoot, std::string{});
+    peerMeshStates_.assign(nRoot, MeshPeerState::PENDING);
     stream.Dump(partials_[scalableInfo_.rootIndex]);
+    peerFailedLists_[scalableInfo_.rootIndex] = localFailedList_; // 本组列表占本组槽位，聚合按 rootIndex 顺序拼接
     meshRecvCount_.store(0);
-    meshFailed_.store(false);
 
-    // mesh 交换总预算 = link timeout；accept/connect 两线程并发等待，各自独立累计耗时。
-    const u32 timeoutSec = static_cast<u32>(EnvConfig::GetInstance().GetSocketConfig().GetLinkTimeOut());
+    const s32 linkTimeOutSec = EnvConfig::GetInstance().GetSocketConfig().GetLinkTimeOut();
+    const auto elapsedSinceAccept = std::chrono::steady_clock::now() - acceptStartTime;
+    const s32 elapsedSec
+        = static_cast<s32>(std::chrono::duration_cast<std::chrono::seconds>(elapsedSinceAccept).count());
+    const u32 timeoutSec = (linkTimeOutSec - elapsedSec > static_cast<s32>(SOCKET_LINK_EXTRA_TIMEOUT)) ?
+                               static_cast<u32>(linkTimeOutSec - elapsedSec) - SOCKET_LINK_EXTRA_TIMEOUT :
+                               1U;
 
     HcclResult acceptRet = HCCL_SUCCESS;
     std::thread acceptThread;
@@ -735,28 +782,23 @@ HcclResult RankInfoDetectScalable::RootMeshAllGather(const RankTableInfo& localR
             acceptThread = std::thread([this, &acceptRet, errorContext, timeoutSec] {
                 hrtErrMSetErrorContextPub(errorContext);
                 acceptRet = MeshAcceptSmallerRoots(timeoutSec);
-                if (acceptRet != HCCL_SUCCESS) {
-                    meshFailed_.store(true);
-                }
             }),
             return HCCL_E_MEMORY);
     }
     // 线程启动后不提前返回：即使主动连接失败/抛异常，也先 join 接受线程。
     HcclResult connectRet = HCCL_E_INTERNAL;
     TRY_CATCH_PRINT_ERROR(connectRet = MeshConnectToLargerRoots(timeoutSec););
-    if (connectRet != HCCL_SUCCESS) {
-        meshFailed_.store(true);
-    }
     if (acceptThread.joinable()) {
         acceptThread.join();
     }
-    CHK_RET(acceptRet);
-    CHK_RET(connectRet);
-    CHK_PRT_RET(
-        meshRecvCount_.load() != nRoot - 1,
-        HCCL_ERROR(
-            "[%s] missing mesh partials, received[%u], expected[%u]", __func__, meshRecvCount_.load(), nRoot - 1),
-        HCCL_E_INTERNAL);
+    // 对端结果按建链/交换分类记录（peerMeshStates_）：明确拒绝判不可达（MergeMeshPartials 整组反推），
+    // 等待超时/未收齐判状态未知
+    if (acceptRet != HCCL_SUCCESS || connectRet != HCCL_SUCCESS || meshRecvCount_.load() != nRoot - 1) {
+        HCCL_WARNING(
+            "[RankInfoDetectScalable::%s] mesh exchange incomplete, acceptRet[%d], connectRet[%d], received[%u], "
+            "expected[%u], continue with received partials.",
+            __func__, static_cast<int>(acceptRet), static_cast<int>(connectRet), meshRecvCount_.load(), nRoot - 1);
+    }
     return HCCL_SUCCESS;
 }
 
@@ -777,34 +819,57 @@ std::shared_ptr<Socket> RankInfoDetectScalable::MakeMeshSocket(u32 peer)
 HcclResult RankInfoDetectScalable::MeshConnectToLargerRoots(u32 timeoutSec)
 {
     const auto startTime = std::chrono::steady_clock::now();
+    HcclResult failRet = HCCL_SUCCESS;
     TRY_CATCH_RETURN(for (u32 peer = scalableInfo_.rootIndex + 1; peer < scalableInfo_.nRoot; ++peer) {
-        if (meshFailed_.load()) {
-            return HCCL_E_INTERNAL;
-        }
         const u32 remainTimeSec = RemainingMeshWaitSeconds(startTime, timeoutSec);
         if (remainTimeSec == 0) {
             HCCL_ERROR(
                 "[%s] mesh connect budget exhausted, peer[%u], my rootIndex[%u], nRoot[%u], timeout[%u s]", __func__,
                 peer, scalableInfo_.rootIndex, scalableInfo_.nRoot, timeoutSec);
-            return HCCL_E_TIMEOUT;
+            if (failRet == HCCL_SUCCESS) {
+                failRet = HCCL_E_TIMEOUT; // 预算耗尽，后续对端必然同样失败，跳出
+            }
+            break;
         }
-        auto socket = MakeMeshSocket(peer);
-        CHK_SMART_PTR_NULL(socket);
-        // 守卫统一承担 Close 与句柄引用归还（含异常路径）
-        MeshConnectSocketGuard socketGuard(socket, devPhyId_);
-        socket->Connect();
-        const auto status = socket->GetStatus(remainTimeSec);
-        HcclResult ret = (status == SocketStatus::OK) ?
-                             HCCL_SUCCESS :
-                             (status == SocketStatus::TIMEOUT ? HCCL_E_TIMEOUT : HCCL_E_TCP_CONNECT);
+        const u32 perPeerSec = SliceMeshWaitSeconds(remainTimeSec, scalableInfo_.nRoot - peer);
+        // 建链准备阶段：MakeMeshSocket 残余异常均为本地失败（地址已在 RootMeshAllGather 预校验，
+        // 实际是 RA 句柄创建失败/内存不足），与对端无关，归状态未知不反推，就地隔离不影响后续对端
+        HcclResult ret = HCCL_SUCCESS;
+        std::shared_ptr<Socket> socket;
+        EXCEPTION_CATCH(socket = MakeMeshSocket(peer), socket = nullptr; ret = HCCL_E_INTERNAL);
         if (ret == HCCL_SUCCESS) {
-            ret = ExchangeMeshPartial(*socket, peer, true);
+            CHK_SMART_PTR_NULL(socket);
+            MeshConnectSocketGuard socketGuard(socket, devPhyId_);
+            // 建链阶段：超时/异常记状态未知（对端可能晚到），明确拒绝记不可达，均不影响后续对端
+            SocketStatus status = SocketStatus::INVALID;
+            EXCEPTION_CATCH(socket->Connect(); status = socket->GetStatus(perPeerSec), status = SocketStatus::INVALID);
+            if (status == SocketStatus::OK) {
+                // 交换阶段：已建链，失败仅记「状态未知」，不影响后续对端
+                EXCEPTION_CATCH(ret = ExchangeMeshPartial(*socket, peer, true), ret = HCCL_E_INTERNAL);
+                if (ret != HCCL_SUCCESS) {
+                    peerMeshStates_[peer] = MeshPeerState::EXCHANGE_FAILED;
+                }
+            } else if (
+                status == SocketStatus::TIMEOUT || status == SocketStatus::CONNECTING
+                || status == SocketStatus::INVALID) {
+                // 等待超时/仍在建链/未知异常
+                peerMeshStates_[peer] = MeshPeerState::CONNECT_TIMEOUT;
+                ret = HCCL_E_TIMEOUT;
+            } else {
+                peerMeshStates_[peer] = MeshPeerState::UNREACHABLE;
+                ret = HCCL_E_TCP_CONNECT;
+            }
+        } else {
+            peerMeshStates_[peer] = MeshPeerState::CONNECT_TIMEOUT;
         }
-        CHK_PRT_RET(
-            ret != HCCL_SUCCESS, HCCL_ERROR("[%s] connect/exchange root[%u] failed, ret[%d]", __func__, peer, ret),
-            ret);
+        if (ret != HCCL_SUCCESS) {
+            HCCL_ERROR("[%s] connect/exchange root[%u] failed, ret[%d], continue with next peer", __func__, peer, ret);
+            if (failRet == HCCL_SUCCESS) {
+                failRet = ret;
+            }
+        }
     });
-    return HCCL_SUCCESS;
+    return failRet;
 }
 
 HcclResult RankInfoDetectScalable::MeshAcceptSmallerRoots(u32 timeoutSec)
@@ -823,28 +888,47 @@ HcclResult RankInfoDetectScalable::MeshAcceptSmallerRoots(u32 timeoutSec)
     return ret;
 }
 
+// 接受所有更小编号 root 的连接：单个对端失败记录后继续尝试后续对端
 HcclResult RankInfoDetectScalable::MeshAcceptSmallerRootsCore(u32 timeoutSec)
 {
     const auto startTime = std::chrono::steady_clock::now();
+    HcclResult failRet = HCCL_SUCCESS;
     TRY_CATCH_RETURN(for (u32 peer = 0; peer < scalableInfo_.rootIndex; ++peer) {
-        if (meshFailed_.load()) {
-            return HCCL_E_INTERNAL;
-        }
         const u32 remainTimeSec = RemainingMeshWaitSeconds(startTime, timeoutSec);
         if (remainTimeSec == 0) {
             HCCL_ERROR(
                 "[%s] mesh accept budget exhausted, peer[%u], my rootIndex[%u], timeout[%u s]", __func__, peer,
                 scalableInfo_.rootIndex, timeoutSec);
-            return HCCL_E_TIMEOUT;
+            if (failRet == HCCL_SUCCESS) {
+                failRet = HCCL_E_TIMEOUT; // 预算耗尽，后续对端必然同样失败，跳出
+            }
+            break;
         }
+        const u32 perPeerSec = SliceMeshWaitSeconds(remainTimeSec, scalableInfo_.rootIndex - peer);
         const auto tag = BuildMeshTag(peer, scalableInfo_.rootIndex, meshListenSocket_->GetListenPort());
         std::shared_ptr<Socket> socket;
-        CHK_RET(meshListenSocket_->Accept(tag, socket, remainTimeSec));
-        CHK_SMART_PTR_NULL(socket);
-        CHK_RET(ExchangeMeshPartial(*socket, peer, false));
-        socket->Close();
+        // 建链阶段：Accept 失败/异常均记状态未知，不影响后续对端
+        HcclResult ret = HCCL_SUCCESS;
+        EXCEPTION_CATCH(ret = meshListenSocket_->Accept(tag, socket, perPeerSec), ret = HCCL_E_INTERNAL);
+        if (ret == HCCL_SUCCESS) {
+            CHK_SMART_PTR_NULL(socket);
+            MeshAcceptSocketGuard socketGuard(socket);
+            // 交换阶段：已建链，失败仅记「状态未知」，不影响后续对端
+            EXCEPTION_CATCH(ret = ExchangeMeshPartial(*socket, peer, false), ret = HCCL_E_INTERNAL);
+            if (ret != HCCL_SUCCESS) {
+                peerMeshStates_[peer] = MeshPeerState::EXCHANGE_FAILED;
+            }
+        } else {
+            peerMeshStates_[peer] = MeshPeerState::CONNECT_TIMEOUT;
+        }
+        if (ret != HCCL_SUCCESS) {
+            HCCL_ERROR("[%s] accept/exchange root[%u] failed, ret[%d], continue with next peer", __func__, peer, ret);
+            if (failRet == HCCL_SUCCESS) {
+                failRet = ret;
+            }
+        }
     });
-    return HCCL_SUCCESS;
+    return failRet;
 }
 
 // 连接方先发后收，接受方先收后发；只交换各自子表，不转发其他 root 的子表。
@@ -866,12 +950,58 @@ HcclResult RankInfoDetectScalable::SendMeshPartial(Socket& socket) const
     const u32 self = scalableInfo_.rootIndex;
     const auto& data = partials_[self];
     CHK_PRT_RET(
-        data.empty() || data.size() > MAX_BUFFER_LEN,
-        HCCL_ERROR("[%s] invalid local partial size[%zu]", __func__, data.size()), HCCL_E_PARA);
+        data.size() > MAX_BUFFER_LEN, HCCL_ERROR("[%s] invalid local partial size[%zu]", __func__, data.size()),
+        HCCL_E_PARA);
+    CHK_PRT_RET(
+        localFailedList_.size() > MAX_MESH_FAILED_LIST_LEN,
+        HCCL_ERROR("[%s] invalid local failed list size[%zu]", __func__, localFailedList_.size()), HCCL_E_PARA);
     CHK_PRT_RET(!socket.Send(&self, sizeof(self)), HCCL_ERROR("[%s] send root index failed", __func__), HCCL_E_NETWORK);
     SocketAgent agent(&socket);
-    return agent.SendMsg(data.data(), data.size());
+    CHK_RET(agent.SendMsg(data.data(), data.size()));
+    // 失败列表长度字段与子表长度字段同理（裸 u64）；空列表只发长度 0，不发 payload
+    const u64 failedLen = localFailedList_.size();
+    CHK_PRT_RET(
+        !socket.Send(&failedLen, sizeof(failedLen)), HCCL_ERROR("[%s] send failed list length failed", __func__),
+        HCCL_E_NETWORK);
+    if (failedLen == 0) {
+        return HCCL_SUCCESS; // 本组无失败，空列表合法
+    }
+    CHK_PRT_RET(
+        !socket.Send(localFailedList_.data(), static_cast<u32>(failedLen)),
+        HCCL_ERROR("[%s] send failed list failed", __func__), HCCL_E_NETWORK);
+    return HCCL_SUCCESS;
 }
+
+namespace {
+    HcclResult RecvMeshFailedListSegment(Socket& socket, u32 peer, std::string& failedList)
+    {
+        u64 failedLen = 0;
+        bool recvOk = false;
+        EXCEPTION_CATCH(recvOk = socket.Recv(&failedLen, sizeof(failedLen)), recvOk = false);
+        if (recvOk) {
+            CHK_PRT_RET(
+                failedLen > MAX_MESH_FAILED_LIST_LEN,
+                HCCL_ERROR(
+                    "[%s] invalid failed list length[%llu] from root[%u]", __func__,
+                    static_cast<unsigned long long>(failedLen), peer),
+                HCCL_E_PARA);
+            failedList.assign(static_cast<size_t>(failedLen), '\0');
+            recvOk = (failedLen == 0);
+            if (!recvOk) {
+                EXCEPTION_CATCH(recvOk = socket.Recv(failedList.data(), static_cast<u32>(failedLen)), recvOk = false);
+            }
+        }
+        if (recvOk) {
+            return HCCL_SUCCESS;
+        }
+        HCCL_WARNING(
+            "[%s] recv failed list from root[%u] failed (peer may run older frame format or link broken), "
+            "degrade to empty failed list and keep partial.",
+            __func__, peer);
+        failedList.clear();
+        return HCCL_SUCCESS;
+    }
+} // namespace
 
 HcclResult RankInfoDetectScalable::RecvMeshPartial(Socket& socket, u32 peer)
 {
@@ -890,23 +1020,61 @@ HcclResult RankInfoDetectScalable::RecvMeshPartial(Socket& socket, u32 peer)
     CHK_PRT_RET(
         !socket.Recv(data.data(), static_cast<u32>(size)), HCCL_ERROR("[%s] recv partial failed", __func__),
         HCCL_E_NETWORK);
+    std::string failedList;
+    CHK_RET(RecvMeshFailedListSegment(socket, peer, failedList));
     partials_[peer] = std::move(data);
+    peerFailedLists_[peer] = std::move(failedList);
     return HCCL_SUCCESS;
 }
 
-HcclResult RankInfoDetectScalable::MergeMeshPartials(u32 nRoot, RankTableInfo& rankTable)
+// 合并各 root 子表为全局表
+HcclResult RankInfoDetectScalable::MergeMeshPartials(u32 nRoot, RankTableInfo& rankTable, std::string& failedList)
 {
-    RankTableInfo merged{};
+    std::vector<u32> absentRoots;
+    std::string unknownRoots;
+    std::string globalFailedList;
     for (u32 i = 0; i < nRoot; ++i) {
-        CHK_PRT_RET(
-            partials_[i].empty(), HCCL_ERROR("[%s] missing partial for root[%u]", __func__, i), HCCL_E_INTERNAL);
+        // 存在失联的root
+        if (partials_[i].empty()) {
+            if (i != scalableInfo_.rootIndex) {
+                if (peerMeshStates_[i] == MeshPeerState::UNREACHABLE) {
+                    absentRoots.push_back(i);
+                } else {
+                    AppendFailedIdSegment(unknownRoots, i, i);
+                }
+            }
+            continue;
+        }
+        // root组间存在失联的rank
+        if (!peerFailedLists_[i].empty()) {
+            if (!globalFailedList.empty()) {
+                globalFailedList += ',';
+            }
+            globalFailedList += peerFailedLists_[i];
+        }
+    }
+    if (!unknownRoots.empty()) {
+        HCCL_WARNING(
+            "[%s] exchange incomplete with roots[%s], their group status is unknown, skip whole-group inference to "
+            "avoid false failed list.",
+            __func__, unknownRoots.c_str());
+    }
+    FillAbsentRootRankIds(absentRoots, globalFailedList);
+
+    RankTableInfo merged{};
+    bool hasMerged = false;
+    for (u32 i = 0; i < nRoot; ++i) {
+        if (partials_[i].empty()) {
+            continue; // 空槽跳过（缺席区间已并入失败列表），不构造完整表
+        }
         BinaryStream stream(partials_[i]);
         RankTableInfo peerTable(stream);
         CHK_PRT_RET(
             peerTable.rankCount != peerTable.ranks.size(),
             HCCL_ERROR("[%s] rank count mismatch from root[%u]", __func__, i), HCCL_E_INTERNAL);
-        if (i == 0) {
+        if (!hasMerged) {
             merged = peerTable;
+            hasMerged = true;
         } else {
             merged.ranks.insert(merged.ranks.end(), peerTable.ranks.begin(), peerTable.ranks.end());
             merged.rankCount += peerTable.rankCount;
@@ -916,8 +1084,57 @@ HcclResult RankInfoDetectScalable::MergeMeshPartials(u32 nRoot, RankTableInfo& r
     std::sort(merged.ranks.begin(), merged.ranks.end(), [](const hccl::NewRankInfo& lhs, const hccl::NewRankInfo& rhs) {
         return lhs.rankId < rhs.rankId;
     });
+    // 原子提交点：全部子表校验通过后 rankTable 与 failedList 一并更新
     rankTable = std::move(merged);
+    failedList = std::move(globalFailedList);
     return HCCL_SUCCESS;
+}
+
+// 缺席 root（建链被明确拒绝）按分组策略反推其组内 rankId 区间 [first, first+nRank-1]，整段并入全局失败列表
+void RankInfoDetectScalable::FillAbsentRootRankIds(
+    const std::vector<u32>& absentRoots, std::string& globalFailedList) const
+{
+    if (absentRoots.empty()) {
+        return;
+    }
+    const RootGroupStrategy* strategy = GetRootGroupStrategy();
+    if (strategy == nullptr || totalRankNum_ == 0 || totalRankNum_ < scalableInfo_.nRoot
+        || strategy->firstRankFromRoot(totalRankNum_, scalableInfo_.nRoot, scalableInfo_.rootIndex)
+               != scalableInfo_.groupFirstRank
+        || strategy->nRankFromRoot(totalRankNum_, scalableInfo_.nRoot, scalableInfo_.rootIndex)
+               != scalableInfo_.groupSize) {
+        HCCL_WARNING(
+            "[RankInfoDetectScalable::%s] cannot infer absent rank ids, absentRootNum[%zu], nRoot[%u], "
+            "totalRankNum[%u], localGroupFirstRank[%u], localGroupSize[%u].",
+            __func__, absentRoots.size(), scalableInfo_.nRoot, totalRankNum_, scalableInfo_.groupFirstRank,
+            scalableInfo_.groupSize);
+        return;
+    }
+    std::string absentRootList;
+    std::string inferredRanges;
+    for (u32 rootIndex : absentRoots) {
+        const u32 first = strategy->firstRankFromRoot(totalRankNum_, scalableInfo_.nRoot, rootIndex);
+        const u32 nRank = strategy->nRankFromRoot(totalRankNum_, scalableInfo_.nRoot, rootIndex);
+        if (nRank == 0) {
+            continue;
+        }
+        const u32 last = first + nRank - 1;
+        if (last < first) {
+            HCCL_WARNING(
+                "[RankInfoDetectScalable::%s] inferred range wraps around, rootIndex[%u], first[%u], nRank[%u], "
+                "skip it.",
+                __func__, rootIndex, first, nRank);
+            continue;
+        }
+        AppendFailedIdSegment(globalFailedList, first, last);
+        AppendFailedIdSegment(absentRootList, rootIndex, rootIndex);
+        AppendFailedIdSegment(inferredRanges, first, last);
+    }
+    // 仅打印缺席集合与反推区间（段数 ≤ nRoot-1，长度有界），不重复打印可能超长的全局失败列表
+    HCCL_WARNING(
+        "[RankInfoDetectScalable::%s] absent roots[%s], inferred group rank id ranges[%s], appended to global "
+        "failed list.",
+        __func__, absentRootList.c_str(), inferredRanges.c_str());
 }
 
 } // namespace Hccl

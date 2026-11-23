@@ -11,6 +11,8 @@
 #ifndef HCCL_ROOT_HANDLE_V2_H
 #define HCCL_ROOT_HANDLE_V2_H
 
+#include <string>
+
 #include "orion_adapter_hccp.h"
 #include "ip_address.h"
 #include "binary_stream.h"
@@ -137,9 +139,26 @@ using HcclScalableRootHandleV2 = struct HcclScalableRootHandleDefV2 {
 };
 
 // buffer大小
-constexpr u32 MAX_BUFFER_LEN = 100 * 1024 * 1024; // 100M
+constexpr u32 MAX_BUFFER_LEN = 100 * 1024 * 1024; // 100M（子表上界：大规模 ranktable 有真实需要）
+
+constexpr u64 MAX_MESH_FAILED_LIST_LEN = 1 * 1024 * 1024;
+
+constexpr u32 SOCKET_LINK_EXTRA_TIMEOUT = 40;
 
 constexpr u32 ONE_MILLISECOND_OF_USLEEP = 1000;
+
+// 临终遗言失败 rankId 列表的区间压缩编码段追加：单点 "a"、连续段 "a-b"，段间逗号分隔。
+inline void AppendFailedIdSegment(std::string& failedList, u32 first, u32 last)
+{
+    if (!failedList.empty()) {
+        failedList += ',';
+    }
+    failedList += std::to_string(first);
+    if (last > first) {
+        failedList += '-';
+        failedList += std::to_string(last);
+    }
+}
 
 } // namespace Hccl
 

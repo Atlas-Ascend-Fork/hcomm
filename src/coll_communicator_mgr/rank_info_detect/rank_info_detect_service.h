@@ -137,7 +137,10 @@ public:
     // 汇总各 rank 的选层上报；存在显式选层时要求有效层一致，全默认沿用原行为。
     NetLayerCheckInfo GetNetLayerCheckResult() const;
 
-    HcclResult SetupScalable(u32 groupSize, const std::function<HcclResult(RankTableInfo&)>& meshMergeCallback);
+    // mesh 合并回调
+    using MeshMergeCallback
+        = std::function<HcclResult(RankTableInfo&, std::string&, u32, std::chrono::steady_clock::time_point)>;
+    HcclResult SetupScalable(u32 groupSize, const MeshMergeCallback& meshMergeCallback);
 
 private:
     std::map<u32, NetLayerCheckInfo> netLayerCheckInfos_{};
@@ -149,12 +152,13 @@ private:
     IpAddress hostIp_{};
     RankTableInfo rankTable_{};
     std::string failedAgentIdList_{};
+    u32 totalRankNum_{0}; // agent 上报的全局 nRanks
     u32 currentStep_{0};
     std::string identifier_{};
     vector<RaSocketWhitelist> wlistInfo_{};
 
     HcclResult GetConnections(bool isInitCollect);
-    HcclResult GetConnectionsScalable(u32 groupSize);
+    HcclResult GetConnectionsScalable(u32 groupSize, std::chrono::steady_clock::time_point& acceptStartTime);
     HcclResult AcceptGroupConnections(
         SocketHandle hccpHostSocketHandle, u32 hostPort, const std::chrono::steady_clock::time_point& startTime,
         const std::chrono::seconds& timeOut, u32& expectedSocketNum);
@@ -230,6 +234,8 @@ private:
     // 校验相关方法
     bool RecvAndVerifyRemoteAgentIdAndRankSize(
         std::shared_ptr<Socket> connSocket, u32& expectedSocketNum, u32& previousRankSize, bool isInitCollect);
+    // 半握手连接清理
+    void EraseIncompleteHandshakeConnection(const std::string& agentId, bool isInitCollect);
     bool VerifyRemoteRankSize(u32& previousRankSize, u32 remoteRankSize) const;
     // 白名单开启时校验远端IP是否在拓扑探测白名单内：仅校验remoteIp(tag 由驱动层白名单校验)
     bool IsRemoteIpInWhiteList(const IpAddress& remoteIp) const;
