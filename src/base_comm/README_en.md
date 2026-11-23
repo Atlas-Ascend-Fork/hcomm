@@ -116,8 +116,7 @@ pre-existing function-static factories are listed in R1 exceptions, anchored per
 │           ├── NetDevProc          per-device netdev instance
 │           ├── ServerSocketMgrProc SocketMgr
 │           ├── SocketProcess       socket cleanup (destructor returns sockets via GetSocketMgr)
-│           ├── TpMgr               TP common resource (shared by CTP/RTP/UBOE; the CCU subtree is
-│           │                       only a user, R11)
+│           ├── TpMgr               TP common resource
 │           ├── CommEngineMgrProc   engine family: ThreadMgr / MemMgr / HdcProc / CcuInstanceProc
 │           └── EndpointCtxMgr      EndpointCtx dedup cache
 ├── HandleRegistryMgrProc  Channel / Thread handle registries (residual channel destruction touches
@@ -475,10 +474,10 @@ and only clear local tables (first instance: CcuComponent::ReleaseAllTpInfos).
   `ThreadMgrProc`, etc.) keep engine-private resources only; for common resources they
   have a usage relationship only — take a reference via a narrow accessor or cache the
   pointer at Init. "Who uses it first" never decides ownership.
-- First instance: `TpMgr` moved up from `CcuInstanceProc` to `BaseCommResPerDev`. TP is
-  shared by CTP/RTP/UBOE (`GetTpInfo` / `GetTpAttr`); the CCU loopback path is just one
-  kind of user, and keeping it under the CCU subtree would force non-CCU users to depend
-  on the CCU node.
+- First instance: `TpMgr` moved up from `CcuInstanceProc` to `BaseCommResPerDev`. TP is shared by
+  CTP (Connectionless Transport Plane), RTP (Reliable Transport Plane), and UBOE (UB over
+  Ethernet) (`GetTpInfo` / `GetTpAttr`); the CCU loopback path is just one kind of user, and
+  keeping it under the CCU subtree would force non-CCU users to depend on the CCU node.
 - The migration keeps the narrow accessor signature and semantics unchanged
   (`GetTpMgr(devPhyId)`, including the R9 out-of-range fallback), so call sites need no
   change; the ownership change is registered in R3 and recorded in this section.

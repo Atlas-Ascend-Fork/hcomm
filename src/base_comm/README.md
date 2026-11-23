@@ -98,7 +98,7 @@ BaseCommMgr（进程级树根，base_comm 唯一新增单例；存量函数级 s
 │           ├── NetDevProc          网卡设备级实例
 │           ├── ServerSocketMgrProc SocketMgr
 │           ├── SocketProcess       Socket 清理（析构经 GetSocketMgr 还 socket）
-│           ├── TpMgr               TP 公共资源（CTP/RTP/UBOE 共用；CCU 子树只是使用方，R11）
+│           ├── TpMgr               TP 公共资源
 │           ├── CommEngineMgrProc   引擎族：ThreadMgr / MemMgr / HdcProc / CcuInstanceProc
 │           └── EndpointCtxMgr      EndpointCtx 去重缓存
 ├── HandleRegistryMgrProc  Channel / Thread 句柄注册表（残留 channel 析构触设备子树，先死）
@@ -351,8 +351,9 @@ BaseCommResPerDev 值成员）。
 - 引擎子树（`CommEngineMgrProc` 及其 `CcuInstanceProc` / `HdcProc` / `ThreadMgrProc` 等）
   只保留引擎私有资源；对公共资源只有使用关系——经窄访问器取引用、或在 Init 期缓存指针，
   不得以"谁先使用"决定所有权。
-- 首个实例：`TpMgr` 由 `CcuInstanceProc` 上移至 `BaseCommResPerDev`。TP 由 CTP/RTP/UBOE
-  三种协议共用（`GetTpInfo` / `GetTpAttr`），CCU 环回只是其中一类使用方；挂在 CCU 子树下
-  会让非 CCU 使用方被迫依赖 CCU 节点。
+- 首个实例：`TpMgr` 由 `CcuInstanceProc` 上移至 `BaseCommResPerDev`。TP 由 CTP（Connectionless
+  Transport Plane，无连接传输面）、RTP（Reliable Transport Plane，可靠传输面）、UBOE（UB over
+  Ethernet，UB 承载以太网）三种协议共用（`GetTpInfo` / `GetTpAttr`），CCU 环回只是其中一类
+  使用方；挂在 CCU 子树下会让非 CCU 使用方被迫依赖 CCU 节点。
 - 迁移保持窄访问器签名与语义不变（`GetTpMgr(devPhyId)`，含 R9 越界回落口径），
   调用点无需改动；归属变化在 R3 声明序登记与本节记录。
