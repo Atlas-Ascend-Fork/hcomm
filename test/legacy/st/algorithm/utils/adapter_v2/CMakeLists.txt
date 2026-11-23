@@ -12,6 +12,9 @@ set (include_list
     ${checker_include_list}
     ${HCOMM_CODE_LEGACY}/common
     ${HCOMM_DIR}/src/base_comm/common/debug
+    ${HCOMM_DIR}/src/coll_communicator_mgr/config_mgr
+    ${HCOMM_DIR}/include
+    ${HCOMM_DIR}/src/base_comm/inc
 
     ${UTILS_DIR}/adapter_v1/aiv
 
@@ -114,6 +117,8 @@ add_library(hccl_alg_adaption_v2 SHARED
     ${HCOMM_RANK_GRAPH}/rank_graph/rank_graph.cc
     ${HCOMM_RANK_GRAPH}/rank_graph/net_instance.cc
     ${HCOMM_RANK_GRAPH}/rank_graph_builder/rank_graph_builder.cc
+    ${HCOMM_RANK_GRAPH}/rank_graph_builder/rank_graph_builder_provider.cc
+    ${HCOMM_RANK_GRAPH}/rank_graph_builder/rank_graph_builder_bridge.cc
     ${HCOMM_RANK_GRAPH}/rank_graph_builder/detour_service.cc
     ${HCOMM_RANK_GRAPH}/rank_graph_builder/detour_rules.cc
     ${HCOMM_RANK_GRAPH}/rank_graph_builder/updater_for_64_plus_1.cc

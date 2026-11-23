@@ -181,7 +181,7 @@ HcclResult CommunicatorImpl::InitCommResource(const CommParams& commParams)
     notifyTimeoutCfg.Init();
     SetCommStatus(CommStatus::COMM_READY);
     SnapShotParser::GetInstance().SerializeCommonInfo(
-        commParams, config, std::move(ranktableInfo), topoInfo, staticBinaryInfo);
+        commParams, config, std::move(ranktableInfo), topoInfo, staticBinaryInfo, rankGraph->IsVirtualGroupsEnabled());
     InitOneSidedService();
     RegisterKernel();
     InitDpuKernel();
@@ -2393,7 +2393,8 @@ HcclResult CommunicatorImpl::RecoverRankGraphData(SnapShotComm& snapShotComm, co
 
     RankGraphBuildResult buildResult{};
     // 恢复构建也由 hcomm 完成，并返回同一版本的 graph、rank table 和 topo 快照。
-    ret = bridge->recoverBuild(snapShotComm.rankTableInfo, snapShotComm.topoInfo, myRank, buildResult);
+    ret = bridge->recoverBuild(
+        snapShotComm.rankTableInfo, snapShotComm.topoInfo, myRank, snapShotComm.enableVirtualGroups, buildResult);
     CHK_PRT_RET(
         ret != HCCL_SUCCESS,
         HCCL_ERROR("[%s] recover rank graph failed, errNo[0x%016llx].", __func__, HCCL_ERROR_CODE(ret)), ret);
@@ -3847,7 +3848,7 @@ HcclResult CommunicatorImpl::GetInstRanksByNetLayer(uint32_t netLayer, uint32_t*
     CHK_PTR_NULL(rankGraph);
     u32 num = 0;
     rankListVec.clear();
-    TRY_CATCH_RETURN(rankGraph->GetLocalInstRanks(netLayer, rankListVec, num));
+    CHK_RET(rankGraph->GetLocalInstRanks(netLayer, rankListVec, num));
     *ranks = rankListVec.data();
     *rankNum = num;
     return HCCL_SUCCESS;
@@ -4132,7 +4133,8 @@ HcclResult CommunicatorImpl::GetInstSizeByNetLayer(uint32_t netLayer, uint32_t* 
 {
     try {
         CHK_PTR_NULL(rankGraph);
-        u32 num = rankGraph->GetLocalInstSize(netLayer);
+        u32 num = 0;
+        CHK_RET(rankGraph->GetLocalInstSize(netLayer, num));
         *rankNum = static_cast<uint32_t>(num);
         return HCCL_SUCCESS;
     } catch (const InvalidParamsException& e) {

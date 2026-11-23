@@ -29,12 +29,14 @@ namespace Hccl {
 
 class RankGraphBuilder {
 public:
+    // External ranktable input retains the physical grouping view.
     std::unique_ptr<RankGraph> Build(const std::string& ranktableM, const std::string& topoPath, RankId myRank);
+    // RootInfoDetect input enables continuous virtual groups.
     std::unique_ptr<RankGraph> Build(const RankTableInfo& ranktable, const std::string& topoPath, RankId myRank);
     std::unique_ptr<RankTableInfo> GetRankTableInfo();
     std::shared_ptr<TopoInfo> GetTopoInfo();
-    std::unique_ptr<RankGraph>
-    RecoverBuild(const RankTableInfo& rankTableInfo, const TopoInfo& topoInfo, RankId myRank);
+    std::unique_ptr<RankGraph> RecoverBuild(
+        const RankTableInfo& rankTableInfo, const TopoInfo& topoInfo, RankId myRank, bool enableVirtualGroups = false);
     void SetEndpointDesc();
 
 private:
@@ -51,7 +53,7 @@ private:
 
     void CheckMyRankInRankTable() const;
     void CheckNetLayerFromPhyTopo(const u32 netLayer) const;
-    void BuildRankGraph();
+    void BuildRankGraph(bool enableVirtualGroups);
     void BuildIpIndexMap();
     void BuildFromRankTable();
     void BuildPeer2PeerLinks();

@@ -8,15 +8,24 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include <algorithm>
 #include "gtest/gtest.h"
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>
+
+// 访问私有成员验证分段上界判定路径（与ut_rank_graph_builder.cc同款惯例）
+#define private public
+#define protected public
+
 #include "rank_gph.h"
 #include "rank_graph_builder.h"
 #include "phy_topo_builder.h"
 #include "detour_service.h"
 #include "ranktable_builder.h"
 #include "internal_exception.h"
+
+#undef private
+#undef protected
 
 using namespace Hccl;
 
@@ -404,9 +413,13 @@ TEST_F(RankGraphTest, ut_GetLocalInstRanks_When_Normal_Expect_SUCCESS)
 TEST_F(RankGraphTest, ut_GetLocalInstSize_When_Normal_Expect_SUCCESS)
 {
     auto rankGraph = create4pRankGraph(myRank);
-    EXPECT_EQ(2, rankGraph->GetLocalInstSize(0));
-    EXPECT_EQ(3, rankGraph->GetLocalInstSize(1));
-    EXPECT_EQ(2, rankGraph->GetLocalInstSize(2));
+    u32 instSize = 0;
+    EXPECT_EQ(HCCL_SUCCESS, rankGraph->GetLocalInstSize(0, instSize));
+    EXPECT_EQ(2, instSize);
+    EXPECT_EQ(HCCL_SUCCESS, rankGraph->GetLocalInstSize(1, instSize));
+    EXPECT_EQ(3, instSize);
+    EXPECT_EQ(HCCL_SUCCESS, rankGraph->GetLocalInstSize(2, instSize));
+    EXPECT_EQ(2, instSize);
 }
 
 TEST_F(RankGraphTest, ut_GetNetType_When_Normal_Expect_SUCCESS)
@@ -478,7 +491,9 @@ TEST_F(RankGraphTest, ut_CreateSubRankGraph_When_ParentLevel0PcieFallback_Expect
     rankGraph->SetLevel0PcieFallback(true);
     vector<u32> subRankIds = {0, 1, 2, 3};
     std::unique_ptr<RankGraph> subRankGraph = rankGraph->CreateSubRankGraph(subRankIds);
-    EXPECT_EQ(4, subRankGraph->GetLocalInstSize(0));
+    u32 instSize = 0;
+    EXPECT_EQ(HCCL_SUCCESS, subRankGraph->GetLocalInstSize(0, instSize));
+    EXPECT_EQ(4, instSize);
     EXPECT_EQ(true, subRankGraph->IsLevel0PcieFallback());
 }
 
@@ -493,7 +508,9 @@ TEST_F(RankGraphTest, ut_CreateSubRankGraph_When_Normal_Expect_SUCCESS)
 
     vector<u32> subRankIds = {0, 1, 2, 3};
     std::unique_ptr<RankGraph> subRankGraph = rankGraph->CreateSubRankGraph(subRankIds);
-    EXPECT_EQ(4, subRankGraph->GetLocalInstSize(layer));
+    u32 instSize = 0;
+    EXPECT_EQ(HCCL_SUCCESS, subRankGraph->GetLocalInstSize(layer, instSize));
+    EXPECT_EQ(4, instSize);
 }
 
 TEST_F(RankGraphTest, ut_GetEndpointNum_When_Normal_Expect_SUCCESS)
@@ -554,7 +571,9 @@ TEST_F(RankGraphTest, ut_AddGroupLinks_When_1pNormal_Expect_SUCCESS)
     auto rankGraph = create4pRankGraph(myRank);
     vector<u32> subRankIds = {0};
     std::unique_ptr<RankGraph> subRankGraph = rankGraph->CreateSubRankGraph(subRankIds);
-    EXPECT_EQ(1, subRankGraph->GetLocalInstSize(0));
+    u32 instSize = 0;
+    EXPECT_EQ(HCCL_SUCCESS, subRankGraph->GetLocalInstSize(0, instSize));
+    EXPECT_EQ(1, instSize);
 }
 
 TEST_F(RankGraphTest, ut_GetNetInstanceByNetInstId_When_NotExisted_Expect_ReturnNullptr)
@@ -599,4 +618,382 @@ TEST_F(RankGraphTest, ut_NeedUpdateTopoInstForSubGraph_When_TopoInstIsNull_Expec
     netInstance.topoInsts_.emplace(topoInstId, nullptr);
 
     EXPECT_EQ(false, NeedUpdateTopoInstForSubGraph(&netInstance, topoInstId, myRank));
+}
+
+namespace {
+using VirtualTestLayer = std::vector<std::vector<u32>>;
+constexpr u32 VIRTUAL_TEST_TOPO_ID = 17;
+
+std::vector<u32> VirtualTestRange(u32 first, u32 count)
+{
+    std::vector<u32> ranks;
+    for (u32 i = 0; i < count; ++i) {
+        ranks.push_back(first + i);
+    }
+    return ranks;
+}
+
+// Build real NetInstances and peer associations; group IDs deliberately differ from topo IDs.
+std::unique_ptr<RankGraph>
+MakeVirtualTestGraph(u32 myRank, const std::vector<VirtualTestLayer>& layers, bool enableVirtualGroups = true)
+{
+    auto graph = std::make_unique<RankGraph>(myRank, enableVirtualGroups);
+    std::set<u32> allRanks;
+    for (const auto& layer : layers) {
+        for (const auto& group : layer) {
+            allRanks.insert(group.begin(), group.end());
+        }
+    }
+    for (u32 rank : allRanks) {
+        graph->AddPeer(createPeer(rank, rank));
+    }
+    for (u32 layer = 0; layer < layers.size(); ++layer) {
+        for (u32 index = 0; index < layers[layer].size(); ++index) {
+            auto inst = std::make_shared<InnerNetInstance>(layer, std::to_string(index));
+            for (u32 rank : layers[layer][index]) {
+                inst->AddRankId(rank);
+                auto peer = graph->GetPeer(rank);
+                inst->AddNode(peer);
+                peer->AddNetInstance(inst);
+                inst->UpdateTopoInst(VIRTUAL_TEST_TOPO_ID, TopoType::CLOS, rank);
+            }
+            graph->AddNetInstance(inst);
+        }
+    }
+    graph->InitInnerRanks();
+    return graph;
+}
+
+std::vector<VirtualTestLayer> VirtualTestThreeLayers()
+{
+    return {
+        {VirtualTestRange(0, 4), VirtualTestRange(4, 4), VirtualTestRange(8, 4), VirtualTestRange(12, 4)},
+        {{0, 1, 2, 3, 8, 9, 10, 11}, {4, 5, 6, 7, 12, 13, 14, 15}},
+        {VirtualTestRange(0, 16)}};
+}
+} // namespace
+
+TEST_F(RankGraphTest, Ut_VirtualGroups_When_ServerMajor_Expect_LocalSegmentsAndPhysicalIds)
+{
+    for (u32 rank = 0; rank < 16; ++rank) {
+        auto graph = MakeVirtualTestGraph(rank, VirtualTestThreeLayers());
+        ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS);
+        ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS); // Rebuild before publication is idempotent.
+        std::vector<u32> ranks;
+        u32 count = 0;
+        ASSERT_EQ(graph->GetLocalInstRanks(1, ranks, count), HCCL_SUCCESS);
+        EXPECT_EQ(ranks, VirtualTestRange(rank / 4 * 4, 4));
+        EXPECT_EQ(count, 4U);
+        ASSERT_EQ(graph->GetLocalInstSize(1, count), HCCL_SUCCESS);
+        EXPECT_EQ(count, 4U);
+        ASSERT_EQ(graph->GetNetInstanceList(1, ranks, count), HCCL_SUCCESS);
+        EXPECT_EQ(ranks, (std::vector<u32>{4, 4, 4, 4}));
+        EXPECT_EQ(count, 4U);
+        ranks.clear();
+        graph->GetTopoInstsByLayer(1, ranks, count);
+        EXPECT_EQ(ranks, (std::vector<u32>{VIRTUAL_TEST_TOPO_ID}));
+        ASSERT_EQ(graph->GetRanksByTopoInst(1, VIRTUAL_TEST_TOPO_ID, ranks, count), HCCL_SUCCESS);
+        EXPECT_EQ(ranks, VirtualTestRange(rank / 4 * 4, 4));
+        TopoType type;
+        ASSERT_EQ(graph->GetTopoType(1, VIRTUAL_TEST_TOPO_ID, type), HCCL_SUCCESS);
+        EXPECT_EQ(type, TopoType::CLOS);
+        EXPECT_EQ(graph->GetRanksByTopoInst(1, 999, ranks, count), HCCL_E_PARA);
+        ASSERT_EQ(graph->GetLocalInstRanks(0, ranks, count), HCCL_SUCCESS);
+        EXPECT_EQ(ranks, VirtualTestRange(rank / 4 * 4, 4));
+        ASSERT_EQ(graph->GetLocalInstRanks(2, ranks, count), HCCL_SUCCESS);
+        EXPECT_EQ(ranks, VirtualTestRange(0, 16));
+        EXPECT_EQ(graph->GetNetInstanceByRankId(1, rank)->GetRankSize(), 8U);
+        graph->InitFinish();
+        EXPECT_EQ(graph->BuildVirtualGroups(), HCCL_E_INTERNAL);
+    }
+}
+
+TEST_F(RankGraphTest, Ut_VirtualGroups_When_TopoInstOutsideLocalGroup_Expect_NotFound)
+{
+    const u32 otherTopoInstId = VIRTUAL_TEST_TOPO_ID + 1;
+    for (bool enabled : {true, false}) {
+        auto graph = MakeVirtualTestGraph(0, VirtualTestThreeLayers(), enabled);
+        auto* netInstance = graph->GetNetInstanceByRankId(1, 0);
+        ASSERT_NE(netInstance, nullptr);
+        for (u32 rank : VirtualTestRange(8, 4)) {
+            netInstance->UpdateTopoInst(otherTopoInstId, TopoType::CLOS, rank);
+        }
+        ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS);
+        TopoType type;
+        ASSERT_EQ(graph->GetTopoType(1, otherTopoInstId, type), HCCL_SUCCESS);
+        EXPECT_EQ(type, TopoType::CLOS);
+        std::vector<u32> ranks{99};
+        u32 count = 99;
+        if (enabled) {
+            EXPECT_EQ(graph->GetRanksByTopoInst(1, otherTopoInstId, ranks, count), HCCL_E_NOT_FOUND);
+            EXPECT_TRUE(ranks.empty());
+            EXPECT_EQ(count, 0U);
+        } else {
+            ASSERT_EQ(graph->GetRanksByTopoInst(1, otherTopoInstId, ranks, count), HCCL_SUCCESS);
+            EXPECT_EQ(ranks, VirtualTestRange(8, 4));
+            EXPECT_EQ(count, 4U);
+        }
+    }
+}
+
+TEST_F(RankGraphTest, Ut_VirtualGroups_When_FourLayers_Expect_IndependentMiddleLayers)
+{
+    std::vector<VirtualTestLayer> layers(4);
+    layers[1].resize(4);
+    layers[2].resize(2);
+    layers[3].push_back(VirtualTestRange(0, 32));
+    for (u32 server = 0; server < 8; ++server) {
+        auto ranks = VirtualTestRange(server * 4, 4);
+        layers[0].push_back(ranks);
+        auto& pod = layers[1][(server % 2) * 2 + server / 4];
+        pod.insert(pod.end(), ranks.begin(), ranks.end());
+        auto& cluster = layers[2][server % 2];
+        cluster.insert(cluster.end(), ranks.begin(), ranks.end());
+    }
+    for (u32 rank : {0U, 8U, 20U, 31U}) {
+        auto graph = MakeVirtualTestGraph(rank, layers);
+        ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS);
+        for (u32 layer : {1U, 2U}) {
+            std::vector<u32> ranks;
+            u32 count = 0;
+            ASSERT_EQ(graph->GetNetInstanceList(layer, ranks, count), HCCL_SUCCESS);
+            EXPECT_EQ(ranks, std::vector<u32>(8, 4));
+            ASSERT_EQ(graph->GetLocalInstRanks(layer, ranks, count), HCCL_SUCCESS);
+            EXPECT_EQ(ranks, VirtualTestRange(rank / 4 * 4, 4));
+        }
+    }
+}
+
+TEST_F(RankGraphTest, Ut_VirtualGroups_When_LocalLayersAreSparse_Expect_AllLayersAboveLowestSplit)
+{
+    const std::vector<VirtualTestLayer> layers = {{{0}, {2}, {4}, {6}}, {{4, 6}}, {{0, 2}}, {{0, 2}}, {{4, 6}}};
+    auto graph = MakeVirtualTestGraph(0, layers);
+    EXPECT_EQ(graph->GetLevels(0), (std::set<u32>{0, 2, 3}));
+    ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS);
+    std::vector<u32> ranks;
+    u32 count = 0;
+    ASSERT_EQ(graph->GetLocalInstRanks(2, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{0}));
+    EXPECT_EQ(count, 1U);
+    // The highest joined layer is also split when its ranks are non-contiguous.
+    ASSERT_EQ(graph->GetLocalInstRanks(3, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{0}));
+    EXPECT_EQ(count, 1U);
+    // A layer not joined by this rank keeps its physical instance sizes.
+    ASSERT_EQ(graph->GetNetInstanceList(1, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{2}));
+    EXPECT_EQ(count, 1U);
+}
+
+TEST_F(RankGraphTest, Ut_VirtualGroups_When_NoBreakOrTwoLayers_Expect_SplitOnlyNonContiguousLayers)
+{
+    auto layers = VirtualTestThreeLayers();
+    layers[1] = {VirtualTestRange(0, 8), VirtualTestRange(8, 8)};
+    auto graph = MakeVirtualTestGraph(8, layers);
+    ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS);
+    std::vector<u32> ranks;
+    u32 count = 0;
+    ASSERT_EQ(graph->GetLocalInstRanks(1, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, VirtualTestRange(8, 8));
+    // With two layers, the highest layer is still split when its ranks are non-contiguous.
+    layers = VirtualTestThreeLayers();
+    layers.pop_back();
+    graph = MakeVirtualTestGraph(8, layers);
+    ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS);
+    ASSERT_EQ(graph->GetLocalInstRanks(1, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, VirtualTestRange(8, 4));
+    EXPECT_EQ(count, 4U);
+}
+
+TEST_F(RankGraphTest, Ut_VirtualGroups_When_MixedSegments_Expect_GlobalOrderAndSingletonPreserved)
+{
+    const VirtualTestLayer middle = {{0, 1, 5, 6, 7}, {2}, {3, 4}};
+    auto graph = MakeVirtualTestGraph(2, {{VirtualTestRange(0, 8)}, middle, {VirtualTestRange(0, 8)}});
+    ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS);
+    std::vector<u32> ranks;
+    u32 count = 0;
+    ASSERT_EQ(graph->GetNetInstanceList(1, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{2, 1, 2, 3}));
+    ASSERT_EQ(graph->GetLocalInstRanks(1, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{2}));
+    auto reversed = middle;
+    std::reverse(reversed.begin(), reversed.end());
+    graph = MakeVirtualTestGraph(2, {{VirtualTestRange(0, 8)}, reversed, {VirtualTestRange(0, 8)}});
+    ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS);
+    ASSERT_EQ(graph->GetNetInstanceList(1, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{2, 1, 2, 3}));
+}
+
+TEST_F(RankGraphTest, Ut_VirtualGroups_When_AllBreaks_Expect_SingletonGroups)
+{
+    auto graph = MakeVirtualTestGraph(3, {{{0, 1}, {2, 3}}, {{0, 2}, {1, 3}}, {{0, 1, 2, 3}}});
+    ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS);
+    std::vector<u32> ranks;
+    u32 count = 0;
+    ASSERT_EQ(graph->GetNetInstanceList(1, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, std::vector<u32>(4, 1));
+    ASSERT_EQ(graph->GetLocalInstRanks(1, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{3}));
+}
+
+TEST_F(RankGraphTest, Ut_VirtualGroups_When_CrossSegmentLink_Expect_PhysicalPathAndEndpointsUnchanged)
+{
+    auto graph = MakeVirtualTestGraph(0, VirtualTestThreeLayers());
+    auto* inst = graph->GetNetInstanceByRankId(1, 0);
+    auto src = graph->GetPeer(0);
+    auto dst = graph->GetPeer(8);
+    std::set<LinkProtocol> protocols = {LinkProtocol::UB_TP};
+    auto sourceIface = std::make_shared<NetInstance::ConnInterface>(
+        IpAddress("::1"), std::set<std::string>{"0/0"}, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols,
+        TopoType::CLOS, VIRTUAL_TEST_TOPO_ID);
+    auto targetIface = std::make_shared<NetInstance::ConnInterface>(
+        IpAddress("::2"), std::set<std::string>{"0/1"}, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols,
+        TopoType::CLOS, VIRTUAL_TEST_TOPO_ID);
+    src->AddConnInterface(1, sourceIface);
+    dst->AddConnInterface(1, targetIface);
+    inst->AddLink(std::make_shared<NetInstance::Link>(
+        src, dst, sourceIface, targetIface, LinkType::PEER2PEER, protocols, LinkDirection::BOTH, 0));
+    const auto before = graph->GetPaths(1, 0, 8);
+    ASSERT_EQ(before.size(), 1U);
+    u32 endpointsBefore = 0;
+    ASSERT_EQ(graph->GetEndpointNum(1, VIRTUAL_TEST_TOPO_ID, &endpointsBefore), HCCL_SUCCESS);
+    ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS);
+    const auto after = graph->GetPaths(1, 0, 8);
+    ASSERT_EQ(after.size(), before.size());
+    EXPECT_EQ(after[0].links[0].Describe(), before[0].links[0].Describe());
+    u32 endpointsAfter = 0;
+    ASSERT_EQ(graph->GetEndpointNum(1, VIRTUAL_TEST_TOPO_ID, &endpointsAfter), HCCL_SUCCESS);
+    EXPECT_EQ(endpointsAfter, endpointsBefore);
+    EXPECT_EQ(endpointsAfter, 1U);
+}
+
+TEST_F(RankGraphTest, Ut_VirtualGroups_When_SubGraph_Expect_RebuildInChildRankSpace)
+{
+    auto graph = MakeVirtualTestGraph(8, VirtualTestThreeLayers());
+    ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS);
+    graph->InitFinish();
+    std::unique_ptr<RankGraph> child = graph->CreateSubRankGraph({0, 4, 8, 12});
+    ASSERT_NE(child, nullptr);
+    EXPECT_EQ(child->GetMyRank(), 2U);
+    std::vector<u32> ranks;
+    u32 count = 0;
+    ASSERT_EQ(child->GetNetInstanceList(1, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, std::vector<u32>(4, 1));
+    ASSERT_EQ(child->GetLocalInstRanks(1, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{2}));
+    EXPECT_EQ(child->GetNetInstanceByRankId(1, 2)->GetRankSize(), 2U);
+}
+
+TEST_F(RankGraphTest, Ut_VirtualGroups_When_InvalidRebuild_Expect_PreviousViewPreserved)
+{
+    auto graph = MakeVirtualTestGraph(8, VirtualTestThreeLayers());
+    ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS);
+    // Introduce a duplicate membership without changing the rank-to-physical-instance association.
+    auto* inst = graph->GetNetInstanceByNetInstId(1, "1");
+    inst->AddRankId(0);
+    EXPECT_EQ(graph->BuildVirtualGroups(), HCCL_E_PARA);
+    std::vector<u32> ranks;
+    u32 count = 0;
+    ASSERT_EQ(graph->GetLocalInstRanks(1, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, VirtualTestRange(8, 4));
+    EXPECT_EQ(graph->GetNetInstanceList(MAX_NET_LAYER, ranks, count), HCCL_E_PARA);
+}
+
+TEST_F(RankGraphTest, Ut_VirtualGroups_When_Disabled_Expect_PhysicalParentAndChild)
+{
+    auto graph = MakeVirtualTestGraph(8, VirtualTestThreeLayers(), false);
+    EXPECT_FALSE(graph->IsVirtualGroupsEnabled());
+    // Even an accidental direct call must not enable grouping for a ranktable graph.
+    ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS);
+    std::vector<u32> ranks;
+    u32 count = 0;
+    ASSERT_EQ(graph->GetLocalInstRanks(1, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{0, 1, 2, 3, 8, 9, 10, 11}));
+    graph->InitFinish();
+    std::unique_ptr<RankGraph> child = graph->CreateSubRankGraph({0, 4, 8, 12});
+    ASSERT_NE(child, nullptr);
+    EXPECT_FALSE(child->IsVirtualGroupsEnabled());
+    ASSERT_EQ(child->GetLocalInstRanks(1, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{0, 2}));
+}
+
+TEST_F(RankGraphTest, Ut_VirtualGroups_When_ContinuousParent_Expect_ChildInheritsEnabledPolicy)
+{
+    auto layers = VirtualTestThreeLayers();
+    layers[1] = {VirtualTestRange(0, 8), VirtualTestRange(8, 8)};
+    auto graph = MakeVirtualTestGraph(0, layers, true);
+    ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS);
+    graph->InitFinish();
+    std::unique_ptr<RankGraph> child = graph->CreateSubRankGraph({0, 8, 4, 12});
+    ASSERT_NE(child, nullptr);
+    EXPECT_TRUE(child->IsVirtualGroupsEnabled());
+    std::vector<u32> sizes;
+    u32 count = 0;
+    ASSERT_EQ(child->GetNetInstanceList(1, sizes, count), HCCL_SUCCESS);
+    EXPECT_EQ(sizes, (std::vector<u32>{1, 1, 1, 1}));
+}
+
+// 分段上界按层值比较：超过上界的层保持物理口径；稀疏层集合不因下标/层值错位误切（回归层值修复）
+TEST_F(RankGraphTest, Ut_VirtualGroups_When_BoundEqualsSparseLayerValue_Expect_BoundLayerSegmentedAbovePhysical)
+{
+    const std::vector<VirtualTestLayer> layers = {{{0}, {2}, {4}, {6}}, {{4, 6}}, {{0, 2}}, {{0, 2}}, {{0, 2}}};
+    auto graph = MakeVirtualTestGraph(0, layers);
+    EXPECT_EQ(graph->GetLevels(0), (std::set<u32>{0, 2, 3, 4}));
+    graph->physicalSuperPodLayer_ = 3; // 层值<=3切段（含上界层3）；层4>上界不切（旧下标逻辑会误切段4）
+    ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS);
+    std::vector<u32> ranks;
+    u32 count = 0;
+    ASSERT_EQ(graph->GetLocalInstRanks(2, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{0})); // 层2({0,2}非连续)按段内口径
+    EXPECT_EQ(count, 1U);
+    ASSERT_EQ(graph->GetLocalInstRanks(3, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{0})); // 层3=上界且非连续：同样切段，按段内口径
+    EXPECT_EQ(count, 1U);
+    ASSERT_EQ(graph->GetLocalInstRanks(4, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{0, 2})); // 层4超过上界：无视图，按物理成员口径
+    EXPECT_EQ(count, 2U);
+}
+
+// 子图不重算物理超节点层：直接继承父图上界，分段口径为父图段的子域投影
+TEST_F(RankGraphTest, Ut_VirtualGroups_When_SubGraph_Expect_ChildInheritsBoundAndMatchesParentSegments)
+{
+    auto layers = VirtualTestThreeLayers();
+    layers[2] = {{0, 1, 2, 3, 8, 9, 10, 11}, {4, 5, 6, 7, 12, 13, 14, 15}}; // 层2非连续：上界层本身也切段
+    auto graph = MakeVirtualTestGraph(8, layers);
+    graph->physicalSuperPodLayer_ = 2; // 上界2：层1与层2(=上界)均切段
+    ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS);
+    graph->InitFinish();
+    std::unique_ptr<RankGraph> child = graph->CreateSubRankGraph({0, 4, 8, 12});
+    ASSERT_NE(child, nullptr);
+    EXPECT_EQ(2U, child->physicalSuperPodLayer_); // 继承父图上界
+
+    std::vector<u32> ranks;
+    u32 count = 0;
+    ASSERT_EQ(graph->GetLocalInstRanks(1, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, VirtualTestRange(8, 4)); // 父图rank8层1段{8..11}
+    ASSERT_EQ(child->GetLocalInstRanks(1, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{2})); // 子图口径=父图段投影({8}->子rank2)；物理口径应为{0,2}
+    ASSERT_EQ(graph->GetLocalInstRanks(2, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, VirtualTestRange(8, 4)); // 父图层2=上界：非连续同样切段，rank8段{8..11}
+    ASSERT_EQ(child->GetLocalInstRanks(2, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{2})); // 子图层2=上界：同样切段，口径=父图段投影
+}
+
+// 父图上界为禁止切段值0（builder告警跳过写入）：子图继承后同样不建视图，不回落全域切段旧行为
+TEST_F(RankGraphTest, Ut_VirtualGroups_When_ParentBoundZero_Expect_ChildAlsoNoView)
+{
+    auto graph = MakeVirtualTestGraph(8, VirtualTestThreeLayers());
+    graph->physicalSuperPodLayer_ = 0;
+    ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS);
+    graph->InitFinish();
+    std::unique_ptr<RankGraph> child = graph->CreateSubRankGraph({0, 4, 8, 12});
+    ASSERT_NE(child, nullptr);
+    EXPECT_EQ(0U, child->physicalSuperPodLayer_); // 继承禁止值0
+
+    std::vector<u32> ranks;
+    u32 count = 0;
+    ASSERT_EQ(graph->GetLocalInstRanks(1, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{0, 1, 2, 3, 8, 9, 10, 11})); // 父图物理成员口径（无分段视图）
+    ASSERT_EQ(child->GetLocalInstRanks(1, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{0, 2})); // 子图物理成员口径：旁路已堵，不再回落全域切段
 }

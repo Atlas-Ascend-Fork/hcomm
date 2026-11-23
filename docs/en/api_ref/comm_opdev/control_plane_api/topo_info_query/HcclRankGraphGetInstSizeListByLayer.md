@@ -24,6 +24,12 @@
 
 Given a communicator and a topology layer number, queries the number of topology instances at this layer and the number of ranks contained in each instance.
 
+<!-- npu="950" id6 -->
+When a virtual grouping view has been built for the layer, the API returns the number of ranks in each virtual segment group, and `listSize` is the number of virtual groups. Each original topology instance is partitioned into contiguous segments of rank IDs in ascending order. Groups from different instances are not merged. The returned list is ordered by the first rank ID of each group in ascending order. Layers without a virtual grouping view retain the original topology instance semantics.
+
+For example, suppose two topology instances at an intermediate layer contain ranks `{0,1,2,3,8,9,10,11}` and `{4,5,6,7,12,13,14,15}`, respectively. With a virtual grouping view, the API returns `instSizeList=[4,4,4,4]` and `listSize=4`, instead of `[8,8]` and `2` for the original topology instances.
+<!-- end id6 -->
+
 ![Topology model](figures/topo_model.png)
 
 Take the preceding topology model as an example:
@@ -44,13 +50,23 @@ HcclResult HcclRankGraphGetInstSizeListByLayer(HcclComm comm, uint32_t netLayer,
 | comm | Input | Communicator.<br>The HcclComm type is defined as follows:<br>typedef void *HcclComm; |
 | netLayer | Input | Topology layer number. |
 | instSizeList | Output | List of the number of ranks contained in each topology instance at this layer. |
-| listSize | Output | Size of **instSizeList**, that is, the number of topology instances contained at this layer. |
+| listSize | Output | Size of **instSizeList**, that is, the number of topology instances at this layer. |
+
+<!-- npu="950" id7 -->
+When a virtual grouping view has been built for the layer, `instSizeList` contains the rank counts of the contiguous virtual segment groups, and `listSize` is the number of virtual groups.
+<!-- end id7 -->
 
 ## Return Value
 
 [HcclResult](../../../comm_mgr_c/data_type_definition/HcclResult.md): The API returns **HCCL_SUCCESS** on success, and other values on failure.
 
 ## Constraints
+
+<!-- npu="950" id8 -->
+- On Ascend 950PR&950DT products, virtual grouping is enabled when the communicator rank graph is built through the RootInfoDetect path, and disabled when built through the rank table file path. Sub-communicators inherit this policy. Snapshot recovery preserves the policy when it is stored in the snapshot. Snapshots saved by versions without the grouping policy recover with virtual grouping disabled, returning the original topology instance size list.
+- The current virtual grouping policy skips the lowest layer joined by the current rank and evaluates all other joined layers, including the highest layer. A virtual grouping view is built for a layer only if at least one topology instance in that layer contains non-contiguous rank IDs. For the lowest joined layer, or when the rank IDs within every instance of the layer are contiguous, the API returns the original topology instance size list. With only one joined layer, the API also returns the original topology instance size list.
+- Virtual grouping views are built before rank graph initialization completes and cannot be rebuilt after initialization. The following constraints on memory management, timely copying of returned results, and **comm** validity also apply to virtual grouping results.
+<!-- end id8 -->
 
 - The returned memory is managed by the library. The caller must not release it.
 - Copy the returned data in a timely manner. Repeated calls in the same communicator may invalidate the previous result.

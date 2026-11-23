@@ -46,6 +46,7 @@ HcclResult HcclRankGraphGetRanksByTopoInst(HcclComm comm, uint32_t netLayer, uin
 
 ## Constraints
 
+- When virtual grouping is enabled and the queried layer has virtual groups, only ranks shared by the specified topology instance and the current rank's virtual group are returned. An empty intersection returns HCCL_E_NOT_FOUND. Check the return code before using the output parameters.
 - The returned memory is managed by the library. The caller must not release it.
 - Copy the returned data in a timely manner. Repeated calls in the same communicator may invalidate the previous result.
 - **comm** must be a valid communicator handle (obtained through the communicator creation API and kept valid during the call). Do not pass a null pointer, wild pointer, or destroyed handle.

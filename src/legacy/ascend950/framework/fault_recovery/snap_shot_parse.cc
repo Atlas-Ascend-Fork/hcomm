@@ -8,6 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include <cstring>
 #include "snap_shot_parse.h"
 #include "checkcrc.h"
 #include "ip_address.h"
@@ -76,11 +77,13 @@ HcclResult SnapShotParser::DeAllSnapShotStaticBuf(BinaryStream& buf, SnapShotBuf
 {
     HCCL_INFO("[%s] start", __func__);
     // 解析 静态流公共数据 SnapShotPub
-    DeserializeCommVersionInfo(buf, localBuff.snapShotPub);
+    CHK_RET(DeserializeCommVersionInfo(buf, localBuff.snapShotPub));
     // 解析  全局通信域
     string tmpGroupName;
     buf >> tmpGroupName;
-    DeserializeCommInfo(buf, localBuff.snapshot);
+    const bool hasGroupingPolicy
+        = std::memcmp(localBuff.snapShotPub.snapshotVersion, SNAPSHOT_VERSION, SNAPSHOT_VERSION_SIZE) == 0;
+    CHK_RET(DeserializeCommInfo(buf, localBuff.snapshot, hasGroupingPolicy));
     s32 ret = memcpy_s(
         localBuff.snapshot.groupName, sizeof(localBuff.snapshot.groupName), tmpGroupName.c_str(), tmpGroupName.size());
     if (ret != 0) {
@@ -297,7 +300,7 @@ HcclResult SnapShotParser::DeSnapShotDynamicBuf(BinaryStream& buf, SnapShotDynam
 /* 全局通信域静态信息序列化 */
 void SnapShotParser::SerializeCommonInfo(
     const CommParams& commParams, const HcclCommConfig& config, std::unique_ptr<RankTableInfo> ranktableInfo,
-    std::shared_ptr<TopoInfo>& topoInfo, BinaryStream& binStream) const
+    std::shared_ptr<TopoInfo>& topoInfo, BinaryStream& binStream, bool enableVirtualGroups) const
 {
     HCCL_INFO("Snapshot saving: Start to serialize static info.");
     // 1. 配置信息序列化
@@ -308,12 +311,13 @@ void SnapShotParser::SerializeCommonInfo(
     SerializeRankTableInfo(std::move(ranktableInfo), binStream);
     // 4. topoInfo及crc信息序列化
     SerializeTopoInfo(topoInfo, binStream);
+    binStream << static_cast<u32>(enableVirtualGroups);
 }
 
 void SnapShotParser::SerializeCommVersionInfo(BinaryStream& binStream) const
 {
     HCCL_INFO("[%s]Snapshot saving: Start to serialize comm version info.", __func__);
-    char snapshotVersion[SNAPSHOT_VERSION_SIZE] = "snapshotVersionIsFixNow";
+    const auto& snapshotVersion = SNAPSHOT_VERSION;
     char cannVersion[SNAPSHOT_VERSION_SIZE] = "cannVersionIsFixNow";
     char hcclVersion[SNAPSHOT_VERSION_SIZE] = "hcclVersionIsFixNow";
     binStream << snapshotVersion << cannVersion << hcclVersion;
@@ -359,20 +363,38 @@ void SnapShotParser::SerializeTopoInfo(const std::shared_ptr<TopoInfo>& topoInfo
 }
 
 /* 全局通信域静态信息的反序列化 */
-HcclResult SnapShotParser::DeserializeCommInfo(BinaryStream& binaryStream, Snapshot& snapShot)
+HcclResult SnapShotParser::DeserializeCommInfo(BinaryStream& binaryStream, Snapshot& snapShot, bool hasGroupingPolicy)
 {
     HCCL_INFO("[%s]Snapshot recovering: Start to deserialize static info.", __func__);
     CHK_RET(DeserializeCommConfigInfo(binaryStream, snapShot.snapShotComm.config));
     CHK_RET(DeserializeParamsInfo(binaryStream, snapShot.snapShotComm.commParams));
     CHK_RET(DeserializeRankTableInfo(binaryStream, snapShot.snapShotComm.rankTableInfo));
     CHK_RET(DeserializeTopoInfo(binaryStream, snapShot.snapShotComm.topoInfo));
+    snapShot.snapShotComm.enableVirtualGroups = false;
+    if (!hasGroupingPolicy) {
+        return HCCL_SUCCESS;
+    }
+    u32 enableVirtualGroups = UINT32_MAX;
+    binaryStream >> enableVirtualGroups;
+    if (enableVirtualGroups > 1) {
+        HCCL_ERROR("[DeserializeCommInfo] invalid virtual grouping policy[%u]", enableVirtualGroups);
+        return HCCL_E_PARA;
+    }
+    snapShot.snapShotComm.enableVirtualGroups = (enableVirtualGroups != 0);
     return HCCL_SUCCESS;
 }
 
 HcclResult SnapShotParser::DeserializeCommVersionInfo(BinaryStream& binaryStream, SnapShotPub& snapshotPub) const
 {
     HCCL_INFO("[%s]Snapshot recovering: Start to deserialize commConfig info.", __func__);
+    std::fill(std::begin(snapshotPub.snapshotVersion), std::end(snapshotPub.snapshotVersion), '\0');
     binaryStream >> snapshotPub.snapshotVersion >> snapshotPub.cannVersion >> snapshotPub.hcclVersion;
+    if (std::memcmp(snapshotPub.snapshotVersion, LEGACY_SNAPSHOT_VERSION, SNAPSHOT_VERSION_SIZE) == 0) {
+        HCCL_WARNING("[DeserializeCommVersionInfo] legacy snapshot; recovering with virtual grouping disabled");
+    } else if (std::memcmp(snapshotPub.snapshotVersion, SNAPSHOT_VERSION, SNAPSHOT_VERSION_SIZE) != 0) {
+        HCCL_ERROR("[DeserializeCommVersionInfo] unsupported snapshot version; recreate the communicator");
+        return HCCL_E_NOT_SUPPORT;
+    }
     return HCCL_SUCCESS;
 }
 

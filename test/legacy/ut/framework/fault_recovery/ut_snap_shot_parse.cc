@@ -154,12 +154,13 @@ TEST_F(SnapShotParserTest, SerializeCommonInfoTest)
     BinaryStream binStream;
 
     // 调用序列化函数
-    parser.SerializeCommonInfo(commParams, config, move(ranktableInfo), topoInfo, binStream);
+    parser.SerializeCommonInfo(commParams, config, move(ranktableInfo), topoInfo, binStream, true);
 
     // 检查二进制流是否被正确写入（例如，检查大小是否增加）
     EXPECT_GT(binStream.GetSize(), 0);
     HcclResult ret = parser.DeserializeCommInfo(binStream, snapShot);
     EXPECT_EQ(HCCL_SUCCESS, ret);
+    EXPECT_TRUE(snapShot.snapShotComm.enableVirtualGroups);
 
     binStream.Clear();
 }
@@ -404,18 +405,13 @@ TEST_F(SnapShotParserTest, DeAllSnapShotStaticBufTest)
     SnapShotParser& parser = SnapShotParser::GetInstance();
     BinaryStream buf;
     SnapShotBuf localBuff;
-    char snapshotVersion[128];
-    char cannVersion[128];
-    char hcclVersion[128];
-    buf << snapshotVersion;
-    buf << cannVersion;
-    buf << hcclVersion;
-
+    parser.SerializeCommVersionInfo(buf);
+    buf << std::string("test_comm");
     size_t groupNum = 0;
     buf << groupNum;
     MOCKER_CPP(&SnapShotParser::DeserializeCommInfo)
         .stubs()
-        .with(mockcpp::any(), mockcpp::any())
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
     HcclResult ret = parser.DeAllSnapShotStaticBuf(buf, localBuff);
     EXPECT_EQ(HCCL_SUCCESS, ret);
@@ -427,12 +423,7 @@ TEST_F(SnapShotParserTest, DeAllSnapShotStaticBufTest_2)
     SnapShotParser& parser = SnapShotParser::GetInstance();
     BinaryStream buf;
     SnapShotBuf localBuff;
-    char snapshotVersion[128] = "1";
-    char cannVersion[128] = "1";
-    char hcclVersion[128] = "1";
-    buf << snapshotVersion;
-    buf << cannVersion;
-    buf << hcclVersion;
+    parser.SerializeCommVersionInfo(buf);
     string a = "a";
     buf << a;
     size_t groupNum = 1;
@@ -440,7 +431,7 @@ TEST_F(SnapShotParserTest, DeAllSnapShotStaticBufTest_2)
     buf << a;
     MOCKER_CPP(&SnapShotParser::DeserializeCommInfo)
         .stubs()
-        .with(mockcpp::any(), mockcpp::any())
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&SnapShotParser::DeserializeSubCommInfo)
         .stubs()
@@ -588,4 +579,88 @@ TEST_F(SnapShotParserTest, ut_DeSnapShotDynamicBuf_with_all_elements_ReturnHCCL_
 
     SnapShotParser& parser = SnapShotParser::GetInstance();
     EXPECT_EQ(HCCL_SUCCESS, parser.DeSnapShotDynamicBuf(buf, info));
+}
+
+TEST_F(SnapShotParserTest, CurrentAndLegacySnapshotPolicyRoundTrip)
+{
+    auto& parser = SnapShotParser::GetInstance();
+    for (u32 versionCase : {0U, 1U, 2U}) {
+        const bool legacy = versionCase == 0;
+        const bool enabled = versionCase == 2;
+        CommParams params("policy", 0, 1, 0, DevType::DEV_TYPE_950, false, true);
+        HcclCommConfig config{};
+        auto table = std::make_unique<RankTableInfo>();
+        table->version = "2.0";
+        table->rankCount = 1;
+        NewRankInfo rank{};
+        rank.rankId = 0;
+        rank.localId = 0;
+        rank.deviceId = 0;
+        rank.replacedLocalId = 0;
+        RankLevelInfo level{};
+        level.netLayer = 0;
+        level.netInstId = "server0";
+        level.netType = NetType::TOPO_FILE_DESC;
+        rank.rankLevelInfos.push_back(level);
+        table->ranks.push_back(rank);
+        auto topo = std::make_shared<TopoInfo>();
+        topo->version = "2.0";
+        topo->peerCount = 1;
+        PeerInfo peer{};
+        peer.localId = 0;
+        topo->peers.push_back(peer);
+        BinaryStream stream;
+        if (legacy) {
+            char oldVersion[SNAPSHOT_VERSION_SIZE] = "snapshotVersionIsFixNow";
+            char otherVersion[SNAPSHOT_VERSION_SIZE] = {};
+            stream << oldVersion << otherVersion << otherVersion;
+        } else {
+            parser.SerializeCommVersionInfo(stream);
+        }
+        stream << std::string("policy");
+        if (legacy) {
+            // Reproduce the legacy layout without the trailing u32 policy field.
+            parser.SerializeCommConfigInfo(config, stream);
+            parser.SerializeParamsInfo(params, stream);
+            parser.SerializeRankTableInfo(std::move(table), stream);
+            parser.SerializeTopoInfo(topo, stream);
+        } else {
+            parser.SerializeCommonInfo(params, config, std::move(table), topo, stream, enabled);
+        }
+        stream << size_t{1} << std::string("sub_policy");
+        parser.SerializeSubCommInfo(params, config, std::vector<u32>{0}, stream);
+        stream << u32{17};                             // step
+        stream << u32{0} << u32{0} << false << u32{0}; // global dynamic info
+        stream << size_t{1};
+        stream << u32{0} << u32{0} << false << u32{0};             // sub-communicator dynamic info
+        stream << size_t{1} << std::string("policy") << size_t{0}; // CCU status
+        u32 crc = 0;
+        ASSERT_EQ(parser.CalcBufCrc32(stream, crc), HCCL_SUCCESS);
+        BinaryStream header;
+        header << static_cast<u32>(stream.GetSize()) << crc;
+        std::vector<char> bytes;
+        header.Dump(bytes);
+        stream.Dump(bytes);
+        SnapShotBuf snapshot{};
+        snapshot.snapshot.snapShotComm.enableVirtualGroups = true;
+        ASSERT_EQ(parser.ParseSnapshotToLocalBuff(bytes.data(), bytes.size(), snapshot), HCCL_SUCCESS);
+        EXPECT_EQ(snapshot.snapshot.snapShotComm.enableVirtualGroups, enabled);
+        EXPECT_EQ(snapshot.snapshot.snapShotComm.commParams.commId, "policy");
+        ASSERT_EQ(snapshot.subSnapshot.size(), 1U);
+        EXPECT_STREQ(snapshot.subSnapshot[0].groupName, "sub_policy");
+        EXPECT_EQ(snapshot.subSnapshot[0].snapShotSubComm.rankIds, (std::vector<RankId>{0}));
+        EXPECT_EQ(snapshot.snapShotPub.step, 17U);
+        ASSERT_EQ(snapshot.ccuStatusSnapshot.useMsCommIds.size(), 1U);
+        EXPECT_STREQ(snapshot.ccuStatusSnapshot.useMsCommIds[0].data(), "policy");
+    }
+}
+
+TEST_F(SnapShotParserTest, UnknownSnapshotVersionIsNotSupported)
+{
+    BinaryStream stream;
+    char oldVersion[SNAPSHOT_VERSION_SIZE] = "unknownSnapshotVersion";
+    char otherVersion[SNAPSHOT_VERSION_SIZE] = {};
+    stream << oldVersion << otherVersion << otherVersion;
+    SnapShotBuf snapshot{};
+    EXPECT_EQ(SnapShotParser::GetInstance().DeAllSnapShotStaticBuf(stream, snapshot), HCCL_E_NOT_SUPPORT);
 }

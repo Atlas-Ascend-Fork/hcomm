@@ -190,7 +190,10 @@ HcclResult BaseSelector::ExtractNetLayerDetails(TopoInfo& topoInfo) const
                 "rankSize[%u]",
                 layerIdx, currLayerRankSize, rankSize_),
             HCCL_E_PARA);
-        localNetInsSizeOfLayer[layerIdx] = rankGraph_->GetLocalInstSize(layerIdx);
+        ret = rankGraph_->GetLocalInstSize(layerIdx, localNetInsSizeOfLayer[layerIdx]);
+        CHK_PRT_RET(
+            ret != HCCL_SUCCESS,
+            HCCL_ERROR("[BaseSelector][ExtractNetLayerDetails] GetLocalInstSize failed, netLayer[%u]", layerIdx), ret);
     }
 
     topoLevelNum = 0;
@@ -263,6 +266,12 @@ HcclResult BaseSelector::ExtractTopoDetails(TopoInfo& topoInfo) const
 
             // 获取拓扑实例中包含的rank
             ret = rankGraph_->GetRanksByTopoInst(netLayerIdx, topoInstId, ranks, topoSize);
+            if (ret == HCCL_E_NOT_FOUND) {
+                // Keep the physical instance slot, but exclude it from local topology statistics.
+                topoSize = 0;
+                ranks.clear();
+                continue;
+            }
             CHK_PRT_RET(
                 ret != HCCL_SUCCESS,
                 HCCL_ERROR(

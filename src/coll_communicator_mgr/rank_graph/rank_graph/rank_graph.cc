@@ -8,6 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include <algorithm>
+#include <iterator>
 #include <unordered_map>
 #include "virtual_topo.h"
 #include "string_util.h"
@@ -77,6 +79,98 @@ void RankGraph::InitInnerRanks()
 }
 
 void RankGraph::InitFinish() { initFlag_ = true; }
+
+HcclResult RankGraph::BuildLayerVirtualGroups(u32 netLayer, LayerVirtualGroups& view, bool& hasSplit) const
+{
+    hasSplit = false;
+    for (const auto& entry : netInsts_[netLayer]) {
+        CHK_PTR_NULL(entry.second);
+        const auto ranks = entry.second->GetRankIds();
+        if (ranks.empty()) {
+            continue;
+        }
+        std::vector<u32> segment;
+        for (RankId rank : ranks) {
+            if (!segment.empty() && static_cast<u64>(rank) != static_cast<u64>(segment.back()) + 1) {
+                HCCL_RUN_WARNING(
+                    "[BuildVirtualGroups] non-contiguous ranks trigger virtual grouping, myRank[%d], layer[%u], "
+                    "netInstId[%s], segment[%u..%u], nextRank[%d]",
+                    myRank_, netLayer, entry.first.c_str(), segment.front(), segment.back(), rank);
+                view.groups.push_back(std::move(segment));
+                segment.clear();
+                hasSplit = true;
+            }
+            segment.push_back(static_cast<u32>(rank));
+        }
+        view.groups.push_back(std::move(segment));
+    }
+    if (!hasSplit) {
+        return HCCL_SUCCESS;
+    }
+    // Sorting instances alone is insufficient: their segments may interleave.
+    std::sort(view.groups.begin(), view.groups.end(), [](const auto& lhs, const auto& rhs) {
+        return lhs.front() < rhs.front();
+    });
+    for (u32 index = 0; index < view.groups.size(); ++index) {
+        const auto& group = view.groups[index];
+        for (u32 rank : group) {
+            if (!HasRank(rank) || !view.rankToGroup.emplace(rank, index).second) {
+                HCCL_ERROR("[BuildVirtualGroups] invalid or duplicate rank[%u] layer[%u]", rank, netLayer);
+                return HCCL_E_PARA;
+            }
+        }
+        HCCL_INFO(
+            "[BuildVirtualGroups] layer[%u] _HCCLSPLIT_ group[%u] ranks[%u..%u]", netLayer, index, group.front(),
+            group.back());
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult RankGraph::BuildVirtualGroups()
+{
+    // Once published, interface caches and concurrent readers require an immutable view.
+    if (initFlag_) {
+        HCCL_ERROR("[BuildVirtualGroups] rank graph is already initialized");
+        return HCCL_E_INTERNAL;
+    }
+    if (!enableVirtualGroups_) {
+        return HCCL_SUCCESS;
+    }
+    std::set<u32> localLevels;
+    TRY_CATCH_RETURN(localLevels = GetLevels(myRank_););
+    const std::vector<u32> levels(localLevels.begin(), localLevels.end());
+    std::unordered_map<u32, LayerVirtualGroups> newViews;
+    // 当前策略：跳过当前 rank 加入的最低层级；分段上界为物理超节点层（层值），levels 升序，超过上界即停止切分。
+    for (size_t i = 1; i < levels.size(); ++i) {
+        if (levels[i] > physicalSuperPodLayer_) {
+            break;
+        }
+        LayerVirtualGroups view;
+        bool hasSplit = false;
+        CHK_RET(BuildLayerVirtualGroups(levels[i], view, hasSplit));
+        if (hasSplit) {
+            newViews.emplace(levels[i], std::move(view));
+        }
+    }
+    virtualGroups_.swap(newViews);
+    return HCCL_SUCCESS;
+}
+
+HcclResult RankGraph::FindLocalVirtualGroup(u32 netLayer, const std::vector<u32>*& ranks) const
+{
+    ranks = nullptr;
+    const auto layer = virtualGroups_.find(netLayer);
+    if (layer == virtualGroups_.end()) {
+        return HCCL_SUCCESS;
+    }
+    const auto group = layer->second.rankToGroup.find(myRank_);
+    if (group == layer->second.rankToGroup.end() || group->second >= layer->second.groups.size()) {
+        HCCL_ERROR("[FindLocalVirtualGroup] missing rank[%d] on layer[%u]", myRank_, netLayer);
+        return HCCL_E_PARA;
+    }
+    ranks = &layer->second.groups[group->second];
+    return HCCL_SUCCESS;
+}
 
 bool RankGraph::HasRank(RankId rankId) const
 {
@@ -239,12 +333,19 @@ u32 RankGraph::GetLayerRanks(const u32 netLayer) const
     return layerRankSize;
 }
 
-void RankGraph::GetLocalInstRanks(const u32 netLayer, vector<u32>& rankList, u32& rankNum) const
+HcclResult RankGraph::GetLocalInstRanks(const u32 netLayer, vector<u32>& rankList, u32& rankNum) const
 {
+    const std::vector<u32>* group = nullptr;
+    CHK_RET(FindLocalVirtualGroup(netLayer, group));
+    if (group != nullptr) {
+        rankList = *group;
+        rankNum = static_cast<u32>(rankList.size());
+        return HCCL_SUCCESS;
+    }
     const NetInstance* netInstance = GetNetInstanceByRankId(netLayer, myRank_);
     if (netInstance == nullptr) {
-        THROW<NullPtrException>(
-            StringFormat("[RankGraph][GetLocalInstRanks] myRank %u has no netInstance on layer %u", myRank_, netLayer));
+        HCCL_ERROR("[%s] myRank %u has no netInstance on layer %u", __func__, myRank_, netLayer);
+        return HCCL_E_PTR;
     }
     set<RankId> rankSet = netInstance->GetRankIds();
     rankList.clear();
@@ -252,16 +353,24 @@ void RankGraph::GetLocalInstRanks(const u32 netLayer, vector<u32>& rankList, u32
         rankList.push_back(static_cast<u32>(rank));
     }
     rankNum = rankSet.size();
+    return HCCL_SUCCESS;
 }
 
-u32 RankGraph::GetLocalInstSize(const u32 netLayer) const
+HcclResult RankGraph::GetLocalInstSize(const u32 netLayer, u32& rankSize) const
 {
+    const std::vector<u32>* group = nullptr;
+    CHK_RET(FindLocalVirtualGroup(netLayer, group));
+    if (group != nullptr) {
+        rankSize = static_cast<u32>(group->size());
+        return HCCL_SUCCESS;
+    }
     const NetInstance* netInstance = GetNetInstanceByRankId(netLayer, myRank_);
     if (netInstance == nullptr) {
-        THROW<NullPtrException>(
-            StringFormat("[RankGraph][GetLocalInstSize] myRank %u has no netInstance on layer %u", myRank_, netLayer));
+        HCCL_ERROR("[%s] myRank %u has no netInstance on layer %u", __func__, myRank_, netLayer);
+        return HCCL_E_PTR;
     }
-    return netInstance->GetRankSize();
+    rankSize = netInstance->GetRankSize();
+    return HCCL_SUCCESS;
 }
 
 const NetType RankGraph::GetNetType(const u32 netLayer) const
@@ -278,6 +387,17 @@ HcclResult RankGraph::GetNetInstanceList(const u32 netLayer, vector<u32>& instSi
 {
     instSizeList.clear();
     listSize = 0;
+    const auto view = virtualGroups_.find(netLayer);
+    if (view != virtualGroups_.end()) {
+        for (const auto& group : view->second.groups) {
+            instSizeList.push_back(static_cast<u32>(group.size()));
+        }
+        listSize = static_cast<u32>(instSizeList.size());
+        return HCCL_SUCCESS;
+    }
+    if (netLayer >= netInsts_.size()) {
+        return HCCL_E_PARA;
+    }
     if (netInsts_.at(netLayer).size() == 0) {
         HCCL_WARNING("[RankGraph][GetNetInstanceList] RankGraph has no net instance on layer %u", netLayer);
         return HCCL_E_PARA;
@@ -337,6 +457,22 @@ RankGraph::GetRanksByTopoInst(const u32 netLayer, const u32 topoInstId, std::vec
             "topoInstId[%u], ret[%d]",
             __func__, myRank_, netLayer, netInstance->GetNetInstId().c_str(), topoInstId, ret),
         ret);
+    // Keep the physical topoInstId valid for type/endpoint queries. Only project membership.
+    const std::vector<u32>* group = nullptr;
+    CHK_RET(FindLocalVirtualGroup(netLayer, group));
+    if (group != nullptr) {
+        std::vector<u32> filtered;
+        std::set_intersection(ranks.begin(), ranks.end(), group->begin(), group->end(), std::back_inserter(filtered));
+        ranks.swap(filtered);
+        rankNum = static_cast<u32>(ranks.size());
+        CHK_PRT_RET(
+            ranks.empty(),
+            HCCL_ERROR(
+                "[RankGraph::GetRanksByTopoInst] no ranks in local virtual group, myRank[%d], netLayer[%u], "
+                "topoInstId[%u]",
+                myRank_, netLayer, topoInstId),
+            HCCL_E_NOT_FOUND);
+    }
     return HCCL_SUCCESS;
 }
 
@@ -824,7 +960,7 @@ unique_ptr<RankGraph> RankGraph::CreateSubRankGraph(const std::vector<u32>& rank
 
     // step1: 创建subRankGraph
     RankId subMyRankId = GetSubRankId(subRankIds, myRank_);
-    unique_ptr<RankGraph> subRankGraph = make_unique<RankGraph>(subMyRankId);
+    unique_ptr<RankGraph> subRankGraph = make_unique<RankGraph>(subMyRankId, enableVirtualGroups_);
     subRankGraph->SetLevel0PcieFallback(level0PcieFallback_); // 无UB兜底标记随子图继承
 
     // 继承父图 ipIndexMap_，子图 rankId 是 rankIds 数组下标，需做映射
@@ -850,7 +986,15 @@ unique_ptr<RankGraph> RankGraph::CreateSubRankGraph(const std::vector<u32>& rank
 
     // step5: 设置innerRanks
     subRankGraph->InitInnerRanks();
-    // step6: 构造完成
+    // step6: 构造完成；子图无 rankTable/topoInfo，不重算物理超节点层，继承父图分段上界。
+    if (enableVirtualGroups_) {
+        subRankGraph->physicalSuperPodLayer_ = physicalSuperPodLayer_;
+        HcclResult vgRet = subRankGraph->BuildVirtualGroups();
+        CHK_PRT_THROW(
+            vgRet != HcclResult::HCCL_SUCCESS,
+            HCCL_ERROR("[RankGraph][CreateSubVirtTopo] BuildVirtualGroups failed, ret[%d]", vgRet), InternalException,
+            "BuildVirtualGroups failed with internal error");
+    }
     subRankGraph->InitFinish();
 
     HCCL_INFO("[subRankGraph] Build success!");

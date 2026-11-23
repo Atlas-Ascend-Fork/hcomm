@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "gtest/gtest.h"
+#include <mockcpp/mockcpp.hpp>
 #include "base_selector.h"
 #include "rank_gph.h"
 
@@ -41,6 +42,8 @@ protected:
         }
         selector_.SetVirtualTopo(&rankGraph_).SetMyRank(0).SetRankSize(4);
     }
+
+    void TearDown() override { GlobalMockObject::verify(); }
 
     void AddNetInstance(u32 layer, const std::string& name, const std::vector<RankId>& ranks)
     {
@@ -92,7 +95,7 @@ protected:
         }
     }
 
-    RankGraph rankGraph_{0};
+    RankGraph rankGraph_{0, true};
     TestBaseSelector selector_;
 };
 
@@ -101,6 +104,58 @@ TEST_F(BaseSelectorTest, ExtractContinuousLayers) { CheckTwoLayerDetails(1); }
 TEST_F(BaseSelectorTest, ExtractSparseLayers) { CheckTwoLayerDetails(3); }
 
 TEST_F(BaseSelectorTest, ExtractHighestSupportedLayer) { CheckTwoLayerDetails(7); }
+
+TEST_F(BaseSelectorTest, SkipTopoInstancesOutsideLocalVirtualGroup)
+{
+    AddNetInstance(0, "local", {0, 1});
+    AddNetInstance(0, "remote", {2, 3});
+    AddNetInstance(1, "even", {0, 2});
+    AddNetInstance(1, "odd", {1, 3});
+    AddNetInstance(2, "all", {0, 1, 2, 3});
+    auto* instance = rankGraph_.GetNetInstanceByRankId(1, 0);
+    ASSERT_NE(instance, nullptr);
+    instance->UpdateTopoInst(1, TopoType::MESH_1D, 2);
+    instance->UpdateTopoInst(2, TopoType::CLOS, 0);
+
+    TestBaseSelector::TopoInfo topoInfo{};
+    ASSERT_EQ(selector_.ExtractNetLayerDetails(topoInfo), HCCL_SUCCESS);
+    ASSERT_EQ(selector_.ExtractTopoDetails(topoInfo), HCCL_SUCCESS);
+    ASSERT_EQ(topoInfo.topoInstDetailsOfLayer[1].topoInstNum, 3U);
+    const auto physicalTopoTypes = topoInfo.topoInstDetailsOfLayer[1].typeOfTopo;
+    EXPECT_EQ(topoInfo.topoInstDetailsOfLayer[1].rankNumForTopoType.at(TopoType::MESH_1D), (std::vector<u32>{1}));
+
+    ASSERT_EQ(rankGraph_.BuildVirtualGroups(), HCCL_SUCCESS);
+    std::vector<u32> ranks;
+    u32 count = 0;
+    ASSERT_EQ(rankGraph_.GetRanksByTopoInst(1, 1, ranks, count), HCCL_E_NOT_FOUND);
+    // Reuse populated output to verify both filtering and repeated extraction discard stale entries.
+    for (u32 attempt = 0; attempt < 2; ++attempt) {
+        ASSERT_EQ(selector_.ExtractTopoDetails(topoInfo), HCCL_SUCCESS);
+        const auto& details = topoInfo.topoInstDetailsOfLayer[1];
+        EXPECT_EQ(details.topoInstNum, 3U);
+        EXPECT_EQ(details.typeOfTopo, physicalTopoTypes);
+        ASSERT_EQ(details.sizeOfTopo.size(), 3U);
+        ASSERT_EQ(details.ranksInTopo.size(), 3U);
+        for (size_t i = 0; i < physicalTopoTypes.size(); ++i) {
+            const bool outsideLocalGroup = physicalTopoTypes[i] == TopoType::MESH_1D;
+            EXPECT_EQ(details.sizeOfTopo[i], outsideLocalGroup ? 0U : 1U);
+            EXPECT_EQ(details.ranksInTopo[i], outsideLocalGroup ? std::vector<u32>{} : std::vector<u32>{0});
+        }
+        ASSERT_EQ(details.rankNumForTopoType.size(), 1U);
+        EXPECT_EQ(details.rankNumForTopoType.at(TopoType::CLOS), (std::vector<u32>{1, 1}));
+        EXPECT_EQ(topoInfo.topoInstDetailsOfLayer[0].ranksInTopo, (std::vector<std::vector<u32>>{{0, 1}}));
+        EXPECT_EQ(topoInfo.topoInstDetailsOfLayer[2].ranksInTopo, (std::vector<std::vector<u32>>{{0, 1, 2, 3}}));
+    }
+}
+
+TEST_F(BaseSelectorTest, PropagateTopoRanksQueryErrors)
+{
+    AddNetInstance(0, "all", {0, 1, 2, 3});
+    TestBaseSelector::TopoInfo topoInfo{};
+    ASSERT_EQ(selector_.ExtractNetLayerDetails(topoInfo), HCCL_SUCCESS);
+    MOCKER_CPP(&RankGraph::GetRanksByTopoInst).stubs().will(returnValue(HCCL_E_PARA));
+    EXPECT_EQ(selector_.ExtractTopoDetails(topoInfo), HCCL_E_PARA);
+}
 
 TEST_F(BaseSelectorTest, StopCountingAtFirstLayerCoveringAllRanks)
 {

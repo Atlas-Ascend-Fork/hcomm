@@ -14,6 +14,7 @@
 #include <iostream>
 #include <unistd.h>
 
+// 访问私有成员验证分段上界判定路径（与ut_rank_graph.cc同款惯例）
 #define private public
 #define protected public
 
@@ -23,9 +24,12 @@
 #include "rank_graph_test_data_builder.h"
 #include "rank_gph.h"
 #include "rank_graph_builder.h"
+#include "nlohmann/json.hpp"
 
 #undef private
 #undef protected
+
+#include "rank_graph_builder_bridge.h"
 
 using namespace Hccl;
 
@@ -66,6 +70,23 @@ TEST_F(RankGraphBuilderTest, Ut_Build_When_Normal_Expect_Success)
     EXPECT_NE(1, path2.size());
 }
 
+// topo解析缺失：告警后写禁止切段值0并跳过建虚拟分组视图，不静默回落全域切段旧行为
+TEST_F(RankGraphBuilderTest, Ut_Build_When_TopoInfoNull_Expect_WarningSkipAndZeroBound)
+{
+    MOCKER_CPP(&PhyTopoBuilder::Build).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER_CPP(&PhyTopoBuilder::GetTopoInfo).stubs().will(returnValue(std::shared_ptr<TopoInfo>()));
+    MOCKER_CPP(&RankGraphBuilder::BuildFromRankTable).stubs().will(ignoreReturnValue());
+    MOCKER_CPP(&RankGraph::BuildVirtualGroups).expects(never()); // 空指针分支不得建虚拟分组视图
+    MOCKER_CPP(&RankGraphBuilder::BuildPeer2PeerLinks).stubs().will(ignoreReturnValue());
+    MOCKER_CPP(&RankGraphBuilder::UpdateTopoInstForMyRankOnly).stubs().will(ignoreReturnValue());
+    MOCKER_CPP(&RankGraphBuilder::SetEndpointDesc).stubs();
+    MOCKER_CPP(&DetourService::InsertDetourLinks).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+
+    RankGraphBuilder rankGraphBuilder;
+    std::unique_ptr<RankGraph> rankGraph = rankGraphBuilder.Build(test::MakeRankTable2p(), "topo.json", 0);
+    ASSERT_NE(nullptr, rankGraph);
+    EXPECT_EQ(0U, rankGraph->physicalSuperPodLayer_); // 禁止切段：子图继承后同样不建视图
+}
 // 无UB兜底场景：rank table中本rank level0带pcie_fallback显式标记时，Build将标志持久化进RankGraph
 TEST_F(RankGraphBuilderTest, Ut_Build_When_Level0PcieFallback_Expect_FlagPersistedInRankGraph)
 {
@@ -105,7 +126,7 @@ TEST_F(RankGraphBuilderTest, Ut_BuildRankGraph_When_Normal_Expect_Success)
     tmpRankTable.rankCount = 3;
     rankGraphBuilder.rankTable_ = make_unique<Hccl::RankTableInfo>(tmpRankTable);
     rankGraphBuilder.myRank_ = 0;
-    EXPECT_NO_THROW(rankGraphBuilder.BuildRankGraph());
+    EXPECT_NO_THROW(rankGraphBuilder.BuildRankGraph(false));
 }
 
 TEST_F(RankGraphBuilderTest, Ut_Build_When_1pRankTable_Expect_Success)
@@ -220,4 +241,170 @@ TEST_F(RankGraphBuilderTest, Ut_RankGraphBuilderRecoverBuild_When_Invalid_Expect
     TopoInfo topoInfo;
     RankGraphBuilder rankGraphBuilder;
     EXPECT_THROW(rankGraphBuilder.RecoverBuild(rankTableInfo, topoInfo, 0), InvalidParamsException);
+}
+namespace {
+constexpr RankId RANK_0 = 0;
+constexpr RankId RANK_1 = 1;
+constexpr RankId RANK_2 = 2;
+constexpr RankId RANK_3 = 3;
+constexpr u32 TARGET_LAYER = 1;
+constexpr u32 INTER_LAYER = 2;
+const std::string TARGET_INST_ID = "sp_0_idx_0";
+
+// 4rank超节点表：L0=server实例(每实例2个rank)、L1=sp_0_idx_0(4个rank)、L2=cluster(4个rank)。
+RankTableInfo MakeSuperpodTable()
+{
+    std::vector<NewRankInfo> ranks;
+    for (u32 rankId = 0; rankId < 4; ++rankId) {
+        const std::string ip = "192.0.2." + std::to_string(10 + rankId);
+        std::vector<RankLevelInfo> levels = {
+            test::MakeRankLevel(
+                0, rankId < 2 ? "srv_0" : "srv_1", NetType::TOPO_FILE_DESC, {test::MakeAddress(ip, {"0/0"})}),
+            test::MakeRankLevel(TARGET_LAYER, TARGET_INST_ID, NetType::CLOS, {test::MakeAddress(ip, {"1/0"})}),
+            test::MakeRankLevel(INTER_LAYER, "cluster", NetType::CLOS, {test::MakeAddress(ip, {"2/0"})}),
+        };
+        ranks.push_back(test::MakeRankInfo(rankId, rankId, rankId, levels));
+    }
+    return test::MakeRankTable(ranks);
+}
+
+// 配套topo：L0框内直连(UB)、L1超节点层(UB)、L2跨超层(RoCE)。
+TopoInfo MakeSuperpodTopo(bool withInterRoce = true)
+{
+    std::vector<EdgeInfo> edges = {
+        test::MakeEdge(0, LinkType::PEER2PEER, 0, {"0/0"}, 1, {"0/0"}, LinkProtocol::UB_CTP),
+        test::MakeEdge(0, LinkType::PEER2PEER, 2, {"0/0"}, 3, {"0/0"}, LinkProtocol::UB_CTP),
+    };
+    for (u32 localId = 0; localId < 4; ++localId) {
+        edges.push_back(
+            test::MakeEdge(TARGET_LAYER, LinkType::PEER2NET, localId, {"1/0"}, 0, {}, LinkProtocol::UB_CTP));
+        edges.push_back(test::MakeEdge(
+            INTER_LAYER, LinkType::PEER2NET, localId, {"2/0"}, 0, {},
+            withInterRoce ? LinkProtocol::ROCE : LinkProtocol::UB_CTP));
+    }
+    return test::MakeTopoInfo({0, 1, 2, 3}, edges);
+}
+} // namespace
+
+class TableRewriteBuildTest : public testing::Test {
+protected:
+    static void SetUpTestCase() {}
+    static void TearDownTestCase() {}
+    virtual void SetUp() { PhyTopo::GetInstance()->Clear(); }
+    virtual void TearDown()
+    {
+        PhyTopo::GetInstance()->Clear();
+        GlobalMockObject::verify();
+    }
+};
+
+// FindSuperPodLayer判定跨超层为最低已注册层(NOT_SUPPORT)：告警后写禁止切段值0、不建虚拟分组视图
+TEST_F(TableRewriteBuildTest, Ut_RecoverBuild_When_FindNotSupport_Expect_ZeroBoundNoView)
+{
+    MOCKER(Hccl::FindSuperPodLayer).stubs().will(returnValue(HcclResult::HCCL_E_NOT_SUPPORT));
+    MOCKER_CPP(&RankGraph::BuildVirtualGroups).expects(never()); // 告警跳过分支不得建虚拟分组视图
+
+    const auto* bridge = GetRankGraphBuilderBridge();
+    ASSERT_NE(bridge, nullptr);
+    RankGraphBuildResult result;
+    ASSERT_EQ(bridge->recoverBuild(MakeSuperpodTable(), MakeSuperpodTopo(), RANK_0, true, result), HCCL_SUCCESS);
+    auto graph = result.rankGraph;
+    ASSERT_NE(graph, nullptr);
+    EXPECT_EQ(0U, graph->physicalSuperPodLayer_); // 禁止切段：子图继承后同样不建
+}
+
+// FindSuperPodLayer全表无已注册层(NOT_FOUND)：告警后写禁止切段值0、不建虚拟分组视图
+TEST_F(TableRewriteBuildTest, Ut_RecoverBuild_When_FindNotFound_Expect_ZeroBoundNoView)
+{
+    MOCKER(Hccl::FindSuperPodLayer).stubs().will(returnValue(HcclResult::HCCL_E_NOT_FOUND));
+    MOCKER_CPP(&RankGraph::BuildVirtualGroups).expects(never()); // 告警跳过分支不得建虚拟分组视图
+
+    const auto* bridge = GetRankGraphBuilderBridge();
+    ASSERT_NE(bridge, nullptr);
+    RankGraphBuildResult result;
+    ASSERT_EQ(bridge->recoverBuild(MakeSuperpodTable(), MakeSuperpodTopo(), RANK_0, true, result), HCCL_SUCCESS);
+    auto graph = result.rankGraph;
+    ASSERT_NE(graph, nullptr);
+    EXPECT_EQ(0U, graph->physicalSuperPodLayer_); // 禁止切段：子图继承后同样不建
+}
+
+// 成功分支：判定出的物理超节点层写入图供BuildVirtualGroups与子图继承；层值超过上界的层保持物理口径
+TEST_F(TableRewriteBuildTest, Ut_RecoverBuild_When_FindSucceeded_Expect_BoundWrittenAndLayersAboveBoundPhysical)
+{
+    const auto* bridge = GetRankGraphBuilderBridge();
+    ASSERT_NE(bridge, nullptr);
+    RankGraphBuildResult result;
+    ASSERT_EQ(bridge->recoverBuild(MakeSuperpodTable(), MakeSuperpodTopo(), RANK_0, true, result), HCCL_SUCCESS);
+    auto graph = result.rankGraph;
+    ASSERT_NE(graph, nullptr);
+    EXPECT_EQ(TARGET_LAYER, graph->physicalSuperPodLayer_); // 判定值1，非默认8亦非禁止值0
+
+    std::vector<u32> rankList;
+    u32 rankNum = 0;
+    EXPECT_EQ(graph->GetLocalInstRanks(INTER_LAYER, rankList, rankNum), HCCL_SUCCESS);
+    EXPECT_EQ(rankNum, 4U); // 层2超过上界(1)：不切段，按物理实例成员口径返回
+    EXPECT_EQ(rankList, std::vector<u32>({RANK_0, RANK_1, RANK_2, RANK_3}));
+}
+
+TEST_F(RankGraphBuilderTest, Ut_BuildAndRecover_When_SourceChanges_Expect_GroupingPolicyAndPhysicalTopology)
+{
+    std::vector<NewRankInfo> ranks;
+    std::vector<EdgeInfo> edges;
+    for (u32 rank = 0; rank < 4; ++rank) {
+        const auto addr = test::MakeAddress("192.168.0." + std::to_string(rank + 1), {"0/6"});
+        ranks.push_back(test::MakeRankInfo(
+            rank, rank, rank,
+            {test::MakeRankLevel(0, "server" + std::to_string(rank), NetType::TOPO_FILE_DESC, {addr}),
+             test::MakeRankLevel(1, "pod" + std::to_string(rank % 2), NetType::CLOS, {addr}),
+             test::MakeRankLevel(2, "global", NetType::CLOS, {addr})}));
+        for (u32 layer = 0; layer < 3; ++layer) {
+            edges.push_back(test::MakeEdge(layer, LinkType::PEER2NET, rank, {"0/6"}));
+        }
+    }
+    const auto table = test::MakeRankTable(ranks);
+    const auto topo = test::MakeTopoInfo({0, 1, 2, 3}, edges);
+    nlohmann::json jsonTable = {{"version", "2.0"}, {"rank_count", 4}, {"rank_list", nlohmann::json::array()}};
+    for (const auto& rank : ranks) {
+        nlohmann::json levels = nlohmann::json::array();
+        for (const auto& level : rank.rankLevelInfos) {
+            levels.push_back(
+                {{"net_layer", level.netLayer},
+                 {"net_instance_id", level.netInstId},
+                 {"net_type", level.netLayer == 0 ? "TOPO_FILE_DESC" : "CLOS"},
+                 {"rank_addr_list",
+                  {{{"addr_type", "IPV4"},
+                    {"addr", "192.168.0." + std::to_string(rank.rankId + 1)},
+                    {"ports", {"0/6"}},
+                    {"plane_id", "0"}}}}});
+        }
+        jsonTable["rank_list"].push_back(
+            {{"rank_id", rank.rankId},
+             {"device_id", rank.deviceId},
+             {"local_id", rank.localId},
+             {"level_list", levels}});
+    }
+    // Only replace file loading; use the real physical topology and graph builders.
+    MOCKER_CPP(&PhyTopoBuilder::Build).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER_CPP(&PhyTopoBuilder::GetTopoInfo).stubs().will(returnValue(std::make_shared<TopoInfo>(topo)));
+    for (u32 mode = 0; mode < 4; ++mode) {
+        const bool enabled = (mode % 2 != 0);
+        PhyTopo::GetInstance()->Clear();
+        RankGraphBuilder builder;
+        std::unique_ptr<RankGraph> graph;
+        if (mode < 2) {
+            graph = builder.RecoverBuild(table, topo, 0, enabled);
+        } else {
+            PhyTopoBuilder::GetInstance().RecoverBuild(topo);
+            graph
+                = enabled ? builder.Build(table, "unused.json", 0) : builder.Build(jsonTable.dump(), "unused.json", 0);
+        }
+        ASSERT_NE(graph, nullptr);
+        EXPECT_EQ(graph->IsVirtualGroupsEnabled(), enabled);
+        std::vector<u32> localRanks;
+        u32 count = 0;
+        ASSERT_EQ(graph->GetLocalInstRanks(1, localRanks, count), HCCL_SUCCESS);
+        EXPECT_EQ(localRanks, enabled ? std::vector<u32>({0}) : std::vector<u32>({0, 2}));
+        EXPECT_EQ(graph->GetNetInstanceByRankId(1, 0)->GetRankIds().size(), 2U);
+        EXPECT_FALSE(graph->GetPaths(1, 0, 2).empty());
+    }
 }

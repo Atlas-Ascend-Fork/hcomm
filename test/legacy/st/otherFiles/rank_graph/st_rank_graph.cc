@@ -233,9 +233,13 @@ TEST_F(RankGraphTest, st_GetLocalInstRanks_When_Normal_Expect_SUCCESS)
 TEST_F(RankGraphTest, st_GetLocalInstSize_When_Normal_Expect_SUCCESS)
 {
     auto rankGraph = create4pRankGraph(myRank);
-    EXPECT_EQ(2, rankGraph->GetLocalInstSize(0));
-    EXPECT_EQ(3, rankGraph->GetLocalInstSize(1));
-    EXPECT_EQ(2, rankGraph->GetLocalInstSize(2));
+    u32 instSize = 0;
+    EXPECT_EQ(HCCL_SUCCESS, rankGraph->GetLocalInstSize(0, instSize));
+    EXPECT_EQ(2, instSize);
+    EXPECT_EQ(HCCL_SUCCESS, rankGraph->GetLocalInstSize(1, instSize));
+    EXPECT_EQ(3, instSize);
+    EXPECT_EQ(HCCL_SUCCESS, rankGraph->GetLocalInstSize(2, instSize));
+    EXPECT_EQ(2, instSize);
 }
 
 TEST_F(RankGraphTest, st_GetNetType_When_Normal_Expect_SUCCESS)
@@ -294,7 +298,11 @@ TEST_F(RankGraphTest, st_CreateSubRankGraph_When_Normal_Expect_SUCCESS)
     vector<u32> subRankIds = {0, 2};
     std::unique_ptr<RankGraph> subRankGraph = rankGraph->CreateSubRankGraph(subRankIds);
     subRankGraph->Dump();
-    EXPECT_EQ(1, subRankGraph->GetLocalInstSize(0));
-    EXPECT_EQ(2, subRankGraph->GetLocalInstSize(1));
-    EXPECT_EQ(2, subRankGraph->GetLocalInstSize(2));
+    u32 instSize = 0;
+    EXPECT_EQ(HCCL_SUCCESS, subRankGraph->GetLocalInstSize(0, instSize));
+    EXPECT_EQ(1, instSize);
+    EXPECT_EQ(HCCL_SUCCESS, subRankGraph->GetLocalInstSize(1, instSize));
+    EXPECT_EQ(2, instSize);
+    EXPECT_EQ(HCCL_SUCCESS, subRankGraph->GetLocalInstSize(2, instSize));
+    EXPECT_EQ(2, instSize);
 }

@@ -41,7 +41,8 @@ struct RankGraphBuilderBridge {
         const RankTableInfo& rankTable, const std::string& topoPath, RankId myRank, RankGraphBuildResult& result);
     // 从故障恢复快照重建拓扑，对应 provider 的 RecoverBuildImpl。
     using RecoverBuildFunc = HcclResult (*)(
-        const RankTableInfo& rankTable, const TopoInfo& topoInfo, RankId myRank, RankGraphBuildResult& result);
+        const RankTableInfo& rankTable, const TopoInfo& topoInfo, RankId myRank, bool enableVirtualGroups,
+        RankGraphBuildResult& result);
     // 将 unique_ptr 所有权交给 hcomm，并返回携带 hcomm 侧 deleter 的 shared_ptr。
     using AdoptRankGraphFunc
         = HcclResult (*)(std::unique_ptr<RankGraph> rankGraph, std::shared_ptr<RankGraph>& sharedRankGraph);

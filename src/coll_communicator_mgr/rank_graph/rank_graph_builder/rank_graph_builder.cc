@@ -12,6 +12,7 @@
 #include <array>
 #include "rank_graph_builder.h"
 #include "detour_service.h"
+#include "internal_exception.h"
 #include "json_parser.h"
 #include "phy_topo_builder.h"
 
@@ -33,7 +34,7 @@ unique_ptr<RankGraph> RankGraphBuilder::Build(const string& ranktableM, const st
     rankTable_ = make_unique<RankTableInfo>(rankTableInfo);
 
     this->myRank_ = myRank;
-    BuildRankGraph();
+    BuildRankGraph(false);
 
     HCCL_INFO("[RankGraphBuilder] Build VirtualTopo success!");
     rankGraph_->Dump();
@@ -47,7 +48,7 @@ unique_ptr<RankGraph> RankGraphBuilder::Build(const RankTableInfo& ranktable, co
     rankTable_ = make_unique<RankTableInfo>(ranktable);
 
     myRank_ = myRank;
-    BuildRankGraph();
+    BuildRankGraph(true);
 
     HCCL_INFO("[RankGraphBuilder] Build VirtualTopo success!");
     rankGraph_->Dump();
@@ -735,10 +736,10 @@ void RankGraphBuilder::CheckMyRankInRankTable() const
     }
 }
 
-void RankGraphBuilder::BuildRankGraph()
+void RankGraphBuilder::BuildRankGraph(bool enableVirtualGroups)
 {
     // 创建VirtualTopo
-    rankGraph_ = make_unique<RankGraph>(myRank_);
+    rankGraph_ = make_unique<RankGraph>(myRank_, enableVirtualGroups);
 
     // 校验myRank在rankTable中
     CheckMyRankInRankTable();
@@ -764,7 +765,45 @@ void RankGraphBuilder::BuildRankGraph()
     // 设置endpoint
     SetEndpointDesc();
 
-    // 构造完成
+    // 构造完成；物理超节点层每次 BuildRankGraph 判定一次；子图不重算、直接继承父图上界；恢复路径经 RecoverBuild
+    // 重建图时重新判定。
+    if (enableVirtualGroups) {
+        u32 physicalSuperPodLayer = MAX_NET_LAYER;
+        // topoInfo_ 为空时与无已注册层同样告警后跳过，不静默回落全域切段旧行为。
+        HcclResult superPodRet = HCCL_SUCCESS;
+        if (topoInfo_ == nullptr) {
+            superPodRet = HcclResult::HCCL_E_PTR;
+        } else {
+            superPodRet = FindSuperPodLayer(*rankTable_, *topoInfo_, physicalSuperPodLayer);
+        }
+        if (superPodRet == HCCL_E_NOT_SUPPORT) {
+            // 首个跨超协议层是最低层、其下没有网络层：告警后不建虚拟分组视图
+            HCCL_WARNING(
+                "[RankGraphBuilder][%s] inter layer is the lowest layer, skip building virtual groups", __func__);
+            rankGraph_->physicalSuperPodLayer_ = 0; // 禁止切段；子图继承 0 后同样不建视图
+        } else if (superPodRet == HCCL_E_NOT_FOUND) {
+            // 全表无已注册层：单独告警跳过，坏表由后续建图以各自错误报出
+            HCCL_WARNING(
+                "[RankGraphBuilder][%s] no net layer registered in table, skip building virtual groups", __func__);
+            rankGraph_->physicalSuperPodLayer_ = 0; // 禁止切段；子图继承 0 后同样不建视图
+        } else if (superPodRet == HCCL_E_PTR) {
+            // topo 解析缺失（如 PhyTopo 已初始化但 topoInfo 未发布）：告警后不建虚拟分组视图
+            HCCL_WARNING("[RankGraphBuilder][%s] topoInfo is nullptr, skip building virtual groups", __func__);
+            rankGraph_->physicalSuperPodLayer_ = 0; // 禁止切段；子图继承 0 后同样不建视图
+        } else if (superPodRet != HcclResult::HCCL_SUCCESS) {
+            CHK_PRT_THROW(
+                true, HCCL_ERROR("[RankGraphBuilder] FindSuperPodLayer failed, ret[%d]", superPodRet),
+                InternalException, "FindSuperPodLayer failed with internal error");
+        } else {
+            // 上界随图保存供子图继承。
+            rankGraph_->physicalSuperPodLayer_ = physicalSuperPodLayer;
+            HcclResult ret = rankGraph_->BuildVirtualGroups();
+            CHK_PRT_THROW(
+                ret != HcclResult::HCCL_SUCCESS,
+                HCCL_ERROR("[RankGraphBuilder] BuildVirtualGroups failed, ret[%d]", ret), InternalException,
+                "BuildVirtualGroups failed with internal error");
+        }
+    }
     rankGraph_->InitFinish();
 }
 
@@ -794,8 +833,8 @@ std::unique_ptr<RankTableInfo> RankGraphBuilder::GetRankTableInfo() { return mov
 
 std::shared_ptr<TopoInfo> RankGraphBuilder::GetTopoInfo() { return topoInfo_; }
 
-unique_ptr<RankGraph>
-RankGraphBuilder::RecoverBuild(const RankTableInfo& rankTableInfo, const TopoInfo& topoInfo, RankId myRank)
+unique_ptr<RankGraph> RankGraphBuilder::RecoverBuild(
+    const RankTableInfo& rankTableInfo, const TopoInfo& topoInfo, RankId myRank, bool enableVirtualGroups)
 {
     topoInfo_ = std::make_shared<TopoInfo>(topoInfo);
     PhyTopoBuilder::GetInstance().RecoverBuild(*topoInfo_);
@@ -806,7 +845,7 @@ RankGraphBuilder::RecoverBuild(const RankTableInfo& rankTableInfo, const TopoInf
         rankTableInfo.Describe().c_str());
 
     this->myRank_ = myRank;
-    BuildRankGraph();
+    BuildRankGraph(enableVirtualGroups);
 
     HCCL_INFO("[RankGraphBuilder] Build VirtualTopo success!");
     rankGraph_->Dump();

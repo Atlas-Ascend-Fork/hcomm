@@ -74,7 +74,7 @@ TEST_F(RankGraphBuilderTest, st_BuildRankGraph_When_Normal_Expect_Success)
     tmpRankTable.rankCount = 3;
     rankGraphBuilder.rankTable_ = make_unique<Hccl::RankTableInfo>(tmpRankTable);
     rankGraphBuilder.myRank_ = 0;
-    EXPECT_NO_THROW(rankGraphBuilder.BuildRankGraph());
+    EXPECT_NO_THROW(rankGraphBuilder.BuildRankGraph(false));
 }
 
 TEST_F(RankGraphBuilderTest, st_BuildFromRankTable_When_Normal_Expect_Success)

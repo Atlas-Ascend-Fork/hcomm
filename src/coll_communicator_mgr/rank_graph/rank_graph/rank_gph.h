@@ -31,16 +31,23 @@ constexpr u32 MAX_NET_LAYER = 8;
 
 class RankGraph {
 public:
-    explicit RankGraph(RankId myRank) : netInsts_(MAX_NET_LAYER), myRank_(myRank) {}
-    friend class VirtualTopoStub; // 声明虚拟拓扑打桩类为友元类 todo 修改类名
+    explicit RankGraph(RankId myRank, bool enableVirtualGroups = false)
+        : netInsts_(MAX_NET_LAYER),
+          myRank_(myRank),
+          enableVirtualGroups_(enableVirtualGroups)
+    {}
+    friend class VirtualTopoStub;
 
     // 修改接口
     void AddPeer(const std::shared_ptr<NetInstance::Peer>& peer);
     void AddNetInstance(const std::shared_ptr<NetInstance>& netInstance);
     void InitInnerRanks();
     void InitFinish();
+    // Build the immutable grouping view before InitFinish when enabled; physical topology is unchanged.
+    HcclResult BuildVirtualGroups();
 
     // 查询接口
+    bool IsVirtualGroupsEnabled() const { return enableVirtualGroups_; }
     bool HasRank(RankId rankId) const;
     u32 GetRankSize() const;
     u32 GetInnerRankSize() const;
@@ -56,9 +63,10 @@ public:
     const std::shared_ptr<NetInstance::Peer> GetPeer(RankId rankId) const;
     std::vector<NetInstance::Path> GetPaths(u32 netLayer, RankId sRankId, RankId dRankId) const;
     u32 GetLayerRanks(const u32 netLayer) const; // 获取myRank在指定netLayer包含的rank总数
-    void GetLocalInstRanks(const u32 netLayer, vector<u32>& rankList, u32& rankNum)
-        const; // 查询myRank在该netLayer下所在的netInstance中的所有ranks列表及总数
-    u32 GetLocalInstSize(const u32 netLayer) const; // 查询myRank在该netLayer下所在的netInstance中的ranks总数
+    // 查询myRank在该netLayer下所在虚拟分段组的ranks列表及总数；未建立虚拟分组视图时返回其netInstance成员。
+    HcclResult GetLocalInstRanks(const u32 netLayer, vector<u32>& rankList, u32& rankNum) const;
+    // 查询myRank在该netLayer下所在虚拟分段组的rank总数；未建立虚拟分组视图时返回其netInstance成员总数。
+    HcclResult GetLocalInstSize(const u32 netLayer, u32& rankSize) const;
     const NetType GetNetType(const u32 netLayer) const; //  查询netLayer的NetType
     HcclResult GetNetInstanceList(const u32 netLayer, vector<u32>& instSizeList, u32& listSize)
         const; // 给定netLayer，查询RankGraph在该netLayer分为多少NetInstance，以及每个NetInstance的size
@@ -69,6 +77,7 @@ public:
 
     void GetTopoInstsByLayer(const u32 netLayer, std::vector<u32>& topoInsts, u32& topoInstNum) const;
     HcclResult GetTopoType(const u32 netLayer, const u32 topoInstId, TopoType& topoType) const;
+    // Returns HCCL_E_NOT_FOUND when the topology instance has no ranks in the local virtual group.
     HcclResult
     GetRanksByTopoInst(const u32 netLayer, const u32 topoInstId, std::vector<u32>& ranks, u32& rankNum) const;
 
@@ -94,12 +103,24 @@ public:
     void Dump() const;
 
 private:
+    struct LayerVirtualGroups {
+        std::vector<std::vector<u32>> groups;
+        std::unordered_map<RankId, u32> rankToGroup;
+    };
+    std::unordered_map<u32, LayerVirtualGroups> virtualGroups_;
+    HcclResult BuildLayerVirtualGroups(u32 netLayer, LayerVirtualGroups& view, bool& hasSplit) const;
+    HcclResult FindLocalVirtualGroup(u32 netLayer, const std::vector<u32>*& ranks) const;
+
+    friend class RankGraphBuilder;
     RankId2PeerMap peers_;      // <rankId, Peer>
     Level2Id2NetInst netInsts_; // <netLayer, netInstId, group>
     std::set<RankId> innerRanks_;
     RankId myRank_;
     bool initFlag_{false};
-    bool level0PcieFallback_{false}; // 本rank的level0是否为无UB兜底层
+    bool enableVirtualGroups_{false}; // Inherited by subgraphs and persisted for recovery.
+    bool level0PcieFallback_{false};  // 本rank的level0是否为无UB兜底层
+    u32 physicalSuperPodLayer_{
+        MAX_NET_LAYER}; // 虚拟分组分段上界：默认 MAX_NET_LAYER 不限制；0 表示禁止；由 RankGraphBuilder 写入，子图继承
     std::unordered_map<RankId, std::map<IpAddress, uint32_t>>
         ipIndexMap_; // ipIndex 映射表，由 RankGraphBuilder 统一设置
 
@@ -111,8 +132,12 @@ private:
         const std::vector<RankId>& rankIds, RankId2PeerMap& peers, Level2Id2NetInst& subNetInsts,
         RankId parentMyRank) const;
 };
-
 CommProtocol LinkProtocolToCommProtocol(const LinkProtocol& linkProtocol);
+
+class TopoInfo;
+
+// 物理超节点层取首个跨超协议匹配层的前一个已注册层；未匹配时取最高已注册层。
+HcclResult FindSuperPodLayer(const RankTableInfo& rankTable, const TopoInfo& topoInfo, u32& physicalSuperPodLayer);
 
 std::shared_ptr<NetInstance> GetOrCreateNetInstance(
     u32 netLayer, const string& netInstId, NetType type, Level2Id2NetInst& netInsts, RankGraph* rankGraph);
