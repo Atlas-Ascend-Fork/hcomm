@@ -795,6 +795,10 @@ int RsEpollWaitHandle(int eventHandle, struct epoll_event *events, int timeout, 
     RS_CHECK_POINTER_NULL_WITH_RET(eventsNum);
 
     eventCount = epoll_wait(eventHandle, events, (int)maxevents, timeout);
+    if ((eventCount < 0) && (errno == EINTR)) {
+        *eventsNum = 0;
+        return 0;
+    }
     if (eventCount < 0) {
         hccp_err("[rs_epoll_wait_handle]epoll_wait failed, strerror[%s]", strerror(errno));
         return -EIO;
