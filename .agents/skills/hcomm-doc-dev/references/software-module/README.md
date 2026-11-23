@@ -3,6 +3,7 @@
 | 文档 | 覆盖 | 何时加载 |
 |------|------|----------|
 | [writing-rules.md](./writing-rules.md) | 六段骨架各段写作规范、接口分级详略、最小写作基线 | 写作阶段（Step 3）与结构阶段（Step 2） |
+| [code-analysis-patterns.md](./code-analysis-patterns.md) | 探查方法论：分层阅读、四类分析技术、外部组件边界识别、模块模式关注点、常见陷阱 | 探查阶段（Step 1）与结构阶段（Step 2） |
 | [mermaid-guide.md](./mermaid-guide.md) | 三类 Mermaid 图（graph/sequence/classDiagram）写法与易错点 | 画目录描述交互图、流程时序图、类图时 |
 | [terminology.md](./terminology.md) | 中英章节标题/术语对照、翻译句式、hcomm 硬件代号规避 | 中英双语对齐阶段（Step 4） |
 | [doc-template.md](../../assets/software-module/doc-template.md) | 可直接套用的文档模板（含全部占位符） | 开始成文时 |

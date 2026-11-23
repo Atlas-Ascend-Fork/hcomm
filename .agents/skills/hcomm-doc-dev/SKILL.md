@@ -23,7 +23,7 @@ hcomm 仓的**文档开发域总入口**：本 SKILL.md 只做一件事——判
 
 命中 software-module 后：
 1. 读 `references/software-module/module-doc.md`（完整写作流程）；
-2. 按其指引按需加载同目录 writing-rules.md / mermaid-guide.md / terminology.md 与 assets/、scripts/、evals/ 对应资源——均为 `software-module` 子目录下的同名文件。
+2. 按其指引按需加载同目录 writing-rules.md / mermaid-guide.md / terminology.md / code-analysis-patterns.md 与 assets/、scripts/、evals/ 对应资源——均为 `software-module` 子目录下的同名文件。
 
 ## 扩展新文档类型（维护指引）
 

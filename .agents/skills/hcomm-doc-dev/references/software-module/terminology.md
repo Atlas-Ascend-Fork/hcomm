@@ -52,6 +52,11 @@
 | 错误码转换 | error code conversion | |
 | 规格约束 | constraint specifications | |
 | 线程安全 | thread safety | |
+| 定位与依赖声明 | Location and Dependency Statement | 目录描述段必选一行式声明，四标签标准译名见下 |
+| 层级归属 | Layer Affiliation | |
+| 编译归属 | Build Affiliation | 编入的编译目标（`CMakeLists.txt` 的 `target_sources`） |
+| 依赖头 | Dependency Headers | |
+| 被谁调用 | Upstream Callers | |
 | 空指针保护 | null pointer protection | |
 | 弱符号 | weak symbol | `__attribute__((weak))` 原样保留 |
 | 动态加载 | dynamic loading | dlopen 语境 |
@@ -86,6 +91,7 @@
 - 目录树注释：`# Host侧异常处理` → `# Host-side exception handling`
 - 表头：文件/功能/依赖关系 → File / Function / Dependencies；接口/类型/参数/返回值/功能说明 → Interface / Type / Parameters / Return Value / Description
 - 表内类型：公有（对外） → public (external)；公有静态 → public static；私有 → private；`[in]`/`[out]` 保留
+- 定位与依赖声明四标签：层级归属/编译归属/依赖头/被谁调用 → Layer Affiliation / Build Affiliation / Dependency Headers / Upstream Callers（声明整句 → Location and Dependency Statement）
 - Mermaid 图内文字：节点名/函数名保留原文，中文注释（Note、subgraph 名、边标签短语）需译成英文。例：`Note right of HCD: 更新开关状态` → `Note right of HCD: Update switch status`；subgraph `Host侧` → `Host Side`
 - `✅`/`❌` 保留
 

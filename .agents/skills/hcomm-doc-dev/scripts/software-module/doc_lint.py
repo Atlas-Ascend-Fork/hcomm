@@ -12,7 +12,7 @@
 
 """doc_lint.py — hcomm-doc-dev software-module 子规范产出文档的确定性校验（Step 5 自动化部分）。
 
-四项检查（对齐 references 规则条文）：
+五项检查（对齐 references 规则条文）：
   1. hw-codes   硬件代号扫描：正文出现 CKE/Xn/GSA/MS 即违规（代码块与反引号内除外）
                 ——对齐 terminology.md「hcomm 硬件代号规避（强制）」
   2. bilingual  中英结构对齐：两版 H2/H3 标题序列、表格数、Mermaid 图数、代码块数一致
@@ -22,6 +22,11 @@
   4. mermaid    Mermaid 易错点：classDiagram 泛型未转义 <>、subgraph/alt 内 `end` 歧义、
                 节点 ID 含中文标点、classDiagram 方法行含中文括号
                 ——对齐 mermaid-guide.md「易错点清单」
+  5. pos-dep    定位与依赖声明结构检查：目录描述段四标签（层级归属/编译归属/依赖头/
+                被谁调用）齐全，或显式整段不适用声明——声明行以「定位与依赖声明」
+                开头（容忍加粗与短前置语），不适用/不涉及 + 同行原因（EN 按标准译名
+                检查，Not applicable + 原因）
+                ——对齐 writing-rules.md §2「定位与依赖声明（必选）」
 
 用法：
   python3 doc_lint.py <中文文档.md> [--en <英文文档.md>] [--repo-root <仓根>] [--head-sha <sha>]
@@ -318,6 +323,111 @@ def check_mermaid(text):
     return findings
 
 
+# ---------------------------------------------------------------- 检查 5：定位与依赖声明
+
+POS_DEP_SECTION_ZH = re.compile(r"^##\s*目录描述\s*$", re.M)
+POS_DEP_SECTION_EN = re.compile(r"^##\s*Directory\s+Description\s*$", re.M)
+POS_DEP_LABELS_ZH = ("层级归属", "编译归属", "依赖头", "被谁调用")
+POS_DEP_LABELS_EN = ("Layer Affiliation", "Build Affiliation",
+                     "Dependency Headers", "Upstream Callers")
+# 整段豁免声明（行级识别）：行首「定位与依赖声明」（容忍加粗）+ 冒号 +
+# 可选短前置语（本目录/本模块/本组件/本文档；EN: this/the + directory/module/
+# component/document/doc + 可选 is）+ 不适用/不涉及 + 同行原因。
+# 短前置语之外的同行任意文本（如指导语「四要素缺一不可，确实不适用时……」）
+# 不构成声明；分隔符一律 [ \t]（含换行的 \s 会把下一行文本吞成原因）。
+POS_DEP_WHOLE_NA_LINE_ZH = re.compile(
+    r"[ \t]*\*{0,2}定位与依赖声明\*{0,2}[ \t]*[:：][ \t]*"
+    r"(?:本(?:目录|模块|组件|文档)?[ \t]*)?不(?:适用|涉及)(?P<rest>[^\n]*)")
+POS_DEP_WHOLE_NA_LINE_EN = re.compile(
+    r"[ \t]*\*{0,2}Location\s+and\s+Dependency\s+Statement\*{0,2}[ \t]*[:：][ \t]*"
+    r"(?:(?:this|the)\s+(?:directory|module|component|document|doc)\s+(?:is\s+)?)?"
+    r"not\s+(?:applicable|involved|n/a|na(?![A-Za-z]))(?P<rest>[^\n]*)", re.I)
+_NA_REASON_STRIP_RE = re.compile(r"[\s。.;；，,、（）()：:！!？?\-—]")
+
+
+def _na_reason(rest):
+    """从「不适用/不涉及」之后的同行剩余文本提取原因；仅句读/空返回 ''。"""
+    rest = (rest or "").strip()
+    if not rest:
+        return ""
+    pm = re.match(r"^[（(]\s*([^（）()]+?)\s*[)）]", rest)
+    if pm:
+        return pm.group(1)
+    tm = re.match(r"^[:：，,、]?\s*(.+)$", rest)
+    return tm.group(1) if tm else rest
+
+
+def _na_reason_ok(reason):
+    """不适用声明的原因为非空：去掉句读/括号/空白后至少 2 个实质字符。"""
+    return len(_NA_REASON_STRIP_RE.sub("", reason or "")) >= 2
+
+
+def check_pos_dep(text, lang="zh"):
+    """目录描述段必含「定位与依赖声明」：四标签齐全，或显式整段不适用声明。
+
+    标签统一为 层级归属/编译归属/依赖头/被谁调用（EN 标准译名见
+    terminology.md）。标签级「<标签>：不适用/不涉及」视为该标签已声明
+    （标签字符串在场即算满足），但不豁免其他标签。
+
+    整段豁免为强条件（对齐 writing-rules.md §2「确实不适用时须在同一行
+    写明不适用及原因」）：声明行之外四标签全缺，且存在以「定位与依赖声明」
+    开头、冒号后仅允许短前置语（本目录/本模块等）、明示不适用/不涉及且
+    **原因同行**的显式声明——原因中提及标签名不计为标签在场；指导语
+    （「四要素缺一不可，确实不适用时……」）、模板注释、段内其他位置的
+    「不适用/不涉及」字样均不构成豁免。
+    """
+    if lang == "zh":
+        sec_re, labels = POS_DEP_SECTION_ZH, POS_DEP_LABELS_ZH
+        na_line_re = POS_DEP_WHOLE_NA_LINE_ZH
+    else:
+        sec_re, labels = POS_DEP_SECTION_EN, POS_DEP_LABELS_EN
+        na_line_re = POS_DEP_WHOLE_NA_LINE_EN
+    findings = []
+    m = sec_re.search(text)
+    if not m:
+        findings.append({
+            "check": "pos-dep",
+            "severity": "ERROR",
+            "message": "未找到目录描述章节，无法核对定位与依赖声明",
+        })
+        return findings
+    nxt = re.search(r"^##\s", text[m.end():], re.M)
+    section = text[m.end():m.end() + nxt.start()] if nxt else text[m.end():]
+    # 行级识别整段不适用声明；标签在场统计剔除声明行（原因中的标签名不计）
+    lines = section.splitlines()
+    na_idx, na_reasons = set(), []
+    for i, ln in enumerate(lines):
+        mm = na_line_re.match(ln)
+        if mm:
+            na_idx.add(i)
+            na_reasons.append(_na_reason(mm.group("rest")))
+    body = "\n".join(ln for i, ln in enumerate(lines) if i not in na_idx)
+    if lang == "zh":
+        missing = [l for l in labels if l not in body]
+    else:
+        low = body.lower()
+        missing = [l for l in labels if l.lower() not in low]
+    if not missing:
+        return findings
+    if na_idx and len(missing) == len(labels):
+        # 声明行之外四标签全缺：豁免与否取决于声明是否带同行原因
+        if any(_na_reason_ok(r) for r in na_reasons):
+            return findings
+        findings.append({
+            "check": "pos-dep",
+            "severity": "ERROR",
+            "message": "整段不适用声明缺原因或原因未与声明同行（须在同一行写明，如：定位与依赖声明：不适用（纯头文件发布目录，无独立编译目标））",
+        })
+        return findings
+    findings.append({
+        "check": "pos-dep",
+        "severity": "ERROR",
+        "message": "目录描述段缺「定位与依赖声明」要素：{}（四标签齐全；或四标签全缺时在同一行写明「定位与依赖声明：不适用/不涉及」及原因）".format(
+            "、".join(missing)),
+    })
+    return findings
+
+
 # ---------------------------------------------------------------- 主流程
 
 def lint(zh_path, en_path=None, repo_root=None, head_sha=None):
@@ -334,6 +444,9 @@ def lint(zh_path, en_path=None, repo_root=None, head_sha=None):
     findings += check_mermaid(zh_text)
     if en_text:
         findings += check_mermaid(en_text)
+    findings += check_pos_dep(zh_text, "zh")
+    if en_text:
+        findings += check_pos_dep(en_text, "en")
     return findings
 
 
@@ -410,12 +523,86 @@ classDiagram
     bi_warn = [f for f in bi if f["severity"] == "WARN"]
     if len(bi_err) != 1 or len(bi_warn) != 1:
         errors.append("bilingual 期望 1 ERROR + 1 WARN，实际 {}".format(bi))
+    # 定位与依赖声明：四标签齐全 / 缺声明 / 整段豁免（含原因）/ 无原因不豁免 /
+    # 模板注释不豁免（评审反例）/ 单要素不适用不连带豁免 / 章节缺失 / EN
+    pd_full = ("## 目录描述\n\n**层级归属**：L2；**编译归属**：`hcomm_coll_comm_obj`；"
+               "**依赖头**：`*_pub.h`；**被谁调用**：coll_comm。\n\n## 流程描述\n")
+    pd_miss = "## 目录描述\n\n目录树与关系表。\n\n## 流程描述\n"
+    pd_na = "## 目录描述\n\n定位与依赖声明：不适用（纯头文件发布目录，无独立编译目标）。\n\n## 流程描述\n"
+    pd_na_no_reason = "## 目录描述\n\n定位与依赖声明：不适用。\n\n## 流程描述\n"
+    pd_na_multiline = "## 目录描述\n\n定位与依赖声明：不适用\n\n目录树与关系表如下。\n\n## 流程描述\n"
+    pd_bold_na = "## 目录描述\n\n**定位与依赖声明**：不适用（纯头文件目录）。\n\n## 流程描述\n"
+    pd_prefix_na = "## 目录描述\n\n定位与依赖声明：本目录不适用（纯头文件目录）。\n\n## 流程描述\n"
+    pd_guide = "## 目录描述\n\n定位与依赖声明：四要素缺一不可，确实不适用时写明不适用及原因\n\n## 流程描述\n"
+    pd_reason_labels = "## 目录描述\n\n定位与依赖声明：不适用（本目录为纯头文件，无编译归属与依赖头）。\n\n## 流程描述\n"
+    pd_tpl_comment = ("## 目录描述\n\n目录树。\n\n"
+                       "<!-- 四要素缺一不可；确实不适用时写明不适用及原因 -->\n\n## 流程描述\n")
+    pd_unrelated_na = ("## 目录描述\n\n**层级归属**：L2。\n\n"
+                       "本模块不涉及动态加载。\n\n## 流程描述\n")
+    pd_label_na = "## 目录描述\n\n**依赖头**：不涉及跨层依赖。\n\n## 流程描述\n"
+    pd_en_ok = ("## Directory Description\n\n**Layer Affiliation**: L2; **Build Affiliation**: obj; "
+                "**Dependency Headers**: `*_pub.h`; **Upstream Callers**: coll_comm.\n")
+    pd_en_miss = "## Directory Description\n\nnothing\n"
+    pd_en_na = "## Directory Description\n\nLocation and Dependency Statement: not applicable (pure header directory).\n"
+    pd_en_na_multiline = ("## Directory Description\n\n"
+                          "Location and Dependency Statement: not applicable.\n\nDirectory tree below.\n")
+    pd_en_na_no_period = ("## Directory Description\n\n"
+                          "Location and Dependency Statement: not applicable\n\nDirectory tree below.\n")
+    pd_en_prefix = ("## Directory Description\n\n"
+                    "Location and Dependency Statement: namespace layout owned by base_comm.\n")
+    pd_en_guide = ("## Directory Description\n\n"
+                   "Location and Dependency Statement: fill all four labels; if not applicable give a reason.\n")
+    pd_en_reason_labels = ("## Directory Description\n\n"
+                           "Location and Dependency Statement: not applicable (pure header files, "
+                           "no build affiliation or dependency headers).\n")
+    if check_pos_dep(pd_full, "zh"):
+        errors.append("pos-dep 四标签齐全期望零命中，实际 {}".format(check_pos_dep(pd_full, "zh")))
+    if not check_pos_dep(pd_miss, "zh"):
+        errors.append("pos-dep 缺声明期望命中，实际零命中")
+    if check_pos_dep(pd_na, "zh"):
+        errors.append("pos-dep 整段不适用（含原因）期望零命中，实际 {}".format(check_pos_dep(pd_na, "zh")))
+    if not check_pos_dep(pd_na_no_reason, "zh"):
+        errors.append("pos-dep 整段不适用无原因期望命中，实际零命中")
+    if not check_pos_dep(pd_na_multiline, "zh"):
+        errors.append("pos-dep 原因跨行捕获（下行文本当原因）期望命中，实际零命中")
+    if check_pos_dep(pd_bold_na, "zh"):
+        errors.append("pos-dep 加粗声明+同行原因期望零命中，实际 {}".format(check_pos_dep(pd_bold_na, "zh")))
+    if check_pos_dep(pd_prefix_na, "zh"):
+        errors.append("pos-dep 句中前置说明+同行原因期望零命中，实际 {}".format(check_pos_dep(pd_prefix_na, "zh")))
+    if not check_pos_dep(pd_guide, "zh"):
+        errors.append("pos-dep 指导语（冒号后任意文本+不适用）不构成声明，期望命中，实际零命中")
+    if check_pos_dep(pd_reason_labels, "zh"):
+        errors.append("pos-dep 声明原因提及标签名不应计为在场（合规声明应豁免），实际 {}".format(check_pos_dep(pd_reason_labels, "zh")))
+    if not check_pos_dep(pd_tpl_comment, "zh"):
+        errors.append("pos-dep 模板注释不构成豁免（评审反例），期望命中，实际零命中")
+    if not check_pos_dep(pd_unrelated_na, "zh"):
+        errors.append("pos-dep 无关「不涉及」句不构成豁免（评审反例），期望命中，实际零命中")
+    if not check_pos_dep(pd_label_na, "zh"):
+        errors.append("pos-dep 单要素不适用不连带豁免其余标签（评审反例），期望命中，实际零命中")
+    if not check_pos_dep("## 功能描述\n\n无目录描述章节。\n", "zh"):
+        errors.append("pos-dep 章节缺失期望命中，实际零命中")
+    if check_pos_dep(pd_en_ok, "en"):
+        errors.append("pos-dep EN 四标签齐全期望零命中，实际 {}".format(check_pos_dep(pd_en_ok, "en")))
+    if not check_pos_dep(pd_en_miss, "en"):
+        errors.append("pos-dep EN 缺声明期望命中，实际零命中")
+    if check_pos_dep(pd_en_na, "en"):
+        errors.append("pos-dep EN 整段不适用（含原因）期望零命中，实际 {}".format(check_pos_dep(pd_en_na, "en")))
+    if not check_pos_dep(pd_en_na_multiline, "en"):
+        errors.append("pos-dep EN 原因跨行捕获期望命中，实际零命中")
+    if not check_pos_dep(pd_en_prefix, "en"):
+        errors.append("pos-dep EN na 前缀词（namespace）不得豁免，期望命中，实际零命中")
+    if not check_pos_dep(pd_en_na_no_period, "en"):
+        errors.append("pos-dep EN 无句号+下行内容（分隔符跨行）期望命中，实际零命中")
+    if not check_pos_dep(pd_en_guide, "en"):
+        errors.append("pos-dep EN 指导语不构成声明，期望命中，实际零命中")
+    if check_pos_dep(pd_en_reason_labels, "en"):
+        errors.append("pos-dep EN 声明原因提及标签名不应计为在场（合规声明应豁免），实际 {}".format(check_pos_dep(pd_en_reason_labels, "en")))
     if errors:
         print("SELFTEST FAILED:")
         for e in errors:
             print(" -", e)
         return 1
-    print("SELFTEST PASSED: hw-codes/mermaid/line-refs/bilingual 全部符合预期")
+    print("SELFTEST PASSED: hw-codes/mermaid/line-refs/bilingual/pos-dep 全部符合预期")
     return 0
 
 

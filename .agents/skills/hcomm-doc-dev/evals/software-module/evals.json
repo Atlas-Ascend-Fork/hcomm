@@ -5,7 +5,7 @@
       "id": 1,
       "name": "six-section-skeleton-complete",
       "prompt": "给 src/coll_communicator_mgr/dfx/sdar/ 目录写模块代码解析文档（该目录为新增独立组件，含 8 个源文件，Host/Device 双侧）。仓内有 hcomm-review 的 markdown-writing.md。",
-      "expected_output": "按 module-doc.md 五步流程产出 sdar.md + sdar_en.md：六段骨架齐全且为裸标题；探查阶段识别对外接口按调用边界（grep 调用点）；流程描述含与周边模块交互流程；数据描述以类图承载核心类；接口描述为对外总表+按类完整表；英文版逐节语义对齐。写作基线加载仓内 markdown-writing.md。",
+      "expected_output": "按 module-doc.md 五步流程产出 sdar.md + sdar_en.md：六段骨架齐全且为裸标题；目录描述含定位与依赖声明四要素（层级归属/编译归属/依赖头/被谁调用）；探查阶段识别对外接口按调用边界（grep 调用点）；流程描述含与周边模块交互流程；数据描述以类图承载核心类；接口描述为对外总表+按类完整表；英文版逐节语义对齐。写作基线加载仓内 markdown-writing.md。",
       "files": [],
       "assertions": [
         {
@@ -32,6 +32,16 @@
           "name": "接口描述含对外接口总表且判定基于调用边界",
           "type": "body_contains",
           "text": "对外接口总表"
+        },
+        {
+          "name": "目录描述含定位与依赖声明（四要素标签齐全或显式不适用）",
+          "type": "body_contains",
+          "text": "层级归属"
+        },
+        {
+          "name": "时序图自环消息经代码实证（跨模块链路不停留在自环）",
+          "type": "manual_review",
+          "criteria": "自环均为文件/模块目录内自调用；跨模块链路投影补接收方 participant 或 Note 标注终点"
         },
         {
           "name": "每张时序图外部模块类作为 participant 入图",
