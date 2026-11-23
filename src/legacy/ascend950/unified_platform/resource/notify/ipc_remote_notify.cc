@@ -16,6 +16,16 @@ namespace Hccl {
 
 IpcRemoteNotify::IpcRemoteNotify() : BaseRemoteNotify(RmaType::IPC) {}
 
+IpcRemoteNotify::~IpcRemoteNotify()
+{
+    if (handleOwned) {
+        HcclResult ret = HrtNotifyDestroy(handle);
+        if (ret != HCCL_SUCCESS) {
+            HCCL_ERROR("[IpcRemoteNotify] HrtNotifyDestroy failed, handle[%p], ret[%d].", handle, ret);
+        }
+    }
+}
+
 IpcRemoteNotify::IpcRemoteNotify(const Serializable& rmtDto) : BaseRemoteNotify(RmaType::IPC)
 {
     auto dto = dynamic_cast<const ExchangeIpcNotifyDto&>(rmtDto);
@@ -48,9 +58,17 @@ IpcRemoteNotify::IpcRemoteNotify(const Serializable& rmtDto) : BaseRemoteNotify(
             }
             handle = notify;
         }
+        handleOwned = true;
     }
     u64 addrOut = 0;
     if (HrtNotifyGetAddr(handle, addrOut) != HCCL_SUCCESS) {
+        if (handleOwned) {
+            HcclResult ret = HrtNotifyDestroy(handle);
+            if (ret != HCCL_SUCCESS) {
+                HCCL_ERROR("[IpcRemoteNotify] HrtNotifyDestroy failed, handle[%p], ret[%d].", handle, ret);
+            }
+            handleOwned = false;
+        }
         THROW<InternalException>("HrtNotifyGetAddr failed");
     }
     addr = addrOut;
