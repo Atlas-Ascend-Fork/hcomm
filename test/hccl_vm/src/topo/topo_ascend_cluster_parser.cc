@@ -289,8 +289,7 @@ bool ParseNetInstanceIdx(const std::string& netInstanceId, uint32_t& idxK)
 // 按作用域渲染net_instance_id。scope为UNKNOWN时按net_layer回退到既有规则
 // (layer0→POD, layer1→SUPERPOD, layer>=2→CLUSTER), 保证server形态产物不变;
 // scope为CUSTOM(自定义模板渲染结果)时不进入本函数——调用方检测后原样透传rootinfo字符串
-std::string RenderNetInstanceId(
-    NetInstanceScope scope, int netLayer, uint32_t spIdx, uint32_t srvIdx, uint32_t boardIdx, uint32_t idxK)
+std::string RenderNetInstanceId(NetInstanceScope scope, int netLayer, const RankDevPos& pos, uint32_t idxK)
 {
     if (scope == NetInstanceScope::UNKNOWN) {
         scope = (netLayer >= 2) ? NetInstanceScope::CLUSTER :
@@ -302,13 +301,13 @@ std::string RenderNetInstanceId(
         if (scope != NetInstanceScope::CLUSTER) {
             switch (scope) {
                 case NetInstanceScope::BOARD:
-                    return "sp_" + std::to_string(spIdx) + "_srv_" + std::to_string(srvIdx) + "_board_"
-                           + std::to_string(boardIdx) + "_idx_" + std::to_string(idxK);
+                    return "sp_" + std::to_string(pos.superPodId) + "_srv_" + std::to_string(pos.serverId) + "_board_"
+                           + std::to_string(pos.boardId) + "_idx_" + std::to_string(idxK);
                 case NetInstanceScope::POD:
-                    return "sp_" + std::to_string(spIdx) + "_srv_" + std::to_string(srvIdx) + "_idx_"
+                    return "sp_" + std::to_string(pos.superPodId) + "_srv_" + std::to_string(pos.serverId) + "_idx_"
                            + std::to_string(idxK);
                 case NetInstanceScope::SUPERPOD:
-                    return "sp_" + std::to_string(spIdx) + "_idx_" + std::to_string(idxK);
+                    return "sp_" + std::to_string(pos.superPodId) + "_idx_" + std::to_string(idxK);
                 default:
                     break;
             }
@@ -317,12 +316,13 @@ std::string RenderNetInstanceId(
     }
     switch (scope) {
         case NetInstanceScope::BOARD:
-            return "sp_" + std::to_string(spIdx) + "_srv_" + std::to_string(srvIdx) + "_board_"
-                   + std::to_string(boardIdx) + "_idx_" + std::to_string(idxK);
+            return "sp_" + std::to_string(pos.superPodId) + "_srv_" + std::to_string(pos.serverId) + "_board_"
+                   + std::to_string(pos.boardId) + "_idx_" + std::to_string(idxK);
         case NetInstanceScope::POD:
-            return "sp_" + std::to_string(spIdx) + "_srv_" + std::to_string(srvIdx) + "_idx_" + std::to_string(idxK);
+            return "sp_" + std::to_string(pos.superPodId) + "_srv_" + std::to_string(pos.serverId) + "_idx_"
+                   + std::to_string(idxK);
         case NetInstanceScope::SUPERPOD:
-            return "sp_" + std::to_string(spIdx) + "_idx_" + std::to_string(idxK);
+            return "sp_" + std::to_string(pos.superPodId) + "_idx_" + std::to_string(idxK);
         default:
             return "cluster";
     }
@@ -588,14 +588,17 @@ HcclVmResult AscendClusterTopoParser::InitDynamicModelData(const TopoMeta& topoM
 }
 
 HcclVmResult AscendClusterTopoParser::BuildLevelList(
-    const Board& board, int srcDevPhyId, const std::set<int>& commDomainLocalIds, uint32_t spIdx, uint32_t srvIdx,
-    uint32_t boardIdx, json& levelList, bool skipLayerAbove2, const std::set<int>& allowedNetLayers)
+    const Board& board, const RankDevPos& pos, const std::set<int>& commDomainLocalIds,
+    const RanktablePrunePolicy& prunePolicy, json& levelList)
 {
+    const int srcDevPhyId = pos.devPhyId;
+    // 允许输出的net_layer集合(多处判定使用, 取本地引用避免重复长表达式)
+    const std::set<int>& allowedNetLayers = prunePolicy.allowedNetLayers;
     const Device* device = board.GetDevice(srcDevPhyId);
     if (!device) {
         HCCL_VM_ERROR(
-            "cannot find device by phyDevId {:d} in superpod{:d}/server{:d}/board{:d}", srcDevPhyId, spIdx, srvIdx,
-            boardIdx);
+            "cannot find device by phyDevId {:d} in superpod{:d}/server{:d}/board{:d}", srcDevPhyId, pos.superPodId,
+            pos.serverId, pos.boardId);
         return HCCL_SIM_E_NOT_FOUND;
     }
 
@@ -618,7 +621,7 @@ HcclVmResult AscendClusterTopoParser::BuildLevelList(
             // 最终字面量, 全集群同device取值相同, 不做sp/srv/board位置替换
             return rootinfoNiid;
         }
-        return RenderNetInstanceId(scope, layer, spIdx, srvIdx, boardIdx, niid);
+        return RenderNetInstanceId(scope, layer, pos, niid);
     };
 
     // 从rootinfo的net_instance_id中解析idx_k(net_instance序号), 兼容
@@ -635,7 +638,7 @@ HcclVmResult AscendClusterTopoParser::BuildLevelList(
 
     for (const auto& [netLayer, links] : layerLinks) {
         // 单server通信域(mock-comm配置的server num == 1)时, net_layer>=3的内容不生成
-        if (netLayer >= 3 && skipLayerAbove2) {
+        if (netLayer >= 3 && prunePolicy.skipLayerAbove2) {
             continue;
         }
 
@@ -840,7 +843,7 @@ HcclVmResult AscendClusterTopoParser::BuildLevelList(
         if (port.linkType == LinkType::PEER2NET && !port.eid.empty()
             && processedLayers.find(port.layer) == processedLayers.end()) {
             // 单server通信域(mock-comm配置的server num == 1)时, net_layer>=3的内容不生成
-            if (port.layer >= 3 && skipLayerAbove2) {
+            if (port.layer >= 3 && prunePolicy.skipLayerAbove2) {
                 continue;
             }
             // net_layer总层数 > 3时, 超出部分(前3层之外)不输出
@@ -955,8 +958,8 @@ HcclVmResult AscendClusterTopoParser::BuildLevelList(
 }
 
 json AscendClusterTopoParser::BuildRankEntry(
-    const Board& board, int srcDevPhyId, const std::set<int>& commDomainLocalIds, uint32_t spIdx, uint32_t srvIdx,
-    uint32_t boardIdx, uint32_t rankId, bool skipLayerAbove2, const std::set<int>& allowedNetLayers)
+    const Board& board, const RankDevPos& pos, const std::set<int>& commDomainLocalIds,
+    const RanktablePrunePolicy& prunePolicy, uint32_t rankId)
 {
     json rankEntry;
     // device_id: **叶子节点内物理id**(server形态=server内; POD形态=board内, 如0~7), 是物理id而非逻辑id:
@@ -966,14 +969,13 @@ json AscendClusterTopoParser::BuildRankEntry(
     // local_id = board_id * 每board卡数 + board内物理id (业务侧/level1劫持层按ranktable的
     // local_id匹配POD级topo.json中的边, 二者值域必须一致)
     const int devNumPerBoard = board.GetDeviceCount();
+    const int srcDevPhyId = pos.devPhyId;
     rankEntry["device_id"] = srcDevPhyId;
-    rankEntry["local_id"] = static_cast<int>(boardIdx) * devNumPerBoard + srcDevPhyId;
+    rankEntry["local_id"] = static_cast<int>(pos.boardId) * devNumPerBoard + srcDevPhyId;
     rankEntry["rank_id"] = rankId;
     rankEntry["level_list"] = json::array();
 
-    BuildLevelList(
-        board, srcDevPhyId, commDomainLocalIds, spIdx, srvIdx, boardIdx, rankEntry["level_list"], skipLayerAbove2,
-        allowedNetLayers);
+    BuildLevelList(board, pos, commDomainLocalIds, prunePolicy, rankEntry["level_list"]);
 
     return rankEntry;
 }
@@ -1041,8 +1043,10 @@ HcclVmResult AscendClusterTopoParser::CreateRankTableFile(const TopoMeta& topoMe
                 // 按文档规则: 当net_layer总层数 > 3时, ranktable.json中超出部分不输出
                 // (如配置文件中包含net_layer 0,1,2,3时, 只输出net_layer 0,1,2的内容);
                 // 层数按**叶子节点(board)**作用域统计; 跨超节点通信域不裁剪: layer3正常输出
-                std::set<int> allowedNetLayers = crossSuperPod ? std::set<int>{} : CollectAllowedNetLayers(*board);
-                if (!allowedNetLayers.empty()) {
+                RanktablePrunePolicy prunePolicy;
+                prunePolicy.skipLayerAbove2 = skipLayerAbove2;
+                prunePolicy.allowedNetLayers = crossSuperPod ? std::set<int>{} : CollectAllowedNetLayers(*board);
+                if (!prunePolicy.allowedNetLayers.empty()) {
                     HCCL_VM_DEBUG(
                         "net_layer total count > 3 in superpod{:d}/server{:d}/board{:d}, "
                         "net_layers beyond the first 3 are skipped in ranktable.json",
@@ -1056,9 +1060,9 @@ HcclVmResult AscendClusterTopoParser::CreateRankTableFile(const TopoMeta& topoMe
                     // PyTorch按本叶子节点的local_rank选卡；hccl_test沿用全局rank取模选卡。
                     uint32_t logicDevId = pytorchMode ? deviceIdx : rankId % static_cast<uint32_t>(nodeMeta.size());
                     PhyDeviceId phyDevId = nodeMeta[logicDevId];
-                    rankTable["rank_list"].push_back(BuildRankEntry(
-                        *board, phyDevId, commDomainLocalIds, podId, serverId, boardId, rankId, skipLayerAbove2,
-                        allowedNetLayers));
+                    const RankDevPos pos{podId, serverId, boardId, static_cast<int>(phyDevId)};
+                    rankTable["rank_list"].push_back(
+                        BuildRankEntry(*board, pos, commDomainLocalIds, prunePolicy, rankId));
                     rankId++;
                 }
             }

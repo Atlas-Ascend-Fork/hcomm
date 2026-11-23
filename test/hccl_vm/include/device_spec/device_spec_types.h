@@ -117,6 +117,16 @@ namespace devspec {
         uint32_t pfeNum{0};
     };
 
+    struct UbJettySpec {
+        uint32_t normalPoolSize{0};
+    };
+
+    struct DeviceResSpec {
+        uint32_t streamNum{0};
+        uint32_t notifyNum{0};
+        UbJettySpec ubJetty;
+    };
+
     /// 一份 device 规格（对应一个 asset/cluster_model/config/device/<name>.yaml）。
     struct DeviceSpec {
         uint32_t specVersion{0};
@@ -127,6 +137,8 @@ namespace devspec {
         std::string socVersion;
         CcuVersion ccuVersion{CcuVersion::CCU_INVALID};
         uint32_t dieNum{0};
+        DeviceResSpec deviceRes;
+        uint32_t vectorCoreNum{0};
 
         AddrSpace addr;
         std::vector<RegionSpec> regions;

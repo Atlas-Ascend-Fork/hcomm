@@ -1268,17 +1268,12 @@ uint32_t GetAICpuCount(uint64_t deviceId)
     auto ret = Db::GetOneByPred<Device>(HcclSim::Storage::Eq(&Device::logic_id, deviceId));
     if (!ret.ok()) {
         HCCL_VM_ERROR("cannot find device by physical id {:d}", deviceId);
-        return 0;
+        return 0; // 设备不存在：维持返回 0
     }
 
-    auto deviceIdx = ret->id;
-
-    // 数据库端 COUNT 聚合：只取 AI CPU scheduler 数量，不加载行集。
-    return static_cast<uint32_t>(
-        Db::Count<TaskSchedulerDevice>(HcclSim::Storage::And(
-                                           HcclSim::Storage::Eq(&TaskSchedulerDevice::device_id, deviceIdx),
-                                           HcclSim::Storage::Eq(&TaskSchedulerDevice::type, (uint8_t)TS_DEV_TYPE_CPU)))
-            .value_or(0U));
+    // TaskSchedulerDevice 尚无生产落库方（二期落表），当前固定返回默认值。
+    constexpr uint32_t kDefaultAICpuCount = 6;
+    return kDefaultAICpuCount;
 }
 
 uint32_t GetAICoreCount(uint64_t deviceId)

@@ -89,6 +89,16 @@ uint64_t GetVirPtrByDevPtr(uint64_t address)
     ADD_FAILURE() << "Address lookup outside a registered allocation: " << address;
     return 0;
 }
+
+uint64_t TryGetVirPtrByDevPtr(uint64_t address)
+{
+    for (uint64_t base : {kInputBase, kOutputBase, kCclBase}) {
+        if (address >= base && address < base + kAllocationSize) {
+            return address + kVirtualOffset;
+        }
+    }
+    return 0;
+}
 } // namespace sim
 
 namespace sim::runtime {
@@ -116,6 +126,14 @@ int UpdateOpMemCclBuffer(uint64_t address, uint64_t size)
     ++state.cclUpdates;
     state.mem.cclAddr = address;
     state.mem.cclSize = size;
+    return 0;
+}
+
+int UpdateOpMemCounterBuffer(uint64_t counterAddr, uint64_t counterSize, uint64_t counterDevAddr)
+{
+    state.mem.counterAddr = counterAddr;
+    state.mem.counterSize = counterSize;
+    state.mem.counterDevAddr = counterDevAddr;
     return 0;
 }
 } // namespace sim::operation

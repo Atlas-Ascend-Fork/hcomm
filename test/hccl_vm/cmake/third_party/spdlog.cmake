@@ -10,6 +10,8 @@
 
 include_guard(GLOBAL)
 
+include(${CMAKE_CURRENT_LIST_DIR}/archive_utils.cmake)
+
 set(SPDLOG_FILE "spdlog-v1.11.0.tar.gz")
 set(SPDLOG_URL "https://raw.gitcode.com/src-openeuler/spdlog/blobs/c2dfb1aca26c607393665c836155613ff283de66/v1.11.0.tar.gz")
 set(SPDLOG_PKG_PATH ${CMAKE_SOURCE_DIR}/third_party/${SPDLOG_FILE})
@@ -46,10 +48,7 @@ endif()
 
 set(_spdlog_extract_dir "${CMAKE_BINARY_DIR}/_spdlog_tmp")
 file(MAKE_DIRECTORY ${_spdlog_extract_dir})
-file(ARCHIVE_EXTRACT
-    INPUT ${SPDLOG_PKG_PATH}
-    DESTINATION ${_spdlog_extract_dir}
-)
+hcclvm_archive_extract(ARCHIVE ${SPDLOG_PKG_PATH} DESTINATION ${_spdlog_extract_dir})
 
 set(_spdlog_src_include "${_spdlog_extract_dir}/spdlog-1.11.0/include/spdlog")
 if(NOT EXISTS "${_spdlog_src_include}/spdlog.h")

@@ -35,6 +35,23 @@ using json = nlohmann::json;
 
 enum class HvmClusterStatus { COMM_DOMAIN_UNINIT, COMM_DOMAIN_INIT_DONE };
 
+// ranktable中一个rank的定位: (超节点, server/POD, board)三元组 + board内物理设备id。
+// 三元组与serverIdx2Key_的键同口径, 同时用于net_instance_id渲染、local_id计算与错误日志
+struct RankDevPos {
+    uint32_t superPodId{0};
+    uint32_t serverId{0};
+    uint32_t boardId{0};
+    int devPhyId{0};
+};
+
+// ranktable输出的net_layer裁剪策略(由CreateRankTableFile按通信域规模与层数算出):
+//   skipLayerAbove2  : 单叶子节点通信域时不输出net_layer>=3的条目
+//   allowedNetLayers : net_layer总层数>3时只保留的前3层(空集表示不裁剪)
+struct RanktablePrunePolicy {
+    bool skipLayerAbove2{false};
+    std::set<int> allowedNetLayers;
+};
+
 // 单例类，用于解析Ascend集群拓扑, 并初始化动态模型数据
 class AscendClusterTopoParser {
 public:
@@ -71,11 +88,11 @@ private:
     HcclVmResult InitClusterStaticTopoData();
     HcclVmResult InitDynamicModelData(const TopoMeta& topoMeta);
     HcclVmResult BuildLevelList(
-        const Board& board, int srcDevPhyId, const std::set<int>& commDomainLocalIds, uint32_t spIdx, uint32_t srvIdx,
-        uint32_t boardIdx, json& levelList, bool skipLayerAbove2, const std::set<int>& allowedNetLayers);
+        const Board& board, const RankDevPos& pos, const std::set<int>& commDomainLocalIds,
+        const RanktablePrunePolicy& prunePolicy, json& levelList);
     json BuildRankEntry(
-        const Board& board, int srcDevPhyId, const std::set<int>& commDomainLocalIds, uint32_t spIdx, uint32_t srvIdx,
-        uint32_t boardIdx, uint32_t rankId, bool skipLayerAbove2, const std::set<int>& allowedNetLayers);
+        const Board& board, const RankDevPos& pos, const std::set<int>& commDomainLocalIds,
+        const RanktablePrunePolicy& prunePolicy, uint32_t rankId);
     // 每个叶子节点(server形态=server; POD形态=board)一行Server + 一行Host
     uint64_t
     InitServer(uint32_t superPodId, const Server& server, const Board& board, HcclSim::Storage::Transaction& txn);

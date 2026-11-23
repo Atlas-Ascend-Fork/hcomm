@@ -858,22 +858,17 @@ HcclVmResult InstallUserPlugin(std::string argStr)
     }
     argStr.erase(argStr.begin());
 
-    // 模式门禁检查：estimate 模式仅支持 @estimate 性能仿真插件，禁止安装 @runner/@checker；
-    // check-only 模式禁止安装 @runner
-    if (argStr == "runner" || argStr == "checker") {
+    // 模式门禁检查：check-only 和 estimate 模式禁止安装 @runner
+    if (argStr == "runner") {
         bool isCheckOnly = sim::IsCheckOnlyMode();
         bool isEstimate = sim::IsEstimateMode();
 
-        if (isEstimate) {
-            HCCL_VM_ERROR(
-                "Installing @{} is not supported in estimate mode: estimate mode only supports the "
-                "@estimate performance-simulation plugin. Please switch to normal mode "
-                "(hccl-vm mode normal) to use @{}.",
-                argStr, argStr);
+        if (isCheckOnly) {
+            HCCL_VM_ERROR("Installing @runner is not allowed in check-only mode");
             return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
         }
-        if (isCheckOnly && argStr == "runner") {
-            HCCL_VM_ERROR("Installing @runner is not allowed in check-only mode");
+        if (isEstimate) {
+            HCCL_VM_ERROR("Installing @runner is not allowed in estimate mode");
             return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
         }
     }

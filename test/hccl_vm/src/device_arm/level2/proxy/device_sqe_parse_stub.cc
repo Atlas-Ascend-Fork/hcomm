@@ -208,6 +208,21 @@ void ParseDavidSDMASqeEstimate(uint32_t streamId, void* sqeBuf, const TaskIdenti
     uint64_t srcOffset = GetFull64BitAddr(sqe->u.strideMode0.srcAddrLow, sqe->u.strideMode0.srcAddrHigh);
     uint64_t dstOffset = GetFull64BitAddr(sqe->u.strideMode0.dstAddrLow, sqe->u.strideMode0.dstAddrHigh);
 
+    // 与非评估模式对齐：src 为暂存地址（如 kernel args）不生成 Task，按原始地址直接执行
+    if (!ResolveTaskAddressLocalOrImported(srcOffset, GetCurDeviceKey()).ok()) {
+        if (sqe->opcode == 0) { // memcpy
+            memcpy(reinterpret_cast<void*>(dstOffset), reinterpret_cast<const void*>(srcOffset), length);
+            HCCL_VM_INFO(
+                "direct-exec SDMA memcpy (estimate, unresolved host-staging src), srcAddr=0x{:x}, dstAddr=0x{:x}, "
+                "len={}, no task collected",
+                srcOffset, dstOffset, length);
+        } else { // reduce：保持跳过
+            HCCL_VM_WARN(
+                "skip SDMA reduce SQE (estimate) because src address resolution failed, srcAddr=0x{:x}", srcOffset);
+        }
+        return;
+    }
+
     if (sqe->opcode == 0) { // 表示是memcpy
         taskMeta.taskType = HccLTaskMetaType::MEM_CPY;
         taskMeta.profInfo = HcclTaskProfInfo(
@@ -261,11 +276,22 @@ void ParseDavidSDMASqeWithIdentity(uint32_t streamId, void* sqeBuf, const TaskId
     auto srcResolution = ResolveTaskAddressLocalOrImported(
         GetFull64BitAddr(sqe->u.strideMode0.srcAddrLow, sqe->u.strideMode0.srcAddrHigh), localDeviceId);
     if (!srcResolution.ok()) {
-        HCCL_VM_ERROR(
-            "skip SDMA SQE because src address resolution failed, srcAddr=0x{:x}, localDeviceId={:d}, code={}, "
-            "diagnostic={}",
-            GetFull64BitAddr(sqe->u.strideMode0.srcAddrLow, sqe->u.strideMode0.srcAddrHigh), localDeviceId,
-            static_cast<uint32_t>(srcResolution.code), srcResolution.diagnostic);
+        // 适配 AlltoAllVC 新增的 LocalCopyMatrixRow，实现 AICPU 直读本卡 sendCounts，至 cclBuffer
+        // src 为 device 侧的暂存地址（kernel args，未登记到 VirtualMemBlock）：不生成 Task 直接执行
+        const uint64_t srcAddr = GetFull64BitAddr(sqe->u.strideMode0.srcAddrLow, sqe->u.strideMode0.srcAddrHigh);
+        const uint64_t dstAddr = GetFull64BitAddr(sqe->u.strideMode0.dstAddrLow, sqe->u.strideMode0.dstAddrHigh);
+        if (sqe->opcode == 0) { // memcpy
+            memcpy(reinterpret_cast<void*>(dstAddr), reinterpret_cast<const void*>(srcAddr), length);
+            HCCL_VM_INFO(
+                "direct-exec SDMA memcpy (unresolved host-staging src), srcAddr=0x{:x}, dstAddr=0x{:x}, len={}, "
+                "localDeviceId={:d}, no task collected",
+                srcAddr, dstAddr, length, localDeviceId);
+        } else { // reduce：保持跳过
+            HCCL_VM_WARN(
+                "skip SDMA reduce SQE because src address resolution failed, srcAddr=0x{:x}, localDeviceId={:d}, "
+                "code={}, diagnostic={}",
+                srcAddr, localDeviceId, static_cast<uint32_t>(srcResolution.code), srcResolution.diagnostic);
+        }
         return;
     }
     auto dstResolution = ResolveTaskAddressLocalOrImported(

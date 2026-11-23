@@ -357,21 +357,6 @@ const Board* Network::GetBoard(int superPodId, int serverId, int boardId) const
     return nullptr;
 }
 
-const Device* Network::GetDeviceByGlobalId(int deviceId) const
-{
-    auto it = deviceIndex.find(deviceId);
-    if (it != deviceIndex.end() && !it->second.empty()) {
-        int spId = std::get<0>(it->second[0]);
-        int srvId = std::get<1>(it->second[0]);
-        int boardId = std::get<2>(it->second[0]);
-        const Board* board = GetBoard(spId, srvId, boardId);
-        if (board) {
-            return board->GetDevice(deviceId);
-        }
-    }
-    return nullptr;
-}
-
 std::vector<const Device*> Network::GetAllDevices() const
 {
     std::vector<const Device*> result;

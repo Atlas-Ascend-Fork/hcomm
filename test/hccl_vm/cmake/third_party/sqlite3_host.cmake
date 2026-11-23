@@ -17,6 +17,8 @@
 #（二进制输出各自独立，见同目录 sqlite3_device.cmake）。
 include_guard(GLOBAL)
 
+include(${CMAKE_CURRENT_LIST_DIR}/archive_utils.cmake)
+
 set(SQLITE3_VERSION_NUM "3510300")
 set(SQLITE3_FILE "sqlite-amalgamation-${SQLITE3_VERSION_NUM}.zip")
 set(SQLITE3_URL "https://www.sqlite.org/2026/${SQLITE3_FILE}")
@@ -57,10 +59,7 @@ if(NOT (EXISTS "${SQLITE3_TARGET_DIR}/sqlite3.c" AND EXISTS "${SQLITE3_TARGET_DI
     # 解压
     set(_sqlite3_extract_dir "${CMAKE_BINARY_DIR}/_sqlite3_tmp")
     file(MAKE_DIRECTORY ${_sqlite3_extract_dir})
-    file(ARCHIVE_EXTRACT
-        INPUT ${SQLITE3_PKG_PATH}
-        DESTINATION ${_sqlite3_extract_dir}
-    )
+    hcclvm_archive_extract(ARCHIVE ${SQLITE3_PKG_PATH} DESTINATION ${_sqlite3_extract_dir})
     file(GLOB _sqlite3_extracted_entries "${_sqlite3_extract_dir}/*")
     list(GET _sqlite3_extracted_entries 0 _extracted_dir)
 

@@ -10,6 +10,8 @@
 
 include_guard(GLOBAL)
 
+include(${CMAKE_CURRENT_LIST_DIR}/archive_utils.cmake)
+
 set(CANN_CMAKE_VERSION_TAG "master-044")
 set(CANN_CMAKE_URL "https://raw.gitcode.com/cann/cmake/archive/refs/heads/${CANN_CMAKE_VERSION_TAG}.tar.gz")
 set(CANN_CMAKE_ARCHIVE_FILE "cmake-${CANN_CMAKE_VERSION_TAG}.tar.gz")
@@ -47,10 +49,7 @@ else()
 
     set(_cann_cmake_extract_dir "${CMAKE_BINARY_DIR}/_cann_cmake_tmp")
     file(MAKE_DIRECTORY ${_cann_cmake_extract_dir})
-    file(ARCHIVE_EXTRACT
-        INPUT ${CANN_CMAKE_PKG_PATH}
-        DESTINATION ${_cann_cmake_extract_dir}
-    )
+    hcclvm_archive_extract(ARCHIVE ${CANN_CMAKE_PKG_PATH} DESTINATION ${_cann_cmake_extract_dir})
     file(GLOB _cann_cmake_extracted_entries "${_cann_cmake_extract_dir}/*")
     list(GET _cann_cmake_extracted_entries 0 _cann_cmake_extracted_dir)
 

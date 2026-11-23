@@ -202,7 +202,6 @@ struct Network {
     const SuperPod* GetSuperPod(int superPodId) const;
     const Server* GetServer(int superPodId, int serverId) const;
     const Board* GetBoard(int superPodId, int serverId, int boardId) const;
-    const Device* GetDeviceByGlobalId(int deviceId) const;
     std::vector<const Device*> GetAllDevices() const;
     std::vector<const Port*> GetAllPortsByLayer(int layer) const;
     std::vector<const Port*> GetAllPortsByLinkType(LinkType type) const;

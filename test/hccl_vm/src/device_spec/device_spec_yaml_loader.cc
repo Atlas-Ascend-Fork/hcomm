@@ -22,6 +22,7 @@
 #endif
 
 #include "sim_log.h"
+#include "sim_capacity_limits.h"
 
 namespace sim {
 namespace devspec {
@@ -126,6 +127,68 @@ namespace devspec {
                 return true;
             }
             return ReadU32(node, key, path, out, err);
+        }
+
+        bool
+        ReadBool(const YAML::Node& node, const std::string& key, const std::string& path, bool& out, std::string& err)
+        {
+            if (!node[key]) {
+                err = path + "." + key + ": 字段缺失";
+                return false;
+            }
+            try {
+                out = node[key].as<bool>();
+            } catch (const std::exception& e) {
+                err = Fmt("%s.%s: 无法解析为 bool: %s", path.c_str(), key.c_str(), e.what());
+                return false;
+            }
+            return true;
+        }
+
+        bool ParseCompute(const YAML::Node& root, DeviceSpec& spec, std::string& err)
+        {
+            const auto compute = root["compute"];
+            if (!compute || !compute.IsMap()) {
+                err = "compute: 段缺失或不是映射";
+                return false;
+            }
+            return ReadU32(compute, "vector_core_num", "compute", spec.vectorCoreNum, err);
+        }
+
+        bool ParseDeviceRes(const YAML::Node& root, DeviceSpec& spec, std::string& err)
+        {
+            const auto res = root["device_res"];
+            if (!res || !res.IsMap()) {
+                err = "device_res: 段缺失或不是映射";
+                return false;
+            }
+            DeviceResSpec& out = spec.deviceRes;
+            if (!ReadU32(res, "stream_num", "device_res", out.streamNum, err)
+                || !ReadU32(res, "notify_num", "device_res", out.notifyNum, err)) {
+                return false;
+            }
+            const auto jetty = res["ub_jetty"];
+            if (!jetty || !jetty.IsMap()) {
+                err = "device_res.ub_jetty: 段缺失或不是映射";
+                return false;
+            }
+            return ReadU32(jetty, "normal_pool_size", "device_res.ub_jetty", out.ubJetty.normalPoolSize, err);
+        }
+
+        bool ValidateDeviceRes(const DeviceSpec& spec, std::string& err)
+        {
+            const DeviceResSpec& res = spec.deviceRes;
+            if (res.streamNum == 0 || res.notifyNum == 0 || res.ubJetty.normalPoolSize == 0
+                || spec.vectorCoreNum == 0) {
+                err = "device_res.stream_num/notify_num/ub_jetty.normal_pool_size/"
+                      "compute.vector_core_num 不得为 0";
+                return false;
+            }
+            if (res.notifyNum > HcclSim::HCCL_VM_DEVICE_NOTIFY_ID_CAPACITY) {
+                err = "device_res.notify_num: 超过 17bit Notify 编址容量 131072";
+                return false;
+            }
+            return true;
         }
 
         bool ParseSoc(const YAML::Node& root, DeviceSpec& spec, std::string& err)
@@ -622,12 +685,16 @@ namespace devspec {
         if (!ReadU32Opt(ccu, "count_xn_num", "ccu", 0, spec.countXnNum, err)) {
             return false;
         }
-        // compute / bandwidth 为 T10/T11 占位段，本期不解析、不消费（O7）
+        if (!ParseCompute(root, spec, err) || !ParseDeviceRes(root, spec, err)) {
+            return false;
+        }
+        // bandwidth 仍为占位段，本期不解析、不消费。
 
         // ---- 校验（fail-fast）----
         // 先做 partitions 校验，因为它派生出 ccuWindowOffset / userMemSegs
         if (!ValidatePartitions(spec, err) || !ValidateDieOffsets(spec, err) || !ValidateNoOverlap(spec, err)
-            || !ValidateEntryFits(spec, err) || !ValidateMs(spec, err) || !ValidateResourceSpaceSize(spec, err)) {
+            || !ValidateEntryFits(spec, err) || !ValidateMs(spec, err) || !ValidateResourceSpaceSize(spec, err)
+            || !ValidateDeviceRes(spec, err)) {
             err = absPath + ": " + err;
             return false;
         }

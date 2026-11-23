@@ -25,6 +25,8 @@
 #include "runtime_state/db_sim_runner_common.h"
 #include "runtime_state/db_sim_runner_ops.h"
 #include "sim_common_defs.h"
+#include "device_spec/device_spec_types.h"
+#include "resource_limit_manager.h"
 #include "ascend_hal.h"
 
 // 将 aclrt 设备资源限制类型映射到 halGetDeviceInfo 的 moduleType, 对齐真实 runtime 数据源:
@@ -76,6 +78,9 @@ aclError aclrtSetDeviceResLimit(int32_t deviceId, aclrtDevResLimitType type, uin
     if (type != ACL_RT_DEV_RES_VECTOR_CORE) {
         HCCL_VM_WARN("aclrtSetDeviceResLimit: only VECTOR supported now, type[{}] ignored", static_cast<int32_t>(type));
         return ACL_SUCCESS;
+    }
+    if (!HCCL_VM_CHECK_AIV_RES_LIMIT(value)) {
+        return ACL_ERROR_RT_PARAM_INVALID;
     }
     // 硬件上限 AIV_CORE_NUM：超过则 clamp (替换为默认值)
     if (value > AIV_CORE_NUM) {

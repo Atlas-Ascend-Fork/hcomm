@@ -30,8 +30,10 @@
 #include "operation_data/operation_data_ops.h"
 #include "runtime_state/db_sim_runner_ops.h"
 #include "runtime_state/db_sim_runner_common.h"
+#include "device_spec/device_spec_types.h"
 #include "storage/table_access.h"
 #include "store_sim_store_pub.h"
+#include "resource_limit_manager.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -60,6 +62,10 @@ aclError aclrtCreateStreamWithConfig(aclrtStream* stream, uint32_t priority, uin
     }
 
     auto& currCtxId = currCtx.value->id;
+    const auto deviceKey = currCtx.value->device_id;
+    if (!HCCL_VM_ACQUIRE_STREAM(deviceKey)) {
+        return ACL_ERROR_RT_NO_STREAM_RESOURCE;
+    }
 
     sim::runtime::Stream streamTmp{};
     streamTmp.ctx_id = currCtxId;
@@ -69,6 +75,7 @@ aclError aclrtCreateStreamWithConfig(aclrtStream* stream, uint32_t priority, uin
     streamTmp.id = 0;
     auto inserted = sim::runtime::Db::Add<sim::runtime::Stream>(streamTmp);
     if (!inserted.ok() || !inserted.value.has_value()) {
+        HCCL_VM_RELEASE_STREAM(deviceKey);
         return ACL_ERROR_INVALID_PARAM;
     }
     auto res = inserted.value->value;
@@ -86,6 +93,8 @@ aclError aclrtDestroyStream(aclrtStream stream)
 {
     uint64_t streamId = (uint64_t)(uintptr_t)stream;
     HCCL_VM_DEBUG("id:{:d}", streamId);
+    // 计数回减（内部反查所属卡并跳过默认流）须在删除行之前完成；stub 不持有 deviceKey。
+    HCCL_VM_RELEASE_STREAM_BY_ID(streamId);
     (void)sim::runtime::Db::Delete<sim::runtime::Stream>(HcclSim::Storage::Eq(&sim::runtime::Stream::id, streamId));
     sim::operation::RemoveSyncStreamIter(streamId);
     return ACL_SUCCESS;

@@ -370,18 +370,27 @@ def extract_indices(filepath):
         return (int(match.group(1)), int(match.group(2)), -1)
     return (-1, -1, -1)
 
+def leaf_desc(sp_idx, srv_idx, board_idx):
+    """叶子节点位置描述(报错/日志统一定位口径)。
+    位置只能取自rootinfo路径解析结果, **不能用IP段AA.BB反推**: 动态模式下
+    AA.BB是联合编号V=((sp_id+1)<<W_bb)+(srv_id+1)的高低字节, 与sp/srv无一一对应关系"""
+    return (f"superpod{sp_idx}/server{srv_idx}"
+            + (f"/board{board_idx}" if board_idx >= 0 else ""))
+
 def allocate_ip(aa, bb, counter):
     """server形态: CC.DD共16bit作为叶子节点内的endPoint计数器(容量65535)"""
     cc = (counter >> 8) & 0xFF
     dd = counter & 0xFF
     return f"{aa}.{bb}.{cc}.{dd}"
 
-def allocate_ip_board(aa, bb, board_id, counter):
+def allocate_ip_board(sp_idx, srv_idx, aa, bb, board_id, counter):
     """POD形态: CC段固定为board_id, DD段为board内endPoint计数器(容量255)。
-    host IP为 AA.BB.{board_id}.0, device IP从 AA.BB.{board_id}.1 起递增"""
+    host IP为 AA.BB.{board_id}.0, device IP从 AA.BB.{board_id}.1 起递增。
+    sp_idx/srv_idx仅用于报错定位(见leaf_desc), aa/bb为该节点的IP段"""
     if counter > 0xFF:
-        log_error(f"[错误] superpod{aa - 1}/server{bb - 1}/board{board_id} 的endPoint数({counter})"
-                  f"超出IP地址DD段容量(255), 请减少每board卡数或合并portGroup")
+        log_error(f"[错误] {leaf_desc(sp_idx, srv_idx, board_id)} 的endPoint数({counter})"
+                  f"超出IP地址DD段容量(255), 请减少每board卡数或合并portGroup"
+                  f"(IP分配模式={IP_MODE}, 该节点IP段={aa}.{bb})")
         sys.exit(1)
     return f"{aa}.{bb}.{board_id}.{counter}"
 
@@ -587,7 +596,9 @@ except ValueError as e:
     sys.exit(1)
 
 # 预扫描各叶子节点的endPoint数(rank_addr条目数), 用于位宽分配表展示与容量校验
+# E_MAX_NODE: endPoint数最多的叶子节点位置, 容量超限时用于精确定位到节点
 E_MAX = 0
+E_MAX_NODE = None
 for filepath in rootinfo_files:
     sp_idx, srv_idx, board_idx = extract_indices(filepath)
     if sp_idx < 0 or srv_idx < 0:
@@ -598,14 +609,15 @@ for filepath in rootinfo_files:
     for rank in data.get('rank_list', []):
         for level in rank.get('level_list', []):
             cnt += len(level.get('rank_addr_list', []))
-    E_MAX = max(E_MAX, cnt)
+    if cnt > E_MAX:
+        E_MAX, E_MAX_NODE = cnt, (sp_idx, srv_idx, board_idx)
 # POD形态: DD段仅8bit, 单board endPoint上限255(server形态CC.DD共16bit, 上限65535)
 if IS_POD_FORM and E_MAX > 0xFF:
-    log_error(f"[错误] 单个board的endPoint数({E_MAX})超出IP地址DD段容量(255), "
+    log_error(f"[错误] {leaf_desc(*E_MAX_NODE)} 的endPoint数({E_MAX})超出IP地址DD段容量(255), "
               f"请减少每board卡数或合并portGroup")
     sys.exit(1)
 if not IS_POD_FORM and E_MAX > 0xFFFF:
-    log_error(f"[错误] 单个server的endPoint数({E_MAX})超出IP地址CC.DD段容量(65535)")
+    log_error(f"[错误] {leaf_desc(*E_MAX_NODE)} 的endPoint数({E_MAX})超出IP地址CC.DD段容量(65535)")
     sys.exit(1)
 
 def build_alloc_table():
@@ -715,6 +727,8 @@ for filepath in rootinfo_files:
     aa, bb = compute_host_aa_bb(sp_idx, srv_idx, IP_MODE, W_BB)
     # CC段: POD形态为board_id(每board一个独立host节点); server形态恒为0(与既有规则一致)
     cc = board_idx if board_idx >= 0 else 0
+    # 本叶子节点的位置描述: 报错与日志统一定位口径(见leaf_desc, 不可由AA.BB反推)
+    cur_leaf_desc = leaf_desc(sp_idx, srv_idx, board_idx)
 
     host_ip = f"{aa}.{bb}.{cc}.0"
     # host EID: die id=0, 端口号=0 (host非端口, 高位字段填0)
@@ -791,7 +805,7 @@ for filepath in rootinfo_files:
             for addr_entry in level.get('rank_addr_list', []):
                 # IP分配: POD形态 CC=board_id、DD=board内计数; server形态 CC.DD共16bit计数
                 if board_idx >= 0:
-                    ip_addr = allocate_ip_board(aa, bb, board_idx, port_counter)
+                    ip_addr = allocate_ip_board(sp_idx, srv_idx, aa, bb, board_idx, port_counter)
                 else:
                     ip_addr = allocate_ip(aa, bb, port_counter)
                 # EID高位字段(die id/端口号)从rank_addr条目的net_layer与ports推导;
@@ -813,13 +827,10 @@ for filepath in rootinfo_files:
                 # EID全局唯一性校验(UBOE等高位全0的v4映射形态由IP唯一性保证, 同样参与校验)
                 dup = allocated_eids.get(eid_str)
                 if dup is not None:
-                    log_error(f"[错误] EID全局重复: {eid_str} 同时分配给 {dup} 与 "
-                              f"superpod{sp_idx}/server{srv_idx}"
-                              + (f"/board{board_idx}" if board_idx >= 0 else "")
-                              + "。请检查IP分段规则(POD形态需CC段承载board_id)")
+                    log_error(f"[错误] EID全局重复: {eid_str} 同时分配给 {dup} 与 {cur_leaf_desc}。"
+                              f"请检查IP分段规则(POD形态需CC段承载board_id)")
                     sys.exit(1)
-                allocated_eids[eid_str] = (f"superpod{sp_idx}/server{srv_idx}"
-                                           + (f"/board{board_idx}" if board_idx >= 0 else ""))
+                allocated_eids[eid_str] = cur_leaf_desc
                 addr_entry['addr'] = eid_str
                 if first_device_eid is None:
                     first_device_eid = eid_str
@@ -830,9 +841,7 @@ for filepath in rootinfo_files:
     with open(filepath, 'w') as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
-    leaf_desc = (f"superpod{sp_idx}/server{srv_idx}"
-                 + (f"/board{board_idx}" if board_idx >= 0 else ""))
-    log_debug(f"  [成功] {leaf_desc}: 分配 {addr_count} 个EID")
+    log_debug(f"  [成功] {cur_leaf_desc}: 分配 {addr_count} 个EID")
     log_debug(f"         Host IP: {host_ip} → EID: {host_eid}")
     if first_device_eid:
         if board_idx >= 0:

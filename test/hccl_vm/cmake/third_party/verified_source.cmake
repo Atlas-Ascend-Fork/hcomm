@@ -16,6 +16,8 @@
 
 include_guard(GLOBAL)
 
+include(${CMAKE_CURRENT_LIST_DIR}/archive_utils.cmake)
+
 # Build a stable, content-only manifest. The extraction stamp itself is excluded so
 # that a changed stamp cannot bless a changed source tree.
 function(hcclvm_compute_source_manifest source_dir stamp_name output_variable)
@@ -148,7 +150,7 @@ function(hcclvm_prepare_verified_source
         set(_extract_directory "${_archive_directory}/.${dependency_name}-${version}-extract")
         file(REMOVE_RECURSE "${_extract_directory}")
         file(MAKE_DIRECTORY "${_extract_directory}")
-        file(ARCHIVE_EXTRACT INPUT "${archive_path}" DESTINATION "${_extract_directory}")
+        hcclvm_archive_extract(ARCHIVE "${archive_path}" DESTINATION "${_extract_directory}")
         file(GLOB _extracted_roots LIST_DIRECTORIES TRUE "${_extract_directory}/*")
         list(LENGTH _extracted_roots _root_count)
         if(NOT _root_count EQUAL 1)

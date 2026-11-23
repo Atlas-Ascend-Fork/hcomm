@@ -316,11 +316,18 @@ ccu:
   #   10/10 命中 ⇒ regions/ms 填写正确。
 
 # ---------------------------------------------------------------------------
-# 其它 device 规格（T10/T11，本期仅占位、不消费；开放问题 O7）
+# Device 侧运行时资源约束。ub_jetty.normal_pool_size 建模 AICPU USER_CTL(mode3)
+# 存活配额，编号区间 [5312,9407]、每 rank 4096（硬件编号合同见 sim_capacity_limits.h）。
 # ---------------------------------------------------------------------------
+device_res:
+  stream_num: 2016
+  notify_num: 131072
+  ub_jetty:
+    normal_pool_size: 4096
+
 compute:
   ai_core_num:     0
-  vector_core_num: 0
+  vector_core_num: 64
   ai_cpu_num:      0
 bandwidth:
   hbm_gbps:          0.0    # 占位；A5 实际值待第二期从 light_performance/sim_config.json 收敛

@@ -122,9 +122,24 @@ function expandIdField(entry, name) {
   return ids
 }
 
-// 条目适用的board列表: 配置board_id时仅该board; 未配置时对所有board生效(单board描述复制扩展)
+// board归属字段合法性(与生成侧validate_board_id同口径): 整数且在[0, boardNum-1]内
+function isValidBoardId(value, boardNum) {
+  return Number.isInteger(value) && value >= 0 && value < boardNum
+}
+
+// 条目适用的board列表: 配置board_id时仅该board; 未配置时对所有board生效(单board描述复制扩展)。
+// board_id非法时告警并返回空列表(跳过该条目): 否则Number(非法值)=NaN会经toGlobal传播成
+// NaN全局device id, 端点查不到device坐标使该条连线在拓扑图上静默消失且无任何提示
 function boardsForEntry(entry, boardNum) {
-  if (entry.board_id !== undefined && entry.board_id !== null) return [Number(entry.board_id)]
+  if (entry.board_id !== undefined && entry.board_id !== null) {
+    const boardId = Number(entry.board_id)
+    if (!isValidBoardId(boardId, boardNum)) {
+      console.warn(`[topologyData] links条目的board_id非法(${entry.board_id}), ` +
+        `需为[0, ${boardNum - 1}]内的整数, 已跳过该条目`)
+      return []
+    }
+    return [boardId]
+  }
   return Array.from({ length: boardNum }, (_, b) => b)
 }
 
@@ -133,6 +148,8 @@ function boardsForEntry(entry, boardNum) {
 //   - device_to_device_links: src_board_id/dst_board_id声明两端所属board(支持跨board直连),
 //     device id字段为新命名src_device_id(_range)/dst_device_id(_range), 兼容旧命名src_local_id(_range)/dst_local_id(_range);
 //   - server形态(boardNum=1)换算为恒等映射, 行为与既有渲染一致。
+//   - board归属字段非法(只配一侧/与board_id混用/越界或非整数)时告警并跳过该条目,
+//     与生成侧generate_server_topo.sh的校验同口径(生成侧为报错退出)。
 function parseLinks(rawLinks, boardNum = 1, nodeDeviceNum = 0) {
   const result = { fullmesh: [], enum: { deviceToDevice: [], deviceToSwitch: [] } }
   const toGlobal = (boardId, localId) => boardId * nodeDeviceNum + Number(localId)
@@ -156,11 +173,35 @@ function parseLinks(rawLinks, boardNum = 1, nodeDeviceNum = 0) {
         if (srcLocal.length === 0) srcLocal = expandIdField(c, 'src_local_id')
         let dstLocal = expandIdField(c, 'dst_device_id')
         if (dstLocal.length === 0) dstLocal = expandIdField(c, 'dst_local_id')
+        // board归属: 与生成侧parse_d2d_board_pairs(asset/generate_server_topo.sh)同口径 ——
+        // src_board_id/dst_board_id必须同时配置、不得与board_id混用、值须在[0, board_num-1]内;
+        // 非法条目告警后跳过(生成侧同样报错退出), 避免缺失侧Number(undefined)=NaN经toGlobal
+        // 传播成NaN全局device id, 使该条直连在拓扑图上静默消失
         const hasSrcBoard = c.src_board_id !== undefined && c.src_board_id !== null
         const hasDstBoard = c.dst_board_id !== undefined && c.dst_board_id !== null
-        const pairs = (hasSrcBoard || hasDstBoard)
-          ? [[Number(c.src_board_id), Number(c.dst_board_id)]]
-          : boardsForEntry(c, boardNum).map((b) => [b, b])
+        if (hasSrcBoard !== hasDstBoard) {
+          console.warn(`[topologyData] device_to_device_links条目的src_board_id/dst_board_id必须同时配置` +
+            `(当前仅配置了${hasSrcBoard ? 'src_board_id' : 'dst_board_id'}), 已跳过该条目`)
+          continue
+        }
+        let pairs
+        if (hasSrcBoard) {
+          if (c.board_id !== undefined && c.board_id !== null) {
+            console.warn('[topologyData] device_to_device_links条目同时配置了board_id与src_board_id/dst_board_id, ' +
+              '两端board归属请使用src_board_id/dst_board_id声明, 已跳过该条目')
+            continue
+          }
+          const srcBoardId = Number(c.src_board_id)
+          const dstBoardId = Number(c.dst_board_id)
+          if (!isValidBoardId(srcBoardId, boardNum) || !isValidBoardId(dstBoardId, boardNum)) {
+            console.warn(`[topologyData] device_to_device_links条目的src_board_id/dst_board_id非法` +
+              `(${c.src_board_id}/${c.dst_board_id}), 需为[0, ${boardNum - 1}]内的整数, 已跳过该条目`)
+            continue
+          }
+          pairs = [[srcBoardId, dstBoardId]]
+        } else {
+          pairs = boardsForEntry(c, boardNum).map((b) => [b, b])
+        }
         for (const [sb, db] of pairs) {
           result.enum.deviceToDevice.push({
             srcDieId,

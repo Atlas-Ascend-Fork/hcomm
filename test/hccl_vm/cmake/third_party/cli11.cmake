@@ -10,6 +10,8 @@
 
 include_guard(GLOBAL)
 
+include(${CMAKE_CURRENT_LIST_DIR}/archive_utils.cmake)
+
 set(CLI11_FILE "cli11-2.2.0.tar.gz")
 set(CLI11_URL "https://raw.gitcode.com/src-openeuler/cli11/blobs/58c912141164a5c0f0139bfa91343fefe151d525/${CLI11_FILE}")
 set(CLI11_PKG_PATH ${CMAKE_SOURCE_DIR}/third_party/${CLI11_FILE})
@@ -45,10 +47,7 @@ else()
 
     set(_cli11_extract_dir "${CMAKE_BINARY_DIR}/_cli11_tmp")
     file(MAKE_DIRECTORY ${_cli11_extract_dir})
-    file(ARCHIVE_EXTRACT
-        INPUT ${CLI11_PKG_PATH}
-        DESTINATION ${_cli11_extract_dir}
-    )
+    hcclvm_archive_extract(ARCHIVE ${CLI11_PKG_PATH} DESTINATION ${_cli11_extract_dir})
 
     set(_cli11_src_include "${_cli11_extract_dir}/CLI11-2.2.0/include")
     if(NOT EXISTS "${_cli11_src_include}/CLI/CLI.hpp")

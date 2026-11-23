@@ -49,6 +49,8 @@
 #include "runtime_state/db_sim_runner_common.h"
 #include "runtime_state/db_sim_runner_ops.h"
 #include "device_spec/device_spec_registry.h"
+#include "device_spec/device_spec_types.h"
+#include "resource_limit_manager.h"
 #include "storage/table_access.h"
 #include "store_sim_run_mode.h"
 #include "ibv_dpu_stub.h"
@@ -526,7 +528,6 @@ int RaNormalQpDestroy(void* qpHandle)
     }
 
     uint64_t qpId = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(qpHandle));
-
     CleanupFakeQpResources(qpId);
 
     (void)sim::runtime::Db::Delete<sim::runtime::RaQP>(HcclSim::Storage::Eq(&sim::runtime::RaQP::id, qpId));
@@ -1675,6 +1676,8 @@ int RaCtxQpCreate(void* ctxHandle, struct QpCreateAttr* attr, struct QpCreateInf
         return -1;
     }
 
+    const uint64_t deviceKey = devCtx.value->device_id;
+
     auto endPoint = sim::runtime::Db::GetById<sim::runtime::EndPoint>(devCtx.value->endpoint_id);
     if (!endPoint.ok()) {
         HCCL_VM_ERROR("can not find endpoint:{:d}", devCtx.value->endpoint_id);
@@ -1694,24 +1697,25 @@ int RaCtxQpCreate(void* ctxHandle, struct QpCreateAttr* attr, struct QpCreateInf
     // 不写入 SQE 16 位字段——行主键随表规模无界增长，256p 起经 16 位字段回绕成错误编号
     // （b4 实测行主键 65536~65792 回绕为 0~256，命中错误行导致数据面 SQE 丢弃）。
     // 编号消耗策略：WQE 分配或行插入失败时编号视为已消耗（不回收，防旧引用复活）。
-    static std::atomic<uint32_t> s_aicpuJettyHwIdSeq{0};
     uint64_t sqBuffer = 0;
     uint8_t sqBufferMallocFlag = 0;
     uint32_t aicpuJettyHwId = 0;
     void* ownedWqeBuf = nullptr; // 仅跟踪本函数分配的 WQE；caller 传入的 buffVa 不归本函数管理
     bool aicpuMode = (attr->ub.mode == JettyMode::JETTY_MODE_USER_CTL_NORMAL) && sim::GetAicpuProcMgr().IsAlive();
     if (aicpuMode) {
-        if (!HcclSim::TryReserveAicpuJettyHwId(s_aicpuJettyHwIdSeq, aicpuJettyHwId)) {
-            HCCL_VM_ERROR(
-                "aicpu jetty hw id exhausted, capacity[{}], owner pid[{}]",
-                HcclSim::HCCL_VM_AICPU_JETTY_CAPACITY_PER_RANK, getpid());
-            return -1;
+        // UB Jetty 存活配额（yaml device_res.ub_jetty.normal_pool_size）+ AICPU 硬件编号（[5312,9407]）
+        // 合并发放（ResourceLimitManager 内先 quota +1 判定、再消耗编号，编号耗尽自动回滚 quota）：
+        // 任一层耗尽对齐真机资源耗尽返回 RMA_ENOSPC(228103)，不消耗编号、不污染存活值。
+        if (!HCCL_VM_ACQUIRE_UB_JETTY(deviceKey, aicpuJettyHwId)) {
+            HCCL_VM_ERROR("Ctx:{:d} ub jetty resource exhausted, over device pool capacity or hw id exhausted", ctxId);
+            return RMA_ENOSPC;
         }
         sqBuffer = attr->ub.extMode.sq.buffVa;
         if (sqBuffer == 0) { // 判断是否需要由桩函数分配sqBuffer
             ownedWqeBuf = AllocateWqeBuff();
             if (ownedWqeBuf == nullptr) {
                 HCCL_VM_ERROR("get wqe buff failed, jetty hw id[{}] consumed", aicpuJettyHwId);
+                HCCL_VM_RELEASE_UB_JETTY(deviceKey); // WQE 分配失败，回滚前置占用的存活配额
                 return -1;
             }
             sqBufferMallocFlag = 1;
@@ -1740,6 +1744,9 @@ int RaCtxQpCreate(void* ctxHandle, struct QpCreateAttr* attr, struct QpCreateInf
     if (!inserted.ok() || !inserted.value.has_value()) {
         if (ownedWqeBuf != nullptr) {
             FreeWqeBuff(ownedWqeBuf); // 桩分配的 WQE 随失败释放；编号已消耗（不复用）
+        }
+        if (aicpuMode) {
+            HCCL_VM_RELEASE_UB_JETTY(deviceKey); // 行插入失败，回滚前置占用的存活配额
         }
         return -1;
     }
@@ -2604,6 +2611,11 @@ int RaCtxQpDestroy(void* qpHandle)
         FreeWqeBuff(sqBuf);
     }
 
+    // 与创建侧严格对应：仅 AICPU(mode3) 实际分配了 [5312,9407] 硬件编号的行才计入过
+    // ResourceLimitManager 的 ub_jetty 存活计数，软删时据编号区间回减；未走 AICPU 编号池的行不在此回减。
+    if (HcclSim::IsAicpuJettyHwIdInRange(jty.value->jetty_id)) {
+        HCCL_VM_RELEASE_UB_JETTY(jty.value->device_id);
+    }
     HCCL_VM_STAT_JETTY_FREE(jty.value->device_id);
     HCCL_VM_INFO("soft delete jetty id {:d}, for checker use after", id);
     return 0;

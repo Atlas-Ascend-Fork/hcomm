@@ -11,6 +11,8 @@
 #include <cstdio>
 #include <fstream>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "gtest/gtest.h"
 
@@ -79,6 +81,10 @@ TEST(DeviceSpecLoader, ParseAscend950Ok)
     EXPECT_FALSE(spec.SupportsAddrDecode()) << "A5(V1) 用 id 编址，不做地址反查";
     // 本期不建模 WQE（D16 / O12）
     EXPECT_EQ(spec.FindRegion(CcuResType::WQE), nullptr);
+    EXPECT_EQ(spec.deviceRes.streamNum, 2016U);
+    EXPECT_EQ(spec.deviceRes.notifyNum, 131072U);
+    EXPECT_EQ(spec.deviceRes.ubJetty.normalPoolSize, 4096U);
+    EXPECT_EQ(spec.vectorCoreNum, 64U);
 }
 
 TEST(DeviceSpecLoader, ParseAscend960Ok)
@@ -87,6 +93,7 @@ TEST(DeviceSpecLoader, ParseAscend960Ok)
     std::string err;
     ASSERT_TRUE(LoadDeviceSpecYaml(Path("device_spec_yaml_demo_ascend960.yaml"), spec, err)) << err;
 
+    EXPECT_EQ(spec.specVersion, 1U);
     EXPECT_EQ(spec.name, "ascend960");
     EXPECT_EQ(spec.ccuVersion, CcuVersion::CCU_V2);
     EXPECT_EQ(spec.dieNum, 2U);
@@ -97,6 +104,10 @@ TEST(DeviceSpecLoader, ParseAscend960Ok)
     EXPECT_EQ(spec.countXnNum, 4U);
     EXPECT_TRUE(spec.SupportsAddrDecode());
     EXPECT_EQ(spec.FindRegion(CcuResType::WQE), nullptr);
+    EXPECT_EQ(spec.deviceRes.streamNum, 2016U);
+    EXPECT_EQ(spec.deviceRes.notifyNum, 131072U);
+    EXPECT_EQ(spec.deviceRes.ubJetty.normalPoolSize, 4096U);
+    EXPECT_EQ(spec.vectorCoreNum, 64U);
 }
 
 /// A5/A6 的 address_space 段必须逐字段相同（芯片无关，验收 A14）
@@ -254,6 +265,23 @@ TEST(DeviceSpecDerived, MaxModelledEndAndBackwardCompatibility)
 }
 
 // ===================== 校验失败路径 =====================
+
+TEST(DeviceSpecValidation, RejectsInvalidDeviceRes)
+{
+    const std::vector<std::pair<std::string, std::string>> mutations = {
+        {"stream_num: 2016", "stream_num: 0"},
+        {"notify_num: 131072", "notify_num: 131073"},
+        {"vector_core_num: 64", "vector_core_num: 0"},
+    };
+    for (const auto& mutation : mutations) {
+        const auto f = MakeBroken(Path("device_spec_yaml_demo_ascend960.yaml"), mutation.first, mutation.second);
+        DeviceSpec spec;
+        std::string err;
+        EXPECT_FALSE(LoadDeviceSpecYaml(f, spec, err)) << mutation.first;
+        EXPECT_FALSE(err.empty());
+        ::remove(f.c_str());
+    }
+}
 
 TEST(DeviceSpecValidation, RejectsMissingFile)
 {

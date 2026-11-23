@@ -29,6 +29,9 @@ using s64 = signed long long;
 using RankId = uint32_t;
 using PodId = uint32_t;
 using SerId = uint32_t;
+// board序号: 拓扑叶子节点在server/POD内的编号(server形态恒为0), 与sim_common_defs.h的
+// BoardMeta键、Server表board_id同口径; 独立别名以免与PodId(超节点id)混读
+using BoardId = uint32_t;
 using PhyId = uint32_t;
 // 物理设备 ID：全局唯一，内部逻辑统一使用 deviceId 标识设备（为多通信域执行做准备）
 using DeviceId = uint32_t;
@@ -60,7 +63,7 @@ using TopoMeta = std::map<uint32_t, SuperPodMeta>;
 struct NpuPos {
     PodId superpodId; // 超节点Id
     SerId serverId;   // ServerId(POD形态下为POD id)
-    PodId boardId;    // BoardId(server形态恒为0)
+    BoardId boardId;  // board序号(server形态恒为0; POD形态为POD内board序号)
     PhyId phyId;      // 叶子节点(server/board)内物理Id
 };
 

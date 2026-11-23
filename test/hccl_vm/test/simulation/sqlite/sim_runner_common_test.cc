@@ -374,12 +374,12 @@ protected:
     void TearDown() override { CleanUpDb(); }
 };
 
-// 一行业务函数（内部定位设备后在数据库端 COUNT 聚合，不加载行集）。
-TEST_F(SimRunnerCommonCountTest, GetAICpuCount_WhenDeviceExists_ReturnCorrectCount)
+// 一行业务函数（设备存在即返回默认值，不消费 TaskSchedulerDevice 落库数据）。
+TEST_F(SimRunnerCommonCountTest, GetAICpuCount_WhenDeviceExists_ReturnDefaultCount)
 {
     auto count = sim::runtime::GetAICpuCount(0);
 
-    EXPECT_EQ(count, 1);
+    EXPECT_EQ(count, 6);
 }
 
 TEST_F(SimRunnerCommonCountTest, GetAICpuCount_WhenDeviceNotExists_ReturnZero)

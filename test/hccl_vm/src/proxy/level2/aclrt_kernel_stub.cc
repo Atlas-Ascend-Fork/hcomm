@@ -55,6 +55,8 @@
 #include "hccl_proxy_common.h"
 #include "sim_sub_process_manager.h"
 #include "sim_dpu_kernel_lib_mgr.h"
+#include "device_spec/device_spec_types.h"
+#include "resource_limit_manager.h"
 
 namespace fs = std::filesystem;
 
@@ -2181,6 +2183,9 @@ extern "C" aclError aclrtLaunchKernelWithHostArgs(
     // 当前下发接口被三种模式使用，按照下发来源分类
     const sim::FuncHandle* funcView = reinterpret_cast<const sim::FuncHandle*>(funcHandle);
     const HostArgsLaunchKind kind = ClassifyHostArgsLaunch(funcView);
+    if (kind == HostArgsLaunchKind::AIV && !HCCL_VM_CHECK_AIV_CORE_CAPACITY(numBlocks)) {
+        return ACL_ERROR_RT_OVER_LIMIT;
+    }
 
     // PTA 未知内核仅录制占位；AICPU/HOST_DPU 内核按 AICPU 采集录制；
     // AIV 系内核继续走下方规范化参数后的采集分支。
@@ -2341,6 +2346,10 @@ extern "C" void LaunchAivKernelRaw(
     const char* kernelName, const char* soName, uint32_t numBlocks, const uint8_t* hostArgsBytes, uint32_t hostArgsSize,
     uint64_t commId, uint32_t rankId, uint64_t streamId, uint32_t opDetailId)
 {
+    if (!HCCL_VM_CHECK_AIV_CORE_CAPACITY(numBlocks)) {
+        return;
+    }
+
     // 反序列化采集期固化的规范化 hostArgs（POD 整块拷贝，size 必须与 AivHostLaunchArgs 一致）。
     ops_hccl::AivHostLaunchArgs rawArgs{};
     if (hostArgsBytes == nullptr || hostArgsSize != sizeof(ops_hccl::AivHostLaunchArgs)) {

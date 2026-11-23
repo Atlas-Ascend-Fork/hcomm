@@ -178,6 +178,49 @@ HcclResult HcclGetHcclBuffer(HcclComm comm, void** buffer, uint64_t* size)
 }
 
 /**
+ * @brief 获取卡死检测计数器地址的桩实现。
+ *
+ * hccl-vm 不模拟卡死检测计数器，按接口约定（hccl_res.h：未开启或者获取异常时全部返回 0）
+ * 固定返回全 0 地址。行为对齐 hcomm 真实实现（stuck_detect_counter_c_adpt.cc）：
+ * 出参为 nullptr 返回 HCCL_E_PTR 且不写出参；出参正常时先清零，再处理 comm 为 nullptr
+ * 返回 HCCL_E_PTR。
+ *
+ * 本桩必须随 level1 导出：CANN 9.3.0 起 libhcomm.so 导出了真实
+ * HcclStuckDetectGetCounterAddr，若 level1 缺席，level0 RecordOpCounterBuffer 的
+ * dlsym(RTLD_NEXT) 会穿透到真实实现，后者在 IsCommunicatorV2() 处解引用 hccl-vm 的
+ * 模拟通信域句柄（小整数 ID，非真实指针）导致 SIGSEGV。LD_PRELOAD 全局符号域中
+ * level1 先于 libhcomm 加载，本桩可安全截获该符号。
+ *
+ * @param comm 输入：通信域句柄（hccl-vm 模拟句柄，本接口不解引用）。
+ * @param headOpCounterAddr 输出：头计数器 device 地址，固定返回 0（未开启）。
+ * @param tailOpCounterAddr 输出：尾计数器 device 地址，固定返回 0（未开启）。
+ * @param addOneMemAddr 输出：常量 1 的 device 地址，固定返回 0（未开启）。
+ *
+ * @return HcclResult 接口成功返回HCCL_SUCCESS，其他失败。
+ * @retval HCCL_SUCCESS 固定按"未开启卡死检测"返回全 0 地址
+ * @retval HCCL_E_PTR 任一出参为 nullptr，或 comm 为 nullptr
+ */
+HcclResult HcclStuckDetectGetCounterAddr(
+    HcclComm comm, uint64_t* headOpCounterAddr, uint64_t* tailOpCounterAddr, uint64_t* addOneMemAddr)
+{
+    if (headOpCounterAddr == nullptr || tailOpCounterAddr == nullptr || addOneMemAddr == nullptr) {
+        HCCL_VM_ERROR("{}: output pointer is nullptr", __func__);
+        return HCCL_E_PTR;
+    }
+    *headOpCounterAddr = 0;
+    *tailOpCounterAddr = 0;
+    *addOneMemAddr = 0;
+    if (comm == nullptr) {
+        HCCL_VM_ERROR("{}: comm is nullptr", __func__);
+        return HCCL_E_PTR;
+    }
+    HCCL_VM_INFO(
+        "{}: commId={}, stuck detect counter not simulated, return zero addresses", __func__,
+        reinterpret_cast<uint64_t>(comm));
+    return HCCL_SUCCESS;
+}
+
+/**
  * @brief 基于通信域获取通信线程。
  *
  * 根据传入的引擎类型、线程数量和每条线程的Notify数量，在数据库中创建对应数量的

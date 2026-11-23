@@ -34,6 +34,7 @@ target_sources(hccl_proxy_level2 PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/aprofiling_stub.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/aclrt_stub.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/aclrt_runtime_config.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/resource_limit_manager.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/hcomm_api_stub.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/ibv_dpu_stub.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/topo_addr_info_stub.cc

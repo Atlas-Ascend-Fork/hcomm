@@ -10,6 +10,8 @@
 
 include_guard(GLOBAL)
 
+include(${CMAKE_CURRENT_LIST_DIR}/archive_utils.cmake)
+
 set(NLOHMANN_JSON_FILE "include.zip")
 set(NLOHMANN_JSON_VERSION "3.11.3")
 set(NLOHMANN_JSON_URL "https://gitcode.com/cann-src-third-party/json/releases/download/v${NLOHMANN_JSON_VERSION}/${NLOHMANN_JSON_FILE}")
@@ -46,10 +48,7 @@ else()
 
     set(_nlohmann_extract_dir "${CMAKE_BINARY_DIR}/_nlohmann_json_tmp")
     file(MAKE_DIRECTORY ${_nlohmann_extract_dir})
-    file(ARCHIVE_EXTRACT
-        INPUT ${NLOHMANN_JSON_PKG_PATH}
-        DESTINATION ${_nlohmann_extract_dir}
-    )
+    hcclvm_archive_extract(ARCHIVE ${NLOHMANN_JSON_PKG_PATH} DESTINATION ${_nlohmann_extract_dir})
 
     if(NOT EXISTS "${_nlohmann_extract_dir}/include/nlohmann/json.hpp")
         message(FATAL_ERROR

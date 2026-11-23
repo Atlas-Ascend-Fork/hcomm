@@ -12,12 +12,27 @@ HCCL-VM是面向华为昇腾NPU卡的高性能集合通信的虚拟执行环境�
 
 ## 2. 前置依赖
 
-|   依赖项   |     版本要求     |
-| -------- | ------------- |
-| 系统架构  | x86_64 Ubuntu22.04及以上 |
-| 规格约束  | Ascend950，其余参照[约束详情](#45-工具规格约束) |
-| QEMU（x86_64 宿主） | 优先使用系统自带或 apt 安装的 qemu-user-static（PATH 中的 `qemu-aarch64-static`）；版本低于 10.2.4 时无法限制翻译代码缓存、QEMU 常驻内存较大，大规模场景可能引发换页、明显影响性能，如需自行编译 10.2.4 及以上版本见 [3.1.1 QEMU 源码编译（可选）](#311-qemu-源码编译可选x86_64-宿主)。原生 ARM 主机不需要 QEMU；编译（`build.sh`/`build_pkg.sh`）不依赖本机已安装 QEMU |
-| Python3（仅估算模式 @estimate 性能仿真插件运行需要） | ≥3.8（含 sqlite3 标准库），另需预装 simpy 离散事件仿真包（`pip3 install simpy`），详见 [4.9.5](#495-估算插件estimate与依赖说明) |
+规格约束：Ascend950，其余参照[约束详情](#45-工具规格约束)。
+
+**编译环境版本要求**：
+
+| 软件 | 版本要求 |
+| --- | --- |
+| OS / 架构 | Linux x86_64 / aarch64 |
+| CMake | ≥3.16 且 <4.0 |
+| GCC / G++ | 7.3.0 – 14.2.x（C++17） |
+| Python3 | ≥3.7（pip3 ≥20.3，含 PyYAML） |
+| CANN Toolkit + 950 ops 包 | 与 hccl/hcomm 源码同代配套 |
+| make / pkg-config / patch | 随系统（pkg-config ≥0.29.1、patch ≥2.7.0） |
+
+**运行环境版本要求**：
+
+| 软件 | 版本要求 |
+| --- | --- |
+| QEMU（x86_64 宿主，AICPU/HostDPU 模式） | ≥10.2.4（推荐）；编译不需要，安装与回退行为见 [2.3](#23-aicpu-运行环境安装) |
+| MPI（hccl_test） | OpenMPI 4.x 或 MPICH |
+| MariaDB（可选，>128 卡） | 10.11 |
+| Python3（仅 @estimate 估算插件） | ≥3.8（含 sqlite3 标准库）+ simpy（`pip3 install simpy`），详见 [4.9.5](#495-估算插件estimate与依赖说明) |
 
 ### 2.1 CANN包安装
 
@@ -222,7 +237,7 @@ cd /home/workspace/hcomm/test/hccl_vm/hccl_vm_install/bin
 HostDPU展开模式运行时的环境变量配置等均与AICPU模式相同，仅在集群规模和通信域规模上有如下差异：
 
 1. 集群规格配置需使用 `./hccl-vm start ascend950_cluster_32_server_normal_hostdpu.yaml`
-2. 需要Server数量 >= 2，即不支持单Server的通信域（不支持 112.yaml、114.yaml、118.yaml等）
+2. 需要超节点数量 >= 2（如 222.yaml），即不支持单个超节点的通信域（不支持 112.yaml、122.yaml等）
 
 #### 3.2.5 AIV模式
 

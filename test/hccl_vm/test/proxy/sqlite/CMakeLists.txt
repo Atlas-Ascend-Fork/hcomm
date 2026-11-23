@@ -57,6 +57,7 @@ add_executable(test_ctrl_base_resource_stub ctrl_base_resource_stub_test.cc)
 target_sources(test_ctrl_base_resource_stub PRIVATE
     ${CMAKE_SOURCE_DIR}/src/proxy/level1/ctrl_base_resource_stub.cc
     ${CMAKE_SOURCE_DIR}/src/proxy/level2/aclrt_stream_stub.cc
+    ${CMAKE_SOURCE_DIR}/src/proxy/level2/resource_limit_manager.cc
 )
 set_target_properties(test_ctrl_base_resource_stub PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
@@ -96,6 +97,7 @@ target_link_libraries(test_aclrt_device_stub PRIVATE
 add_executable(test_hccp_rmem_stub hccp_rmem_stub_test.cc)
 target_sources(test_hccp_rmem_stub PRIVATE
     ${CMAKE_SOURCE_DIR}/src/proxy/level2/hccp_stub.cc
+    ${CMAKE_SOURCE_DIR}/src/proxy/level2/resource_limit_manager.cc
     ${CMAKE_SOURCE_DIR}/src/proxy/level2/hccp_async_request.cc
     ${CMAKE_SOURCE_DIR}/src/proxy/level2/ibv_dpu_stub.cc
     ${CMAKE_SOURCE_DIR}/src/proxy/common/hccl_proxy_common.cc
@@ -131,6 +133,7 @@ target_link_libraries(test_hccp_rmem_stub PRIVATE
 add_executable(test_hccp_ccu_mem_info_stub hccp_ccu_mem_info_stub_test.cc)
 target_sources(test_hccp_ccu_mem_info_stub PRIVATE
     ${CMAKE_SOURCE_DIR}/src/proxy/level2/hccp_stub.cc
+    ${CMAKE_SOURCE_DIR}/src/proxy/level2/resource_limit_manager.cc
     ${CMAKE_SOURCE_DIR}/src/proxy/level2/hccp_async_request.cc
     ${CMAKE_SOURCE_DIR}/src/proxy/level2/ibv_dpu_stub.cc
     ${CMAKE_SOURCE_DIR}/src/proxy/common/hccl_proxy_common.cc
@@ -167,6 +170,7 @@ add_executable(test_hccp_ra_socket_async hccp_ra_socket_async_test.cc)
 target_sources(test_hccp_ra_socket_async PRIVATE
     ${CMAKE_SOURCE_DIR}/src/proxy/level2/hccp_ra_socket_stub.cc
     ${CMAKE_SOURCE_DIR}/src/proxy/level2/hccp_stub.cc
+    ${CMAKE_SOURCE_DIR}/src/proxy/level2/resource_limit_manager.cc
     ${CMAKE_SOURCE_DIR}/src/proxy/level2/hccp_async_request.cc
     ${CMAKE_SOURCE_DIR}/src/proxy/level2/ibv_dpu_stub.cc
     ${CMAKE_SOURCE_DIR}/src/proxy/common/hccl_proxy_common.cc
@@ -203,6 +207,7 @@ add_executable(test_hccp_ra_socket_diag hccp_ra_socket_diag_test.cc)
 target_sources(test_hccp_ra_socket_diag PRIVATE
     ${CMAKE_SOURCE_DIR}/src/proxy/level2/hccp_ra_socket_stub.cc
     ${CMAKE_SOURCE_DIR}/src/proxy/level2/hccp_stub.cc
+    ${CMAKE_SOURCE_DIR}/src/proxy/level2/resource_limit_manager.cc
     ${CMAKE_SOURCE_DIR}/src/proxy/level2/hccp_async_request.cc
     ${CMAKE_SOURCE_DIR}/src/proxy/level2/ibv_dpu_stub.cc
     ${CMAKE_SOURCE_DIR}/src/proxy/common/hccl_proxy_common.cc

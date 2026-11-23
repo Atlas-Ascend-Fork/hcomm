@@ -11,9 +11,9 @@
 // 日志染色: 模块 tag (须在 include sim_log.h 之前)
 #define HCCL_VM_MODULE "NOTIFY_STUB"
 
-#include <atomic>
 #include <cstdint>
 #include <iostream>
+#include <mutex>
 #include <unistd.h>
 #include <utility>
 #include <vector>
@@ -21,12 +21,14 @@
 #include "acl/acl_base.h"
 #include "acl/acl_rt.h"
 #include "store_sim_store_pub.h"
+#include "resource_limit_manager.h"
 #include "sim_log.h"
 #include "stat/res_stat.h"
 #include "runtime/base.h"
 #include "runtime/event.h"
 #include "runtime_state/db_sim_runner_ops.h"
 #include "runtime_state/db_sim_runner_common.h"
+#include "device_spec/device_spec_types.h"
 #include "storage/table_access.h"
 #include "sim_capacity_limits.h"
 #include "store_sim_run_mode.h"
@@ -196,8 +198,15 @@ aclError aclrtCreateNotify(aclrtNotify* notify, uint64_t flag)
 
     uint32_t deviceNotifyId = 0;
     if (!g_deviceNotifyIds.Allocate(deviceNotifyId)) {
+        // 真机 Notify 硬件 ID 资源耗尽时 runtime 返回 ACL_ERROR_RT_NO_NOTIFY_RESOURCE(207009)
         HCCL_VM_ERROR("device notify id capacity exhausted");
-        return ACL_ERROR_INTERNAL_ERROR;
+        return ACL_ERROR_RT_NO_NOTIFY_RESOURCE;
+    }
+
+    if (!HCCL_VM_ACQUIRE_NOTIFY(currCtx.value->device_id)) {
+        // 每卡 Notify 容量门禁超限，与真机资源耗尽错误码保持一致(207009)
+        g_deviceNotifyIds.Release(deviceNotifyId);
+        return ACL_ERROR_RT_NO_NOTIFY_RESOURCE;
     }
 
     sim::runtime::Notify tmp{};
@@ -208,6 +217,7 @@ aclError aclrtCreateNotify(aclrtNotify* notify, uint64_t flag)
     tmp.id = 0;
     auto inserted = sim::runtime::Db::Add<sim::runtime::Notify>(tmp);
     if (!inserted.ok() || !inserted.value.has_value()) {
+        HCCL_VM_RELEASE_NOTIFY(currCtx.value->device_id);
         g_deviceNotifyIds.Release(deviceNotifyId);
         HCCL_VM_ERROR("failed to record notify for context:{:d}", currCtxId);
         return ACL_ERROR_INTERNAL_ERROR;
@@ -231,6 +241,7 @@ aclError aclrtDestroyNotify(aclrtNotify notify)
         HCCL_VM_ERROR("failed to destroy notify:{:d}", storageId);
         return ACL_ERROR_INTERNAL_ERROR;
     }
+    HCCL_VM_RELEASE_NOTIFY(record->device_id);
     if (record.ok()) {
         g_deviceNotifyIds.Release(HcclSim::GetDeviceNotifyId(record->device_notify_seq));
     }

@@ -19,6 +19,7 @@
 add_executable(test_hccp_rmem_mariadb hccp_rmem_mariadb_test.cc)
 target_sources(test_hccp_rmem_mariadb PRIVATE
     ${CMAKE_SOURCE_DIR}/src/proxy/level2/hccp_stub.cc
+    ${CMAKE_SOURCE_DIR}/src/proxy/level2/resource_limit_manager.cc
     ${CMAKE_SOURCE_DIR}/src/proxy/level2/hccp_async_request.cc
     ${CMAKE_SOURCE_DIR}/src/proxy/level2/ibv_dpu_stub.cc
     ${CMAKE_SOURCE_DIR}/src/proxy/common/hccl_proxy_common.cc
