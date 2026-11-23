@@ -307,7 +307,11 @@ HcclResult SocketMgr::AcceptSocket(
 {
     CHK_PTR_NULL(listener);
     std::shared_ptr<Hccl::Socket> acceptedSocket = nullptr;
-    CHK_RET(listener->Accept(socketConfig.GetHccpTag(), acceptedSocket, acceptTimeOut));
+    HcclResult ret = listener->Accept(socketConfig.GetHccpTag(), acceptedSocket, acceptTimeOut);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_WARNING("[%s] accept failed, ret[%d], tag[%s]", __func__, ret, socketConfig.GetHccpTag().c_str());
+        return ret;
+    }
     CHK_SMART_PTR_NULL(acceptedSocket);
 
     Hccl::SocketConfig connConfig = socketConfig;

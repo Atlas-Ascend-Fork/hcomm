@@ -450,23 +450,23 @@ TEST_F(SocketTest, Ut_SocketAccept_When_ErrorStatusesAndRole_Expect_MappedCodes)
     // 轮2：连接超时 → TIMEOUT
     int fakeFdStatus = SOCKET_CONNECT_TIMEOUT;
     RaSocketFdHandleParam fakeParamTimeout(fakeFdHandle, fakeFdStatus, remoteIp);
-    MOCKER(HrtRaBlockGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParamTimeout));
+    MOCKER(RaGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParamTimeout));
     EXPECT_EQ(socketServer->Accept("testxxxxx", acceptedSocket, 1), HCCL_E_TIMEOUT);
     EXPECT_EQ(acceptedSocket, nullptr);
     GlobalMockObject::verify();
 
-    // 轮3：连接中 → AGAIN
+    // 轮3：连接中 → TIMEOUT
     fakeFdStatus = SOCKET_CONNECTING;
     RaSocketFdHandleParam fakeParamConnecting(fakeFdHandle, fakeFdStatus, remoteIp);
-    MOCKER(HrtRaBlockGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParamConnecting));
-    EXPECT_EQ(socketServer->Accept("testxxxxx", acceptedSocket, 1), HCCL_E_AGAIN);
+    MOCKER(RaGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParamConnecting));
+    EXPECT_EQ(socketServer->Accept("testxxxxx", acceptedSocket, 1), HCCL_E_TIMEOUT);
     EXPECT_EQ(acceptedSocket, nullptr);
     GlobalMockObject::verify();
 
     // 轮4：其他状态（未连接）→ TCP_CONNECT
     fakeFdStatus = SOCKET_NOT_CONNECTED;
     RaSocketFdHandleParam fakeParamInit(fakeFdHandle, fakeFdStatus, remoteIp);
-    MOCKER(HrtRaBlockGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParamInit));
+    MOCKER(RaGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParamInit));
     EXPECT_EQ(socketServer->Accept("testxxxxx", acceptedSocket, 1), HCCL_E_TCP_CONNECT);
     EXPECT_EQ(acceptedSocket, nullptr);
     GlobalMockObject::verify();
@@ -476,7 +476,23 @@ TEST_F(SocketTest, Ut_SocketAccept_When_StatusOk_Expect_SuccessAndSocketValid)
 {
     int fakeFdStatus = SOCKET_CONNECTED;
     RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus, remoteIp);
-    MOCKER(HrtRaBlockGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParam));
+    MOCKER(RaGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParam));
+
+    std::shared_ptr<Socket> acceptedSocket = nullptr;
+    EXPECT_EQ(socketServer->Accept("testxxxxx", acceptedSocket, 1), HCCL_SUCCESS);
+    ASSERT_NE(acceptedSocket, nullptr);
+    EXPECT_EQ(acceptedSocket->GetFdHandle(), fakeFdHandle);
+}
+
+TEST_F(SocketTest, Ut_SocketAccept_When_ConnectingThenConnected_Expect_Success)
+{
+    RaSocketFdHandleParam connectingParam(fakeFdHandle, SOCKET_CONNECTING, remoteIp);
+    RaSocketFdHandleParam connectedParam(fakeFdHandle, SOCKET_CONNECTED, remoteIp);
+    MOCKER(RaGetOneSocket)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any())
+        .will(returnValue(connectingParam))
+        .then(returnValue(connectedParam));
 
     std::shared_ptr<Socket> acceptedSocket = nullptr;
     EXPECT_EQ(socketServer->Accept("testxxxxx", acceptedSocket, 1), HCCL_SUCCESS);

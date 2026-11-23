@@ -365,11 +365,14 @@ HcclResult DetectConnectionAnomalies::RunServerAcceptLoop(
 
     HCCL_INFO("[%s] accept window start, tag[%s]", __func__, tag.c_str());
     while (threadRunning_.load() && std::chrono::steady_clock::now() - acceptStartTime < dfsTimeout) {
+        const auto remaining = std::chrono::ceil<std::chrono::seconds>(
+            dfsTimeout - (std::chrono::steady_clock::now() - acceptStartTime));
+        const u32 acceptTimeOut = remaining.count() > 0 ? static_cast<u32>(remaining.count()) : 1;
         std::shared_ptr<Hccl::Socket> oneSocket = nullptr;
         HcclResult ret = HCCL_SUCCESS;
         EXCEPTION_CATCH(
             ret = GetSocketMgr(static_cast<s32>(localDevPhyId_))
-                      .AcceptSocket(listener, acceptConfig, oneSocket, ACCEPT_TIMEOUT_SEC),
+                      .AcceptSocket(listener, acceptConfig, oneSocket, acceptTimeOut),
             { ret = HCCL_E_AGAIN; });
         if (ret == HCCL_SUCCESS && oneSocket != nullptr) {
             acceptSuccessSocketList.push_back(oneSocket);
@@ -539,27 +542,17 @@ HcclResult DetectConnectionAnomalies::CreateClientSocketAndConnected(
     const uint32_t dfsTimeSec = GetDfsConnFaultTime();
     const auto connectTimeOut = std::chrono::seconds(dfsTimeSec);
     auto connectStartTime = GetStartTime();
-    auto firstStartTime = connectStartTime;
 
     CHK_RET(CreateClientSocket(peer, clientSocket));
     CHK_PTR_NULL(clientSocket);
     connected = false;
 
     const std::string remoteIpStr = clientSocket->GetRemoteIp().GetIpStr();
-    HCCL_INFO(
-        "[%s] start connect and poll, dfsTime[%u]s, remoteIp[%s], pollInterval[%u]s", __func__, dfsTimeSec,
-        remoteIpStr.c_str(), CLIENT_GETSTATUS_TIMEOUT_SEC);
+    HCCL_INFO("[%s] start connect and poll, dfsTime[%u]s, remoteIp[%s]", __func__, dfsTimeSec, remoteIpStr.c_str());
 
     while (threadRunning_.load() && std::chrono::steady_clock::now() - connectStartTime < connectTimeOut) {
         Hccl::SocketStatus status = Hccl::SocketStatus::INIT;
-        EXCEPTION_CATCH(status = clientSocket->GetStatus(CLIENT_GETSTATUS_TIMEOUT_SEC), {});
-        // 打印每次轮询的状态
-        HCCL_INFO(
-            "[%s] poll status[%s], remoteIp[%s], elapsed[%lld]s", __func__, status.Describe().c_str(),
-            remoteIpStr.c_str(),
-            static_cast<long long>(
-                std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - firstStartTime)
-                    .count()));
+        EXCEPTION_CATCH(status = clientSocket->GetAsyncStatus(), {});
         if (status == Hccl::SocketStatus::OK) {
             HCCL_INFO("[Detect][ConnectionAnomalies]GetStatus success, remoteIp[%s]", remoteIpStr.c_str());
             connected = true;

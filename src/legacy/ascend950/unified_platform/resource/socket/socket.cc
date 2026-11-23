@@ -15,6 +15,7 @@
 #include "socket_exception.h"
 #include "network_api_exception.h"
 #include "config_plf_log_v2.h"
+#include "env_config_v2.h"
 
 namespace Hccl {
 
@@ -564,22 +565,49 @@ HcclResult Socket::Accept(const std::string& listenTag, std::shared_ptr<Socket>&
         "[Accept]localIp[%s], remoteIp[%s], socketHandle[%p], tag[%s]", localIp.GetIpStr().c_str(),
         remoteIp.GetIpStr().c_str(), socketHandle, listenTag.c_str());
 
-    SocketStatus status = SocketStatus::INIT;
-    EXCEPTION_CATCH(status = acceptedSocket->GetStatus(acceptTimeOut), acceptedSocket = nullptr;
-                    return HCCL_E_INTERNAL);
-    if (status != SocketStatus::OK) {
-        HCCL_WARNING(
-            "[Socket::%s] accept not established, status[%s], [%s].", __func__, status.Describe().c_str(),
-            Describe().c_str());
-        acceptedSocket = nullptr;
-        return (status == SocketStatus::TIMEOUT) ?
-                   HCCL_E_TIMEOUT :
-                   ((status == SocketStatus::CONNECTING) ? HCCL_E_AGAIN : HCCL_E_TCP_CONNECT);
-    }
+    s32 acceptTimeOutTmp = static_cast<s32>(acceptTimeOut);
+    const s32 linkTimeOut = Hccl::EnvConfig::GetInstance().GetSocketConfig().GetLinkTimeOut();
+    s32 timer = (acceptTimeOutTmp > 0 && acceptTimeOutTmp < linkTimeOut) ? acceptTimeOutTmp : linkTimeOut;
+    const auto startTime = std::chrono::steady_clock::now();
+    const auto timeout = std::chrono::seconds(timer);
 
-    HCCL_DEBUG(
-        "[Accept]socket is established. localIp[%s], remoteIp[%s]", acceptedSocket->GetLocalIp().GetIpStr().c_str(),
-        acceptedSocket->GetRemoteIp().GetIpStr().c_str());
+    while (true) {
+        if (std::chrono::steady_clock::now() - startTime >= timeout) {
+            HCCL_WARNING("[Socket::%s] accept timeout, timeout[%d s], [%s].", __func__, timer, Describe().c_str());
+            acceptedSocket = nullptr;
+            return HCCL_E_TIMEOUT;
+        }
+
+        // 此处使用非阻塞 GetAsyncStatus 单步推进连接状态，避免 Accept 超时报异常；
+        // 以后演进归一socket getstatus(支持非阻塞查询，同时支持device和host建链)。
+        SocketStatus status = SocketStatus::INIT;
+        EXCEPTION_CATCH(status = acceptedSocket->GetAsyncStatus(), {
+            acceptedSocket = nullptr;
+            return HCCL_E_INTERNAL;
+        });
+
+        if (status == SocketStatus::OK) {
+            HCCL_DEBUG(
+                "[Accept]socket is established. localIp[%s], remoteIp[%s]",
+                acceptedSocket->GetLocalIp().GetIpStr().c_str(), acceptedSocket->GetRemoteIp().GetIpStr().c_str());
+            return HCCL_SUCCESS;
+        } else if (status == SocketStatus::CONNECTING) {
+            SaluSleep(ONE_MILLISECOND_OF_USLEEP);
+            continue;
+        } else if (status == SocketStatus::TIMEOUT) {
+            HCCL_WARNING(
+                "[Socket::%s] accept timeout, status[%s], [%s].", __func__, status.Describe().c_str(),
+                Describe().c_str());
+            acceptedSocket = nullptr;
+            return HCCL_E_TIMEOUT;
+        } else {
+            HCCL_WARNING(
+                "[Socket::%s] accept not established, status[%s], [%s].", __func__, status.Describe().c_str(),
+                Describe().c_str());
+            acceptedSocket = nullptr;
+            return HCCL_E_TCP_CONNECT;
+        }
+    }
     return HCCL_SUCCESS;
 }
 

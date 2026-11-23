@@ -629,7 +629,7 @@ TEST_F(DetectConnectAnomalies950Test, Ut_ClientDetectThread_When_ConnectedAndBro
         .will(returnValue(HCCL_SUCCESS));
     // RA 层桩化：连接/查询/关闭/收包（避免真实驱动调用）
     MOCKER(HrtRaSocketConnectOne).stubs().will(ignoreReturnValue());
-    MOCKER(HrtRaBlockGetOneSocket)
+    MOCKER(RaGetOneSocket)
         .stubs()
         .will(returnValue(Hccl::RaSocketFdHandleParam(
             reinterpret_cast<Hccl::FdHandle>(0xA1), Hccl::SOCKET_CONNECTED, Hccl::IpAddress())));
@@ -697,7 +697,7 @@ TEST_F(
         Hccl::SocketRole::CLIENT, Hccl::NicType::DEVICE_NIC_TYPE);
     g_stubClientSocket = &sock;
     MOCKER_CPP(&hcomm::SocketMgr::GetSocket).stubs().will(invoke(StubGetSocketAssign));
-    MOCKER(HrtRaBlockGetOneSocket)
+    MOCKER(RaGetOneSocket)
         .stubs()
         .will(returnValue(Hccl::RaSocketFdHandleParam(
             reinterpret_cast<Hccl::FdHandle>(0xA2), Hccl::SOCKET_CONNECTING, Hccl::IpAddress())));

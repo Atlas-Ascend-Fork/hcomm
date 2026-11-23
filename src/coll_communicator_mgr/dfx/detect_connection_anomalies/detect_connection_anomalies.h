@@ -21,11 +21,9 @@
 namespace hcomm {
 
 constexpr size_t DEST_MAX_LEN = 128;
-constexpr uint32_t POLL_INTERVAL_100MS = 100; // 轮询间隔
-constexpr uint32_t BROADCAST_WINDOW_SEC = 10; // 探测结果广播窗口（秒）
-constexpr uint32_t SEND_BUDGET_MS = 200;      // 单个对端广播发送时间窗（毫秒）
-constexpr uint32_t CLIENT_GETSTATUS_TIMEOUT_SEC = 1; // CreateClientSocketAndConnected 每次 GetStatus 阻塞等待时长（秒）
-constexpr uint32_t ACCEPT_TIMEOUT_SEC = 1;      // AcceptSocket 单次 accept 阻塞等待时长（秒）
+constexpr uint32_t POLL_INTERVAL_100MS = 100;   // 轮询间隔
+constexpr uint32_t BROADCAST_WINDOW_SEC = 10;   // 探测结果广播窗口（秒）
+constexpr uint32_t SEND_BUDGET_MS = 200;        // 单个对端广播发送时间窗（毫秒）
 constexpr uint32_t RECV_POLL_INTERVAL_MS = 500; // client 收广播轮询间隔（毫秒）
 constexpr uint32_t MAX_WHITE_LIST_ENTRY = 64;   // DCA 探测白名单连接上限
 
