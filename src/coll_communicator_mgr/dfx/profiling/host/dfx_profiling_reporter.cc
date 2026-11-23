@@ -97,7 +97,7 @@ void DfxProfilingReporter::ReportAllTasksLog() const
     for (auto it = mirrorTaskMgr_->Begin(); it != mirrorTaskMgr_->End(); ++it) {
         u32 streamId = it->first;
         Queue<std::unique_ptr<TaskInfo>>* currQueue = it->second.queue;
-        if (currQueue == nullptr) {
+        if (currQueue == nullptr || currQueue->IsEmpty()) {
             continue;
         }
         if (**(currQueue->Begin()) == nullptr) {
@@ -110,6 +110,9 @@ void DfxProfilingReporter::ReportAllTasksLog() const
         if (curLastPoses.find(streamId) == curLastPoses.end()) {
             continue;
         }
+        if (curLastPoses[streamId] == nullptr) {
+            continue;
+        }
         bool pastLastPos = false;
         auto logIter = currQueue->Begin();
         for (; *logIter != *currQueue->End(); ++(*logIter)) {
@@ -119,6 +122,9 @@ void DfxProfilingReporter::ReportAllTasksLog() const
             }
             if (pastLastPos) {
                 TaskInfo* task = (*logIter)->get();
+                if (task == nullptr) {
+                    continue;
+                }
                 HCCL_INFO("[DfxProfilingReporter] ReportAllTasksLog, %s", task->Describe().c_str());
             }
         }
@@ -143,6 +149,11 @@ void DfxProfilingReporter::ReportAllTasks(bool cachedReq)
             continue;
         }
 
+        if (currQueue->IsEmpty()) {
+            curLastPoses.erase(streamId);
+            continue;
+        }
+
         if (*(*(currQueue->Begin())) == nullptr) {
             HCCL_WARNING(
                 "[DfxProfilingReporter][ReportAllTasks] (*(*(currQueue->Begin())) is nullptr, continue to next task.");
@@ -161,12 +172,20 @@ void DfxProfilingReporter::ReportAllTasks(bool cachedReq)
 
         auto endPos = currQueue->Tail();
         auto iter = curLastPoses[streamId];
-
-        // 只遍历到当前 Tail，避免走到 CircularQueue 底层 buffer.end()
-        while ((*(iter)) != (*(endPos))) {
+        if (iter == nullptr || endPos == nullptr) {
+            curLastPoses[streamId] = endPos;
+            continue;
+        }
+        for (size_t guard = 0; guard <= currQueue->Capacity(); ++guard) {
+            if ((*(iter)) == (*(endPos))) {
+                break;
+            }
             ++(*(iter));
 
             TaskInfo* task = (*iter)->get();
+            if (task == nullptr) {
+                continue;
+            }
             profilingHandler_->ReportHcclTaskApi(
                 task->taskParam_.taskType, task->taskParam_.beginTime, task->taskParam_.endTime, task->isMaster_,
                 cachedReq, true, task->taskParam_.tid);
@@ -191,10 +210,15 @@ void DfxProfilingReporter::UpdateProfStat(void)
     bool newEnableHcclL1 = profilingHandler_->GetHcclL1State();
     if (enableHcclL1_.load(std::memory_order_relaxed) != newEnableHcclL1) {
         enableHcclL1_.store(newEnableHcclL1, std::memory_order_relaxed);
+        std::lock_guard<std::mutex> lock(mirrorTaskMgr_->GetTaskMutex());
         auto& curLastPoses = curLastPoses_;
         for (auto it = mirrorTaskMgr_->Begin(); it != mirrorTaskMgr_->End(); ++it) {
             u32 streamId = it->first;
             if (it->second.queue == nullptr) {
+                continue;
+            }
+            if (it->second.queue->IsEmpty()) {
+                curLastPoses.erase(streamId);
                 continue;
             }
             curLastPoses[streamId] = it->second.queue->Tail();
