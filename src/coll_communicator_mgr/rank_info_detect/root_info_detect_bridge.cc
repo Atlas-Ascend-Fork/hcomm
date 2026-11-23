@@ -63,7 +63,6 @@ const RootInfoDetectBridge* GetRootInfoDetectBridge()
 const RootInfoDetectBridge* GetRootInfoDetectBridgeScalable()
 {
     const RootInfoDetectBridge* bridge = GetRootInfoDetectBridge();
-    // scalable 槽未注册（旧 provider）时返回 nullptr，由入口侧转换为明确错误。
     if (bridge == nullptr || bridge->getRootInfoScalable == nullptr || bridge->detectRankTableScalable == nullptr) {
         return nullptr;
     }

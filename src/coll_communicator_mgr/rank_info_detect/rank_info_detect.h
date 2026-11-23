@@ -30,8 +30,9 @@
 
 namespace Hccl {
 
-constexpr u32 HOST_CONTROL_BASE_PORT = 60016; // 控制面起始port，当前专用于拓扑探测使用，范围在[60016,60031]
-constexpr u32 HOST_CONTROL_PORT_COUNT = 15;
+constexpr u32 HOST_CONTROL_BASE_PORT = 60016; // 控制面起始port，当前专用于拓扑探测使用
+constexpr u32 HOST_CONTROL_PORT_COUNT
+    = 15; // 拓扑探测使用的端口范围在[60016, 60016 + 15]闭区间，共 HOST_CONTROL_PORT_COUNT + 1 个端口
 constexpr u32 HCCL_WHITELIST_ON = 1;
 constexpr u32 HOST_SOCKET_CONN_LIMIT = 8; // HCCL_AISERVER_DEVICE_NUM (8)
 class RankInfoDetect {

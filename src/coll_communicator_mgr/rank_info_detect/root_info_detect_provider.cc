@@ -335,8 +335,8 @@ namespace {
     }
 
     const RootInfoDetectBridge ROOT_INFO_DETECT_BRIDGE
-        = {GetRootInfoImpl, DetectRankTableImpl, GetRootInfoScalableImpl, DetectRankTableScalableImpl,
-           GetRootInfoWithDerivationImpl};
+        = {GetRootInfoImpl, DetectRankTableImpl, GetRootInfoWithDerivationImpl, GetRootInfoScalableImpl,
+           DetectRankTableScalableImpl};
 
     // hcomm 链接 hccl_v2，并在自身装载阶段将 provider 回调注册到 hccl_v2 的槽位。
     // 这样兼容入口保持原符号不变，同时不再直接依赖 RankInfoDetect 实现类。
