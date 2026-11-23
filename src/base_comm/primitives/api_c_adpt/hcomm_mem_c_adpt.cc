@@ -101,8 +101,8 @@ HcommResult HcommMemUnreg(EndpointHandle endpointHandle, HcommMemHandle memHandl
     if (tableRet != HCCL_SUCCESS) {
         HCCL_ERROR(
             "[%s] OnLocalMemUnregistered failed, ret[%d], residual table entry "
-            "addr[0x%llx] size[0x%llx] tokenId[%u] tokenValue[%u] may be stale",
-            __func__, static_cast<int>(tableRet), memAddr, memSize, memTokenId, memTokenValue);
+            "addr[0x%llx] size[0x%llx] may be stale",
+            __func__, static_cast<int>(tableRet), memAddr, memSize);
         return static_cast<HcommResult>(tableRet);
     }
     return HCCL_SUCCESS;
