@@ -1061,7 +1061,7 @@ RankGraph::AddSubPeers(const std::vector<RankId>& rankIds, RankGraph* subRankGra
         const auto parentLayers = oldPeer->GetLevels();
         // 默认、全选及等层继承均复制原映射，仅移除父图现有层时重建。
         const bool narrowed
-            = selection.has_value() && std::any_of(parentLayers.begin(), parentLayers.end(), [&](u32 layer) {
+            = selection.has_value() && std::any_of(parentLayers.begin(), parentLayers.end(), [&selection](u32 layer) {
                   return layer < MAX_NET_LAYER && (selection->selectedLayers & (1U << layer)) == 0;
               });
         if (narrowed) {
