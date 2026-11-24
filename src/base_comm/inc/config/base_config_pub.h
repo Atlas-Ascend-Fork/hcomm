@@ -79,6 +79,22 @@ typename std::enable_if<std::is_integral<T>::value, T>::type StrToNum(const std:
     }
 }
 
+/// 通用字符串→布尔解析器：仅接受 1/0（1=开，0=关）。
+/// 对 EnvField<bool>::Parser (返回 T, bool& parseOk) 签名适配。
+inline bool StrToBool(const std::string& s, bool& parseOk)
+{
+    if (s == "1") {
+        parseOk = true;
+        return true;
+    }
+    if (s == "0") {
+        parseOk = true;
+        return false;
+    }
+    parseOk = false;
+    return false;
+}
+
 /// 通用闭区间校验器工厂。
 /// 返回 EnvField<T>::Validator 签名 (bool(const T&)) 的 lambda。
 template <typename T>

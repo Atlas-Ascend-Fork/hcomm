@@ -3057,6 +3057,20 @@ static HcclResult GetUbMultiChannelNumConfig(uint32_t infoLen, void* info)
     return HcclResult::HCCL_SUCCESS;
 }
 
+// AI CPU保序任务下发开关同为进程级全局配置（解析自环境变量、进程内唯一），不依赖通信域。
+static HcclResult GetAicpuOrderLaunchEnableConfig(uint32_t infoLen, void* info)
+{
+    constexpr size_t infoExpectedLen = sizeof(uint32_t);
+    if (static_cast<size_t>(infoLen) != infoExpectedLen) {
+        HCCL_ERROR("[%s] infoLen[%u] not expected[%zu].", __func__, infoLen, infoExpectedLen);
+        return HcclResult::HCCL_E_PARA;
+    }
+    const auto& configMgr = hccl::CollCommMgr::GetInstance().GetConfigMgr();
+    const bool enable = configMgr.GetEnvAicpuOrderLaunchConfig().GetAicpuOrderLaunchEnable();
+    *static_cast<uint32_t*>(info) = enable ? 1U : 0U;
+    return HcclResult::HCCL_SUCCESS;
+}
+
 static HcclResult GetDeterministicConfig(hccl::CollComm* collComm, uint32_t infoLen, void* info)
 {
     constexpr size_t infoExpectedLen = sizeof(uint32_t);
@@ -3110,6 +3124,8 @@ HcclResult HcclConfigGetInfo(
             return GetDeterministicConfig(collComm, infoLen, info);
         case HcclConfigType::HCCL_CONFIG_TYPE_UDI:
             return GetUdiConfig(collComm, infoLen, info);
+        case HcclConfigType::HCCL_CONFIG_TYPE_AICPU_ORDER_LAUNCH_ENABLE:
+            return GetAicpuOrderLaunchEnableConfig(infoLen, info);
         default:
             HCCL_ERROR("[%s] cfgType[%d] is invalid.", __func__, cfgType);
             return HcclResult::HCCL_E_PARA;

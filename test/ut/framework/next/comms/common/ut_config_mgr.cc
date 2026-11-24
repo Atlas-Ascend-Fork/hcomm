@@ -19,6 +19,7 @@
 #include "coll_comm_config_mgr.h"
 #include "env_logic_superpod_config.h"
 #include "base_comm_node_accessors.h"
+#include "env_aicpu_order_launch_config.h"
 #include "env_ub_config.h"
 
 using namespace hcomm;
@@ -310,6 +311,65 @@ TEST(ConfigMgrTest, Ut_UbMultiChannelNum_ParseOnceIdempotent_Expect_SameResult)
     EXPECT_NE(ubCfg.Parse(), HCCL_SUCCESS);
 }
 
+// ==================== HCCL_AICPU_ORDER_LAUNCH_ENABLE ====================
+
+TEST(ConfigMgrTest, Ut_AicpuOrderLaunchEnable_NotSet_Expect_DefaultTrue)
+{
+    EnvGuard guard("HCCL_AICPU_ORDER_LAUNCH_ENABLE");
+    guard.Unset();
+    hccl::EnvAicpuOrderLaunchConfig cfg;
+    EXPECT_EQ(cfg.Parse(), HCCL_SUCCESS);
+    EXPECT_TRUE(cfg.GetAicpuOrderLaunchEnable());
+}
+
+TEST(ConfigMgrTest, Ut_AicpuOrderLaunchEnable_ValidValue1_Expect_True)
+{
+    EnvGuard guard("HCCL_AICPU_ORDER_LAUNCH_ENABLE");
+    guard.Set("1");
+    hccl::EnvAicpuOrderLaunchConfig cfg;
+    EXPECT_EQ(cfg.Parse(), HCCL_SUCCESS);
+    EXPECT_TRUE(cfg.GetAicpuOrderLaunchEnable());
+}
+
+TEST(ConfigMgrTest, Ut_AicpuOrderLaunchEnable_ValidValue0_Expect_False)
+{
+    EnvGuard guard("HCCL_AICPU_ORDER_LAUNCH_ENABLE");
+    guard.Set("0");
+    hccl::EnvAicpuOrderLaunchConfig cfg;
+    EXPECT_EQ(cfg.Parse(), HCCL_SUCCESS);
+    EXPECT_FALSE(cfg.GetAicpuOrderLaunchEnable());
+}
+
+TEST(ConfigMgrTest, Ut_AicpuOrderLaunchEnable_InvalidValue_Expect_Error)
+{
+    EnvGuard guard("HCCL_AICPU_ORDER_LAUNCH_ENABLE");
+    for (const char* value : {"abc", "2", "-1", "01", "TRUE", "true", "FALSE", "false"}) {
+        SCOPED_TRACE(value);
+        guard.Set(value);
+        hccl::EnvAicpuOrderLaunchConfig cfg;
+        EXPECT_NE(cfg.Parse(), HCCL_SUCCESS);
+    }
+}
+
+TEST(ConfigMgrTest, Ut_AicpuOrderLaunchEnable_ParseOnceIdempotent_Expect_SameResult)
+{
+    EnvGuard guard("HCCL_AICPU_ORDER_LAUNCH_ENABLE");
+    hccl::EnvAicpuOrderLaunchConfig cfg;
+
+    // 合法值：首次解析成功后缓存，环境变量再改不生效
+    guard.Set("0");
+    EXPECT_EQ(cfg.Parse(), HCCL_SUCCESS);
+    guard.Set("1");
+    EXPECT_EQ(cfg.Parse(), HCCL_SUCCESS);
+    EXPECT_FALSE(cfg.GetAicpuOrderLaunchEnable());
+
+    // 非法值：失败不缓存，重复 Parse() 均返回错误
+    guard.Set("abc");
+    hccl::EnvAicpuOrderLaunchConfig invalidCfg;
+    EXPECT_NE(invalidCfg.Parse(), HCCL_SUCCESS);
+    EXPECT_NE(invalidCfg.Parse(), HCCL_SUCCESS);
+}
+
 // ==================== CollCommConfigMgr ====================
 
 class CollCommConfigMgrTest : public testing::Test {
@@ -321,6 +381,9 @@ TEST_F(CollCommConfigMgrTest, Ut_Init_When_AllConfigsValid_Expect_ParseOnce)
 {
     MOCKER_CPP(&hccl::EnvUbConfig::Parse).expects(mockcpp::once()).will(mockcpp::returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hccl::HostMultiQpConfig::Parse).expects(mockcpp::once()).will(mockcpp::returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hccl::EnvAicpuOrderLaunchConfig::Parse)
+        .expects(mockcpp::once())
+        .will(mockcpp::returnValue(HCCL_SUCCESS));
     hccl::CollCommConfigMgr configMgr;
 
     EXPECT_EQ(configMgr.Init(), HCCL_SUCCESS);
@@ -331,6 +394,7 @@ TEST_F(CollCommConfigMgrTest, Ut_Init_When_UbConfigInvalid_Expect_SkipHostMultiQ
 {
     MOCKER_CPP(&hccl::EnvUbConfig::Parse).expects(mockcpp::once()).will(mockcpp::returnValue(HCCL_E_PARA));
     MOCKER_CPP(&hccl::HostMultiQpConfig::Parse).expects(mockcpp::never());
+    MOCKER_CPP(&hccl::EnvAicpuOrderLaunchConfig::Parse).expects(mockcpp::never());
     hccl::CollCommConfigMgr configMgr;
 
     EXPECT_EQ(configMgr.Init(), HCCL_E_PARA);

@@ -459,7 +459,8 @@ typedef enum {
     HCCL_CONFIG_TYPE_HCCL_ALGO = 1,
     HCCL_CONFIG_TYPE_UB_MULTI_CHANNEL_NUM = 2,
     HCCL_CONFIG_TYPE_DETERMINISTIC = 3,
-    HCCL_CONFIG_TYPE_UDI = 4
+    HCCL_CONFIG_TYPE_UDI = 4,
+    HCCL_CONFIG_TYPE_AICPU_ORDER_LAUNCH_ENABLE = 5
 } HcclConfigType;
 
 typedef HcclOpExpansionMode HcclConfigTypeOpExpansionMode;

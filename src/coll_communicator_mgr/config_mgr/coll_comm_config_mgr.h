@@ -13,6 +13,7 @@
 
 #include <mutex>
 
+#include "env_aicpu_order_launch_config.h"
 #include "env_ub_config.h"
 #include "host_multi_qp_config.h"
 
@@ -29,10 +30,12 @@ public:
 
     const EnvUbConfig& GetEnvUbConfig() const { return envUbConfig_; }
     const HostMultiQpConfig& GetHostMultiQpConfig() const { return hostMultiQpConfig_; }
+    const EnvAicpuOrderLaunchConfig& GetEnvAicpuOrderLaunchConfig() const { return envAicpuOrderLaunchConfig_; }
 
 private:
     EnvUbConfig envUbConfig_;
     HostMultiQpConfig hostMultiQpConfig_;
+    EnvAicpuOrderLaunchConfig envAicpuOrderLaunchConfig_;
     std::mutex initMutex_;
     bool initialized_{false};
 };

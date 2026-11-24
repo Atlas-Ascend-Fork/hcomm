@@ -81,6 +81,20 @@ TEST_F(OpBaseMiscTest, Ut_HcclConfigGetInfo_When_CfgTypeIsUB_MULTI_CHANNEL_NUM_E
     Ut_Comm_Destroy(comm);
 }
 
+TEST_F(OpBaseMiscTest, Ut_HcclConfigGetInfo_When_CfgTypeIsAICPU_ORDER_LAUNCH_ENABLE_Expect_ReturnIsHCCL_SUCCESS)
+{
+    UT_COMM_CREATE_DEFAULT(comm);
+    CollComm collComm(nullptr, 0, "ut_comm", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    MOCKER_CPP(&hcclComm::GetCollComm).stubs().will(returnValue(&collComm));
+    uint32_t aicpuOrderLaunchEnable = 0xFFFFFFFFU;
+    HcclResult ret = HcclConfigGetInfo(
+        comm, HcclConfigType::HCCL_CONFIG_TYPE_AICPU_ORDER_LAUNCH_ENABLE, sizeof(uint32_t), &aicpuOrderLaunchEnable);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    // 初值取合法域外哨兵，防住漏写info仅返回成功的回归；断言容忍UT环境中已显式配置该环境变量的情况
+    EXPECT_LE(aicpuOrderLaunchEnable, 1u);
+    Ut_Comm_Destroy(comm);
+}
+
 TEST_F(OpBaseMiscTest, Ut_HcclConfigGetInfo_When_CfgTypeIsOP_EXPANSION_MODE_Expect_ReturnIsHCCL_SUCCESS)
 {
     UT_COMM_CREATE_DEFAULT(comm);
