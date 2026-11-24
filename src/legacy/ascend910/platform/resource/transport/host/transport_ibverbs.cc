@@ -2737,7 +2737,7 @@ HcclResult TransportIbverbs::WriteCommon(
     // 单qp & 多qp
     std::vector<WqeInfo> wqeInfoVec;
     wqeInfoVec.reserve(WQE_RESERVE_LENGTH);
-    HCCL_DEBUG("write localAddr[%p] remoteAddr[%p] len[%llu] remoteOffset[%llu]", localAddr, remoteAddr, length);
+    HCCL_DEBUG("write localAddr[%p] remoteAddr[%p] len[%llu]", localAddr, remoteAddr, length);
 
     if (localAddr != nullptr) {
         // 为保证单算子下不同数据量下子图的结构相同，zero byte message 时也需要下发task

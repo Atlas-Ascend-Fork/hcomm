@@ -69,9 +69,7 @@ HcclResult CcuWqeBBMgrV2::Release(const ResInfo& wqeBBInfo)
     }
 
     if (!allocatedWqeBBBlocks_[startId]) {
-        HCCL_ERROR(
-            "[CcuWqeBBMgrV2][%s] failed, jetty ctx start id[%u] is not allocated.", __func__, startId,
-            allocatedWqeBBBlocks_.size());
+        HCCL_ERROR("[CcuWqeBBMgrV2][%s] failed, jetty ctx start id[%u] is not allocated.", __func__, startId);
         return HcclResult::HCCL_E_PARA;
     }
 

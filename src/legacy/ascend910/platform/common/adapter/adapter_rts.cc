@@ -958,7 +958,7 @@ HcclResult hrtMemcpyAddrAsync(
         ret, dst, destMax, destOffset, src, count, srcOffset);
 
     if (ret == ACL_ERROR_RT_FEATURE_NOT_SUPPORT) {
-        HCCL_WARNING("hrtMemcpyAddrAsync is not supported.", ret);
+        HCCL_WARNING("hrtMemcpyAddrAsync is not supported.");
         return HCCL_E_NOT_SUPPORT;
     }
 

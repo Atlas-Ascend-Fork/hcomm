@@ -51,6 +51,8 @@ int stub_SocketRaSocketRecvAsync(
     return 0;
 }
 
+int stub_SocketRaSocketBatchClose(struct SocketCloseInfoT conn[], unsigned int num) { return -1; }
+
 class SocketTest : public testing::Test {
 protected:
     static void SetUpTestCase() { std::cout << "\033[36m--SocketTest SetUP--\033[0m" << std::endl; }
@@ -211,6 +213,18 @@ TEST_F(SocketTest, Ut_RecvAsync_When_RaSocketSuccess_Expect_Success)
     EXPECT_EQ(recvResult, HCCL_E_AGAIN);
 
     tempSocket.fdHandle_ = nullptr;
+}
+
+TEST_F(SocketTest, Ut_Close_When_RaSocketBatchCloseFail_Expect_WarnNotFatal)
+{
+    NetDevContext devCtx;
+    HcclSocket tempSocket(&devCtx, 16666);
+    DlRaFunction::GetInstance().dlRaSocketBatchClose = stub_SocketRaSocketBatchClose;
+    tempSocket.fdHandle_ = (void*)0x01;
+    tempSocket.nicSocketHandle_ = (void*)0x02;
+    tempSocket.Close();
+    EXPECT_EQ(tempSocket.fdHandle_, nullptr);
+    DlRaFunction::GetInstance().dlRaSocketBatchClose = nullptr;
 }
 
 TEST_F(SocketTest, Ut_IsSupportAsync_When_RaSocketNotSupportAsync_Expect_ReturnFalse)

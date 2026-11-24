@@ -193,7 +193,7 @@ HcclResult HccsRegedMemMgr::DeSerializeFromMemDesc(
     if (descLen <= sizeof(EndpointDesc)) {
         HCCL_ERROR(
             "[HccsRegedMemMgr][DeSerializeFromMemDesc] [%s] descLen :%u too small error. need more than size:[%llu]",
-            __func__, sizeof(EndpointDesc));
+            __func__, descLen, sizeof(EndpointDesc));
         return HCCL_E_INTERNAL;
     }
     // descLen 来自对端进程，解析前拦截异常大的长度，防恶意输入触发大额内存分配

@@ -407,7 +407,7 @@ HcclResult HostCpuUrmaChannel::ChannelFence()
     std::lock_guard<std::mutex> lock(fenceMutex_);
     HCCL_INFO("[HostCpuUrmaChannel::%s] start, wqeNum_ = %u va[%llu]", __func__, wqeNum_, connections_[0]->GetCqVa());
     CHK_PRT_RET(
-        wqeNum_ == 0, HCCL_INFO("[HostCpuUrmaChannel::%s] no need to fence since no wqeNum[%u].", __func__),
+        wqeNum_ == 0, HCCL_INFO("[HostCpuUrmaChannel::%s] no need to fence since no wqeNum[%u].", __func__, wqeNum_),
         HCCL_SUCCESS);
     std::vector<urma_cr_t> wc(wqeNum_);
 

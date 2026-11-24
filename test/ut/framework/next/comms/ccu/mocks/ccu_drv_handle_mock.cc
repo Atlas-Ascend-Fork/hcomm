@@ -58,7 +58,7 @@ static HcclResult HccpRaTlvRequest(const TlvHandle tlvHandle, const u32 tlvModul
         HCCL_ERROR(
             "[Request][RaTlv]errNo[0x%016llx] ra tlv request fail. "
             "return: ret[%d], module type[%u], message type[%u]",
-            HCCL_ERROR_CODE(HcclResult::HCCL_E_NETWORK), tlvModuleType, tlvCcuMsgType);
+            HCCL_ERROR_CODE(HcclResult::HCCL_E_NETWORK), ret, tlvModuleType, tlvCcuMsgType);
         return HcclResult::HCCL_E_NETWORK;
     }
 

@@ -311,7 +311,7 @@ HcclResult AlltoAllVDirectFullMesh::UpdateCurrRankSendInfo(
                 HCCL_ERROR(
                     "[AlltoAllVDirectFullMesh][UpdateCurrRankSendInfo] empty dstRanks for hcclOffset[%llu] before add "
                     "destRank[%u]",
-                    mapIter->second, destRank, scratchOffset),
+                    mapIter->first, destRank),
                 HCCL_E_INTERNAL);
             mapIter->second.push_back(destRank);
         }

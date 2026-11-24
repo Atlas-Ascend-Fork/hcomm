@@ -1612,8 +1612,8 @@ HcclResult TransformMaxInstr(
     CHK_RET(ClearWaitMask(rankId, dieId, waitCKEId, waitCKEMask));
 
     HCCL_INFO(
-        "Wait CKE[%u:%04x], Max %s with Count[%u], DataType[%u] and CastEn[%u], Set CKE[%u:%04x], clearType[%u]",
-        waitCKEId, waitCKEMask, ParseMSList(instr).c_str(), count, dataType, setCKEId, setCKEMask, clearType);
+        "Wait CKE[%u:%04x], Max %s with Count[%u], DataType[%u], Set CKE[%u:%04x], clearType[%u]", waitCKEId,
+        waitCKEMask, ParseMSList(instr).c_str(), count, dataType, setCKEId, setCKEMask, clearType);
 
     return HCCL_SUCCESS;
 }
@@ -1667,8 +1667,8 @@ HcclResult TransformMinInstr(
     CHK_RET(ClearWaitMask(rankId, dieId, waitCKEId, waitCKEMask));
 
     HCCL_INFO(
-        "Wait CKE[%u:%04x], Min %s with Count[%u], DataType[%u] and CastEn[%u], Set CKE[%u:%04x], clearType[%u]",
-        waitCKEId, waitCKEMask, ParseMSList(instr).c_str(), count, dataType, setCKEId, setCKEMask, clearType);
+        "Wait CKE[%u:%04x], Min %s with Count[%u], DataType[%u], Set CKE[%u:%04x], clearType[%u]", waitCKEId,
+        waitCKEMask, ParseMSList(instr).c_str(), count, dataType, setCKEId, setCKEMask, clearType);
     return HCCL_SUCCESS;
 }
 

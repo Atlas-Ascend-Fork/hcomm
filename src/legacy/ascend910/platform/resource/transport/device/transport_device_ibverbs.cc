@@ -91,7 +91,7 @@ HcclResult TransportDeviceIbverbs::InitDrainNotifyInfo()
     CHK_PRT_RET(
         (transDevIbverbsData_.localDataNotifyAddr == 0 || transDevIbverbsData_.remoteNotifyValueAddr == 0),
         HCCL_ERROR(
-            "[%s] Notify addr is nullptr, RemoteNotifyAddr[%llu], localDataNotifyAddr[%llu]",
+            "[%s] Notify addr is nullptr, RemoteNotifyAddr[%llu], localDataNotifyAddr[%llu]", __func__,
             transDevIbverbsData_.remoteNotifyValueAddr, transDevIbverbsData_.localDataNotifyAddr),
         HCCL_E_PTR);
     memMsg_[MemType::DATA_NOTIFY_MEM].addr = reinterpret_cast<void*>(transDevIbverbsData_.localDataNotifyAddr);

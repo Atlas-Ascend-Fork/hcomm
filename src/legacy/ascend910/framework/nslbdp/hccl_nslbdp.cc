@@ -1046,8 +1046,8 @@ HcclResult hcclNslbDp::GetAlgAdjacencyTable(
     FillAlgInfoBaseFields(algorithmInfo, opType, srcLocalRankId, rootRank, algType);
 
     HCCL_RUN_INFO(
-        "[NSLB-DP-ADJ] add adjINfo:identifier[%s],[%llu],[%u],[%u],[%zu] success.", identifier.c_str(), taskId,
-        srcLocalRankId, rootRank, GetNslbOpType(opType), algType, nslbAdjInfo.nsAdjInfo.size());
+        "[NSLB-DP-ADJ] add adjINfo:identifier[%s],[%llu],[%u],[%u],[%u],[%u],[%zu] success.", identifier.c_str(),
+        taskId, srcLocalRankId, rootRank, GetNslbOpType(opType), algType, nslbAdjInfo.nsAdjInfo.size());
 
     if (IsAlgAdjacencyDuplicated(algorithmInfo) == true) {
         HCCL_INFO("[NSLB-DP] Deduplication hcclNslbDpAlgorithmInfo_");

@@ -84,7 +84,7 @@ TransportP2p::~TransportP2p()
         MemNameRepository::GetInstance(machinePara_.deviceLogicId)
             ->DestroyIpcMem(machinePara_.mem[i].ptr(), machinePara_.mem[i].size(), isSioToHccs_);
         HCCL_DEBUG(
-            "machinePara_.mem[%u] addr:[%p], size:[%llu]", machinePara_.mem[i].ptr(), machinePara_.mem[i].size());
+            "machinePara_.mem[%u] addr:[%p], size:[%llu]", i, machinePara_.mem[i].ptr(), machinePara_.mem[i].size());
     }
 
     SignalDestroy();

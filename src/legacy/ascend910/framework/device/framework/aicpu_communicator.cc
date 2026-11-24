@@ -5488,7 +5488,7 @@ HcclResult HcclCommAicpu::SwitchNic()
         HCCL_ERROR(
             "[HcclCommAicpu][SwitchNic] comm identifier[%s], rank[%u], "
             "send switch status[%u] to host fail.",
-            __func__, identifier_.c_str(), localUserRank_, state);
+            identifier_.c_str(), localUserRank_, state);
     }
 
     CHK_RET(SwitchNicWaitHandleCommand(reservedLinks));

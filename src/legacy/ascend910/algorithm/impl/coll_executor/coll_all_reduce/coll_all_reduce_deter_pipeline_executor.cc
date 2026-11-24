@@ -143,7 +143,7 @@ HcclResult CollAllReduceDeterPipelineExecutor::PrepareDataSlice(
         HCCL_DEBUG(
             "[CollAllReduceDeterPipelineExecutor][PrepareDataSlice]tag[%s], buffer slice i[%u], "
             "size[%llu], offset[%llu], left size[%llu]",
-            tag_.c_str(), bufferSlices[sliceIndex].size, bufferSlices[sliceIndex].offset, totalSize);
+            tag_.c_str(), sliceIndex, bufferSlices[sliceIndex].size, bufferSlices[sliceIndex].offset, totalSize);
     }
     return HCCL_SUCCESS;
 }

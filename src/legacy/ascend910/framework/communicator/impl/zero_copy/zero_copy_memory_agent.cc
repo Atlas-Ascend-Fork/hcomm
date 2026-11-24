@@ -603,7 +603,7 @@ HcclResult ZeroCopyMemoryAgent::DeInit()
     std::unique_lock<std::shared_mutex> wlock(g_addressMgrMutex_);
     if (addressMgr_ == nullptr) {
         HCCL_ERROR(
-            "[ZeroCopyMemoryAgent][%s]addressMgr_ is nullptr, no need to deinit. local rank[u32]", __func__, userRank_);
+            "[ZeroCopyMemoryAgent][%s]addressMgr_ is nullptr, no need to deinit. local rank[%u]", __func__, userRank_);
         return HCCL_E_INTERNAL;
     }
     CHK_RET(addressMgr_->DecreCommRefCnt());
@@ -729,8 +729,9 @@ ZeroCopyMemoryAgent::ActivateCommMemory(void* virPtr, size_t size, size_t offset
     CHK_PRT_RET(
         ret != ACL_SUCCESS,
         HCCL_ERROR(
-            "[ZeroCopyMemoryAgent][ActivateCommMemory] aclrtMemSetPidToShareableHandle shareableHandl[%llu]",
-            " failed, ret[%d]", shareableHandle, ret),
+            "[ZeroCopyMemoryAgent][ActivateCommMemory] aclrtMemSetPidToShareableHandle shareableHandl[%llu]"
+            " failed, ret[%d]",
+            shareableHandle, ret),
         HCCL_E_RUNTIME);
 
     HCCL_INFO(
@@ -1074,7 +1075,7 @@ HcclResult ZeroCopyMemoryAgent::ParseBarrierCloseAck(u8*& exchangeDataPtr, u32& 
     HCCL_RUN_INFO(
         "[ZeroCopyMemoryAgent][ParseBarrierCloseAck] [%s] recv dev[%u] barrier close ack, so we stop this socket's "
         "recv",
-        identifier_.c_str(), devicePhyId, tgid);
+        identifier_.c_str(), devicePhyId);
     return HCCL_SUCCESS;
 }
 
@@ -1148,8 +1149,9 @@ HcclResult ZeroCopyMemoryAgent::ParseActivateCommMemory(u8*& exchangeDataPtr, u3
     CHK_PRT_RET(
         ret != ACL_SUCCESS,
         HCCL_ERROR(
-            "[ZeroCopyMemoryAgent][ParseActivateCommMemory] map dev[%p] size[%llu] offset[%llu] handle[%p]",
-            " flag[%llu] failed, ret[%d]", devPtr, size, offset, pHandle, flags, ret),
+            "[ZeroCopyMemoryAgent][ParseActivateCommMemory] map dev[%p] size[%llu] offset[%llu] handle[%p]"
+            " flag[%llu] failed, ret[%d]",
+            devPtr, size, offset, pHandle, flags, ret),
         HCCL_E_RUNTIME);
 
     {

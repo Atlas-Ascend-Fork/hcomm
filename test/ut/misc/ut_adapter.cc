@@ -712,3 +712,16 @@ TEST_F(HccpTest, Ut_NetworkManager_PsWorkerRaDeinit_InUse_SkipAndKeepRefcount)
     EXPECT_EQ(mgr.nicSocketUserMap_.count(ipAddr), 1U);
     EXPECT_EQ(mgr.RemoveNicSocketUser(ipAddr), HCCL_SUCCESS);
 }
+
+TEST_F(HccpTest, ut_hrtMemcpyAddrAsync_When_FeatureNotSupport_Expect_NotSupport)
+{
+    MOCKER(aclrtMemcpyAsyncWithOffset).stubs().will(returnValue(ACL_ERROR_RT_FEATURE_NOT_SUPPORT));
+
+    u32 dst = 0;
+    u32 src = 0;
+    HcclResult ret = hrtMemcpyAddrAsync(
+        reinterpret_cast<void*>(&dst), sizeof(dst), 0, reinterpret_cast<const void*>(&src), sizeof(src), 0,
+        reinterpret_cast<rtStream_t>(0x1));
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
+    GlobalMockObject::verify();
+}

@@ -362,7 +362,9 @@ void HcclSocket::Close()
 
         HcclResult sRet = hrtRaSocketBatchClose(&closeInfo, 1, 1);
         if (sRet != HCCL_SUCCESS) {
-            HCCL_WARNING("[Close] errNo[0x%016llx] server socket batch close ret[%d] failed. not fatal", sRet);
+            HCCL_WARNING(
+                "[Close] errNo[0x%016llx] server socket batch close ret[%d] failed. not fatal",
+                HCCL_ERROR_CODE(HCCL_E_NETWORK), sRet);
         }
 
         fdHandle_ = nullptr;

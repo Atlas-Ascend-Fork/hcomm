@@ -586,7 +586,6 @@ HcclResult CollReduceScatterRingZerocopyExchangePipelineExecutor::RunSuperPodAnd
 HcclResult CollReduceScatterRingZerocopyExchangePipelineExecutor::RunFinallyProcess(
     const OpParam& param, const ExecMem& execMem) const
 {
-    HCCL_DEBUG("[RunFinallyProcess] rank[%u:%u,%u,%u] ccl out -> user out");
     u32 sliceIndex = level2Rank_ * level1RankSize_;
     u64 offset = sliceIndex * curSize_;
     DeviceMem srcMem = execMem.outputMem.range(offset, curSize_);

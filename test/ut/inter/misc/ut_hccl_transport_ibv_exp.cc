@@ -558,10 +558,10 @@ TEST_F(LinkIbvExpTest, ut_transport_ibv_multi_qp_configpath)
     const int FILE_AUTHORITY = 0600;
     int fd = open(fileStr.c_str(), O_WRONLY | O_CREAT | O_TRUNC, FILE_AUTHORITY);
     if (fd < 0) {
-        HCCL_ERROR("Fail to open the file: %s.", fileStr.c_str(), HCCL_E_PARA);
+        HCCL_ERROR("Fail to open the file: %s.", fileStr.c_str());
     }
     if (close(fd) != 0) {
-        HCCL_ERROR("Fail to close the file: %s.", fileStr.c_str(), HCCL_E_PARA);
+        HCCL_ERROR("Fail to close the file: %s.", fileStr.c_str());
     }
     std::ofstream fileStream(fileStr.c_str(), std::ios::out | std::ios::binary);
     if (fileStream.is_open()) {
@@ -673,10 +673,10 @@ TEST_F(LinkIbvExpTest, ut_transport_ibv_multi_qp_configpath_patch1)
     const int FILE_AUTHORITY = 0600;
     int fd = open(fileStr.c_str(), O_WRONLY | O_CREAT | O_TRUNC, FILE_AUTHORITY);
     if (fd < 0) {
-        HCCL_ERROR("Fail to open the file: %s.", fileStr.c_str(), HCCL_E_PARA);
+        HCCL_ERROR("Fail to open the file: %s.", fileStr.c_str());
     }
     if (close(fd) != 0) {
-        HCCL_ERROR("Fail to close the file: %s.", fileStr.c_str(), HCCL_E_PARA);
+        HCCL_ERROR("Fail to close the file: %s.", fileStr.c_str());
     }
     std::ofstream fileStream(fileStr.c_str(), std::ios::out | std::ios::binary);
     if (fileStream.is_open()) {
@@ -749,10 +749,10 @@ TEST_F(LinkIbvExpTest, ut_transport_ibv_multi_qp_configpath_patch2)
     const int FILE_AUTHORITY = 0600;
     int fd = open(fileStr.c_str(), O_WRONLY | O_CREAT | O_TRUNC, FILE_AUTHORITY);
     if (fd < 0) {
-        HCCL_ERROR("Fail to open the file: %s.", fileStr.c_str(), HCCL_E_PARA);
+        HCCL_ERROR("Fail to open the file: %s.", fileStr.c_str());
     }
     if (close(fd) != 0) {
-        HCCL_ERROR("Fail to close the file: %s.", fileStr.c_str(), HCCL_E_PARA);
+        HCCL_ERROR("Fail to close the file: %s.", fileStr.c_str());
     }
     std::ofstream fileStream(fileStr.c_str(), std::ios::out | std::ios::binary);
     if (fileStream.is_open()) {
@@ -807,10 +807,10 @@ TEST_F(LinkIbvExpTest, ut_transport_ibv_multi_qp_configpath_patch3)
     const int FILE_AUTHORITY = 0600;
     int fd = open(fileStr.c_str(), O_WRONLY | O_CREAT | O_TRUNC, FILE_AUTHORITY);
     if (fd < 0) {
-        HCCL_ERROR("Fail to open the file: %s.", fileStr.c_str(), HCCL_E_PARA);
+        HCCL_ERROR("Fail to open the file: %s.", fileStr.c_str());
     }
     if (close(fd) != 0) {
-        HCCL_ERROR("Fail to close the file: %s.", fileStr.c_str(), HCCL_E_PARA);
+        HCCL_ERROR("Fail to close the file: %s.", fileStr.c_str());
     }
     std::ofstream fileStream(fileStr.c_str(), std::ios::out | std::ios::binary);
     if (fileStream.is_open()) {
@@ -865,10 +865,10 @@ TEST_F(LinkIbvExpTest, ut_transport_ibv_multi_qp_configpath_patch4)
     const int FILE_AUTHORITY = 0600;
     int fd = open(fileStr.c_str(), O_WRONLY | O_CREAT | O_TRUNC, FILE_AUTHORITY);
     if (fd < 0) {
-        HCCL_ERROR("Fail to open the file: %s.", fileStr.c_str(), HCCL_E_PARA);
+        HCCL_ERROR("Fail to open the file: %s.", fileStr.c_str());
     }
     if (close(fd) != 0) {
-        HCCL_ERROR("Fail to close the file: %s.", fileStr.c_str(), HCCL_E_PARA);
+        HCCL_ERROR("Fail to close the file: %s.", fileStr.c_str());
     }
     std::ofstream fileStream(fileStr.c_str(), std::ios::out | std::ios::binary);
     if (fileStream.is_open()) {
@@ -923,10 +923,10 @@ TEST_F(LinkIbvExpTest, ut_transport_ibv_multi_qp_configpath_patch5)
     const int FILE_AUTHORITY = 0600;
     int fd = open(fileStr.c_str(), O_WRONLY | O_CREAT | O_TRUNC, FILE_AUTHORITY);
     if (fd < 0) {
-        HCCL_ERROR("Fail to open the file: %s.", fileStr.c_str(), HCCL_E_PARA);
+        HCCL_ERROR("Fail to open the file: %s.", fileStr.c_str());
     }
     if (close(fd) != 0) {
-        HCCL_ERROR("Fail to close the file: %s.", fileStr.c_str(), HCCL_E_PARA);
+        HCCL_ERROR("Fail to close the file: %s.", fileStr.c_str());
     }
     std::ofstream fileStream(fileStr.c_str(), std::ios::out | std::ios::binary);
     if (fileStream.is_open()) {
@@ -985,10 +985,10 @@ TEST_F(LinkIbvExpTest, ut_transport_ibv_multi_qp_configpath_patch6)
     const int FILE_AUTHORITY = 0600;
     int fd = open(fileStr.c_str(), O_WRONLY | O_CREAT | O_TRUNC, FILE_AUTHORITY);
     if (fd < 0) {
-        HCCL_ERROR("Fail to open the file: %s.", fileStr.c_str(), HCCL_E_PARA);
+        HCCL_ERROR("Fail to open the file: %s.", fileStr.c_str());
     }
     if (close(fd) != 0) {
-        HCCL_ERROR("Fail to close the file: %s.", fileStr.c_str(), HCCL_E_PARA);
+        HCCL_ERROR("Fail to close the file: %s.", fileStr.c_str());
     }
     std::ofstream fileStream(fileStr.c_str(), std::ios::out | std::ios::binary);
     if (fileStream.is_open()) {
@@ -1043,10 +1043,10 @@ TEST_F(LinkIbvExpTest, ut_transport_ibv_multi_qp_configpath_patch7)
     const int FILE_AUTHORITY = 0600;
     int fd = open(fileStr.c_str(), O_WRONLY | O_CREAT | O_TRUNC, FILE_AUTHORITY);
     if (fd < 0) {
-        HCCL_ERROR("Fail to open the file: %s.", fileStr.c_str(), HCCL_E_PARA);
+        HCCL_ERROR("Fail to open the file: %s.", fileStr.c_str());
     }
     if (close(fd) != 0) {
-        HCCL_ERROR("Fail to close the file: %s.", fileStr.c_str(), HCCL_E_PARA);
+        HCCL_ERROR("Fail to close the file: %s.", fileStr.c_str());
     }
     std::ofstream fileStream(fileStr.c_str(), std::ios::out | std::ios::binary);
     if (fileStream.is_open()) {

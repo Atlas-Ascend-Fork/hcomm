@@ -182,8 +182,9 @@ HcclResult CcuJettyCtxMgrV2::Release(const uint32_t feId, const std::vector<Jett
 {
     if (jettyInfos.empty()) {
         HCCL_INFO(
-            "[CcuJettyCtxMgrV2][%s] passed, jettyInfos is empty, no need to release, ",
-            "userDevId[%d], dieId[%u], feId[%u].", __func__, userDevId_, dieId_, feId);
+            "[CcuJettyCtxMgrV2][%s] passed, jettyInfos is empty, no need to release, "
+            "userDevId[%d], dieId[%u], feId[%u].",
+            __func__, userDevId_, dieId_, feId);
         return HcclResult::HCCL_SUCCESS;
     }
     CHK_RET(CheckCtxGroupsByFeId(feId));

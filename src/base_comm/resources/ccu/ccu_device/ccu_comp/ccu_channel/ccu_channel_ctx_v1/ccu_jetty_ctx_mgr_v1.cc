@@ -114,8 +114,9 @@ HcclResult CcuJettyCtxMgrV1::Release(const uint32_t feId, const std::vector<Jett
 {
     if (jettyInfos.empty()) {
         HCCL_INFO(
-            "[CcuJettyCtxMgrV1][%s] passed, jettyInfos is empty, no need to release, ",
-            "userDevId[%d], dieId[%u], feId[%u].", __func__, userDevId_, dieId_, feId);
+            "[CcuJettyCtxMgrV1][%s] passed, jettyInfos is empty, no need to release, "
+            "userDevId[%d], dieId[%u], feId[%u].",
+            __func__, userDevId_, dieId_, feId);
         return HcclResult::HCCL_SUCCESS;
     }
     JettyAllocator* allocatorHandle = nullptr;

@@ -1159,7 +1159,7 @@ HcclResult TopoInfoDetect::PreemptBackupDeviceNicPort(
 
     HCCL_INFO(
         "[TopoInfoDetect][PreemptBackupDeviceNicPort]devPhyId[%u], devLogicId[%d], local ip[%s]"
-        "preempt port[%u] on backup device ip[%s] success[%u].",
+        "preempt port[%u] on backup device ip[%s].",
         devPhyId, devLogicId, devIp.GetReadableAddress(), usePort, backupDevIp.GetReadableAddress());
     return HCCL_SUCCESS;
 }

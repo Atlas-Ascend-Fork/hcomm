@@ -2375,7 +2375,7 @@ int RaGetSockets(u32 role, struct SocketInfoT conn[], u32 num, u32* connectedNum
     }
     u32 localIp = ((rdevInfo_t*)conn[0].socketHandle)->local_ip;
 
-    HCCL_DEBUG("ra_get_sockets, localIp[0x%08x], role[%d], num", localIp, role, num);
+    HCCL_DEBUG("ra_get_sockets, localIp[0x%08x], role[%d], num[%u]", localIp, role, num);
     // 此接口固定使用conn[0]的localIp和tag作为查找参数
     for (s32 loop = 0; loop < num; ++loop) {
         if (localIp < SERVER_IP_MAX_VALUE) {

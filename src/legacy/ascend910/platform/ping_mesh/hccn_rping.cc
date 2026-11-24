@@ -647,7 +647,7 @@ HccnResult HccnRpingGetTarget(
 HccnResult HccnRpingBatchPingStart(HccnRpingCtx rpingCtx, uint32_t pktNum, uint32_t interval, uint32_t timeout)
 {
     // 校验指针，并将其转换为pingmesh指针
-    CHK_PRT_RET(rpingCtx == nullptr, HCCL_ERROR("[HccnRpingBatchPingStart]rpingCtx is null.", rpingCtx), HCCN_E_PARA);
+    CHK_PRT_RET(rpingCtx == nullptr, HCCL_ERROR("[HccnRpingBatchPingStart]rpingCtx is null."), HCCN_E_PARA);
     HCCL_DEBUG("[HccnRpingBatchPingStart]pktNum:[%u], interval:[%u s], timeout:[%u s]", pktNum, interval, timeout);
     PingMesh* rping = static_cast<PingMesh*>(rpingCtx);
     // 获取device id
@@ -684,7 +684,7 @@ HccnResult HccnRpingBatchPingStart(HccnRpingCtx rpingCtx, uint32_t pktNum, uint3
 HccnResult HccnRpingBatchPingStop(HccnRpingCtx rpingCtx)
 {
     // 校验指针，并将其转换为pingmesh指针
-    CHK_PRT_RET(rpingCtx == nullptr, HCCL_ERROR("[HccnRpingBatchPingStop]rpingCtx is null.", rpingCtx), HCCN_E_PARA);
+    CHK_PRT_RET(rpingCtx == nullptr, HCCL_ERROR("[HccnRpingBatchPingStop]rpingCtx is null."), HCCN_E_PARA);
     PingMesh* rping = static_cast<PingMesh*>(rpingCtx);
     // 获取device id
     s32 devLogicId = 0;

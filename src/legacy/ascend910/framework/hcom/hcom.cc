@@ -3960,10 +3960,7 @@ HcclResult GetAllReduceScratchMemSize(
     bool no_impl_compile = isOfflineCompilation || hcomOpParam->groupListSize > 0;
     if (no_impl_compile) {
         HcclResult ret = GetAllReduceScratchSizeWithoutDev(hcomOpParam, serverNum, rankSize, scratchSize);
-        CHK_PRT_RET(
-            ret != HCCL_SUCCESS,
-            HCCL_ERROR("no_impl_compile [GetAllReduceScratchMemSize] fail ", HCOM_ERROR_CODE(HCCL_E_PARA)),
-            HCCL_E_PARA);
+        CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("no_impl_compile [GetAllReduceScratchMemSize] fail"), HCCL_E_PARA);
     } else {
         CHK_RET(
             HcomGetAllReduceScratchSize(hcomOpParam->group, hcomOpParam->count, hcomOpParam->dataType, scratchSize));

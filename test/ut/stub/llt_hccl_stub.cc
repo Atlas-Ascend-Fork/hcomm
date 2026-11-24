@@ -1444,7 +1444,7 @@ aclError aclrtIpcMemGetExportKey(void* ptr, size_t byteCount, char* name, size_t
     shm_head->relate_ptr[shm_head->relate_ptr_cnt] = name_map_ptr; // 本块共享内存的关联指针记录name map的地址
     __sync_fetch_and_add(&(shm_head->relate_ptr_cnt), 1);
 
-    HCCL_DEBUG("set ptr[%p] name_map_ptr[%p] baseptr[%p]", ptr, name_map_ptr, baseptr, shm_head->relate_ptr_cnt);
+    HCCL_DEBUG("set ptr[%p] name_map_ptr[%p] baseptr[%p]", ptr, name_map_ptr, baseptr);
 
     /* 映射后的名字会在name前添加前缀 */
     char mapped_name[SAL_DMEM_UNIQUE_ID_BYTES] = {0};
@@ -4982,7 +4982,7 @@ HcclResult GetSocketRole(std::vector<u32>& userRanks, u32 srcRank, u32 destRank,
     if (srcPos == INVALID_UINT) {
         HCCL_ERROR(
             "[GetSocketRole]errNo[0x%016llx] srcRank is not found in user rank list",
-            HCCL_ERROR_CODE(HCCL_E_TCP_TRANSFER), srcRank);
+            HCCL_ERROR_CODE(HCCL_E_TCP_TRANSFER));
         return HCCL_E_INTERNAL;
     }
 
@@ -4996,7 +4996,7 @@ HcclResult GetSocketRole(std::vector<u32>& userRanks, u32 srcRank, u32 destRank,
     if (destPos == INVALID_UINT) {
         HCCL_ERROR(
             "[GetSocketRole]errNo[0x%016llx] destPos is not found in user rank list",
-            HCCL_ERROR_CODE(HCCL_E_TCP_TRANSFER), destPos);
+            HCCL_ERROR_CODE(HCCL_E_TCP_TRANSFER));
         return HCCL_E_INTERNAL;
     }
 

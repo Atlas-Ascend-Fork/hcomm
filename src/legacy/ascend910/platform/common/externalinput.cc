@@ -1536,7 +1536,7 @@ HcclResult ParseCannVersion()
     const size_t hlen = strnlen(hcommVersion.data(), HCCL_VERSION_STR_MAX_LEN);
     const size_t clen = strnlen(hcclVersion.data(), HCCL_VERSION_STR_MAX_LEN);
     if (hlen == 0 || hlen == HCCL_VERSION_STR_MAX_LEN) {
-        HCCL_WARNING("[Parse][CannVersion]hcomm version is empty", std::string(hcommVersion.data(), hlen).c_str());
+        HCCL_WARNING("[Parse][CannVersion]hcomm version is empty");
         return HCCL_E_NOT_FOUND;
     }
     g_externalInput.cannVersion = std::string(hcommVersion.data());

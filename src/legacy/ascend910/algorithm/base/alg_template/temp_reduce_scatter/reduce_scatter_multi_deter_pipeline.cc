@@ -64,7 +64,7 @@ ReduceScatterMultiDeterPipeline::GetLocalCclbufferDeviceMem(u32 rankIdInAllRanks
         return HCCL_E_MEMORY;
     }
     HCCL_DEBUG(
-        "[%s] rank[%u], beginAddr[%p], offset[%llu](rdmaOffset[%u] or sdmaOffset[%llu]), "
+        "[%s] rank[%u], beginAddr[%p], offset[%llu](rdmaOffset[%llu] or sdmaOffset[%llu]), "
         "curSize[%llu], totalBufferSize[%llu]",
         __func__, rankIdInAllRanks, localMem.ptr(), sliceOffset, rdmaOffset, sdmaOffset, curSize_, cclBuffer_.size());
     return HCCL_SUCCESS;
@@ -78,8 +78,8 @@ HcclResult ReduceScatterMultiDeterPipeline::GetLocalUserInDeviceMem(u32 rankIdIn
     localMem = DeviceMem::create(intraSrcAddr, curSize_);
     if (localMem.ptr() == nullptr) {
         HCCL_ERROR(
-            "[%s] get localMem failed, rankIdInAllRanks * eachOffset + curSize_ = [%u] is too big", __func__,
-            rankIdInAllRanks * eachOffset + curSize_, cclBuffer_.size());
+            "[%s] get localMem failed, rankIdInAllRanks * eachOffset + curSize_ = [%llu] is too big", __func__,
+            rankIdInAllRanks * eachOffset + curSize_);
         return HCCL_E_MEMORY;
     }
     HCCL_DEBUG(

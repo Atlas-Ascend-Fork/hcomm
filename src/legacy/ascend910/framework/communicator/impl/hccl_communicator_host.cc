@@ -7775,7 +7775,8 @@ HcclResult HcclCommunicator::AicpuInitOpTilingDataAicpuCache(
         CHK_PRT_RET(
             opParam.aicpuCacheEnable >= FORCE_OP_BASE_DELTA,
             HCCL_ERROR(
-                "[HcclCommunicator][AicpuInitOpTilingDataBuf] enforce opbase mode: opParam.aicpuCacheEnable >= %u",
+                "[HcclCommunicator][AicpuInitOpTilingDataBuf] enforce opbase mode: opParam.aicpuCacheEnable[%u] "
+                ">= FORCE_OP_BASE_DELTA[%u]",
                 opParam.aicpuCacheEnable, FORCE_OP_BASE_DELTA),
             HCCL_E_INTERNAL);
 
