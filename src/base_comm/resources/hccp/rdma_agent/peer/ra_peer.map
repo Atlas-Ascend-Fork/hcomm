@@ -87,11 +87,11 @@ global:
     RaPeerRegisterMr;
     RaPeerSendWr;
     RaPeerSendWrlist;
+    RaPeerSetDebugConfig;
     RaPeerSetQpAttrQos;
     RaPeerSetQpAttrRetryCnt;
     RaPeerSetQpAttrTimeout;
     RaPeerSetQpLbValue;
-    RaPeerSetDebugConfig;
     RaPeerSetTcpRecvCallback;
     RaPeerSetTsqpDepth;
     RaPeerSocketAcceptCreditAdd;

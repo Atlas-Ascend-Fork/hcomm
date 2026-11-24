@@ -24,11 +24,11 @@ global:
     RaHdcCtxGetCrErrInfoList;
     RaHdcCtxGetJettyContext;
     RaHdcCtxInit;
-    RaHdcCtxNotifyEvent;
     RaHdcCtxLmemRegister;
     RaHdcCtxLmemRegisterAsync;
     RaHdcCtxLmemUnregister;
     RaHdcCtxLmemUnregisterAsync;
+    RaHdcCtxNotifyEvent;
     RaHdcCtxQpCreate;
     RaHdcCtxQpCreateAsync;
     RaHdcCtxQpDestroy;
@@ -95,11 +95,11 @@ global:
     RaHdcRdevGetPortStatus;
     RaHdcRdevInit;
     RaHdcRdevRestoreDeinit;
+    RaHdcRdmaLiteApiDeinit;
+    RaHdcRdmaLiteApiInit;
     RaHdcRdmaRestoreSnapshot;
     RaHdcRdmaSaveSnapshot;
     RaHdcRdmaSetOps;
-    RaHdcRdmaLiteApiDeinit;
-    RaHdcRdmaLiteApiInit;
     RaHdcRecvWrVerbs;
     RaHdcRecvWrlist;
     RaHdcRemapMr;

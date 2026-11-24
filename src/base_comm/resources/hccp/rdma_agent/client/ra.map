@@ -30,11 +30,11 @@ global:
     RaCtxGetTpAttr;
     RaCtxGetTpInfoList;
     RaCtxInit;
-    RaCtxNotifyEvent;
     RaCtxLmemRegister;
     RaCtxLmemRegisterAsync;
     RaCtxLmemUnregister;
     RaCtxLmemUnregisterAsync;
+    RaCtxNotifyEvent;
     RaCtxQpCreate;
     RaCtxQpCreateAsync;
     RaCtxQpDestroy;
@@ -136,6 +136,7 @@ global:
     RaSendWrVerbs;
     RaSendWrlist;
     RaSendWrlistExt;
+    RaSetDebugConfig;
     RaSetQpAttrQos;
     RaSetQpAttrRetryCnt;
     RaSetQpAttrTimeout;
@@ -174,7 +175,6 @@ global:
     RaTypicalQpModify;
     RaTypicalSendWr;
     RaWaitEventHandle;
-    RaSetDebugConfig;
 local:
     *;
 };

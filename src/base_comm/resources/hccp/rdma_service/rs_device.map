@@ -33,9 +33,9 @@ global:
     RsCtxGetCrErrInfoList;
     RsCtxGetUbContext;
     RsCtxInit;
-    RsCtxNotifyEvent;
     RsCtxLmemReg;
     RsCtxLmemUnreg;
+    RsCtxNotifyEvent;
     RsCtxQpCreate;
     RsCtxQpDestroy;
     RsCtxQpDestroyBatch;
