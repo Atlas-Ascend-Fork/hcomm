@@ -50,7 +50,7 @@ HcclResult CpuThreadService::RollbackAcquiredThread(
 }
 
 HcclResult CpuThreadService::EnsureCpuKernelLaunched(
-    const HcclComm commV2, uint32_t devId, std::shared_ptr<CpuThread>& cpuThread, bool* newCreated)
+    const HcclComm commV2, uint32_t devId, std::shared_ptr<CpuThread>& cpuThread, bool* newCreated) const
 {
     cpuThread = nullptr;
     // 仅创建成功路径会置 true，中途失败保持 false
@@ -187,7 +187,7 @@ HcclResult CpuThreadService::StopCpuKernel() const
 }
 
 HcclResult CpuThreadService::AcquireCpuTagShmem(
-    HcclComm commV2, uint32_t devId, const uint64_t* size, void** addr, bool* newCreated)
+    const HcclComm commV2, uint32_t devId, const uint64_t* size, void** addr, bool* newCreated)
 {
     if (size == nullptr || addr == nullptr) {
         HCCL_ERROR("[%s] size/addr is nullptr", __func__);
