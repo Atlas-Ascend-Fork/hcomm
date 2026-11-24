@@ -241,7 +241,7 @@ public:
     bool HasNode(const NodeId nodeId) const;
     const std::unordered_map<RankId, std::shared_ptr<Peer>>& GetPeers() const;
     const std::vector<std::shared_ptr<Fabric>>& GetFabrics() const;
-    Graph<Node, Link>& GetGraph();
+    hccl::Graph<Node, Link>& GetGraph();
     void AddRankId(const RankId rankId);
     HcclResult AddNode(const std::shared_ptr<Node>& node);
     void AddLink(const std::shared_ptr<Link>& link);
@@ -267,7 +267,7 @@ protected:
     std::unordered_map<LocalId, RankId> localIdsMap;
     std::vector<std::shared_ptr<Fabric>> fabrics;
     std::unordered_map<PlaneId, NodeId> planeId2Node; // 除了创建时，其他是否需要使用
-    Graph<Node, Link> vGraph;
+    hccl::Graph<Node, Link> vGraph;
 
     HcclResult AddPeer(const std::shared_ptr<Peer>& peer);
     HcclResult AddFabric(const std::shared_ptr<Fabric>& fabric);

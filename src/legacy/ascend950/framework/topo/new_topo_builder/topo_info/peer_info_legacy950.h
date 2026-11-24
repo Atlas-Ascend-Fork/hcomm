@@ -8,12 +8,13 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef NEW_PEER_INFO_H
-#define NEW_PEER_INFO_H
+#ifndef NEW_PEER_INFO_LEGACY950_H
+#define NEW_PEER_INFO_LEGACY950_H
+
+// 两份.h 必须一起改：改本文件时同步改 coll_comm 侧 src/coll_communicator_mgr/rank_graph/topo_info/peer_info.h。
 
 #include "types.h"
 #include "binary_stream.h"
-#include "nlohmann/json.hpp"
 
 namespace Hccl {
 
@@ -23,11 +24,10 @@ public:
     PeerInfo() {};
     ~PeerInfo() {};
     u32 localId{0};
-    void Deserialize(const nlohmann::json& peerInfoJson);
     std::string Describe() const;
-    explicit PeerInfo(BinaryStream& binaryStream);
-    void GetBinStream(BinaryStream& binaryStream) const;
+    explicit PeerInfo(Hccl::BinaryStream& binaryStream);
+    void GetBinStream(Hccl::BinaryStream& binaryStream) const;
 };
 } // namespace Hccl
 
-#endif // NEW_PEER_INFO_H
+#endif // NEW_PEER_INFO_LEGACY950_H

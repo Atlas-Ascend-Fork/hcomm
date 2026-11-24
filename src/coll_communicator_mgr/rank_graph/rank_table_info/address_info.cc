@@ -19,28 +19,27 @@
 #include "adapter_error_manager_pub.h"
 #include "common/hccl_log_keywords_pub.h"
 
-namespace Hccl {
-using namespace std;
+namespace hccl {
 
 std::string AddressInfo::Describe() const
 {
-    return StringFormat(
+    return Hccl::StringFormat(
         "AddressInfo[addrType=%s, addr=%s, backupAddrSize=%u, planeId=%s, portsize=%u socketPort_=%u]",
         addrType.Describe().c_str(), addr.Describe().c_str(), static_cast<u32>(backupAddrs.size()), planeId.c_str(),
         static_cast<u32>(ports.size()), socketPort_);
 }
 
-AddressInfo::AddressInfo(BinaryStream& binStream)
+AddressInfo::AddressInfo(Hccl::BinaryStream& binStream)
 {
-    IpAddress address(binStream);
+    Hccl::IpAddress address(binStream);
     addr = address;
     u32 addrTypeInt{0};
     binStream >> addrTypeInt;
-    addrType = static_cast<AddrType::Value>(addrTypeInt);
+    addrType = static_cast<Hccl::AddrType::Value>(addrTypeInt);
     size_t portsSize{0};
     binStream >> portsSize;
     for (u32 i = 0; i < portsSize; i++) {
-        string port;
+        std::string port;
         binStream >> port;
         ports.emplace(port);
     }
@@ -51,14 +50,14 @@ AddressInfo::AddressInfo(BinaryStream& binStream)
     CHK_PRT_THROW(
         backupAddrSize > MAX_VALUE_BACKUP_ADDR_SIZE,
         HCCL_ERROR("[%s] backup_addr size[%zu] exceeds max[%u].", __func__, backupAddrSize, MAX_VALUE_BACKUP_ADDR_SIZE),
-        InvalidParamsException, "backup_addr size exceeds limit");
+        Hccl::InvalidParamsException, "backup_addr size exceeds limit");
     for (size_t i = 0; i < backupAddrSize; i++) {
-        IpAddress backupAddr(binStream);
+        Hccl::IpAddress backupAddr(binStream);
         backupAddrs.emplace_back(std::move(backupAddr));
     }
 }
 
-HcclResult AddressInfo::GetBinStream(BinaryStream& binStream) const
+HcclResult AddressInfo::GetBinStream(Hccl::BinaryStream& binStream) const
 {
     if (ports.size() == 0) {
         RPT_INPUT_ERR(
@@ -84,4 +83,4 @@ HcclResult AddressInfo::GetBinStream(BinaryStream& binStream) const
     return HCCL_SUCCESS;
 }
 
-} // namespace Hccl
+} // namespace hccl

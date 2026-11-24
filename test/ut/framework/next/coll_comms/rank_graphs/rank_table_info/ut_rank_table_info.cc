@@ -1298,8 +1298,8 @@ TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_PortsBoundary_E
                 FAST_RANK_TABLE_FULL, R"("ports": ["0/0"])", R"("ports": ["0123456789012345678901234567890123"])"),
             info),
         HCCL_E_PARA);
-    EXPECT_EQ(hccl::ParseRankTableStringFast(MakeRankTableWithPortCount(MAX_VALUE_PORT), info), HCCL_SUCCESS);
-    EXPECT_EQ(hccl::ParseRankTableStringFast(MakeRankTableWithPortCount(MAX_VALUE_PORT + 1U), info), HCCL_E_PARA);
+    EXPECT_EQ(hccl::ParseRankTableStringFast(MakeRankTableWithPortCount(hccl::MAX_VALUE_PORT), info), HCCL_SUCCESS);
+    EXPECT_EQ(hccl::ParseRankTableStringFast(MakeRankTableWithPortCount(hccl::MAX_VALUE_PORT + 1U), info), HCCL_E_PARA);
 }
 
 TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_LevelCountBoundary_Expect_8Ok9Para)
@@ -1579,7 +1579,7 @@ TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_ForcedParallelD
     EXPECT_EQ(info.ranks[1279].rankId, 1279U);
 }
 
-// NewRankInfo / AddressInfo 需支持 noexcept 移动构造/赋值，
+// NewRankInfo / hccl::AddressInfo 需支持 noexcept 移动构造/赋值，
 // 避免 std::sort / 容器扩容因自定义析构退化为元素级深拷贝。
 TEST_F(RankTableInfoParserTest, Ut_NewRankInfoAndAddressInfo_When_Move_Expect_NoexceptMoveEnabled)
 {
@@ -1590,10 +1590,11 @@ TEST_F(RankTableInfoParserTest, Ut_NewRankInfoAndAddressInfo_When_Move_Expect_No
         std::is_nothrow_move_assignable<hccl::NewRankInfo>::value,
         "NewRankInfo should support noexcept move assignment");
     static_assert(
-        std::is_nothrow_move_constructible<AddressInfo>::value,
-        "AddressInfo should support noexcept move construction");
+        std::is_nothrow_move_constructible<hccl::AddressInfo>::value,
+        "hccl::AddressInfo should support noexcept move construction");
     static_assert(
-        std::is_nothrow_move_assignable<AddressInfo>::value, "AddressInfo should support noexcept move assignment");
+        std::is_nothrow_move_assignable<hccl::AddressInfo>::value,
+        "hccl::AddressInfo should support noexcept move assignment");
 
     hccl::NewRankInfo rankSrc;
     rankSrc.rankId = 7U;
@@ -1603,10 +1604,10 @@ TEST_F(RankTableInfoParserTest, Ut_NewRankInfoAndAddressInfo_When_Move_Expect_No
     EXPECT_EQ(1U, rankDst.rankLevelInfos.size());
     EXPECT_TRUE(rankSrc.rankLevelInfos.empty());
 
-    AddressInfo addrSrc;
+    hccl::AddressInfo addrSrc;
     addrSrc.socketPort_ = 9U;
     addrSrc.backupAddrs.emplace_back(IpAddress("192.168.1.1"));
-    AddressInfo addrDst(std::move(addrSrc));
+    hccl::AddressInfo addrDst(std::move(addrSrc));
     EXPECT_EQ(9U, addrDst.socketPort_);
     EXPECT_EQ(1U, addrDst.backupAddrs.size());
     EXPECT_TRUE(addrSrc.backupAddrs.empty());
@@ -1625,17 +1626,17 @@ TEST_F(RankTableInfoParserTest, Ut_GetRankDeviceListenPortMap_When_MultiLevelAdd
     rank0.devicePort = 6666;
     RankLevelInfo rank0Level0;
     rank0Level0.netLayer = 0;
-    AddressInfo r0a0;
+    hccl::AddressInfo r0a0;
     r0a0.addr = IpAddress("192.168.1.1", AF_INET);
     r0a0.socketPort_ = 101;
-    AddressInfo r0a1;
+    hccl::AddressInfo r0a1;
     r0a1.addr = IpAddress("192.168.1.2", AF_INET);
     r0a1.socketPort_ = 102;
     rank0Level0.rankAddrs.push_back(r0a0);
     rank0Level0.rankAddrs.push_back(r0a1);
     RankLevelInfo rank0Level1;
     rank0Level1.netLayer = 1;
-    AddressInfo r0a2;
+    hccl::AddressInfo r0a2;
     r0a2.addr = IpAddress("192.168.1.1", AF_INET);
     r0a2.socketPort_ = 201; // 同 addr 不同 port，应被首次插入覆盖保持 101
     rank0Level1.rankAddrs.push_back(r0a2);
@@ -1648,7 +1649,7 @@ TEST_F(RankTableInfoParserTest, Ut_GetRankDeviceListenPortMap_When_MultiLevelAdd
     rank1.devicePort = 7777;
     RankLevelInfo rank1Level0;
     rank1Level0.netLayer = 0;
-    AddressInfo r1a0;
+    hccl::AddressInfo r1a0;
     r1a0.addr = IpAddress("192.168.2.1", AF_INET);
     r1a0.socketPort_ = 301;
     rank1Level0.rankAddrs.push_back(r1a0);
@@ -1702,7 +1703,7 @@ TEST_F(RankTableInfoParserTest, Ut_GetRankDeviceListenPortMap_When_SameAddrAcros
         rankInfo.devicePort = 6000U + rankId;
         RankLevelInfo level0;
         level0.netLayer = 0;
-        AddressInfo addrInfo;
+        hccl::AddressInfo addrInfo;
         addrInfo.addr = IpAddress("10.0.0.1", AF_INET);
         addrInfo.socketPort_ = 100U + rankId;
         level0.rankAddrs.push_back(addrInfo);

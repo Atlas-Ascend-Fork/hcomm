@@ -44,9 +44,9 @@ namespace {
     }
 } // namespace
 
-HcclResult RankTableReader::ReadControlPlane(const nlohmann::json& controlPlaneJson, Hccl::ControlPlane& out) const
+HcclResult RankTableReader::ReadControlPlane(const nlohmann::json& controlPlaneJson, ControlPlane& out) const
 {
-    out = Hccl::ControlPlane{};
+    out = ControlPlane{};
     std::string addrTypeStr;
     HcclResult ret = GetJsonProperty(controlPlaneJson, kRankTableKeys[RankTableKey::kAddrType].name, true, addrTypeStr);
     if (ret != HCCL_SUCCESS) {
@@ -67,10 +67,10 @@ HcclResult RankTableReader::ReadControlPlane(const nlohmann::json& controlPlaneJ
             controlPlaneJson, kRankTableKeys[RankTableKey::kAddr].name, "non-empty string", source_);
         return ret;
     }
-    if (address.length() < Hccl::MIN_VALUE_ADDR || address.length() > Hccl::MAX_VALUE_ADDR) {
+    if (address.length() < MIN_VALUE_ADDR || address.length() > MAX_VALUE_ADDR) {
         HCCL_ERROR(
             "[%s] addr [%.*s] length is out of range [%u] to [%u]", __func__, MAX_DISPLAY_LEN, address.c_str(),
-            Hccl::MIN_VALUE_ADDR, Hccl::MAX_VALUE_ADDR);
+            MIN_VALUE_ADDR, MAX_VALUE_ADDR);
         return HCCL_E_PARA;
     }
     if (addrTypeStr == "IPV4") {
@@ -88,10 +88,10 @@ HcclResult RankTableReader::ReadControlPlane(const nlohmann::json& controlPlaneJ
             controlPlaneJson, kRankTableKeys[RankTableKey::kListenPort].name, "0 ~ UINT32_MAX", source_);
         return ret;
     }
-    if (out.listenPort < Hccl::MIN_VALUE_LISTENPORT || out.listenPort > Hccl::MAX_VALUE_LISTENPORT) {
+    if (out.listenPort < MIN_VALUE_LISTENPORT || out.listenPort > MAX_VALUE_LISTENPORT) {
         HCCL_ERROR(
-            "[%s] listen_port [%u] length is out of range [%u] to [%u]", __func__, out.listenPort,
-            Hccl::MIN_VALUE_LISTENPORT, Hccl::MAX_VALUE_LISTENPORT);
+            "[%s] listen_port [%u] length is out of range [%u] to [%u]", __func__, out.listenPort, MIN_VALUE_LISTENPORT,
+            MAX_VALUE_LISTENPORT);
         return HCCL_E_PARA;
     }
     return HCCL_SUCCESS;

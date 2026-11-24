@@ -27,7 +27,7 @@ public:
     HcclResult ReadJson(const nlohmann::json& topoInfoJson, TopoInfo& out) const;
 
     // 子结构入口：供本类内部复用，也供单测直接验证。
-    HcclResult ReadPeer(const nlohmann::json& peerInfoJson, Hccl::PeerInfo& out) const;
+    HcclResult ReadPeer(const nlohmann::json& peerInfoJson, PeerInfo& out) const;
     HcclResult ReadEdge(const nlohmann::json& edgeInfoJson, Hccl::EdgeInfo& out) const;
 
 private:
@@ -49,7 +49,7 @@ inline HcclResult ReadJson<TopoInfo>(const nlohmann::json& json, TopoInfo& info)
 }
 
 template <>
-inline HcclResult ReadJson<Hccl::PeerInfo>(const nlohmann::json& json, Hccl::PeerInfo& info)
+inline HcclResult ReadJson<PeerInfo>(const nlohmann::json& json, PeerInfo& info)
 {
     TopoInfoReader reader;
     return reader.ReadPeer(json, info);

@@ -57,7 +57,7 @@ HcclResult TopoInfoReader::ReadJson(const nlohmann::json& topoInfoJson, TopoInfo
         return ret;
     }
     for (auto& peerJson : peerJsons) {
-        Hccl::PeerInfo peer;
+        PeerInfo peer;
         CHK_RET(ReadPeer(peerJson, peer));
         out.peers.emplace_back(std::move(peer));
     }

@@ -11,12 +11,12 @@
 #include "peer_info.h"
 #include "string_util.h"
 
-namespace Hccl {
+namespace hccl {
 
-std::string PeerInfo::Describe() const { return StringFormat("PeerInfo{local_id=%u}", localId); }
+std::string PeerInfo::Describe() const { return Hccl::StringFormat("PeerInfo{local_id=%u}", localId); }
 
-void PeerInfo::GetBinStream(BinaryStream& binaryStream) const { binaryStream << localId; }
+void PeerInfo::GetBinStream(Hccl::BinaryStream& binaryStream) const { binaryStream << localId; }
 
-PeerInfo::PeerInfo(BinaryStream& binaryStream) { binaryStream >> localId; }
+PeerInfo::PeerInfo(Hccl::BinaryStream& binaryStream) { binaryStream >> localId; }
 
-} // namespace Hccl
+} // namespace hccl

@@ -49,23 +49,23 @@ namespace {
     }
 } // namespace
 
-HcclResult RankTableReader::ReadAddress(const nlohmann::json& addressInfoJson, Hccl::AddressInfo& out) const
+HcclResult RankTableReader::ReadAddress(const nlohmann::json& addressInfoJson, AddressInfo& out) const
 {
-    out = Hccl::AddressInfo{};
+    out = AddressInfo{};
     CHK_RET(ReadAddrTypeAndAddr(addressInfoJson, out));
     out.planeId = addressInfoJson.value<std::string>(kRankTableKeys[RankTableKey::kPlaneId].name, "0");
-    if (out.planeId.length() > Hccl::MAX_VALUE_PLANEID) {
+    if (out.planeId.length() > MAX_VALUE_PLANEID) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
             std::vector<std::string>(
                 {out.planeId, kRankTableKeys[RankTableKey::kPlaneId].name,
-                 "length [0, " + std::to_string(Hccl::MAX_VALUE_PLANEID) + "]"}));
+                 "length [0, " + std::to_string(MAX_VALUE_PLANEID) + "]"}));
         return HCCL_E_PARA;
     }
     return ReadPorts(addressInfoJson, out);
 }
 
-HcclResult RankTableReader::ReadAddrTypeAndAddr(const nlohmann::json& addressInfoJson, Hccl::AddressInfo& out) const
+HcclResult RankTableReader::ReadAddrTypeAndAddr(const nlohmann::json& addressInfoJson, AddressInfo& out) const
 {
     std::string addrTypeStr;
     HcclResult ret = GetJsonProperty(addressInfoJson, kRankTableKeys[RankTableKey::kAddrType].name, true, addrTypeStr);
@@ -89,13 +89,13 @@ HcclResult RankTableReader::ReadAddrTypeAndAddr(const nlohmann::json& addressInf
             addressInfoJson, kRankTableKeys[RankTableKey::kAddr].name, "non-empty string", source_);
         return ret;
     }
-    if (address.length() < Hccl::MIN_VALUE_ADDR_LENGRH || address.length() > Hccl::MAX_VALUE_ADDR_LENGRH) {
+    if (address.length() < MIN_VALUE_ADDR_LENGRH || address.length() > MAX_VALUE_ADDR_LENGRH) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
             std::vector<std::string>({address, kRankTableKeys[RankTableKey::kAddr].name, "A ip address"}));
         HCCL_ERROR(
             "[%s] addr [%.*s] length is out of range [%u] to [%u]", __func__, MAX_DISPLAY_LEN, address.c_str(),
-            Hccl::MIN_VALUE_ADDR_LENGRH, Hccl::MAX_VALUE_ADDR_LENGRH);
+            MIN_VALUE_ADDR_LENGRH, MAX_VALUE_ADDR_LENGRH);
         return HCCL_E_PARA;
     }
     if (addrTypeStr == "IPV4") {
@@ -108,7 +108,7 @@ HcclResult RankTableReader::ReadAddrTypeAndAddr(const nlohmann::json& addressInf
     return ReadBackupAddrs(addressInfoJson, out, addrTypeStr);
 }
 
-HcclResult RankTableReader::ReadPorts(const nlohmann::json& addressInfoJson, Hccl::AddressInfo& out) const
+HcclResult RankTableReader::ReadPorts(const nlohmann::json& addressInfoJson, AddressInfo& out) const
 {
     const nlohmann::json* portsJsons = nullptr;
     HcclResult ret = GetJsonPropertyListRef(addressInfoJson, kRankTableKeys[RankTableKey::kPorts].name, portsJsons);
@@ -118,7 +118,7 @@ HcclResult RankTableReader::ReadPorts(const nlohmann::json& addressInfoJson, Hcc
     }
     for (const auto& portsJson : *portsJsons) {
         const std::string portStr = portsJson.get<std::string>();
-        if (portStr.size() < Hccl::MIN_VALUE_PORT_LENGTH || portStr.size() > Hccl::MAX_VALUE_PORT_LENGTH) {
+        if (portStr.size() < MIN_VALUE_PORT_LENGTH || portStr.size() > MAX_VALUE_PORT_LENGTH) {
             RPT_INPUT_ERR(
                 true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
                 std::vector<std::string>({portStr, "port", "length"}));
@@ -126,19 +126,19 @@ HcclResult RankTableReader::ReadPorts(const nlohmann::json& addressInfoJson, Hcc
         }
         out.ports.emplace(portStr);
     }
-    if (out.ports.size() < Hccl::MIN_VALUE_PORT || out.ports.size() > Hccl::MAX_VALUE_PORT) {
+    if (out.ports.size() < MIN_VALUE_PORT || out.ports.size() > MAX_VALUE_PORT) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
             std::vector<std::string>(
                 {std::to_string(out.ports.size()), "ports count",
-                 "[" + std::to_string(Hccl::MIN_VALUE_PORT) + ", " + std::to_string(Hccl::MAX_VALUE_PORT) + "]"}));
+                 "[" + std::to_string(MIN_VALUE_PORT) + ", " + std::to_string(MAX_VALUE_PORT) + "]"}));
         return HCCL_E_PARA;
     }
     return HCCL_SUCCESS;
 }
 
 HcclResult RankTableReader::ReadBackupAddrs(
-    const nlohmann::json& addressInfoJson, Hccl::AddressInfo& out, const std::string& addrTypeStr) const
+    const nlohmann::json& addressInfoJson, AddressInfo& out, const std::string& addrTypeStr) const
 {
     out.backupAddrs.clear();
     const auto backupIt = addressInfoJson.find(kRankTableKeys[RankTableKey::kBackupAddr].name);
@@ -194,12 +194,12 @@ HcclResult RankTableReader::ParseBackupAddrs(
             std::vector<std::string>({"non-array", kRankTableKeys[RankTableKey::kBackupAddr].name, "array"}));
         return HCCL_E_PARA;
     }
-    if (backupAddrJson.size() > Hccl::MAX_VALUE_BACKUP_ADDR_SIZE) {
+    if (backupAddrJson.size() > MAX_VALUE_BACKUP_ADDR_SIZE) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
             std::vector<std::string>(
                 {std::to_string(backupAddrJson.size()), "backup_addr size",
-                 "[0, " + std::to_string(Hccl::MAX_VALUE_BACKUP_ADDR_SIZE) + "]"}));
+                 "[0, " + std::to_string(MAX_VALUE_BACKUP_ADDR_SIZE) + "]"}));
         return HCCL_E_PARA;
     }
     for (const auto& backupAddr : backupAddrJson) {
@@ -210,8 +210,7 @@ HcclResult RankTableReader::ParseBackupAddrs(
             return HCCL_E_PARA;
         }
         const std::string backupAddrStr = backupAddr.get<std::string>();
-        if (backupAddrStr.length() < Hccl::MIN_VALUE_ADDR_LENGRH
-            || backupAddrStr.length() > Hccl::MAX_VALUE_ADDR_LENGRH) {
+        if (backupAddrStr.length() < MIN_VALUE_ADDR_LENGRH || backupAddrStr.length() > MAX_VALUE_ADDR_LENGRH) {
             RPT_INPUT_ERR(
                 true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
                 std::vector<std::string>(

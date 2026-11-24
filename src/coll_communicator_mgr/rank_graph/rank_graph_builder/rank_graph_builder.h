@@ -85,7 +85,7 @@ private:
     HcclResult BuildPcieFallbackLinks(NetInstance* innerNetInstance);
     HcclResult AddFabricInfo(u32 netLayer);
     void AddPeer2NetLink(
-        const u32 netLayer, const std::string& netInstId, RankId rankId, const AddressInfo& addrInfo,
+        const u32 netLayer, const std::string& netInstId, RankId rankId, const hccl::AddressInfo& addrInfo,
         const std::shared_ptr<NetInstance::Fabric>& fabNode, const std::vector<std::shared_ptr<PhyTopo::Link>>& links);
     HcclResult AddTopoDescFabricInfo();
     HcclResult UpdateTopoInstForMyRankOnly();
@@ -94,7 +94,7 @@ private:
     std::shared_ptr<NetInstance> CreateNetInstance(const RankLevelInfo& levelInfo);
 };
 
-std::map<PlaneId, FabricId> GetFabricsFromAddrInfo(const std::vector<AddressInfo>& rankAddrs);
+std::map<PlaneId, FabricId> GetFabricsFromAddrInfo(const std::vector<hccl::AddressInfo>& rankAddrs);
 std::vector<std::shared_ptr<PhyTopo::Link>> GetPeer2NetPhyLinks(u32 netLayer, LocalId localId);
 // 建链上下文：与物理边/peer数据分离，避免自由函数参数膨胀
 struct ConnIfaceBuildCtx {
@@ -113,7 +113,7 @@ std::vector<std::shared_ptr<NetInstance::Link>> ConstructLinks(
     std::vector<std::shared_ptr<NetInstance::ConnInterface>> sourceIfaces,
     std::vector<std::shared_ptr<NetInstance::ConnInterface>> targetIfaces, std::shared_ptr<PhyTopo::Link> phyLink);
 std::vector<std::shared_ptr<PhyTopo::Link>> GetPeer2PeerPhyLinks(
-    std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> phyTopoGraph, LocalId srcLocalId, LocalId dstLocalId);
+    std::shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>> phyTopoGraph, LocalId srcLocalId, LocalId dstLocalId);
 } // namespace Hccl
 
 #endif // RANK_GRAPH_BUILDER_H

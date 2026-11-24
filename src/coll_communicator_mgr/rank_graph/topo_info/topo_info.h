@@ -11,6 +11,9 @@
 #ifndef NEW_TOPO_INFO_H
 #define NEW_TOPO_INFO_H
 
+// 两份.h 必须一起改：改本文件时同步改 legacy950 侧
+// src/legacy/ascend950/framework/topo/new_topo_builder/topo_info/topo_info_legacy950.h。
+
 #include <map>
 #include <vector>
 
@@ -26,7 +29,7 @@ public:
     std::string version;
     u32 peerCount{0};
     u32 edgeCount{0};
-    std::vector<Hccl::PeerInfo> peers;
+    std::vector<PeerInfo> peers;
     std::map<u32, std::vector<Hccl::EdgeInfo>> edges;
     std::string Describe() const;
     void Dump() const;

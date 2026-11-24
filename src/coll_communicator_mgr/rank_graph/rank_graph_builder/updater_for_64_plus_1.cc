@@ -217,7 +217,7 @@ HcclResult UpdaterFor64Plus1::AddPeer2BackupLinks(
 
 std::shared_ptr<PhyTopo::Link> UpdaterFor64Plus1::GetPeer2PlaneEdges(
     u32 backupPlaneId, shared_ptr<NetInstance::Peer> peer,
-    std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> phyTopoGraph) const
+    std::shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>> phyTopoGraph) const
 {
     std::shared_ptr<PhyTopo::Link> peer2PlaneEdges = nullptr;
     auto peer2AllPlaneEdges

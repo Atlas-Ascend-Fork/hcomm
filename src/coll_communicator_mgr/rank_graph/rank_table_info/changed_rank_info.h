@@ -11,6 +11,9 @@
 #ifndef CHANGED_RANK_INFO_H
 #define CHANGED_RANK_INFO_H
 
+// 两份.h 必须一起改：改本文件时同步改 legacy950 侧
+// src/legacy/ascend950/framework/topo/new_topo_builder/rank_table_info/changed_rank_info_legacy950.h。
+
 #include <vector>
 #include <string>
 #include <unordered_map>

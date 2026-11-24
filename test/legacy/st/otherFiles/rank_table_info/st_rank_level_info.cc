@@ -69,7 +69,7 @@ TEST_F(RankLevelInfoParserTest, St_Deserialize_When_Normal_Expect_Success)
     rankLevelInfo0.netInstId = "superPod0-rack3";
     rankLevelInfo0.netType = NetType::TOPO_FILE_DESC;
 
-    AddressInfo addressInfo0;
+    hccl::AddressInfo addressInfo0;
     addressInfo0.addrType = AddrType::IPV4;
     IpAddress ipAddress0("192.168.100.100", AF_INET);
     addressInfo0.addr = ipAddress0;
@@ -77,7 +77,7 @@ TEST_F(RankLevelInfoParserTest, St_Deserialize_When_Normal_Expect_Success)
     addressInfo0.ports.emplace("0/2");
     addressInfo0.planeId = "planeA";
 
-    AddressInfo addressInfo1;
+    hccl::AddressInfo addressInfo1;
     addressInfo1.addrType = AddrType::IPV4;
     IpAddress ipAddress1("192.168.100.100", AF_INET);
     addressInfo1.addr = ipAddress1;
@@ -133,14 +133,14 @@ TEST_F(RankLevelInfoParserTest, St_Deserialize_When_OptionalFieldsMissing_Expect
     rankLevelInfo0.netInstId = "superPod0-rack3";
     rankLevelInfo0.netType = NetType::TOPO_FILE_DESC;
 
-    AddressInfo addressInfo0;
+    hccl::AddressInfo addressInfo0;
     addressInfo0.addrType = AddrType::IPV4;
     IpAddress ipAddress0("192.168.100.100", AF_INET);
     addressInfo0.addr = ipAddress0;
     addressInfo0.ports.emplace("0/1");
     addressInfo0.ports.emplace("0/2");
 
-    AddressInfo addressInfo1;
+    hccl::AddressInfo addressInfo1;
     addressInfo1.addrType = AddrType::IPV4;
     IpAddress ipAddress1("192.168.100.100", AF_INET);
     addressInfo1.addr = ipAddress1;

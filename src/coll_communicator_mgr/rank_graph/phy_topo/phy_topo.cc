@@ -29,7 +29,7 @@ void PhyTopo::Clear()
     initFlag = false;
 }
 
-HcclResult PhyTopo::AddTopoGraph(const u32 netLayer, std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> topo)
+HcclResult PhyTopo::AddTopoGraph(const u32 netLayer, std::shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>> topo)
 {
     if (!initFlag) {
         topos[netLayer] = topo;
@@ -41,7 +41,7 @@ HcclResult PhyTopo::AddTopoGraph(const u32 netLayer, std::shared_ptr<Graph<PhyTo
     return HCCL_SUCCESS;
 }
 
-std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> PhyTopo::GetTopoGraph(const u32 netLayer) const
+std::shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>> PhyTopo::GetTopoGraph(const u32 netLayer) const
 {
     if (topos.find(netLayer) == topos.end()) {
         return nullptr;

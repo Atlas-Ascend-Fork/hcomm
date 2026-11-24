@@ -41,7 +41,7 @@ private:
     std::string GetPortFromSet(std::set<string>& ports, u32 linkIdx) const;
     std::shared_ptr<PhyTopo::Link> GetPeer2PlaneEdges(
         u32 backupPlaneId, shared_ptr<NetInstance::Peer> peer,
-        std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> phyTopoGraph) const;
+        std::shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>> phyTopoGraph) const;
     HcclResult AddPeer2BackupLinks(
         std::shared_ptr<NetInstance::Peer> peer, std::shared_ptr<NetInstance::Peer> backupPeer, LocalId replacedLocalId,
         NetInstance* netInstance, const RankTableInfo* rankTable) const;

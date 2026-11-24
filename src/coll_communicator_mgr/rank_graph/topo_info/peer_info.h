@@ -14,7 +14,9 @@
 #include "types.h"
 #include "binary_stream.h"
 
-namespace Hccl {
+// 两份.h 必须一起改：改本文件时同步改 legacy950 侧
+// src/legacy/ascend950/framework/topo/new_topo_builder/topo_info/peer_info_legacy950.h。
+namespace hccl {
 
 constexpr u32 MAX_PEER_LOCAL_ID = 512;
 class PeerInfo {
@@ -23,9 +25,9 @@ public:
     ~PeerInfo() {};
     u32 localId{0};
     std::string Describe() const;
-    explicit PeerInfo(BinaryStream& binaryStream);
-    void GetBinStream(BinaryStream& binaryStream) const;
+    explicit PeerInfo(Hccl::BinaryStream& binaryStream);
+    void GetBinStream(Hccl::BinaryStream& binaryStream) const;
 };
-} // namespace Hccl
+} // namespace hccl
 
 #endif // NEW_PEER_INFO_H

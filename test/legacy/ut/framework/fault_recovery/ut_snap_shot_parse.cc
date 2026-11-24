@@ -365,7 +365,7 @@ TEST_F(SnapShotParserTest, SerializeCommonInfoTest)
 
     RankLevelInfo rankLevelInfo;
 
-    AddressInfo test_addr;
+    hccl::AddressInfo test_addr;
     test_addr.ports = {"0/0", "0/1", "0/8"};
     rankLevelInfo.rankAddrs.emplace_back(test_addr);
     newRankInfo_0.rankLevelInfos.emplace_back(rankLevelInfo);
@@ -455,7 +455,7 @@ TEST_F(SnapShotParserTest, SerializeSubCommInfoTest)
 
     RankLevelInfo rankLevelInfo;
 
-    AddressInfo test_addr;
+    hccl::AddressInfo test_addr;
     test_addr.ports = {"0/0", "0/1", "0/8"};
     rankLevelInfo.rankAddrs.emplace_back(test_addr);
     newRankInfo_0.rankLevelInfos.emplace_back(rankLevelInfo);
@@ -870,7 +870,7 @@ TEST_F(SnapShotParserTest, CurrentAndLegacySnapshotPolicyRoundTrip)
         auto topo = std::make_shared<hccl::TopoInfo>();
         topo->version = "2.0";
         topo->peerCount = 1;
-        PeerInfo peer{};
+        hccl::PeerInfo peer{};
         peer.localId = 0;
         topo->peers.push_back(peer);
         BinaryStream stream;

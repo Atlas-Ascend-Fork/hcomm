@@ -30,7 +30,7 @@ DetourService& DetourService::GetInstance()
 DetourService::DetourService(const PhyTopo* phyTopo) { this->phyTopo = phyTopo; }
 
 vector<shared_ptr<PhyTopo::Link>>
-GetLinks(NodeId srcId, NodeId dstId, const shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>>& phyTopoGraph)
+GetLinks(NodeId srcId, NodeId dstId, const shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>>& phyTopoGraph)
 {
     vector<shared_ptr<PhyTopo::Link>> links;
     if (phyTopoGraph == nullptr) {
@@ -48,7 +48,7 @@ GetLinks(NodeId srcId, NodeId dstId, const shared_ptr<Graph<PhyTopo::Node, PhyTo
 
 HcclResult AddDetourLink(
     NetInstance* innerNetInst, const DetourData& data,
-    const shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>>& phyTopoGraph,
+    const shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>>& phyTopoGraph,
     [[maybe_unused]] const RankTableInfo* rankTable)
 {
     // peer 为空时下游会直接解引用（GetPortAddrMapLayer0/AddConnInterface），在建链前 fail-fast

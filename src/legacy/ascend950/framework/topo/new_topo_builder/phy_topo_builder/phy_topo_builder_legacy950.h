@@ -50,7 +50,7 @@ public:
 
 private:
     std::shared_ptr<TopoInfo> LoadTopoInfo(const std::string& topoPath);
-    std::shared_ptr<Hccl::Graph<Hccl::PhyTopo::Node, Hccl::PhyTopo::Link>>
+    std::shared_ptr<hccl::Graph<Hccl::PhyTopo::Node, Hccl::PhyTopo::Link>>
     CreateGraph(const std::vector<Hccl::EdgeInfo>& edges) const;
     std::shared_ptr<TopoInfo> topoInfo_;
     std::mutex phyTopoMutex;

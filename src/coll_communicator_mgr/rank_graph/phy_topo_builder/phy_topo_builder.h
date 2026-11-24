@@ -11,6 +11,9 @@
 #ifndef PHY_TOPO_BUILDER_H
 #define PHY_TOPO_BUILDER_H
 
+// 两份.h 必须一起改：改本文件时同步改 legacy950 侧
+// src/legacy/ascend950/framework/topo/new_topo_builder/phy_topo_builder/phy_topo_builder_legacy950.h。
+
 #include <mutex>
 #include <memory>
 #include <set>
@@ -47,7 +50,7 @@ public:
 
 private:
     std::shared_ptr<TopoInfo> LoadTopoInfo(const std::string& topoPath);
-    std::shared_ptr<Hccl::Graph<Hccl::PhyTopo::Node, Hccl::PhyTopo::Link>>
+    std::shared_ptr<Graph<Hccl::PhyTopo::Node, Hccl::PhyTopo::Link>>
     CreateGraph(const std::vector<Hccl::EdgeInfo>& edges) const;
     std::shared_ptr<TopoInfo> topoInfo_;
     std::mutex phyTopoMutex;

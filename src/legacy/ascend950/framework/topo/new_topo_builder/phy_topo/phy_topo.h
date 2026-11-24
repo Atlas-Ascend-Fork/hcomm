@@ -17,7 +17,7 @@
 #include <memory>
 #include "topo_common_types.h"
 #include "iterator.h"
-#include "graph.h"
+#include "graph_legacy950.h"
 
 namespace Hccl {
 

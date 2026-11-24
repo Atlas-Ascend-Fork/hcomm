@@ -143,11 +143,11 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_Normal_Expect_Success)
     expectTopoInfo.version = "2.0";
     expectTopoInfo.peerCount = 3;
 
-    PeerInfo peer0;
+    hccl::PeerInfo peer0;
     peer0.localId = 0;
-    PeerInfo peer1;
+    hccl::PeerInfo peer1;
     peer1.localId = 1;
-    PeerInfo peer2;
+    hccl::PeerInfo peer2;
     peer2.localId = 2;
     expectTopoInfo.peers.emplace_back(peer0);
     expectTopoInfo.peers.emplace_back(peer1);
@@ -320,11 +320,11 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_ZeroEdge_Expect_Warning)
     expectTopoInfo.version = "2.0";
     expectTopoInfo.peerCount = 3;
 
-    PeerInfo peer0;
+    hccl::PeerInfo peer0;
     peer0.localId = 0;
-    PeerInfo peer1;
+    hccl::PeerInfo peer1;
     peer1.localId = 1;
-    PeerInfo peer2;
+    hccl::PeerInfo peer2;
     peer2.localId = 2;
     expectTopoInfo.peers.emplace_back(peer0);
     expectTopoInfo.peers.emplace_back(peer1);
@@ -659,11 +659,11 @@ TEST_F(TopoParserTest, Ut_BinaryStream_When_GetBinStreamToReBuild_Expect_Success
     expectTopoInfo.version = "2.0";
     expectTopoInfo.peerCount = 3;
 
-    PeerInfo peer0;
+    hccl::PeerInfo peer0;
     peer0.localId = 0;
-    PeerInfo peer1;
+    hccl::PeerInfo peer1;
     peer1.localId = 1;
-    PeerInfo peer2;
+    hccl::PeerInfo peer2;
     peer2.localId = 2;
     expectTopoInfo.peers.emplace_back(peer0);
     expectTopoInfo.peers.emplace_back(peer1);

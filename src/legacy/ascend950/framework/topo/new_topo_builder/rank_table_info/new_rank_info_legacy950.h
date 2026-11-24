@@ -19,7 +19,7 @@
 
 #include "types.h"
 #include "rank_level_info.h"
-#include "control_plane.h"
+#include "control_plane_legacy950.h"
 #include "orion_adapter_hccp.h"
 namespace Hccl {
 constexpr unsigned int MAX_VALUE_DEVICEID = 512;
@@ -45,7 +45,7 @@ public:
     u32 devicePort{DEFAULT_VALUE_TCPPORT};
     u32 hostPort{DEFAULT_VALUE_TCPPORT};
     std::vector<Hccl::RankLevelInfo> rankLevelInfos{};
-    Hccl::ControlPlane controlPlane{};
+    ControlPlane controlPlane{};
     Hccl::TlsStatus tlsStatus{Hccl::TlsStatus::UNKNOWN};
     Hccl::TlsStatus hostDpuTlsStatus{Hccl::TlsStatus::UNKNOWN};
     // 保留logicSuperPodId字段以保持与hccl::NewRankInfo的内存布局一致。

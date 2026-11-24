@@ -13,30 +13,29 @@
 #include <unordered_map>
 #include "control_plane.h"
 #include "topo_common_types.h"
-namespace Hccl {
-using namespace std;
+namespace hccl {
 
 std::string ControlPlane::Describe() const
 {
-    return StringFormat(
+    return Hccl::StringFormat(
         "ControlPlane[addrType=%s, addr=%s, listenPort=%u]", addrType.Describe().c_str(), addr.Describe().c_str(),
         listenPort);
 }
 
-void ControlPlane::GetBinStream(BinaryStream& binStream) const
+void ControlPlane::GetBinStream(Hccl::BinaryStream& binStream) const
 {
     binStream << static_cast<u32>(addrType) << listenPort;
     addr.GetBinStream(binStream);
 }
 
-ControlPlane::ControlPlane(BinaryStream& binStream)
+ControlPlane::ControlPlane(Hccl::BinaryStream& binStream)
 {
     u32 addrTypeInt{0};
     binStream >> addrTypeInt;
-    addrType = static_cast<AddrType::Value>(addrTypeInt);
+    addrType = static_cast<Hccl::AddrType::Value>(addrTypeInt);
     binStream >> listenPort;
-    IpAddress address(binStream);
+    Hccl::IpAddress address(binStream);
     addr = address;
 }
 
-} // namespace Hccl
+} // namespace hccl

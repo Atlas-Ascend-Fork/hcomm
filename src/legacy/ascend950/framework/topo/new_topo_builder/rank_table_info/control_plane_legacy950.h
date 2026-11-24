@@ -8,13 +8,14 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef CONTROL_PLANE_H
-#define CONTROL_PLANE_H
+#ifndef CONTROL_PLANE_LEGACY950_H
+#define CONTROL_PLANE_LEGACY950_H
+
+// 两份.h 必须一起改：改本文件时同步改 coll_comm 侧
+// src/coll_communicator_mgr/rank_graph/rank_table_info/control_plane.h。
 
 #include <string>
-#include "nlohmann/json.hpp"
 #include "ip_address.h"
-#include "nlohmann/json.hpp"
 #include "topo_common_types.h"
 
 namespace Hccl {
@@ -25,23 +26,14 @@ constexpr unsigned int MAX_VALUE_ADDR = 256;
 class ControlPlane {
 public:
     ControlPlane() {};
-    AddrType addrType;
-    IpAddress addr;
+    Hccl::AddrType addrType;
+    Hccl::IpAddress addr;
     u32 listenPort{0};
-    void Deserialize(const nlohmann::json& controlPlaneJson);
-    void GetBinStream(BinaryStream& binaryStream) const;
-    explicit ControlPlane(BinaryStream& binStream);
+    void GetBinStream(Hccl::BinaryStream& binaryStream) const;
+    explicit ControlPlane(Hccl::BinaryStream& binStream);
     std::string Describe() const;
-
-private:
-    static const std::unordered_map<std::string, AddrType> strToAddrType;
-    void EidToAddr(std::string str);
-    void IPV4ToAddr(std::string str);
-    void IPV6ToAddr(std::string str);
-
-    static bool IsStringInAddrType(std::string str) { return strToAddrType.count(str) > 0; }
 };
 
 } // namespace Hccl
 
-#endif // CONTROL_PLANE_H
+#endif // CONTROL_PLANE_LEGACY950_H

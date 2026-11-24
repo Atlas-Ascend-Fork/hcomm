@@ -48,9 +48,9 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_Normal_Expect_Success)
                 "plane_id": "planeB"
             }
     )";
-    AddressInfo addressInfo;
+    hccl::AddressInfo addressInfo;
     EXPECT_EQ(ParseJsonString(addressInfoString, addressInfo), HCCL_SUCCESS);
-    AddressInfo addressInfo0;
+    hccl::AddressInfo addressInfo0;
     addressInfo0.addrType = AddrType::IPV4;
     IpAddress ipAddress0("192.168.100.100", AF_INET);
     addressInfo0.addr = ipAddress0;
@@ -77,9 +77,9 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_EID_Expect_Success)
               "plane_id": "plane0"
             }
     )";
-    AddressInfo addressInfo;
+    hccl::AddressInfo addressInfo;
     EXPECT_EQ(ParseJsonString(addressInfoString, addressInfo), HCCL_SUCCESS);
-    AddressInfo addressInfo0;
+    hccl::AddressInfo addressInfo0;
     addressInfo0.addrType = AddrType::EID;
     addressInfo0.planeId = "plane0";
     addressInfo0.ports = {"0/6"};
@@ -94,7 +94,7 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_EID_Expect_Success)
 
     BinaryStream binStream;
     EXPECT_EQ(addressInfo.GetBinStream(binStream), HCCL_SUCCESS);
-    AddressInfo addressInfo1(binStream);
+    hccl::AddressInfo addressInfo1(binStream);
     EXPECT_EQ(addressInfo1.addr, addressInfo.addr);
     EXPECT_EQ(addressInfo1.addrType, addressInfo.addrType);
     EXPECT_EQ(addressInfo1.planeId, addressInfo.planeId);
@@ -114,9 +114,9 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_IPV6_Expect_Success)
               "plane_id": "plane0"
             }
     )";
-    AddressInfo addressInfo;
+    hccl::AddressInfo addressInfo;
     EXPECT_EQ(ParseJsonString(addressInfoString, addressInfo), HCCL_SUCCESS);
-    AddressInfo addressInfo0;
+    hccl::AddressInfo addressInfo0;
     addressInfo0.addrType = AddrType::IPV6;
     addressInfo0.planeId = "plane0";
     addressInfo0.ports = {"0/6"};
@@ -142,7 +142,7 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_InvalidAddrType_Expect_Excepti
                 "plane_id": "planeB"
             }
     )";
-    AddressInfo addressInfo;
+    hccl::AddressInfo addressInfo;
 
     EXPECT_EQ(ParseJsonString(addressInfoString, addressInfo), HCCL_E_PARA);
 }
@@ -160,7 +160,7 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_InvalidAddr_Expect_Exception)
                 "plane_id": "planeB"
             }
     )";
-    AddressInfo addressInfo;
+    hccl::AddressInfo addressInfo;
 
     EXPECT_EQ(ParseJsonString(addressInfoString, addressInfo), HCCL_E_PARA);
 }
@@ -178,7 +178,7 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_InvalidPort_Expect_Exception)
                 "plane_id": "planeB"
             }
     )";
-    AddressInfo addressInfo;
+    hccl::AddressInfo addressInfo;
 
     EXPECT_EQ(ParseJsonString(addressInfoString, addressInfo), HCCL_E_PARA);
 }
@@ -196,7 +196,7 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_InvalidPorts_Expect_Exception)
                 "plane_id": "planeB"
             }
     )";
-    AddressInfo addressInfo;
+    hccl::AddressInfo addressInfo;
 
     EXPECT_EQ(ParseJsonString(addressInfoString, addressInfo), HCCL_E_PARA);
 }

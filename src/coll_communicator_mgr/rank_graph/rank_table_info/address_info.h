@@ -17,7 +17,9 @@
 #include "ip_address.h"
 #include "topo_common_types.h"
 
-namespace Hccl {
+// 两份.h 必须一起改：改本文件时同步改 legacy950 侧
+// src/legacy/ascend950/framework/topo/new_topo_builder/rank_table_info/address_info_legacy950.h。
+namespace hccl {
 
 constexpr unsigned int MIN_VALUE_PLANEID = 0;
 constexpr unsigned int MAX_VALUE_PLANEID = 1024;
@@ -40,17 +42,17 @@ public:
     AddressInfo(AddressInfo&&) = default;
     AddressInfo& operator=(AddressInfo&&) = default;
 
-    IpAddress addr;
-    std::vector<IpAddress> backupAddrs;
+    Hccl::IpAddress addr;
+    std::vector<Hccl::IpAddress> backupAddrs;
     u32 socketPort_{0}; // socket监听端口
-    AddrType addrType{AddrType::EID};
+    Hccl::AddrType addrType{Hccl::AddrType::EID};
     std::set<std::string> ports; // 网口标记
     std::string planeId{"0"};
-    explicit AddressInfo(BinaryStream& binStream);
-    HcclResult GetBinStream(BinaryStream& binStream) const;
+    explicit AddressInfo(Hccl::BinaryStream& binStream);
+    HcclResult GetBinStream(Hccl::BinaryStream& binStream) const;
     std::string Describe() const;
 };
 
-} // namespace Hccl
+} // namespace hccl
 
 #endif // ADDRESS_INFO_H

@@ -38,7 +38,7 @@ RankLevelInfo::RankLevelInfo(BinaryStream& binStream)
         "[%s] net_layer[%u] net_instance_id[%s] netType[%s] addrs size[%u]", __func__, netLayer, netInstId.c_str(),
         netType.Describe().c_str(), rankAddrs.size());
     for (u32 i = 0; i < addrSize; i++) {
-        AddressInfo addressInfo(binStream);
+        hccl::AddressInfo addressInfo(binStream);
         rankAddrs.emplace_back(std::move(addressInfo));
     }
 

@@ -23,10 +23,10 @@
 
 namespace Hccl {
 namespace test {
-    inline AddressInfo
+    inline hccl::AddressInfo
     MakeAddress(const std::string& ip, std::initializer_list<std::string> ports, const std::string& planeId = "0")
     {
-        AddressInfo address;
+        hccl::AddressInfo address;
         address.addr = IpAddress(ip);
         address.addrType = AddrType::IPV4;
         address.ports = std::set<std::string>(ports.begin(), ports.end());
@@ -35,7 +35,7 @@ namespace test {
     }
 
     inline RankLevelInfo MakeRankLevel(
-        u32 netLayer, const std::string& netInstId, NetType netType, const std::vector<AddressInfo>& rankAddrs)
+        u32 netLayer, const std::string& netInstId, NetType netType, const std::vector<hccl::AddressInfo>& rankAddrs)
     {
         RankLevelInfo level;
         level.netLayer = netLayer;
@@ -73,9 +73,9 @@ namespace test {
         return rankTable;
     }
 
-    inline PeerInfo MakePeer(u32 localId)
+    inline hccl::PeerInfo MakePeer(u32 localId)
     {
-        PeerInfo peer;
+        hccl::PeerInfo peer;
         peer.localId = localId;
         return peer;
     }
@@ -325,9 +325,9 @@ namespace test {
         return MakeRankTable(ranks);
     }
 
-    inline std::vector<AddressInfo> MakeTwoByTwoLevel0Addrs(u32 ipThirdOctet, bool backupPorts)
+    inline std::vector<hccl::AddressInfo> MakeTwoByTwoLevel0Addrs(u32 ipThirdOctet, bool backupPorts)
     {
-        std::vector<AddressInfo> addrs;
+        std::vector<hccl::AddressInfo> addrs;
         const u32 maxPort = backupPorts ? 8U : 2U;
         for (u32 plane = 0; plane < 2; ++plane) {
             for (u32 port = 0; port <= maxPort; ++port) {

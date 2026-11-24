@@ -20,7 +20,7 @@ Core capabilities:
 
 ```text
 rank_graph/
-├── CMakeLists.txt              # Build script: v2 source registration and include prepend (graph.h mirror disambiguation)
+├── CMakeLists.txt              # Build script: v2 source registration and include prepend
 ├── hccl_rankgraph.h            # External C structures (GraphDeviceInfo, etc., extern "C")
 ├── rank_graph.h/.cc            # hccl::RankGraphV1: legacy topology system (RankTable_t flat query tables)
 ├── rank_graph_base.h           # hccl::RankGraph interface base (virtual interfaces + default NOT_SUPPORT)
@@ -249,6 +249,6 @@ Specification constraints:
 1. The WorldTeam prebuild path is always RankGraphV2 (hard-coded in InitFullMode); non-SUCCESS results from the batch interface are treated as hard failures by the caller (no fallback path).
 2. The virtual grouping view is valid only for myRank (FindLocalVirtualGroup binds to myRank_); GetReachableRanksPerProtocol filters only when selfRank == myRank — queries for other ranks keep physical semantics.
 3. PEER2NET edge contract: the sLink (peer→Fabric) targetIface is null (net_instance.h Link comment), and the dLink (Fabric→peer) sourceIface is null (see the peer2netLink/net2peerLink construction with a null fourth parameter in rank_graph_builder.cc); batch pairing semantics rely on this contract, and malformed graphs outside the contract are not endorsed.
-4. Dual graph.h with identical guards: this module's common/graph.h and the legacy mirror (src/legacy/ascend950/framework/topo/new_topo_builder/common/graph.h) share a name and guard (GROUP_H); the aicpu side (ccl_kernel) relies on the BEFORE include prepend in CMakeLists to resolve to this module's version — reordering -I flags silently falls back; see the CMakeLists.txt comment.
+4. graph.h was migrated to namespace hccl in this batch; the legacy side was renamed to graph_legacy950.h (guard GROUP_LEGACY950_H), so the sole graph.h in the repository is this module's version — the former same-name same-guard mirror no longer exists.
 5. Link::GetLinkProtocols returns a const reference: the symbol is consumed only within this repository's package (host + aicpu fully rebuilt and released in the same package); the mangled name is unchanged, and the calling convention changes from sret to register return.
 6. net_instance.cc / rank_graph.cc both exceed the 500-line guideline from before this PR: new code consists of methods of the resident classes for same-file side-by-side review against the legacy path; the split plan is tracked as a separate refactoring task.

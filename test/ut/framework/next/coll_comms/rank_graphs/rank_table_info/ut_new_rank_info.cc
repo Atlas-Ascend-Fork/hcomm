@@ -70,10 +70,10 @@ nlohmann::json BuildRankInfoJson(bool includeOptionalFields = true)
     return rankInfoJson;
 }
 
-AddressInfo
+hccl::AddressInfo
 BuildAddressInfo(const std::string& firstPort, const std::string& secondPort, const std::string& planeId = "")
 {
-    AddressInfo addressInfo;
+    hccl::AddressInfo addressInfo;
     addressInfo.addrType = AddrType::IPV4;
     addressInfo.addr = IpAddress("192.168.100.100", AF_INET);
     addressInfo.ports.emplace(firstPort);
@@ -105,7 +105,7 @@ hccl::NewRankInfo BuildExpectedRankInfo(bool includeOptionalFields)
     return rankInfo;
 }
 
-void ExpectAddressInfoEqual(const AddressInfo& expected, const AddressInfo& actual)
+void ExpectAddressInfoEqual(const hccl::AddressInfo& expected, const hccl::AddressInfo& actual)
 {
     EXPECT_EQ(expected.addrType, actual.addrType);
     EXPECT_EQ(expected.addr, actual.addr);

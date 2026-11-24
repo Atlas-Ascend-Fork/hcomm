@@ -17,9 +17,9 @@ using namespace Hccl;
 
 class GraphTest : public ::testing::Test {
 protected:
-    Graph<PhyTopo::Node, PhyTopo::Link>* graph;
+    hccl::Graph<PhyTopo::Node, PhyTopo::Link>* graph;
 
-    void SetUp() override { graph = new Graph<PhyTopo::Node, PhyTopo::Link>(); }
+    void SetUp() override { graph = new hccl::Graph<PhyTopo::Node, PhyTopo::Link>(); }
 
     void TearDown() override
     {

@@ -38,8 +38,8 @@ public:
     // 子模型入口：供本类内部复用，也供单测直接验证。
     HcclResult ReadRank(const nlohmann::json& newRankInfoJson, NewRankInfo& out) const;
     HcclResult ReadLevel(const nlohmann::json& rankLevelInfoJson, Hccl::RankLevelInfo& out) const;
-    HcclResult ReadAddress(const nlohmann::json& addressInfoJson, Hccl::AddressInfo& out) const;
-    HcclResult ReadControlPlane(const nlohmann::json& controlPlaneJson, Hccl::ControlPlane& out) const;
+    HcclResult ReadAddress(const nlohmann::json& addressInfoJson, AddressInfo& out) const;
+    HcclResult ReadControlPlane(const nlohmann::json& controlPlaneJson, ControlPlane& out) const;
 
     static HcclResult
     ParseAddrByType(const std::string& addrType, const std::string& address, Hccl::IpAddress& ipAddress);
@@ -57,10 +57,10 @@ private:
     HcclResult ReadNetLayerInfo(const nlohmann::json& rankLevelInfoJson, Hccl::RankLevelInfo& out) const;
     HcclResult ReadRankAddrs(const nlohmann::json& rankLevelInfoJson, Hccl::RankLevelInfo& out) const;
     void BuildPortAddrMap(Hccl::RankLevelInfo& out) const;
-    HcclResult ReadAddrTypeAndAddr(const nlohmann::json& addressInfoJson, Hccl::AddressInfo& out) const;
-    HcclResult ReadPorts(const nlohmann::json& addressInfoJson, Hccl::AddressInfo& out) const;
-    HcclResult ReadBackupAddrs(
-        const nlohmann::json& addressInfoJson, Hccl::AddressInfo& out, const std::string& addrTypeStr) const;
+    HcclResult ReadAddrTypeAndAddr(const nlohmann::json& addressInfoJson, AddressInfo& out) const;
+    HcclResult ReadPorts(const nlohmann::json& addressInfoJson, AddressInfo& out) const;
+    HcclResult
+    ReadBackupAddrs(const nlohmann::json& addressInfoJson, AddressInfo& out, const std::string& addrTypeStr) const;
 
     Hccl::RankTableSource source_;
 };
@@ -88,14 +88,14 @@ inline HcclResult ReadJson<Hccl::RankLevelInfo>(const nlohmann::json& json, Hccl
 }
 
 template <>
-inline HcclResult ReadJson<Hccl::AddressInfo>(const nlohmann::json& json, Hccl::AddressInfo& info)
+inline HcclResult ReadJson<AddressInfo>(const nlohmann::json& json, AddressInfo& info)
 {
     RankTableReader reader;
     return reader.ReadAddress(json, info);
 }
 
 template <>
-inline HcclResult ReadJson<Hccl::ControlPlane>(const nlohmann::json& json, Hccl::ControlPlane& info)
+inline HcclResult ReadJson<ControlPlane>(const nlohmann::json& json, ControlPlane& info)
 {
     RankTableReader reader;
     return reader.ReadControlPlane(json, info);

@@ -131,7 +131,7 @@ HcclResult PhyTopoBuilder::Build(const std::string& topoPath)
     }
     for (const auto& iter : topoInfo->edges) {
         auto netLayer = iter.first;
-        std::shared_ptr<Hccl::Graph<Hccl::PhyTopo::Node, Hccl::PhyTopo::Link>> graph = nullptr;
+        std::shared_ptr<Graph<Hccl::PhyTopo::Node, Hccl::PhyTopo::Link>> graph = nullptr;
         TRY_CATCH_RETURN(graph = CreateGraph(iter.second););
         CHK_RET(Hccl::PhyTopo::GetInstance()->AddTopoGraph(netLayer, graph));
         HCCL_DEBUG("[PhyTopoBuilder::%s]Build netLayer[%u] topo graph success.", __func__, netLayer);
@@ -140,7 +140,7 @@ HcclResult PhyTopoBuilder::Build(const std::string& topoPath)
     auto graph = Hccl::PhyTopo::GetInstance()->GetTopoGraph(0);
     if (graph == nullptr) {
         HCCL_INFO("[PhyTopoBuilder::%s] layer0 graph is nullptr, build now", __func__);
-        graph = std::make_shared<Hccl::Graph<Hccl::PhyTopo::Node, Hccl::PhyTopo::Link>>();
+        graph = std::make_shared<Graph<Hccl::PhyTopo::Node, Hccl::PhyTopo::Link>>();
         CHK_RET(Hccl::PhyTopo::GetInstance()->AddTopoGraph(0, graph));
     }
     for (const auto& iter : topoInfo->peers) {
@@ -260,10 +260,10 @@ Hccl::NodeId GetNodeId(const Hccl::PhyTopo::Node::NodeType nodeType, Hccl::Local
     }
 }
 
-std::shared_ptr<Hccl::Graph<Hccl::PhyTopo::Node, Hccl::PhyTopo::Link>>
+std::shared_ptr<Graph<Hccl::PhyTopo::Node, Hccl::PhyTopo::Link>>
 PhyTopoBuilder::CreateGraph(const std::vector<Hccl::EdgeInfo>& edges) const
 {
-    auto graph = std::make_shared<Hccl::Graph<Hccl::PhyTopo::Node, Hccl::PhyTopo::Link>>();
+    auto graph = std::make_shared<Graph<Hccl::PhyTopo::Node, Hccl::PhyTopo::Link>>();
 
     for (const auto& edgeInfo : edges) {
         std::shared_ptr<Hccl::PhyTopo::Node> nodeA;
@@ -354,10 +354,10 @@ HcclResult PhyTopoBuilder::RecoverBuild(const TopoInfo& topoInfo)
     if (Hccl::PhyTopo::GetInstance()->IsInitFinished()) {
         return HCCL_SUCCESS;
     }
-    // 根据topoInfo，按netLayer构造Hccl::Graph
+    // 根据topoInfo，按netLayer构造hccl::Graph
     for (const auto& iter : topoInfo.edges) {
         auto netLayer = iter.first;
-        std::shared_ptr<Hccl::Graph<Hccl::PhyTopo::Node, Hccl::PhyTopo::Link>> graph = nullptr;
+        std::shared_ptr<Graph<Hccl::PhyTopo::Node, Hccl::PhyTopo::Link>> graph = nullptr;
         TRY_CATCH_RETURN(graph = CreateGraph(iter.second););
         if (Hccl::PhyTopo::GetInstance()->AddTopoGraph(netLayer, graph) != HCCL_SUCCESS) {
             HCCL_ERROR("[%s] AddTopoGraph failed, netLayer[%u]", __func__, netLayer);

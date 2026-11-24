@@ -8,13 +8,18 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # -----------------------------------------------------------------------------------------------------------
 
-# rank_graph 模块 ODR 整改 namespace 迁移边界说明（issue #1110 第一批）：
+# rank_graph 模块 ODR 整改 namespace 迁移边界说明（issue #1110）：
 # coll_comm 侧类是否迁入 namespace hccl，判定规则 = 「该头是否在 legacy/ascend950 镜像目录存在同名头」：
 #   - 存在同名镜像头（跨 SO 同名同 guard 同类名，严格 ODR 冲突）→ coll_comm 侧迁 namespace hccl，
-#     legacy950 侧加 _legacy950 后缀 + guard 区分（情况2 则两份 .h 声明一致 + 共用 coll_comm 版 .cc）。
+#     legacy950 侧加 _legacy950 后缀 + guard 区分（两份 .h 声明一致）。
+#     注：经 bridge 跨 SO 传对象的类（如 RankTableInfo）两份 .h 声明一致 + 共用 coll_comm 版 .cc；
+#     不经 bridge 的镜像头（如 AddressInfo/ControlPlane/PeerInfo）仅作布局锁定声明，无对应 .cc，成员函数不可调用。
 #   - 无同名镜像头 → 留 namespace Hccl 不迁。
-# 第一批已迁：topo_info(组3) / phy_topo_builder(组4) / new_rank_info(组5) / changed_rank_info(组7) / rank_table_info(组11)。
-# 后续批次（组9-20）按同规则逐组迁入 hccl，详见 doc/ODR整改方案.md 与 doc/hcomm重复头文件清单.html。
+# 已迁 namespace hccl：topo_info.h(TopoInfo) / phy_topo_builder.h(PhyTopoBuilder) / new_rank_info.h(NewRankInfo) /
+# changed_rank_info.h(ChangedRankInfo) / peer_info.h(PeerInfo) / control_plane.h(ControlPlane) /
+# address_info.h(AddressInfo) / graph.h(Graph)。
+# rank_table_info.h(RankTableInfo) 经 bridge 跨 SO 传对象，保持 namespace Hccl（靠 CMake BEFORE 路径分离 +
+# legacy950 侧 include 改 _legacy950.h 自洽），不迁 ns。
 
 set(src_list
     ${CMAKE_CURRENT_SOURCE_DIR}/rank_graph.cc
@@ -45,7 +50,7 @@ if(TARGET ccl_kernel)
     target_include_directories(ccl_kernel PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
     )
-    # 裸名 graph.h 存在 legacy 同名镜像（new_topo_builder/common，同 guard GROUP_H），BEFORE 前插优先命中本目录版本，勿调整 -I 顺序
+    # graph.h 本批已迁 namespace hccl，legacy 侧改名为 graph_legacy950.h（guard GROUP_LEGACY950_H），全仓唯一 graph.h 为本目录版本，BEFORE 前插保持优先命中
     target_include_directories(ccl_kernel BEFORE PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/common)
 endif()
 
@@ -56,9 +61,8 @@ endif()
 # hcomm target 同 hccl_v2 前插 coll_comm rank_graph 目录：裸名 rank_table_info.h 等优先解析 coll_comm 版，
 # 避免解析到 legacy950 镜像版（hcomm.cmake 挂的镜像目录）造成同 SO 跨 TU 两份定义（ODR 违规）。
 # 依赖此前插生效的同名头清单（coll_comm 版 vs legacy950 镜像版，同为 namespace Hccl、同 guard 但定义不同，
-# 第一批未改名的 6 对，按组待整改）：address_info.h(组15)、control_plane.h(组14)、rank_level_info.h(组17)、
-# edge_info.h(组16)、peer_info.h(组9)、phy_topo.h(组18)。
-# 任一 -I 顺序调整即静默回退到镜像版；后续批次按组改名/迁 ns 后，相应项移除此清单并加入 odr_coexist 测试分组。
+# 待整改的 3 对）：rank_level_info.h(RankLevelInfo)、edge_info.h(EdgeInfo)、phy_topo.h(PhyTopo)。
+# 任一 -I 顺序调整即静默回退到镜像版；待整改头改名/迁 ns 后，相应项移除此清单并加入 odr_coexist 测试分组。
 if(TARGET hcomm)
     target_include_directories(hcomm BEFORE PRIVATE ${v2_rank_graph_include_dirs})
 endif()

@@ -8,8 +8,10 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef GROUP_H
-#define GROUP_H
+#ifndef GROUP_LEGACY950_H
+#define GROUP_LEGACY950_H
+
+// 两份.h 必须一起改：改本文件时同步改 coll_comm 侧 src/coll_communicator_mgr/rank_graph/common/graph.h。
 
 #include <unordered_map>
 #include <functional>
@@ -24,14 +26,14 @@ namespace Hccl {
 template <typename NodeType, typename EdgeType>
 class Graph {
 public:
-    bool HasNode(const NodeId nodeId) const { return nodes.find(nodeId) != nodes.end(); }
+    bool HasNode(const Hccl::NodeId nodeId) const { return nodes.find(nodeId) != nodes.end(); }
 
-    bool HasEdge(const NodeId srcNodeId, const NodeId dstNodeId) const
+    bool HasEdge(const Hccl::NodeId srcNodeId, const Hccl::NodeId dstNodeId) const
     {
         return edges.find(srcNodeId) != edges.end() && edges.at(srcNodeId).find(dstNodeId) != edges.at(srcNodeId).end();
     }
 
-    std::vector<std::shared_ptr<EdgeType>> GetEdges(const NodeId srcNodeId, const NodeId dstNodeId) const
+    std::vector<std::shared_ptr<EdgeType>> GetEdges(const Hccl::NodeId srcNodeId, const Hccl::NodeId dstNodeId) const
     {
         if (!HasEdge(srcNodeId, dstNodeId)) {
             return {};
@@ -39,7 +41,7 @@ public:
         return edges.at(srcNodeId).at(dstNodeId);
     }
 
-    std::vector<std::shared_ptr<EdgeType>> GetEdges(const NodeId srcNodeId) const
+    std::vector<std::shared_ptr<EdgeType>> GetEdges(const Hccl::NodeId srcNodeId) const
     {
         if (edges.find(srcNodeId) == edges.end()) {
             return {};
@@ -51,7 +53,28 @@ public:
         return nodeEdges;
     }
 
-    void TraverseNode(std::function<void(NodeId nodeId, const std::shared_ptr<NodeType>&)> func) const
+    // 只读邻接访问器（批量可达性遍历用，避免 std::function 回调间接开销）；节点/边不存在时返回 nullptr。
+    // 生命周期契约：返回指针指向容器内部结点，仅在图未修改期间有效——任何 AddNode/AddEdge/DeleteEdge
+    // （可能触发 rehash/迭代器失效）之后即失效；调用方取得指针后不得再改图。
+    const std::unordered_map<Hccl::NodeId, std::vector<std::shared_ptr<EdgeType>>>*
+    GetOutEdges(const Hccl::NodeId srcNodeId) const
+    {
+        auto it = edges.find(srcNodeId);
+        return it == edges.end() ? nullptr : &it->second;
+    }
+
+    const std::vector<std::shared_ptr<EdgeType>>*
+    FindEdges(const Hccl::NodeId srcNodeId, const Hccl::NodeId dstNodeId) const
+    {
+        const auto* outEdges = GetOutEdges(srcNodeId);
+        if (outEdges == nullptr) {
+            return nullptr;
+        }
+        auto it = outEdges->find(dstNodeId);
+        return it == outEdges->end() ? nullptr : &it->second;
+    }
+
+    void TraverseNode(std::function<void(Hccl::NodeId nodeId, const std::shared_ptr<NodeType>&)> func) const
     {
         for (auto& node : nodes) {
             func(node.first, node.second);
@@ -65,7 +88,7 @@ public:
         }
     }
 
-    void TraverseEdge(const NodeId srcNodeId, std::function<void(std::shared_ptr<EdgeType>)> func) const
+    void TraverseEdge(const Hccl::NodeId srcNodeId, std::function<void(std::shared_ptr<EdgeType>)> func) const
     {
         if (edges.find(srcNodeId) == edges.end()) {
             return;
@@ -78,7 +101,8 @@ public:
     }
 
     void TraverseEdge(
-        const NodeId srcNodeId, const NodeId dstNodeId, std::function<void(std::shared_ptr<EdgeType>)> func) const
+        const Hccl::NodeId srcNodeId, const Hccl::NodeId dstNodeId,
+        std::function<void(std::shared_ptr<EdgeType>)> func) const
     {
         if (edges.find(srcNodeId) == edges.end() || edges.at(srcNodeId).find(dstNodeId) == edges.at(srcNodeId).end()) {
             return;
@@ -88,13 +112,13 @@ public:
         }
     }
 
-    void AddNode(const NodeId nodeId, std::shared_ptr<NodeType> node)
+    void AddNode(const Hccl::NodeId nodeId, std::shared_ptr<NodeType> node)
     {
         nodes[nodeId] = node;
         HCCL_DEBUG("[Graph]add node [%llu] success! node number is [%zu]", nodeId, nodes.size());
     }
 
-    void AddEdge(const NodeId srcNodeId, const NodeId dstNodeId, std::shared_ptr<EdgeType> edge)
+    void AddEdge(const Hccl::NodeId srcNodeId, const Hccl::NodeId dstNodeId, std::shared_ptr<EdgeType> edge)
     {
         edges[srcNodeId][dstNodeId].push_back(edge);
         HCCL_DEBUG(
@@ -102,7 +126,7 @@ public:
             edges[srcNodeId][dstNodeId].size());
     }
 
-    void DeleteEdge(const NodeId srcNodeId, const NodeId dstNodeId)
+    void DeleteEdge(const Hccl::NodeId srcNodeId, const Hccl::NodeId dstNodeId)
     {
         // 在64+1中srcNode 和 dstNode代表fabric和db
         auto srcIt = edges.find(srcNodeId);
@@ -121,9 +145,9 @@ public:
     }
 
 private:
-    std::unordered_map<NodeId, std::unordered_map<NodeId, std::vector<std::shared_ptr<EdgeType>>>> edges;
-    std::unordered_map<NodeId, std::shared_ptr<NodeType>> nodes;
+    std::unordered_map<Hccl::NodeId, std::unordered_map<Hccl::NodeId, std::vector<std::shared_ptr<EdgeType>>>> edges;
+    std::unordered_map<Hccl::NodeId, std::shared_ptr<NodeType>> nodes;
 };
 } // namespace Hccl
 
-#endif // GROUP_H
+#endif // GROUP_LEGACY950_H

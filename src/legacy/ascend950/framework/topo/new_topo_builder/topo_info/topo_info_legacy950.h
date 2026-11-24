@@ -16,7 +16,7 @@
 #include <map>
 #include <vector>
 
-#include "peer_info.h"
+#include "peer_info_legacy950.h"
 #include "edge_info.h"
 
 namespace Hccl {
@@ -28,7 +28,7 @@ public:
     std::string version;
     u32 peerCount{0};
     u32 edgeCount{0};
-    std::vector<Hccl::PeerInfo> peers;
+    std::vector<PeerInfo> peers;
     std::map<u32, std::vector<Hccl::EdgeInfo>> edges;
     std::string Describe() const;
     void Dump() const;

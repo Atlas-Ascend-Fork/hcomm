@@ -227,7 +227,7 @@ TEST_F(RankGraphBuilderTest, Ut_RecoverBuild_When_LayersShareEid_Expect_Endpoint
     std::vector<hccl::NewRankInfo> ranks;
     std::vector<EdgeInfo> edges;
     for (u32 rankId = 0; rankId < eids.size(); ++rankId) {
-        AddressInfo address;
+        hccl::AddressInfo address;
         address.addr = IpAddress(IpAddress::StrToEID(eids[rankId]));
         address.addrType = AddrType::EID;
         address.ports = {"0/6"};
@@ -1289,7 +1289,7 @@ TEST_F(RankGraphBuilderTest, Ut_Build_When_1pRankTable_Expect_Success)
 TEST_F(RankGraphBuilderTest, Ut_Build_When_OnePTopoFileWithoutEdge_Expect_Success)
 {
     PhyTopo::GetInstance()->Clear();
-    auto graph = std::make_shared<Graph<PhyTopo::Node, PhyTopo::Link>>();
+    auto graph = std::make_shared<hccl::Graph<PhyTopo::Node, PhyTopo::Link>>();
     graph->AddNode(PhyTopo::Peer::GetId(0), std::make_shared<PhyTopo::Peer>(0));
     (void)PhyTopo::GetInstance()->AddTopoGraph(0, graph);
     PhyTopo::GetInstance()->InitFinish();

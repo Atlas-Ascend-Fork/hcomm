@@ -217,7 +217,8 @@ protected:
 
 TEST_F(PhyTopoTest, Ut_AddTopoGraph_When_TopoNotNullAndNetLayerNotExist_Expect_ReturnTopo)
 {
-    std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> topo = std::make_shared<Graph<PhyTopo::Node, PhyTopo::Link>>();
+    std::shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>> topo
+        = std::make_shared<hccl::Graph<PhyTopo::Node, PhyTopo::Link>>();
     u32 netLayer = 1;
     (void)phyTopo.AddTopoGraph(netLayer, topo);
     EXPECT_EQ(phyTopo.GetTopoGraph(netLayer), topo);
@@ -225,10 +226,10 @@ TEST_F(PhyTopoTest, Ut_AddTopoGraph_When_TopoNotNullAndNetLayerNotExist_Expect_R
 
 TEST_F(PhyTopoTest, Ut_GetTopoGraph_When_NetLayerExist_Expect_ReturnTopo)
 {
-    std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> topo1
-        = std::make_shared<Graph<PhyTopo::Node, PhyTopo::Link>>();
-    std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> topo2
-        = std::make_shared<Graph<PhyTopo::Node, PhyTopo::Link>>();
+    std::shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>> topo1
+        = std::make_shared<hccl::Graph<PhyTopo::Node, PhyTopo::Link>>();
+    std::shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>> topo2
+        = std::make_shared<hccl::Graph<PhyTopo::Node, PhyTopo::Link>>();
     u32 netLayer1 = 1;
     u32 netLayer2 = 2;
     (void)phyTopo.AddTopoGraph(netLayer1, topo1);
@@ -239,8 +240,8 @@ TEST_F(PhyTopoTest, Ut_GetTopoGraph_When_NetLayerExist_Expect_ReturnTopo)
 
 TEST_F(PhyTopoTest, Ut_GetTopoGraph_When_NetLayerNoExist_Expect_ReturnNullptr)
 {
-    std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> topo1
-        = std::make_shared<Graph<PhyTopo::Node, PhyTopo::Link>>();
+    std::shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>> topo1
+        = std::make_shared<hccl::Graph<PhyTopo::Node, PhyTopo::Link>>();
     u32 netLayer1 = 1;
     u32 netLayer2 = 2;
     (void)phyTopo.AddTopoGraph(netLayer1, topo1);

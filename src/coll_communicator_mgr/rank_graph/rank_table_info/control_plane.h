@@ -15,7 +15,9 @@
 #include "ip_address.h"
 #include "topo_common_types.h"
 
-namespace Hccl {
+// 两份.h 必须一起改：改本文件时同步改 legacy950 侧
+// src/legacy/ascend950/framework/topo/new_topo_builder/rank_table_info/control_plane_legacy950.h。
+namespace hccl {
 constexpr unsigned int MIN_VALUE_LISTENPORT = 1;
 constexpr unsigned int MAX_VALUE_LISTENPORT = 65536;
 constexpr unsigned int MIN_VALUE_ADDR = 1;
@@ -23,14 +25,14 @@ constexpr unsigned int MAX_VALUE_ADDR = 256;
 class ControlPlane {
 public:
     ControlPlane() {};
-    AddrType addrType;
-    IpAddress addr;
+    Hccl::AddrType addrType;
+    Hccl::IpAddress addr;
     u32 listenPort{0};
-    void GetBinStream(BinaryStream& binaryStream) const;
-    explicit ControlPlane(BinaryStream& binStream);
+    void GetBinStream(Hccl::BinaryStream& binaryStream) const;
+    explicit ControlPlane(Hccl::BinaryStream& binStream);
     std::string Describe() const;
 };
 
-} // namespace Hccl
+} // namespace hccl
 
 #endif // CONTROL_PLANE_H

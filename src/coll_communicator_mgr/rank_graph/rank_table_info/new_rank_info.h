@@ -11,6 +11,9 @@
 #ifndef NEW_RANK_INFO_H
 #define NEW_RANK_INFO_H
 
+// 两份.h 必须一起改：改本文件时同步改 legacy950 侧
+// src/legacy/ascend950/framework/topo/new_topo_builder/rank_table_info/new_rank_info_legacy950.h。
+
 #include <vector>
 #include <string>
 
@@ -42,7 +45,7 @@ public:
     u32 devicePort{DEFAULT_VALUE_TCPPORT};
     u32 hostPort{DEFAULT_VALUE_TCPPORT};
     std::vector<Hccl::RankLevelInfo> rankLevelInfos{};
-    Hccl::ControlPlane controlPlane{};
+    ControlPlane controlPlane{};
     Hccl::TlsStatus tlsStatus{Hccl::TlsStatus::UNKNOWN};
     Hccl::TlsStatus hostDpuTlsStatus{Hccl::TlsStatus::UNKNOWN};
     std::string logicSuperPodId{};

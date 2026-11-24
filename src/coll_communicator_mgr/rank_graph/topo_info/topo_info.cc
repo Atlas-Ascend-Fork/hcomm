@@ -174,7 +174,7 @@ TopoInfo::TopoInfo(Hccl::BinaryStream& binaryStream)
     size_t peersSize = 0;
     binaryStream >> peersSize;
     for (u32 i = 0; i < peersSize; i++) {
-        Hccl::PeerInfo peer(binaryStream);
+        PeerInfo peer(binaryStream);
         peers.emplace_back(peer);
     }
     size_t edgesSize = 0;

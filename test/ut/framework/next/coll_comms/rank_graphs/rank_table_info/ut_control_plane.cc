@@ -47,9 +47,9 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_Normal_Expect_Success)
                 "listen_port": 8000
         }
     )";
-    ControlPlane controlPlane;
+    hccl::ControlPlane controlPlane;
     EXPECT_EQ(hccl::ParseJsonString(controlPlaneString, controlPlane), HCCL_SUCCESS);
-    ControlPlane controlPlane0;
+    hccl::ControlPlane controlPlane0;
     controlPlane0.addrType = AddrType::IPV4;
     IpAddress ipAddress0("192.168.100.100", AF_INET);
     controlPlane0.addr = ipAddress0;
@@ -73,9 +73,9 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_EID_Expect_Success)
               "listen_port": 8000
         }
     )";
-    ControlPlane controlPlane;
+    hccl::ControlPlane controlPlane;
     EXPECT_EQ(hccl::ParseJsonString(controlPlaneString, controlPlane), HCCL_SUCCESS);
-    ControlPlane controlPlane0;
+    hccl::ControlPlane controlPlane0;
     controlPlane0.addrType = AddrType::EID;
     Eid eid0 = IpAddress::StrToEID("000000000000002000100000df001007");
     IpAddress ipAddress0(eid0);
@@ -89,7 +89,7 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_EID_Expect_Success)
 
     BinaryStream binStream;
     controlPlane.GetBinStream(binStream);
-    ControlPlane controlPlane1(binStream);
+    hccl::ControlPlane controlPlane1(binStream);
     EXPECT_EQ(controlPlane1.addr, controlPlane.addr);
     EXPECT_EQ(controlPlane1.addrType, controlPlane.addrType);
     EXPECT_EQ(controlPlane1.listenPort, controlPlane.listenPort);
@@ -107,9 +107,9 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_IPV6_Expect_Success)
               "listen_port": 8000
         }
     )";
-    ControlPlane controlPlane;
+    hccl::ControlPlane controlPlane;
     EXPECT_EQ(hccl::ParseJsonString(controlPlaneString, controlPlane), HCCL_SUCCESS);
-    ControlPlane controlPlane0;
+    hccl::ControlPlane controlPlane0;
     controlPlane0.addrType = AddrType::IPV6;
     IpAddress ipAddress0("fe80:0000:0001:0000:0440:44ff:1233:5678", AF_INET6);
     controlPlane0.addr = ipAddress0;
@@ -133,7 +133,7 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_InvalidAddrType_Expect_Except
                 "listen_port": 8000
         }
     )";
-    ControlPlane controlPlane;
+    hccl::ControlPlane controlPlane;
 
     EXPECT_EQ(hccl::ParseJsonString(controlPlaneString, controlPlane), HCCL_E_PARA);
 }
@@ -150,7 +150,7 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_InvalidAddr_Expect_Exception)
                 "listen_port": 8000
         }
     )";
-    ControlPlane controlPlane;
+    hccl::ControlPlane controlPlane;
 
     EXPECT_EQ(hccl::ParseJsonString(controlPlaneString, controlPlane), HCCL_E_PARA);
 }
@@ -167,7 +167,7 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_InvalidListenPort_Expect_Exce
                 "listen_port": 66666
         }
     )";
-    ControlPlane controlPlane;
+    hccl::ControlPlane controlPlane;
 
     EXPECT_EQ(hccl::ParseJsonString(controlPlaneString, controlPlane), HCCL_E_PARA);
 }
@@ -178,7 +178,7 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_EidToAddr_Length_Expect_E_PARA)
     MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string controlPlaneString = "000000000000002000100000df0010g70";
-    ControlPlane controlPlane;
+    hccl::ControlPlane controlPlane;
     IpAddress addr;
 
     EXPECT_EQ(hccl::RankTableReader::EidToAddr(controlPlaneString, addr), HCCL_E_PARA);
@@ -190,7 +190,7 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_EidToAddr_Format_Expect_E_PARA)
     MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string controlPlaneString = "000000000000002000100000df0010g7";
-    ControlPlane controlPlane;
+    hccl::ControlPlane controlPlane;
     IpAddress addr;
 
     EXPECT_EQ(hccl::RankTableReader::EidToAddr(controlPlaneString, addr), HCCL_E_PARA);

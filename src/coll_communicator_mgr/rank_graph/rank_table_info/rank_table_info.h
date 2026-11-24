@@ -11,6 +11,11 @@
 #ifndef NEW_RANK_TABLED_H
 #define NEW_RANK_TABLED_H
 
+// 两份.h 必须一起改：改本文件时同步改 legacy950 侧
+// src/legacy/ascend950/framework/topo/new_topo_builder/rank_table_info/rank_table_info.h。
+// 注：两份同 guard（NEW_RANK_TABLED_H）同 ns（Hccl），靠 CMake BEFORE 路径分离，根治需迁 ns 会动 bridge，
+// 方案既定不动（见 CMakeLists.txt 注释），故两份未改名/未迁 ns，同步注释仍提示一起改。
+
 #include <vector>
 #include <string>
 #include <map>

@@ -335,7 +335,7 @@ hccl::NewRankInfo BuildHostRdmaRankInfo()
     rankInfo.rankId = 0;
     rankInfo.deviceId = 0;
     rankInfo.localId = 0;
-    AddressInfo addrInfo;
+    hccl::AddressInfo addrInfo;
     addrInfo.addr = IpAddress("192.168.1.101");
     RankLevelInfo levelInfo;
     levelInfo.netLayer = 3;
@@ -923,10 +923,10 @@ TEST_F(
     RankInfoDetectClientTest,
     Ut_SelectLocalHostBackupAddr_When_BackupAddrCountAtLimitAndAllLinkDown_Expect_KeepPrimaryAndContinue)
 {
-    nlohmann::json localDevInfoJson
-        = BuildLocalDevInfoWithBackupAddrs("IPV4", "192.168.1.101", BuildIpv4BackupAddrs(MAX_VALUE_BACKUP_ADDR_SIZE));
+    nlohmann::json localDevInfoJson = BuildLocalDevInfoWithBackupAddrs(
+        "IPV4", "192.168.1.101", BuildIpv4BackupAddrs(hccl::MAX_VALUE_BACKUP_ADDR_SIZE));
     MOCKER(HrtRaRdmaInit, s32(HrtNetworkMode, RaInterface&, RdmaHandle&))
-        .expects(exactly(MAX_VALUE_BACKUP_ADDR_SIZE + 1U))
+        .expects(exactly(hccl::MAX_VALUE_BACKUP_ADDR_SIZE + 1U))
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCP_ELINKDOWN));
 
@@ -937,7 +937,7 @@ TEST_F(
 TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_BackupAddrCountExceedsLimit_Expect_E_PARA)
 {
     nlohmann::json localDevInfoJson = BuildLocalDevInfoWithBackupAddrs(
-        "IPV4", "192.168.1.101", BuildIpv4BackupAddrs(MAX_VALUE_BACKUP_ADDR_SIZE + 1U));
+        "IPV4", "192.168.1.101", BuildIpv4BackupAddrs(hccl::MAX_VALUE_BACKUP_ADDR_SIZE + 1U));
     MOCKER(HrtRaRdmaInit, s32(HrtNetworkMode, RaInterface&, RdmaHandle&)).expects(never());
 
     EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_E_PARA);
@@ -1355,7 +1355,7 @@ TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_NoTopoGraph_Expect_NoTh
     rankInfo.deviceId = 0;
     rankInfo.localId = 0;
 
-    AddressInfo addrInfo;
+    hccl::AddressInfo addrInfo;
     addrInfo.addr = IpAddress("192.168.1.1");
     addrInfo.socketPort_ = 0;
     RankLevelInfo levelInfo;
@@ -1383,7 +1383,7 @@ TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_MultipleRankLevelInfos_
     rankInfo.localId = 0;
 
     for (u32 i = 0; i < 3; i++) {
-        AddressInfo addrInfo;
+        hccl::AddressInfo addrInfo;
         addrInfo.addr = IpAddress(StringFormat("192.168.%u.1", i + 1));
         addrInfo.socketPort_ = 0;
         RankLevelInfo levelInfo;
@@ -1447,7 +1447,7 @@ TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_BasePort_Expect_HostPor
     rankInfo.deviceId = 0;
     rankInfo.localId = 0;
 
-    AddressInfo addrInfo;
+    hccl::AddressInfo addrInfo;
     addrInfo.addr = IpAddress("192.168.1.1");
     RankLevelInfo levelInfo;
     levelInfo.netLayer = 3; // HOST+ROCE link at netLayer=3
@@ -1530,7 +1530,7 @@ TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_NoHostLink_Expect_HostP
     rankInfo.deviceId = 0;
     rankInfo.localId = 0;
 
-    AddressInfo addrInfo;
+    hccl::AddressInfo addrInfo;
     addrInfo.addr = IpAddress("192.168.1.1");
     RankLevelInfo levelInfo;
     levelInfo.netLayer = 1; // netLayer=1 has DEV links, not HOST

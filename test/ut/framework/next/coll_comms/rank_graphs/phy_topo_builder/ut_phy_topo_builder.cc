@@ -141,7 +141,7 @@ std::shared_ptr<hccl::TopoInfo> LoadTopoInfoAlreadyLayered(hccl::PhyTopoBuilder*
 }
 
 // 统计图中双向建链后的总边数
-size_t CountGraphEdges(const std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>>& graph)
+size_t CountGraphEdges(const std::shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>>& graph)
 {
     if (graph == nullptr) {
         return 0;

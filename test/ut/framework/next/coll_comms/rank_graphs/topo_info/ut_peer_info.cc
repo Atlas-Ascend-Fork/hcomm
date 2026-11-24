@@ -39,9 +39,9 @@ TEST_F(PeerParserTest, Ut_Deserialize_When_Normal_Expect_Success)
     MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string peerString = R"({"local_id" : 1})";
-    PeerInfo peerInfo;
+    hccl::PeerInfo peerInfo;
     EXPECT_EQ(hccl::ParseJsonString(peerString, peerInfo), HCCL_SUCCESS);
-    PeerInfo peer;
+    hccl::PeerInfo peer;
     peer.localId = 1;
 
     EXPECT_EQ(peerInfo.Describe(), peer.Describe());
@@ -53,7 +53,7 @@ TEST_F(PeerParserTest, Ut_Deserialize_When_LocalIdMissing_Expect_Exception)
     MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string peerString = R"({"id" : "1"})";
-    PeerInfo peerInfo;
+    hccl::PeerInfo peerInfo;
     EXPECT_EQ(hccl::ParseJsonString(peerString, peerInfo), HCCL_E_PARA);
 }
 
@@ -63,17 +63,17 @@ TEST_F(PeerParserTest, Ut_Deserialize_When_InvalidLocalId_Expect_Exception)
     MOCKER(HrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
 
     std::string peerString = R"({"local_id" : "-1"})";
-    PeerInfo peerInfo;
+    hccl::PeerInfo peerInfo;
     EXPECT_EQ(hccl::ParseJsonString(peerString, peerInfo), HCCL_E_PARA);
 }
 
 TEST_F(PeerParserTest, Ut_BinaryStream_When_GetBinStreamToReBuild_Expect_Success)
 {
-    PeerInfo peerInfo;
+    hccl::PeerInfo peerInfo;
     peerInfo.localId = 2;
     BinaryStream binStream;
     peerInfo.GetBinStream(binStream);
-    PeerInfo reBuildPeer(binStream);
+    hccl::PeerInfo reBuildPeer(binStream);
 
     ASSERT_EQ(peerInfo.Describe(), reBuildPeer.Describe());
 }

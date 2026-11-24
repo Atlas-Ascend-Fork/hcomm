@@ -44,7 +44,7 @@ struct DetourData {
 
 HcclResult AddDetourLink(
     NetInstance* innerNetInst, const DetourData& data,
-    const std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>>& phyTopoGraph, const RankTableInfo* rankTable);
+    const std::shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>>& phyTopoGraph, const RankTableInfo* rankTable);
 
 void SetDetourTable4P(
     const std::set<u32>& tableIdSet, unordered_map<LocalId, unordered_map<LocalId, vector<LocalId>>>& detourTable);

@@ -38,7 +38,7 @@ NewRankInfo::NewRankInfo(Hccl::BinaryStream& binStream)
         Hccl::RankLevelInfo levelInfo(binStream);
         rankLevelInfos.emplace_back(std::move(levelInfo));
     }
-    Hccl::ControlPlane controlPlanes(binStream);
+    ControlPlane controlPlanes(binStream);
     controlPlane = controlPlanes;
     binStream >> tlsStatus;
     binStream >> hostDpuTlsStatus;

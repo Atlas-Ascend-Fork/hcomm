@@ -30,9 +30,11 @@ target_include_directories(hccl_utest_odr_coexist PRIVATE
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/framework/topo/new_topo_builder/common
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/framework/topo/new_topo_builder/phy_topo
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/common/types
-    # legacy910 侧组8 两份 zero_copy_address_mgr
+    # legacy910 侧两份 zero_copy_address_mgr（comm/dev 同 ns 同类名，文件名/guard 区分）
     ${HCCL_CODE_ROOT}/src/legacy/ascend910/framework/communicator/impl/zero_copy
     ${HCCL_CODE_ROOT}/src/legacy/ascend910/framework/device/framework
+    # base_comm 侧 exchange_rdma_conn_dto（ns hcomm）+ legacy950 侧（ns Hccl，改名为 _legacy950.h）。
+    # 两份头文件所在目录已由上方 ${UT_COMMON_INCLUDE_LIST} 提供，无需重复添加。
 )
 
 target_compile_definitions(hccl_utest_odr_coexist PRIVATE

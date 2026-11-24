@@ -14,9 +14,12 @@
 #include "serializable.h"
 #include "hccp_common.h"
 
+// 两份.h 必须一起改：改本文件时同步改 legacy950 侧
+// src/legacy/ascend950/unified_platform/resource/connection/exchange_rdma_conn_dto_legacy950.h。
+namespace hcomm {
+
 constexpr uint32_t HYPER_FEATURE_LEN = 64U;
 
-namespace hcomm {
 class ExchangeRdmaConnDto : public Hccl::Serializable {
 public:
     ExchangeRdmaConnDto() {};

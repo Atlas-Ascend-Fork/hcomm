@@ -599,7 +599,7 @@ namespace {
         bool hasBackupAddr{false};
     };
 
-    bool ParsePortsField(JsonCursor& cur, Hccl::AddressInfo& addrInfo)
+    bool ParsePortsField(JsonCursor& cur, AddressInfo& addrInfo)
     {
         if (!cur.TryConsume(':') || !cur.TryConsume('[')) {
             return false;
@@ -612,7 +612,7 @@ namespace {
             if (!cur.ParseString(port)) {
                 return false;
             }
-            if (port.length() < Hccl::MIN_VALUE_PORT_LENGTH || port.length() > Hccl::MAX_VALUE_PORT_LENGTH) {
+            if (port.length() < MIN_VALUE_PORT_LENGTH || port.length() > MAX_VALUE_PORT_LENGTH) {
                 ReportFastFieldInvalid(port, kRankTableKeys[RankTableKey::kPorts].name, "valid port length");
                 return false;
             }
@@ -624,7 +624,7 @@ namespace {
         if (!cur.TryConsume(']')) {
             return false;
         }
-        if (addrInfo.ports.size() < Hccl::MIN_VALUE_PORT || addrInfo.ports.size() > Hccl::MAX_VALUE_PORT) {
+        if (addrInfo.ports.size() < MIN_VALUE_PORT || addrInfo.ports.size() > MAX_VALUE_PORT) {
             ReportFastFieldInvalid(
                 std::to_string(addrInfo.ports.size()), kRankTableKeys[RankTableKey::kPorts].name, "valid ports count");
             return false;
@@ -645,10 +645,10 @@ namespace {
             if (!cur.ParseString(backupAddr)) {
                 return false;
             }
-            if (backupAddrList.size() >= Hccl::MAX_VALUE_BACKUP_ADDR_SIZE) {
+            if (backupAddrList.size() >= MAX_VALUE_BACKUP_ADDR_SIZE) {
                 ReportFastFieldInvalid(
                     backupAddr, kRankTableKeys[RankTableKey::kBackupAddr].name,
-                    std::string("backup_addr count within ") + std::to_string(Hccl::MAX_VALUE_BACKUP_ADDR_SIZE));
+                    std::string("backup_addr count within ") + std::to_string(MAX_VALUE_BACKUP_ADDR_SIZE));
                 return false;
             }
             backupAddrList.emplace_back(std::move(backupAddr));
@@ -659,8 +659,7 @@ namespace {
         return cur.TryConsume(']');
     }
 
-    HcclResult
-    ParseAddressScalarField(JsonCursor& cur, Hccl::AddressInfo& addrInfo, AddressFieldState& state, bool& handled)
+    HcclResult ParseAddressScalarField(JsonCursor& cur, AddressInfo& addrInfo, AddressFieldState& state, bool& handled)
     {
         handled = true;
         if (cur.ParseKey(RankTableKey::kAddr)) {
@@ -677,7 +676,7 @@ namespace {
             if (!cur.TryConsume(':') || !cur.ParseString(addrInfo.planeId)) {
                 return HCCL_E_PARA;
             }
-            if (addrInfo.planeId.length() > Hccl::MAX_VALUE_PLANEID) {
+            if (addrInfo.planeId.length() > MAX_VALUE_PLANEID) {
                 ReportFastFieldInvalid(
                     addrInfo.planeId, kRankTableKeys[RankTableKey::kPlaneId].name, "valid plane_id length");
                 return HCCL_E_PARA;
@@ -688,7 +687,7 @@ namespace {
         return HCCL_SUCCESS;
     }
 
-    HcclResult ParseAddressObject(JsonCursor& cur, Hccl::AddressInfo& addrInfo, AddressFieldState& state)
+    HcclResult ParseAddressObject(JsonCursor& cur, AddressInfo& addrInfo, AddressFieldState& state)
     {
         while (!cur.Is('}')) {
             if (cur.AtEnd()) {
@@ -733,7 +732,7 @@ namespace {
         return HCCL_SUCCESS;
     }
 
-    HcclResult FinalizeAddressInfo(Hccl::AddressInfo& addrInfo, AddressFieldState& state)
+    HcclResult FinalizeAddressInfo(AddressInfo& addrInfo, AddressFieldState& state)
     {
         if (!state.hasAddr) {
             ReportFastFieldMissing(kRankTableKeys[RankTableKey::kAddr].name);
@@ -747,8 +746,7 @@ namespace {
             ReportFastFieldMissing(kRankTableKeys[RankTableKey::kPorts].name);
             return HCCL_E_PARA;
         }
-        if (state.address.length() < Hccl::MIN_VALUE_ADDR_LENGRH
-            || state.address.length() > Hccl::MAX_VALUE_ADDR_LENGRH) {
+        if (state.address.length() < MIN_VALUE_ADDR_LENGRH || state.address.length() > MAX_VALUE_ADDR_LENGRH) {
             ReportFastFieldInvalid(state.address, kRankTableKeys[RankTableKey::kAddr].name, "valid addr length");
             return HCCL_E_PARA;
         }
@@ -762,8 +760,7 @@ namespace {
         }
         addrInfo.backupAddrs.reserve(state.backupAddrList.size());
         for (const auto& backupAddr : state.backupAddrList) {
-            if (backupAddr.length() < Hccl::MIN_VALUE_ADDR_LENGRH
-                || backupAddr.length() > Hccl::MAX_VALUE_ADDR_LENGRH) {
+            if (backupAddr.length() < MIN_VALUE_ADDR_LENGRH || backupAddr.length() > MAX_VALUE_ADDR_LENGRH) {
                 ReportFastFieldInvalid(
                     backupAddr, kRankTableKeys[RankTableKey::kBackupAddr].name, "valid backup_addr length");
                 return HCCL_E_PARA;
@@ -789,7 +786,7 @@ namespace {
             if (cur.AtEnd() || !cur.TryConsume('{')) {
                 return HCCL_E_PARA;
             }
-            Hccl::AddressInfo addrInfo;
+            AddressInfo addrInfo;
             AddressFieldState state;
             CHK_RET(ParseAddressObject(cur, addrInfo, state));
             if (!cur.TryConsume('}')) {
@@ -1032,13 +1029,13 @@ namespace {
             ReportFastFieldMissing(kRankTableKeys[RankTableKey::kListenPort].name);
             return HCCL_E_PARA;
         }
-        if (state.address.length() < Hccl::MIN_VALUE_ADDR || state.address.length() > Hccl::MAX_VALUE_ADDR) {
+        if (state.address.length() < MIN_VALUE_ADDR || state.address.length() > MAX_VALUE_ADDR) {
             ReportFastFieldInvalid(
                 state.address, kRankTableKeys[RankTableKey::kAddr].name, "valid control_plane addr length");
             return HCCL_E_PARA;
         }
-        if (rankInfo.controlPlane.listenPort < Hccl::MIN_VALUE_LISTENPORT
-            || rankInfo.controlPlane.listenPort > Hccl::MAX_VALUE_LISTENPORT) {
+        if (rankInfo.controlPlane.listenPort < MIN_VALUE_LISTENPORT
+            || rankInfo.controlPlane.listenPort > MAX_VALUE_LISTENPORT) {
             ReportFastFieldInvalid(
                 std::to_string(rankInfo.controlPlane.listenPort), kRankTableKeys[RankTableKey::kListenPort].name,
                 "valid listen_port range");

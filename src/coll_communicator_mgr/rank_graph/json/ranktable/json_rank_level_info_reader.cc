@@ -93,7 +93,7 @@ HcclResult RankTableReader::ReadRankAddrs(const nlohmann::json& rankLevelInfoJso
     }
     out.rankAddrs.reserve(rankAddrs->size());
     for (const auto& addr : *rankAddrs) {
-        Hccl::AddressInfo addressInfo;
+        AddressInfo addressInfo;
         CHK_RET(ReadAddress(addr, addressInfo));
         out.rankAddrs.emplace_back(std::move(addressInfo));
     }

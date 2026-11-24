@@ -38,7 +38,7 @@ const std::unordered_map<RankId, std::shared_ptr<NetInstance::Peer>>& NetInstanc
 
 const std::vector<std::shared_ptr<NetInstance::Fabric>>& NetInstance::GetFabrics() const { return fabrics; }
 
-Graph<NetInstance::Node, NetInstance::Link>& NetInstance::GetGraph() { return vGraph; }
+hccl::Graph<NetInstance::Node, NetInstance::Link>& NetInstance::GetGraph() { return vGraph; }
 
 void NetInstance::AddRankId(const RankId rankId)
 {
