@@ -150,7 +150,7 @@ bash ./build_out/cann-hcomm_<version>_linux-<arch>.run --full
 
 ### 卸载
 
-若您想卸载编译生成的HCOMM软件包，恢复到安装完CANN Toolkit开发套件包的状态，可参考如下命令：
+若您想卸载编译生成的HCOMM软件包，可参考如下命令：
 
 ```shell
 bash ./build_out/cann-hcomm_<version>_linux-<arch>.run --uninstall
