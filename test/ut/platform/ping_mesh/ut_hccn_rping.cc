@@ -60,8 +60,8 @@ protected:
     {
         s32 portNum = 7;
         MOCKER(hrtGetHccsPortNum).stubs().with(mockcpp::any(), outBound(portNum)).will(returnValue(HCCL_SUCCESS));
-        MOCKER_CPP(static_cast<HcclResult (PingMesh::*)(u32, u32, HcclIpAddress, u32, u32, u32, u32, u32)>(
-                       &PingMesh::HccnRpingInit))
+        MOCKER_CPP(
+            (HcclResult(PingMesh::*)(u32, u32, HcclIpAddress, u32, u32, u32, u32, u32)) & PingMesh::HccnRpingInit)
             .stubs()
             .with(mockcpp::any())
             .will(returnValue(HCCL_SUCCESS));
@@ -154,6 +154,31 @@ TEST_F(HccnRping_UT, ut_HccnRpingInit_error)
     ret = HccnRpingInit(devId, initAttr, &pingmesh);
     EXPECT_EQ(ret, HCCN_SUCCESS);
     EXPECT_TRUE(pingmesh != nullptr);
+    delete[] initAttr->ipAddr;
+    delete initAttr;
+}
+
+TEST_F(HccnRping_UT, ut_HccnRpingInit_DeprecatedMode3_Rejected)
+{
+    MOCKER_CPP(&PingMesh::GetDeviceLogicId).stubs().with(mockcpp::any()).will(returnValue(1));
+
+    u32 devId = 1;
+    HccnRpingInitAttr* initAttr = new HccnRpingInitAttr();
+    initAttr->mode = static_cast<HccnRpingMode>(3); // old UB_RC_TP(value 3) removed, now falls into >= RESERVED reject
+    initAttr->port = 13886;
+    initAttr->npuNum = 128;
+    initAttr->bufferSize = 4096 * 10;
+    initAttr->sl = 0;
+    initAttr->tc = 0;
+    initAttr->ipAddr = new char[ipLen_];
+    strcpy_s(initAttr->ipAddr, ipLen_, deviceIp_[devId]);
+    void* pingmesh = nullptr;
+
+    // old HccnRpingInit no longer supports RC+RTP(mode=3); should return HCCN_E_PARA
+    auto ret = HccnRpingInit(devId, initAttr, &pingmesh);
+    EXPECT_EQ(ret, HCCN_E_PARA);
+    EXPECT_TRUE(pingmesh == nullptr);
+
     delete[] initAttr->ipAddr;
     delete initAttr;
 }
@@ -439,6 +464,282 @@ TEST_F(HccnRping_UT, ut_HccnRpingHandleCheck)
     delete static_cast<PingMesh*>(pingmesh);
 }
 
+// ========== HccnRpingGetCtxInfo unit tests ==========
+
+// Call GetCtxInfo right after UB-mode Init: after filling initInfo_.client.ub.key/size it should return jettyId
+TEST_F(HccnRping_UT, ut_HccnRpingGetCtxInfo_UbSuccess)
+{
+    // Construct PingMesh directly, simulating the state after UB-mode Init
+    PingMesh* rping = new PingMesh();
+    HccnRpingInitAttr initAttr = {};
+    initAttr.mode = HCCN_RPING_MODE_UB;
+    rping->init(&initAttr);
+    rping->rpingState_ = RpingState::INITED; // collaborator state machine: GetCtxInfo requires initialized
+
+    // Simulate HccnRpingInit filling initInfo_.client.ub: size=24, key[20~23] is jettyId
+    const u32 expectJettyId = 1234U;
+    PingInitInfo& initInfo = rping->initInfo_;
+    initInfo.client.ub.size = 24U; // sizeof(UbJettyId) = 24
+    // write jettyId into key[20~23] (little-endian)
+    initInfo.client.ub.key[20] = static_cast<uint8_t>(expectJettyId & 0xFF);
+    initInfo.client.ub.key[21] = static_cast<uint8_t>((expectJettyId >> 8) & 0xFF);
+    initInfo.client.ub.key[22] = static_cast<uint8_t>((expectJettyId >> 16) & 0xFF);
+    initInfo.client.ub.key[23] = static_cast<uint8_t>((expectJettyId >> 24) & 0xFF);
+
+    // Call PingMesh method (skipping C API layer devLogicId check)
+    HccnRpingCtxJettyInfo jettyInfo = {};
+    HccnRpingCtxInfo info = &jettyInfo;
+    auto ret = rping->HccnRpingGetCtxInfo(HCCN_RPING_CTX_INFO_JETTY, &info, sizeof(jettyInfo));
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(jettyInfo.jettyId, expectJettyId);
+
+    delete rping;
+}
+
+// GetCtxInfo without Init: mode/state check (mode=ROCE default, rpingState_=UNINIT) -> HCCL_E_INTERNAL
+TEST_F(HccnRping_UT, ut_HccnRpingGetCtxInfo_NotInited)
+{
+    PingMesh* rping = new PingMesh();
+    // default rpingState_=UNINIT, intercepted at the mode/state check (not the ub.size check)
+    HccnRpingCtxJettyInfo jettyInfo = {};
+    HccnRpingCtxInfo info = &jettyInfo;
+    auto ret = rping->HccnRpingGetCtxInfo(HCCN_RPING_CTX_INFO_JETTY, &info, sizeof(jettyInfo));
+    EXPECT_EQ(ret, HCCL_E_INTERNAL);
+
+    delete rping;
+}
+
+// RoCE mode: intercepted at the mode/state check (mode != UB) -> HCCL_E_INTERNAL
+TEST_F(HccnRping_UT, ut_HccnRpingGetCtxInfo_RoCeModeNotSupport)
+{
+    PingMesh* rping = new PingMesh();
+    HccnRpingInitAttr initAttr = {};
+    initAttr.mode = HCCN_RPING_MODE_ROCE;
+    rping->init(&initAttr);
+    HccnRpingCtxJettyInfo jettyInfo = {};
+    HccnRpingCtxInfo info = &jettyInfo;
+    auto ret = rping->HccnRpingGetCtxInfo(HCCN_RPING_CTX_INFO_JETTY, &info, sizeof(jettyInfo));
+    EXPECT_EQ(ret, HCCL_E_INTERNAL);
+
+    delete rping;
+}
+
+// Inited UB context with corrupted jetty key size: secondary ub.size guard (size < sizeof(UbJettyId)) ->
+// HCCL_E_INTERNAL
+TEST_F(HccnRping_UT, ut_HccnRpingGetCtxInfo_UbSizeTooSmall)
+{
+    PingMesh* rping = new PingMesh();
+    HccnRpingInitAttr initAttr = {};
+    initAttr.mode = HCCN_RPING_MODE_UB;
+    rping->init(&initAttr);
+    rping->rpingState_ = RpingState::INITED;
+    // corrupted key size: 23 < sizeof(UbJettyId)=24, reaches the secondary guard after mode/state passes
+    rping->initInfo_.client.ub.size = 23U;
+    HccnRpingCtxJettyInfo jettyInfo = {};
+    HccnRpingCtxInfo info = &jettyInfo;
+    auto ret = rping->HccnRpingGetCtxInfo(HCCN_RPING_CTX_INFO_JETTY, &info, sizeof(jettyInfo));
+    EXPECT_EQ(ret, HCCL_E_INTERNAL);
+
+    delete rping;
+}
+
+// Inited-UB-only guard: mode=UB but rpingState_ not set to INITED, should fail at the mode/state check
+TEST_F(HccnRping_UT, ut_HccnRpingGetCtxInfo_UbNotInited)
+{
+    PingMesh* rping = new PingMesh();
+    HccnRpingInitAttr initAttr = {};
+    initAttr.mode = HCCN_RPING_MODE_UB;
+    rping->init(&initAttr);
+    // leave rpingState_ = UNINIT (default); set a valid key size so only the state guard can reject
+    // (without it, the ub.size<24 fallback would also return E_INTERNAL and mask the state guard)
+    rping->initInfo_.client.ub.size = 24U;
+    HccnRpingCtxJettyInfo jettyInfo = {};
+    HccnRpingCtxInfo info = &jettyInfo;
+    auto ret = rping->HccnRpingGetCtxInfo(HCCN_RPING_CTX_INFO_JETTY, &info, sizeof(jettyInfo));
+    EXPECT_EQ(ret, HCCL_E_INTERNAL);
+
+    delete rping;
+}
+
+// infoType not JETTY: should return HCCL_E_PARA
+TEST_F(HccnRping_UT, ut_HccnRpingGetCtxInfo_InvalidInfoType)
+{
+    PingMesh* rping = new PingMesh();
+    HccnRpingCtxJettyInfo jettyInfo = {};
+    HccnRpingCtxInfo info = &jettyInfo;
+    auto ret = rping->HccnRpingGetCtxInfo(HCCN_RPING_CTX_INFO_RESERVED, &info, sizeof(jettyInfo));
+    EXPECT_EQ(ret, HCCL_E_PARA);
+
+    delete rping;
+}
+
+// infoLen insufficient: should return HCCL_E_PARA
+TEST_F(HccnRping_UT, ut_HccnRpingGetCtxInfo_InfoLenTooSmall)
+{
+    PingMesh* rping = new PingMesh();
+    HccnRpingCtxJettyInfo jettyInfo = {};
+    HccnRpingCtxInfo info = &jettyInfo;
+    auto ret = rping->HccnRpingGetCtxInfo(HCCN_RPING_CTX_INFO_JETTY, &info, sizeof(uint32_t));
+    EXPECT_EQ(ret, HCCL_E_PARA);
+
+    delete rping;
+}
+
+// info is null: should return HCCL_E_PTR (CHK_PTR_NULL)
+TEST_F(HccnRping_UT, ut_HccnRpingGetCtxInfo_NullInfo)
+{
+    PingMesh* rping = new PingMesh();
+    auto ret = rping->HccnRpingGetCtxInfo(HCCN_RPING_CTX_INFO_JETTY, nullptr, sizeof(HccnRpingCtxJettyInfo));
+    EXPECT_EQ(ret, HCCL_E_PTR);
+
+    delete rping;
+}
+
+// C API: rpingCtx is null
+TEST_F(HccnRping_UT, ut_HccnRpingGetCtxInfo_CApi_NullRpingCtx)
+{
+    HccnRpingCtxJettyInfo jettyInfo = {};
+    HccnRpingCtxInfo info = &jettyInfo;
+    HccnRpingCtx rpingCtx = nullptr;
+    auto ret = HccnRpingGetCtxInfo(&rpingCtx, HCCN_RPING_CTX_INFO_JETTY, &info, sizeof(jettyInfo));
+    EXPECT_EQ(ret, HCCN_E_PARA);
+}
+
+// C API: *rpingCtx is null
+TEST_F(HccnRping_UT, ut_HccnRpingGetCtxInfo_CApi_NullDerefRpingCtx)
+{
+    HccnRpingCtxJettyInfo jettyInfo = {};
+    HccnRpingCtxInfo info = &jettyInfo;
+    HccnRpingCtx innerCtx = nullptr;
+    HccnRpingCtx* rpingCtxPtr = &innerCtx;
+    auto ret = HccnRpingGetCtxInfo(rpingCtxPtr, HCCN_RPING_CTX_INFO_JETTY, &info, sizeof(jettyInfo));
+    EXPECT_EQ(ret, HCCN_E_PARA);
+}
+
+// C API: info is null
+TEST_F(HccnRping_UT, ut_HccnRpingGetCtxInfo_CApi_NullInfo)
+{
+    PingMesh* rping = new PingMesh();
+    HccnRpingCtx rpingCtx = rping;
+    auto ret = HccnRpingGetCtxInfo(&rpingCtx, HCCN_RPING_CTX_INFO_JETTY, nullptr, sizeof(HccnRpingCtxJettyInfo));
+    EXPECT_EQ(ret, HCCN_E_PARA);
+    delete rping;
+}
+
+// C API: *info is null
+TEST_F(HccnRping_UT, ut_HccnRpingGetCtxInfo_CApi_NullDerefInfo)
+{
+    PingMesh* rping = new PingMesh();
+    HccnRpingCtx rpingCtx = rping;
+    HccnRpingCtxInfo innerInfo = nullptr;
+    HccnRpingCtxInfo* infoPtr = &innerInfo;
+    auto ret = HccnRpingGetCtxInfo(&rpingCtx, HCCN_RPING_CTX_INFO_JETTY, infoPtr, sizeof(HccnRpingCtxJettyInfo));
+    EXPECT_EQ(ret, HCCN_E_PARA);
+    delete rping;
+}
+
+// C API: devLogicId mismatch
+TEST_F(HccnRping_UT, ut_HccnRpingGetCtxInfo_CApi_DevIdMismatch)
+{
+    // GetDeviceLogicId mock returns 99, hrtGetDeviceRefreshStub returns 1, creating a mismatch
+    MOCKER_CPP(&PingMesh::GetDeviceLogicId).stubs().with(mockcpp::any()).will(returnValue(99));
+
+    PingMesh* rping = new PingMesh();
+    HccnRpingCtx rpingCtx = rping;
+    HccnRpingCtxJettyInfo jettyInfo = {};
+    HccnRpingCtxInfo info = &jettyInfo;
+    auto ret = HccnRpingGetCtxInfo(&rpingCtx, HCCN_RPING_CTX_INFO_JETTY, &info, sizeof(jettyInfo));
+    EXPECT_EQ(ret, HCCN_E_PARA);
+    delete rping;
+}
+
+// C API: full success path (UB mode + devLogicId match)
+TEST_F(HccnRping_UT, ut_HccnRpingGetCtxInfo_CApi_Success)
+{
+    MOCKER_CPP(&PingMesh::GetDeviceLogicId).stubs().with(mockcpp::any()).will(returnValue(1));
+
+    PingMesh* rping = new PingMesh();
+    HccnRpingInitAttr initAttr = {};
+    initAttr.mode = HCCN_RPING_MODE_UB;
+    rping->init(&initAttr);
+    rping->rpingState_ = RpingState::INITED; // collaborator state machine
+
+    const u32 expectJettyId = 5678U;
+    PingInitInfo& initInfo = rping->initInfo_;
+    initInfo.client.ub.size = 24U; // sizeof(UbJettyId) = 24
+    initInfo.client.ub.key[20] = static_cast<uint8_t>(expectJettyId & 0xFF);
+    initInfo.client.ub.key[21] = static_cast<uint8_t>((expectJettyId >> 8) & 0xFF);
+    initInfo.client.ub.key[22] = static_cast<uint8_t>((expectJettyId >> 16) & 0xFF);
+    initInfo.client.ub.key[23] = static_cast<uint8_t>((expectJettyId >> 24) & 0xFF);
+
+    HccnRpingCtx rpingCtx = rping;
+    HccnRpingCtxJettyInfo jettyInfo = {};
+    HccnRpingCtxInfo info = &jettyInfo;
+    auto ret = HccnRpingGetCtxInfo(&rpingCtx, HCCN_RPING_CTX_INFO_JETTY, &info, sizeof(jettyInfo));
+    EXPECT_EQ(ret, HCCN_SUCCESS);
+    EXPECT_EQ(jettyInfo.jettyId, expectJettyId);
+    delete rping;
+}
+
+// C API: illegal infoType should pass through HCCN_E_PARA (not HCCN_E_FAIL)
+TEST_F(HccnRping_UT, ut_HccnRpingGetCtxInfo_CApi_InvalidInfoType)
+{
+    MOCKER_CPP(&PingMesh::GetDeviceLogicId).stubs().with(mockcpp::any()).will(returnValue(1));
+
+    PingMesh* rping = new PingMesh();
+    HccnRpingInitAttr initAttr = {};
+    initAttr.mode = HCCN_RPING_MODE_UB;
+    rping->init(&initAttr);
+    PingInitInfo& initInfo = rping->initInfo_;
+    initInfo.client.ub.size = 24U; // satisfy ub.size check so it won't fail on ub.size
+
+    HccnRpingCtx rpingCtx = rping;
+    HccnRpingCtxJettyInfo jettyInfo = {};
+    HccnRpingCtxInfo info = &jettyInfo;
+    auto ret = HccnRpingGetCtxInfo(&rpingCtx, HCCN_RPING_CTX_INFO_RESERVED, &info, sizeof(jettyInfo));
+    EXPECT_EQ(ret, HCCN_E_PARA);
+    delete rping;
+}
+
+// C API: insufficient infoLen should pass through HCCN_E_PARA
+TEST_F(HccnRping_UT, ut_HccnRpingGetCtxInfo_CApi_InfoLenTooSmall)
+{
+    MOCKER_CPP(&PingMesh::GetDeviceLogicId).stubs().with(mockcpp::any()).will(returnValue(1));
+
+    PingMesh* rping = new PingMesh();
+    HccnRpingInitAttr initAttr = {};
+    initAttr.mode = HCCN_RPING_MODE_UB;
+    rping->init(&initAttr);
+    PingInitInfo& initInfo = rping->initInfo_;
+    initInfo.client.ub.size = 24U;
+
+    HccnRpingCtx rpingCtx = rping;
+    HccnRpingCtxJettyInfo jettyInfo = {};
+    HccnRpingCtxInfo info = &jettyInfo;
+    auto ret = HccnRpingGetCtxInfo(&rpingCtx, HCCN_RPING_CTX_INFO_JETTY, &info, sizeof(uint32_t));
+    EXPECT_EQ(ret, HCCN_E_PARA);
+    delete rping;
+}
+
+// C API: RoCE mode (ub.size=0) should return HCCN_E_FAIL (internal failure)
+TEST_F(HccnRping_UT, ut_HccnRpingGetCtxInfo_CApi_RoCeModeFail)
+{
+    MOCKER_CPP(&PingMesh::GetDeviceLogicId).stubs().with(mockcpp::any()).will(returnValue(1));
+
+    PingMesh* rping = new PingMesh();
+    HccnRpingInitAttr initAttr = {};
+    initAttr.mode = HCCN_RPING_MODE_ROCE;
+    rping->init(&initAttr);
+    // ub.size=0 in RoCE mode
+
+    HccnRpingCtx rpingCtx = rping;
+    HccnRpingCtxJettyInfo jettyInfo = {};
+    HccnRpingCtxInfo info = &jettyInfo;
+    auto ret = HccnRpingGetCtxInfo(&rpingCtx, HCCN_RPING_CTX_INFO_JETTY, &info, sizeof(jettyInfo));
+    EXPECT_EQ(ret, HCCN_E_FAIL);
+    delete rping;
+}
+
 TEST_F(HccnRping_UT, ut_HccnRpingAdapter)
 {
     // 补充覆盖率
@@ -520,4 +821,351 @@ TEST_F(HccnRping_UT, ut_HccnRpingAdapter)
     HcclRtMemcpyKind kind = HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_HOST;
     ret = hrtMemSyncCopyEx(dst, destMax, src, count, kind);
     EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
+// ========== HccnRpingInitWithCfg entry param checks ==========
+
+TEST_F(HccnRping_UT, ut_HccnRpingInitWithCfg_NullInitAttr)
+{
+    u32 devId = 1;
+    HccnRpingInitCfg* initCfg = new HccnRpingInitCfg();
+    initCfg->validCfgLen = sizeof(HccnRpingInitCfg);
+    initCfg->ub.taMode = HCCN_RPING_UB_RC;
+    initCfg->ub.tpMode = HCCN_RPING_UB_CTP;
+    void* pingmesh = nullptr;
+    auto ret = HccnRpingInitWithCfg(devId, nullptr, initCfg, &pingmesh);
+    EXPECT_EQ(ret, HCCN_E_PARA);
+    delete initCfg;
+}
+
+TEST_F(HccnRping_UT, ut_HccnRpingInitWithCfg_NullInitCfg)
+{
+    u32 devId = 1;
+    HccnRpingInitAttr* initAttr = new HccnRpingInitAttr();
+    initAttr->mode = HCCN_RPING_MODE_UB;
+    initAttr->port = 13886;
+    initAttr->npuNum = 128;
+    initAttr->bufferSize = 4096 * 10;
+    initAttr->sl = 0;
+    initAttr->tc = 0;
+    initAttr->ipAddr = new char[ipLen_];
+    strcpy_s(initAttr->ipAddr, ipLen_, deviceIp_[devId]);
+    void* pingmesh = nullptr;
+    auto ret = HccnRpingInitWithCfg(devId, initAttr, nullptr, &pingmesh);
+    EXPECT_EQ(ret, HCCN_E_PARA);
+    delete[] initAttr->ipAddr;
+    delete initAttr;
+}
+
+TEST_F(HccnRping_UT, ut_HccnRpingInitWithCfg_NullRpingCtx)
+{
+    u32 devId = 1;
+    HccnRpingInitAttr* initAttr = new HccnRpingInitAttr();
+    initAttr->mode = HCCN_RPING_MODE_UB;
+    initAttr->port = 13886;
+    initAttr->npuNum = 128;
+    initAttr->bufferSize = 4096 * 10;
+    initAttr->sl = 0;
+    initAttr->tc = 0;
+    initAttr->ipAddr = new char[ipLen_];
+    strcpy_s(initAttr->ipAddr, ipLen_, deviceIp_[devId]);
+    HccnRpingInitCfg* initCfg = new HccnRpingInitCfg();
+    initCfg->validCfgLen = sizeof(HccnRpingInitCfg);
+    initCfg->ub.taMode = HCCN_RPING_UB_RC;
+    initCfg->ub.tpMode = HCCN_RPING_UB_CTP;
+    auto ret = HccnRpingInitWithCfg(devId, initAttr, initCfg, nullptr);
+    EXPECT_EQ(ret, HCCN_E_PARA);
+    delete[] initAttr->ipAddr;
+    delete initAttr;
+    delete initCfg;
+}
+
+TEST_F(HccnRping_UT, ut_HccnRpingInitWithCfg_InvalidMode)
+{
+    u32 devId = 1;
+    HccnRpingInitAttr* initAttr = new HccnRpingInitAttr();
+    initAttr->mode = PING_MODE_IPoUB;
+    initAttr->port = 13886;
+    initAttr->npuNum = 128;
+    initAttr->bufferSize = 4096 * 10;
+    initAttr->sl = 0;
+    initAttr->tc = 0;
+    initAttr->ipAddr = new char[ipLen_];
+    strcpy_s(initAttr->ipAddr, ipLen_, deviceIp_[devId]);
+    HccnRpingInitCfg* initCfg = new HccnRpingInitCfg();
+    initCfg->validCfgLen = sizeof(HccnRpingInitCfg);
+    initCfg->ub.taMode = HCCN_RPING_UB_RC;
+    initCfg->ub.tpMode = HCCN_RPING_UB_CTP;
+    void* pingmesh = nullptr;
+    auto ret = HccnRpingInitWithCfg(devId, initAttr, initCfg, &pingmesh);
+    EXPECT_EQ(ret, HCCN_E_PARA);
+    delete[] initAttr->ipAddr;
+    delete initAttr;
+    delete initCfg;
+}
+
+TEST_F(HccnRping_UT, ut_HccnRpingInitWithCfg_InvalidTaMode)
+{
+    u32 devId = 1;
+    HccnRpingInitAttr* initAttr = new HccnRpingInitAttr();
+    initAttr->mode = HCCN_RPING_MODE_UB;
+    initAttr->port = 13886;
+    initAttr->npuNum = 128;
+    initAttr->bufferSize = 4096 * 10;
+    initAttr->sl = 0;
+    initAttr->tc = 0;
+    initAttr->ipAddr = new char[ipLen_];
+    strcpy_s(initAttr->ipAddr, ipLen_, deviceIp_[devId]);
+    HccnRpingInitCfg* initCfg = new HccnRpingInitCfg();
+    initCfg->validCfgLen = sizeof(HccnRpingInitCfg);
+    initCfg->ub.taMode = HCCN_RPING_UB_RM;
+    initCfg->ub.tpMode = HCCN_RPING_UB_CTP;
+    void* pingmesh = nullptr;
+    auto ret = HccnRpingInitWithCfg(devId, initAttr, initCfg, &pingmesh);
+    EXPECT_EQ(ret, HCCN_E_PARA);
+    delete[] initAttr->ipAddr;
+    delete initAttr;
+    delete initCfg;
+}
+
+TEST_F(HccnRping_UT, ut_HccnRpingInitWithCfg_InvalidTpMode)
+{
+    u32 devId = 1;
+    HccnRpingInitAttr* initAttr = new HccnRpingInitAttr();
+    initAttr->mode = HCCN_RPING_MODE_UB;
+    initAttr->port = 13886;
+    initAttr->npuNum = 128;
+    initAttr->bufferSize = 4096 * 10;
+    initAttr->sl = 0;
+    initAttr->tc = 0;
+    initAttr->ipAddr = new char[ipLen_];
+    strcpy_s(initAttr->ipAddr, ipLen_, deviceIp_[devId]);
+    HccnRpingInitCfg* initCfg = new HccnRpingInitCfg();
+    initCfg->validCfgLen = sizeof(HccnRpingInitCfg);
+    initCfg->ub.taMode = HCCN_RPING_UB_RC;
+    initCfg->ub.tpMode = static_cast<HccnUbTransportMode>(99);
+    void* pingmesh = nullptr;
+    auto ret = HccnRpingInitWithCfg(devId, initAttr, initCfg, &pingmesh);
+    EXPECT_EQ(ret, HCCN_E_PARA);
+    delete[] initAttr->ipAddr;
+    delete initAttr;
+    delete initCfg;
+}
+
+TEST_F(HccnRping_UT, ut_HccnRpingInitWithCfg_UM_NotUTP)
+{
+    u32 devId = 1;
+    HccnRpingInitAttr* initAttr = new HccnRpingInitAttr();
+    initAttr->mode = HCCN_RPING_MODE_UB;
+    initAttr->port = 13886;
+    initAttr->npuNum = 128;
+    initAttr->bufferSize = 4096 * 10;
+    initAttr->sl = 0;
+    initAttr->tc = 0;
+    initAttr->ipAddr = new char[ipLen_];
+    strcpy_s(initAttr->ipAddr, ipLen_, deviceIp_[devId]);
+    HccnRpingInitCfg* initCfg = new HccnRpingInitCfg();
+    initCfg->validCfgLen = sizeof(HccnRpingInitCfg);
+    initCfg->ub.taMode = HCCN_RPING_UB_UM;
+    initCfg->ub.tpMode = HCCN_RPING_UB_CTP;
+    void* pingmesh = nullptr;
+    auto ret = HccnRpingInitWithCfg(devId, initAttr, initCfg, &pingmesh);
+    EXPECT_EQ(ret, HCCN_E_PARA);
+    delete[] initAttr->ipAddr;
+    delete initAttr;
+    delete initCfg;
+}
+
+TEST_F(HccnRping_UT, ut_HccnRpingInitWithCfg_DevIdMismatch)
+{
+    // hrtGetDeviceRefresh is mocked in SetUp to return 1; passing devId=2 triggers mismatch (HCCN_E_FAIL)
+    u32 devId = 2;
+    HccnRpingInitAttr* initAttr = new HccnRpingInitAttr();
+    initAttr->mode = HCCN_RPING_MODE_UB;
+    initAttr->port = 13886;
+    initAttr->npuNum = 128;
+    initAttr->bufferSize = 4096 * 10;
+    initAttr->sl = 0;
+    initAttr->tc = 0;
+    initAttr->ipAddr = new char[ipLen_];
+    strcpy_s(initAttr->ipAddr, ipLen_, deviceIp_[devId]);
+    HccnRpingInitCfg* initCfg = new HccnRpingInitCfg();
+    initCfg->validCfgLen = sizeof(HccnRpingInitCfg);
+    initCfg->ub.taMode = HCCN_RPING_UB_RC;
+    initCfg->ub.tpMode = HCCN_RPING_UB_CTP;
+    void* pingmesh = nullptr;
+    auto ret = HccnRpingInitWithCfg(devId, initAttr, initCfg, &pingmesh);
+    EXPECT_EQ(ret, HCCN_E_FAIL);
+    EXPECT_TRUE(pingmesh == nullptr);
+    delete[] initAttr->ipAddr;
+    delete initAttr;
+    delete initCfg;
+}
+
+// ========== HccnRpingGetPayload RC-mode interception ==========
+
+TEST_F(HccnRping_UT, ut_HccnRpingGetPayload_RC_Rejected)
+{
+    MOCKER_CPP(&PingMesh::GetDeviceLogicId).stubs().with(mockcpp::any()).will(returnValue(1));
+
+    PingMesh* rping = new PingMesh();
+    HccnRpingInitAttr initAttr = {};
+    initAttr.mode = HCCN_RPING_MODE_UB;
+    HccnRpingInitCfg initCfg = {};
+    initCfg.validCfgLen = sizeof(HccnRpingInitCfg);
+    initCfg.ub.taMode = HCCN_RPING_UB_RC;
+    initCfg.ub.tpMode = HCCN_RPING_UB_CTP;
+    rping->initWithCfg(&initAttr, &initCfg);
+
+    HccnRpingCtx rpingCtx = rping;
+    void* payloadOutput = nullptr;
+    u32 payloadLenOutput = 0;
+    auto ret = HccnRpingGetPayload(rpingCtx, &payloadOutput, &payloadLenOutput);
+    EXPECT_EQ(ret, HCCN_E_FAIL);
+    delete rping;
+}
+
+TEST_F(HccnRping_UT, ut_HccnRpingGetPayload_UM_NotRejected)
+{
+    MOCKER_CPP(&PingMesh::GetDeviceLogicId).stubs().with(mockcpp::any()).will(returnValue(1));
+    MOCKER_CPP(&PingMesh::HccnRpingGetPayload).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+
+    PingMesh* rping = new PingMesh();
+    HccnRpingInitAttr initAttr = {};
+    initAttr.mode = HCCN_RPING_MODE_UB;
+    HccnRpingInitCfg initCfg = {};
+    initCfg.validCfgLen = sizeof(HccnRpingInitCfg);
+    initCfg.ub.taMode = HCCN_RPING_UB_UM;
+    initCfg.ub.tpMode = HCCN_RPING_UB_UTP;
+    rping->initWithCfg(&initAttr, &initCfg);
+
+    HccnRpingCtx rpingCtx = rping;
+    void* payloadOutput = nullptr;
+    u32 payloadLenOutput = 0;
+    auto ret = HccnRpingGetPayload(rpingCtx, &payloadOutput, &payloadLenOutput);
+    EXPECT_EQ(ret, HCCN_SUCCESS);
+    delete rping;
+}
+
+// ========== HccnRpingInitWithCfg new param checks (validCfgLen / combo interception) ==========
+
+// validCfgLen too small should return HCCN_E_PARA (forward-compat check, backup code lacked it)
+TEST_F(HccnRping_UT, ut_HccnRpingInitWithCfg_ValidCfgLenTooSmall)
+{
+    u32 devId = 1;
+    HccnRpingInitAttr* initAttr = new HccnRpingInitAttr();
+    initAttr->mode = HCCN_RPING_MODE_UB;
+    initAttr->port = 13886;
+    initAttr->npuNum = 128;
+    initAttr->bufferSize = 4096 * 10;
+    initAttr->sl = 0;
+    initAttr->tc = 0;
+    initAttr->ipAddr = new char[ipLen_];
+    strcpy_s(initAttr->ipAddr, ipLen_, deviceIp_[devId]);
+    HccnRpingInitCfg* initCfg = new HccnRpingInitCfg();
+    initCfg->validCfgLen = sizeof(uint32_t); // smaller than sizeof(HccnRpingInitCfg)
+    initCfg->ub.taMode = HCCN_RPING_UB_RC;
+    initCfg->ub.tpMode = HCCN_RPING_UB_CTP;
+    void* pingmesh = nullptr;
+    auto ret = HccnRpingInitWithCfg(devId, initAttr, initCfg, &pingmesh);
+    EXPECT_EQ(ret, HCCN_E_PARA);
+    EXPECT_TRUE(pingmesh == nullptr);
+    delete[] initAttr->ipAddr;
+    delete initAttr;
+    delete initCfg;
+}
+
+// RC + UTP combo should return HCCN_E_PARA (RC only supports RTP/CTP)
+TEST_F(HccnRping_UT, ut_HccnRpingInitWithCfg_Rc_Utp_Rejected)
+{
+    u32 devId = 1;
+    HccnRpingInitAttr* initAttr = new HccnRpingInitAttr();
+    initAttr->mode = HCCN_RPING_MODE_UB;
+    initAttr->port = 13886;
+    initAttr->npuNum = 128;
+    initAttr->bufferSize = 4096 * 10;
+    initAttr->sl = 0;
+    initAttr->tc = 0;
+    initAttr->ipAddr = new char[ipLen_];
+    strcpy_s(initAttr->ipAddr, ipLen_, deviceIp_[devId]);
+    HccnRpingInitCfg* initCfg = new HccnRpingInitCfg();
+    initCfg->validCfgLen = sizeof(HccnRpingInitCfg);
+    initCfg->ub.taMode = HCCN_RPING_UB_RC;
+    initCfg->ub.tpMode = HCCN_RPING_UB_UTP;
+    void* pingmesh = nullptr;
+    auto ret = HccnRpingInitWithCfg(devId, initAttr, initCfg, &pingmesh);
+    EXPECT_EQ(ret, HCCN_E_PARA);
+    EXPECT_TRUE(pingmesh == nullptr);
+    delete[] initAttr->ipAddr;
+    delete initAttr;
+    delete initCfg;
+}
+
+// old HccnRpingInit: mode=PING_MODE_IPoUB should return HCCN_E_PARA (g260915 adds rejection)
+TEST_F(HccnRping_UT, ut_HccnRpingInit_IPoUB_Rejected)
+{
+    u32 devId = 1;
+    HccnRpingInitAttr* initAttr = new HccnRpingInitAttr();
+    initAttr->mode = PING_MODE_IPoUB;
+    initAttr->port = 13886;
+    initAttr->npuNum = 128;
+    initAttr->bufferSize = 4096 * 10;
+    initAttr->sl = 0;
+    initAttr->tc = 0;
+    initAttr->ipAddr = new char[ipLen_];
+    strcpy_s(initAttr->ipAddr, ipLen_, deviceIp_[devId]);
+    void* pingmesh = nullptr;
+    auto ret = HccnRpingInit(devId, initAttr, &pingmesh);
+    EXPECT_EQ(ret, HCCN_E_PARA);
+    EXPECT_TRUE(pingmesh == nullptr);
+    delete[] initAttr->ipAddr;
+    delete initAttr;
+}
+
+// ROCE mode disallows custom taMode/tpMode: ROCE + taMode=RC -> HCCN_E_PARA (collaborator new)
+TEST_F(HccnRping_UT, ut_HccnRpingInitWithCfg_RoCeNonDefaultTaMode_Rejected)
+{
+    u32 devId = 1;
+    HccnRpingInitAttr* initAttr = new HccnRpingInitAttr();
+    initAttr->mode = HCCN_RPING_MODE_ROCE;
+    initAttr->port = 13886;
+    initAttr->npuNum = 128;
+    initAttr->bufferSize = 4096 * 10;
+    initAttr->sl = 0;
+    initAttr->tc = 0;
+    initAttr->ipAddr = new char[ipLen_];
+    strcpy_s(initAttr->ipAddr, ipLen_, deviceIp_[devId]);
+    HccnRpingInitCfg* initCfg = new HccnRpingInitCfg();
+    initCfg->validCfgLen = sizeof(HccnRpingInitCfg);
+    initCfg->ub.taMode = HCCN_RPING_UB_RC; // ROCE mode should not set RC
+    initCfg->ub.tpMode = HCCN_RPING_UB_CTP;
+    void* pingmesh = nullptr;
+    auto ret = HccnRpingInitWithCfg(devId, initAttr, initCfg, &pingmesh);
+    EXPECT_EQ(ret, HCCN_E_PARA);
+    EXPECT_TRUE(pingmesh == nullptr);
+    delete[] initAttr->ipAddr;
+    delete initAttr;
+    delete initCfg;
+}
+
+// HccnRpingAddTargetWithCfg: RC mode allows only 1 target per add; targetNum!=1 -> HCCN_E_PARA
+TEST_F(HccnRping_UT, ut_HccnRpingAddTargetWithCfg_RcMultiTarget_Rejected)
+{
+    MOCKER_CPP(&PingMesh::GetDeviceLogicId).stubs().with(mockcpp::any()).will(returnValue(1));
+    PingMesh* rping = new PingMesh();
+    HccnRpingInitAttr initAttr = {};
+    initAttr.mode = HCCN_RPING_MODE_UB;
+    HccnRpingInitCfg initCfg = {};
+    initCfg.validCfgLen = sizeof(HccnRpingInitCfg);
+    initCfg.ub.taMode = HCCN_RPING_UB_RC;
+    initCfg.ub.tpMode = HCCN_RPING_UB_CTP;
+    rping->initWithCfg(&initAttr, &initCfg);
+    HccnRpingCtx rpingCtx = rping;
+
+    HccnRpingTargetInfo target[2] = {0};
+    HccnRpingAddTargetConfig config;
+    config.connectTimeout = 1000;
+    auto ret = HccnRpingAddTargetWithCfg(rpingCtx, 2, target, &config);
+    EXPECT_EQ(ret, HCCN_E_PARA);
+    delete rping;
 }

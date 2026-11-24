@@ -283,6 +283,12 @@ TEST_M(RdmaAgent, TcRaPingTaskStopAbnormal);
 TEST_M(RdmaAgent, TcRaPingDeinitParaCheckAbnormal);
 TEST_M(RdmaAgent, TcRaPingDeinitAbnoaml);
 TEST_M(RdmaAgent, TcRaPing);
+TEST_M(RdmaAgent, TcRaHdcPingTargetAddMemcpyFail);
+TEST_M(RdmaAgent, TcRaHdcPingTargetAddTpHandleZero);
+TEST_M(RdmaAgent, TcRaHdcPingTargetAddNonUdmaRejected);
+TEST_M(RdmaAgent, TcRaHdcPingTargetAddInvalidAction);
+TEST_M(RdmaAgent, TcRaHdcPingTargetAddGetLocalTpVersionZero);
+TEST_M(RdmaAgent, TcRaHdcPingTargetAddGetLocalTpBackfill);
 
 TEST_M(RdmaAgent, TcRaGetDevEidInfoNum);
 TEST_M(RdmaAgent, TcRaGetDevEidInfoList);

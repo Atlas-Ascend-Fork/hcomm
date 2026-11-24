@@ -316,7 +316,7 @@ void TcRsPingInit()
 void TcRsPingTargetAdd()
 {
     struct PingTargetInfo target = {0};
-    struct PingTargetInfo result = {0};
+    struct PingTargetInfo rxData = {0};
     struct RaRsDevInfo rdev = {0};
     int ret = 0;
 
@@ -326,7 +326,7 @@ void TcRsPingTargetAdd()
     gTmpPingCb.taskStatus = RS_PING_TASK_RESET;
     RS_INIT_LIST_HEAD(&gTmpPingCb.pingList);
     mocker_invoke(RsGetPingCb, RsGetPingCbStub, 1);
-    ret = RsPingTargetAdd(&rdev, &target, &result);
+    ret = RsPingTargetAdd(&rdev, &target, &rxData);
     EXPECT_INT_EQ(ret, -9);
     mocker_clean();
 
@@ -335,13 +335,13 @@ void TcRsPingTargetAdd()
     RS_INIT_LIST_HEAD(&gTmpPingCb.pingList);
     mocker_invoke(RsGetPingCb, RsGetPingCbStub, 1);
     mocker(RsPingCommonCreateAh, 1, -1);
-    ret = RsPingTargetAdd(&rdev, &target, &result);
+    ret = RsPingTargetAdd(&rdev, &target, &rxData);
     EXPECT_INT_NE(ret, 0);
     mocker_clean();
 
     mocker_invoke(RsGetPingCb, RsGetPingCbStub, 1);
     mocker(calloc, 10, 0);
-    ret = RsPingTargetAdd(&rdev, &target, &result);
+    ret = RsPingTargetAdd(&rdev, &target, &rxData);
     EXPECT_INT_NE(ret, 0);
     mocker_clean();
 }
@@ -454,7 +454,7 @@ void TcRsPingDeinit()
     struct ibv_comp_channel clientChannel = {0};
     struct ibv_comp_channel serverChannel = {0};
     struct PingTargetInfo target = {0};
-    struct PingTargetInfo result = {0};
+    struct PingTargetInfo rxData = {0};
     struct RaRsDevInfo rdev = {0};
     struct rs_cb rsCb = {0};
     int ret = 0;
@@ -467,7 +467,7 @@ void TcRsPingDeinit()
     target.payload.size = 1;
     mocker_invoke(RsGetPingCb, RsGetPingCbStub, 10);
     mocker(RsPingCommonCreateAh, 1, 0);
-    ret = RsPingTargetAdd(&rdev, &target, &result);
+    ret = RsPingTargetAdd(&rdev, &target, &rxData);
     EXPECT_INT_EQ(ret, 0);
     mocker(RsEpollCtl, 20, 0);
     mocker(RsIbvDestroyCompChannel, 20, 0);
@@ -1153,6 +1153,7 @@ void TcRsPingRocePollScq()
 
 int StubRsPingClientPostSend(struct RsPingCtxCb* pingCb, struct RsPingTargetInfo* target)
 {
+    (void)target;
     pingCb->threadStatus = 0;
     return 1;
 }
@@ -1243,5 +1244,90 @@ void TcRsPingCbGetUrmaContextAndIndexCreateFail()
     mocker(RsUrmaCreateContext, 1, NULL);
     ret = RsPingCbGetUrmaContextAndIndex(&pingCb, &attr);
     EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
+}
+
+void TcRsPingTargetAddParamCheck()
+{
+    struct PingTargetInfo target = {0};
+    struct PingTargetInfo rxData = {0};
+    struct RaRsDevInfo rdev = {0};
+    int ret = 0;
+
+    ret = RsPingTargetAdd(NULL, &target, &rxData);
+    EXPECT_INT_EQ(ret, -EINVAL);
+
+    ret = RsPingTargetAdd(&rdev, NULL, &rxData);
+    EXPECT_INT_EQ(ret, -EINVAL);
+
+    ret = RsPingTargetAdd(&rdev, &target, NULL);
+    EXPECT_INT_EQ(ret, -EINVAL);
+
+    target.payload.size = 1501;
+    ret = RsPingTargetAdd(&rdev, &target, &rxData);
+    EXPECT_INT_EQ(ret, -EINVAL);
+
+    target.payload.size = 1;
+    gTmpPingCb.taskStatus = 1;
+    mocker_invoke(RsGetPingCb, RsGetPingCbStub, 1);
+    ret = RsPingTargetAdd(&rdev, &target, &rxData);
+    EXPECT_INT_EQ(ret, -EEXIST);
+    mocker_clean();
+
+    // GET_LOCAL_TP_INFO dispatch has dedicated cases under urma ops (tc_ut_rs_ping_urma.c);
+    // here RoCE ops has no pingAllocGetLocalTpInfo, taking the default alloc path easily yields
+    // incomplete mocks, so this case only narrows to param check + taskStatus branch
+}
+
+// GET_LOCAL_TP_INFO dispatch: RoCE ops has no pingAllocGetLocalTpInfo -> -EOPNOTSUPP
+// (collaborator new: explicit reject, avoiding wrongly walking the real add target path)
+void TcRsPingTargetAddGetLocalTpRoceOps()
+{
+    struct PingTargetInfo target = {0};
+    struct PingTargetInfo rxData = {0};
+    struct RaRsDevInfo rdev = {0};
+    int ret = 0;
+
+    target.version = 1;
+    target.targetAddAction = PING_TARGET_ADD_ACTION_GET_LOCAL_TP_INFO;
+    gTmpPingCb.taskStatus = RS_PING_TASK_RESET;
+    RS_INIT_LIST_HEAD(&gTmpPingCb.pingList);
+    mocker_invoke(RsGetPingCb, RsGetPingCbStub, 1); // RoCE ops
+    ret = RsPingTargetAdd(&rdev, &target, &rxData);
+    EXPECT_INT_EQ(ret, -EOPNOTSUPP);
+    mocker_clean();
+}
+
+// RsPingTaskStart: packetInterval exceeds upper bound (600000) -> -EINVAL
+void TcRsPingTaskStartIntervalTooLarge()
+{
+    struct RaRsDevInfo rdev = {0};
+    struct PingTaskAttr attr = {0};
+    int ret = 0;
+
+    attr.packetCnt = 10;
+    attr.packetInterval = 600001;
+    attr.timeoutInterval = 100;
+    gTmpPingCb.taskStatus = RS_PING_TASK_RESET;
+    mocker_invoke(RsGetPingCb, RsGetPingCbStub, 1);
+    ret = RsPingTaskStart(&rdev, &attr);
+    EXPECT_INT_EQ(ret, -EINVAL);
+    mocker_clean();
+}
+
+// RsPingTaskStart: packetInterval is 0 -> -EINVAL
+void TcRsPingTaskStartIntervalZero()
+{
+    struct RaRsDevInfo rdev = {0};
+    struct PingTaskAttr attr = {0};
+    int ret = 0;
+
+    attr.packetCnt = 10;
+    attr.packetInterval = 0;
+    attr.timeoutInterval = 100;
+    gTmpPingCb.taskStatus = RS_PING_TASK_RESET;
+    mocker_invoke(RsGetPingCb, RsGetPingCbStub, 1);
+    ret = RsPingTaskStart(&rdev, &attr);
+    EXPECT_INT_EQ(ret, -EINVAL);
     mocker_clean();
 }

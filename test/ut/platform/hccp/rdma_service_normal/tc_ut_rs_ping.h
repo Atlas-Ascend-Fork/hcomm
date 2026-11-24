@@ -45,5 +45,9 @@ void TcRsPingHandle();
 void TcRsPingRocePingCbDeinit();
 void TcRsPingUrmaPingCbInitDeviceByEidFail();
 void TcRsPingCbGetUrmaContextAndIndexCreateFail();
+void TcRsPingTargetAddParamCheck();
+void TcRsPingTargetAddGetLocalTpRoceOps();
+void TcRsPingTaskStartIntervalTooLarge();
+void TcRsPingTaskStartIntervalZero();
 
 #endif

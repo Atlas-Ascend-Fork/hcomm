@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include "securec.h"
 #include "ut_dispatch.h"
 #include "hccp_common.h"
 #include "hccp_ping.h"
@@ -390,5 +391,151 @@ void TcRaPing()
 
     ret = RaPingDeinit(pingHandle);
     EXPECT_INT_EQ(ret, 0);
+    mocker_clean();
+}
+
+void TcRaHdcPingTargetAddMemcpyFail()
+{
+    struct PingTargetInfo target[1] = {0};
+    struct RaPingHandle pingHandle = {0};
+    struct RaPingOps ops = {0};
+    int num = 1;
+    int ret;
+
+    ops.raPingTargetAdd = RaHdcPingTargetAdd;
+    pingHandle.pingOps = &ops;
+    pingHandle.phyId = 0;
+    pingHandle.taskCnt = 0;
+    pingHandle.protocol = PROTOCOL_RDMA;
+    mocker(RaHdcProcessMsg, 1, 0);
+    mocker(memcpy_s, 1, -1);
+    ret = RaPingTargetAdd((void*)(&pingHandle), target, num);
+    // RaPingTargetAdd applies ConverReturnCode(RDMA_OP,...) to raw -ESAFEFUNC => 328106
+    EXPECT_INT_EQ(ret, 328106);
+    mocker_clean();
+}
+
+// GET_LOCAL_TP_INFO: device does not backfill tpHandle(0) -> -ENODEV
+void TcRaHdcPingTargetAddTpHandleZero()
+{
+    struct PingTargetInfo target[1] = {0};
+    struct RaPingHandle pingHandle = {0};
+    struct RaPingOps ops = {0};
+    int num = 1;
+    int ret;
+
+    ops.raPingTargetAdd = RaHdcPingTargetAdd;
+    pingHandle.pingOps = &ops;
+    pingHandle.phyId = 0;
+    pingHandle.taskCnt = 0;
+    pingHandle.protocol = PROTOCOL_UDMA; // collaborator version: GET_LOCAL_TP_INFO is UDMA-only
+    target[0].version = 1;
+    target[0].targetAddAction = PING_TARGET_ADD_ACTION_GET_LOCAL_TP_INFO;
+    mocker(RaHdcProcessMsg, 1, 0); // pingData.rxData.target.localInfo stays 0
+    ret = RaPingTargetAdd((void*)(&pingHandle), target, num);
+    // RaPingTargetAdd converts -ENODEV => ConverReturnCode(RDMA_OP,-ENODEV)=228102
+    EXPECT_INT_EQ(ret, 228102);
+    mocker_clean();
+}
+
+// GET_LOCAL_TP_INFO is UDMA-only: RoCE(PROTOCOL_RDMA) misuse must be explicitly rejected (-EOPNOTSUPP)
+void TcRaHdcPingTargetAddNonUdmaRejected()
+{
+    struct PingTargetInfo target[1] = {0};
+    struct RaPingHandle pingHandle = {0};
+    struct RaPingOps ops = {0};
+    int num = 1;
+    int ret;
+
+    ops.raPingTargetAdd = RaHdcPingTargetAdd;
+    pingHandle.pingOps = &ops;
+    pingHandle.phyId = 0;
+    pingHandle.taskCnt = 0;
+    pingHandle.protocol = PROTOCOL_RDMA;
+    target[0].version = 1;
+    target[0].targetAddAction = PING_TARGET_ADD_ACTION_GET_LOCAL_TP_INFO;
+    ret = RaPingTargetAdd((void*)(&pingHandle), target, num);
+    // -EOPNOTSUPP => ConverReturnCode(RDMA_OP,-EOPNOTSUPP)=328107
+    EXPECT_INT_EQ(ret, 328107);
+    mocker_clean();
+}
+
+// Illegal targetAddAction must be rejected (-EINVAL), avoiding silent garbage treated as a real target
+void TcRaHdcPingTargetAddInvalidAction()
+{
+    struct PingTargetInfo target[1] = {0};
+    struct RaPingHandle pingHandle = {0};
+    struct RaPingOps ops = {0};
+    int num = 1;
+    int ret;
+
+    ops.raPingTargetAdd = RaHdcPingTargetAdd;
+    pingHandle.pingOps = &ops;
+    pingHandle.phyId = 0;
+    pingHandle.taskCnt = 0;
+    pingHandle.protocol = PROTOCOL_UDMA;
+    target[0].version = 1;
+    target[0].targetAddAction = 99; // illegal action
+    ret = RaPingTargetAdd((void*)(&pingHandle), target, num);
+    // Illegal targetAddAction -> RaHdcPingTargetAdd check returns -EINVAL => ConverReturnCode=128103
+    EXPECT_INT_EQ(ret, 128103);
+    mocker_clean();
+}
+
+// RaHdcProcessMsg stub: simulate device backfill of GET_LOCAL_TP localInfo(tpHandle non-zero) for success cases
+static int RaHdcProcessMsgFillTpStub(unsigned int opcode, unsigned int phyId, char* data, unsigned int dataSize)
+{
+    (void)opcode;
+    (void)phyId;
+    (void)dataSize;
+    union OpPingAddData* pingData = (union OpPingAddData*)data;
+    pingData->rxData.target.localInfo.ub.tpHandle = 0xAABBCCDD11223344ULL;
+    pingData->rxData.target.localInfo.ub.tpPsn = 0x5678;
+    return 0;
+}
+
+// GET_LOCAL_TP_INFO requires version>=1: version=0 -> -EINVAL (collaborator new branch)
+void TcRaHdcPingTargetAddGetLocalTpVersionZero()
+{
+    struct PingTargetInfo target[1] = {0};
+    struct RaPingHandle pingHandle = {0};
+    struct RaPingOps ops = {0};
+    int num = 1;
+    int ret;
+
+    ops.raPingTargetAdd = RaHdcPingTargetAdd;
+    pingHandle.pingOps = &ops;
+    pingHandle.phyId = 0;
+    pingHandle.taskCnt = 0;
+    pingHandle.protocol = PROTOCOL_UDMA;
+    target[0].version = 0;
+    target[0].targetAddAction = PING_TARGET_ADD_ACTION_GET_LOCAL_TP_INFO;
+    ret = RaPingTargetAdd((void*)(&pingHandle), target, num);
+    // -EINVAL => ConverReturnCode(RDMA_OP,-EINVAL)=128103
+    EXPECT_INT_EQ(ret, 128103);
+    mocker_clean();
+}
+
+// GET_LOCAL_TP_INFO device backfills tpHandle non-zero -> return 0 and localInfo written back
+void TcRaHdcPingTargetAddGetLocalTpBackfill()
+{
+    struct PingTargetInfo target[1] = {0};
+    struct RaPingHandle pingHandle = {0};
+    struct RaPingOps ops = {0};
+    int num = 1;
+    int ret;
+
+    ops.raPingTargetAdd = RaHdcPingTargetAdd;
+    pingHandle.pingOps = &ops;
+    pingHandle.phyId = 0;
+    pingHandle.taskCnt = 0;
+    pingHandle.protocol = PROTOCOL_UDMA;
+    target[0].version = 1;
+    target[0].targetAddAction = PING_TARGET_ADD_ACTION_GET_LOCAL_TP_INFO;
+    mocker_invoke(RaHdcProcessMsg, RaHdcProcessMsgFillTpStub, 1);
+    ret = RaPingTargetAdd((void*)(&pingHandle), target, num);
+    EXPECT_INT_EQ(ret, 0);
+    EXPECT_LONG_EQ(target[0].localInfo.ub.tpHandle, 0xAABBCCDD11223344ULL);
+    EXPECT_INT_EQ((int)target[0].localInfo.ub.tpPsn, 0x5678);
     mocker_clean();
 }

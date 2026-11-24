@@ -37,6 +37,18 @@ void TcRsPingUrmaResetRecvBuffer();
 void TcRsPingCommonJfrPostRecv();
 void TcRsPingCommonInitSegCbFail();
 void TcRsPingCommonInitLocalJettyFail();
+void TcRsPingUrmaGetLocalTpInfo();
+void TcRsPingCommonImportJettyEx();
+void TcRsPingUrmaAllocTargetNodeRc();
+void TcRsPingUrmaPollScqRc();
+void TcRsPingCommonInitJettyWithAttr();
+void TcRsPingPongInitLocalUbResourcesRc();
+void TcRsPingCommonDeinitLocalJettyRc();
+void TcRsPingCommonDeinitLocalJettyBufferRc();
+void TcRsPingUrmaPostSendRc();
+void TcRsPingUrmaFreeTargetNodeRc();
+void TcRsPingUrmaPingCbInitTransMode();
+void TcRsPingStructSizeCheck();
 
 #ifdef __cplusplus
 }

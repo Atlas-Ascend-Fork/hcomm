@@ -101,6 +101,7 @@ target_include_directories(hccp_case PRIVATE
     ${GTEST_INCLUDE}
     ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc
     ${RDMA_CORE_INCLUDE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../stub/depends/include
 )
 
 target_compile_options(hccp_case PRIVATE

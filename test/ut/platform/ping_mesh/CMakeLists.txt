@@ -12,6 +12,8 @@ set(hccl_utest_pingmesh_list
     main.cc
     ut_ping_mesh.cc
     ut_hccn_rping.cc
+    ut_rc_struct.cc
+    ut_rc_flow.cc
 )
 add_executable(hccl_utest_pingmesh ${hccl_utest_pingmesh_list})
 

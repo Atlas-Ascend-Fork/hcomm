@@ -780,7 +780,10 @@ urma_status_t urma_query_device(urma_device_t* dev, urma_device_attr_t* dev_attr
     dev_attr->dev_cap.max_jfr_sge = 8;
     dev_attr->dev_cap.max_msg_size = URMA_MAX_MSG;
     dev_attr->dev_cap.trans_mode = URMA_TM_RM | URMA_TM_RC | URMA_TM_UM;
+    // RC+CTP needs rtp/ctp priority, otherwise RsPingUrmaGetTpPriority returns -EOPNOTSUPP
     dev_attr->dev_cap.priority_info[0].tp_type.bs.utp = 1;
+    dev_attr->dev_cap.priority_info[1].tp_type.bs.ctp = 1;
+    dev_attr->dev_cap.priority_info[2].tp_type.bs.rtp = 1;
     dev_attr->port_attr[0].state = URMA_PORT_ACTIVE;
     dev_attr->port_attr[0].max_mtu = URMA_MTU_4096;
     dev_attr->port_attr[0].active_mtu = URMA_MTU_4096;
@@ -2006,10 +2009,12 @@ urma_status_t urma_bind_jetty(urma_jetty_t* jetty, urma_target_jetty_t* tjetty)
 
 urma_status_t urma_bind_jetty_ex(urma_jetty_t* jetty, urma_target_jetty_t* tjetty, urma_bind_jetty_ex_cfg_t* cfg)
 {
-    (void)jetty;
-    (void)tjetty;
     (void)cfg;
-    return ENOTSUP;
+    // RC mode link (RsPingCommonImportJettyEx) depends on bind_jetty_ex success
+    if (jetty == NULL || tjetty == NULL)
+        return URMA_EINVAL;
+    jetty->remote_jetty = tjetty;
+    return URMA_SUCCESS;
 }
 
 urma_status_t urma_unbind_jetty(urma_jetty_t* jetty)

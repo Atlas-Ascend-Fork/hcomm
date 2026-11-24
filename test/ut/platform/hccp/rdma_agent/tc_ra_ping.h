@@ -21,5 +21,11 @@ void TcRaPingTaskStopAbnormal();
 void TcRaPingDeinitParaCheckAbnormal();
 void TcRaPingDeinitAbnoaml();
 void TcRaPing();
+void TcRaHdcPingTargetAddMemcpyFail();
+void TcRaHdcPingTargetAddTpHandleZero();
+void TcRaHdcPingTargetAddNonUdmaRejected();
+void TcRaHdcPingTargetAddInvalidAction();
+void TcRaHdcPingTargetAddGetLocalTpVersionZero();
+void TcRaHdcPingTargetAddGetLocalTpBackfill();
 
 #endif

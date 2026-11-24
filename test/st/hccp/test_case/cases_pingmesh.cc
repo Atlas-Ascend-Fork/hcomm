@@ -62,6 +62,7 @@
 
 #include "cases_common.h"
 #include "hccp_ping.h"
+#include <urma/urma_types.h>
 #include <arpa/inet.h>
 
 static const unsigned short PING_MESH_PORT = HccpStCasePort(15760); /* original listen_port 16667, remapped */
@@ -407,8 +408,49 @@ static int PingMeshInit(
     return 0;
 }
 
+/* RC mode variant of PingMeshInit: version>=1 makes rdma_service read transMode/tpType
+ * (rs_ping_urma.c RsPingUrmaPingCbInit); CTP priority is resolved by RsPingUrmaGetTpPriority. */
+static int PingMeshInitRc(
+    int phyid, uint32_t phyIdU, const union HccpEid& eid, uint32_t eidIndex, struct PingInitInfo& initInfo,
+    void** pingHandle)
+{
+    struct PingInitAttr initAttr = {};
+    initAttr.version = 1;
+    initAttr.mode = NETWORK_OFFLINE;
+    initAttr.dev.ub.eid = eid;
+    initAttr.dev.ub.eidIndex = eidIndex;
+    initAttr.ub.phyId = phyIdU;
+    initAttr.ub.transMode = URMA_TM_RC;
+    initAttr.ub.tpType = URMA_CTP;
+    initAttr.commInfo.version = 1;
+    initAttr.commInfo.ub.qosAttr.tc = (unsigned char)((33 & 0x3f) << 2);
+    initAttr.commInfo.ub.qosAttr.sl = 4;
+    initAttr.protocol = PROTOCOL_UDMA;
+    initAttr.client.ub.cqAttr.sendCqDepth = 128;
+    initAttr.client.ub.cqAttr.recvCqDepth = 128;
+    initAttr.client.ub.cqAttr.recvCqCompVector = 1;
+    initAttr.client.ub.qpAttr.cap.maxInlineData = 32;
+    initAttr.client.ub.qpAttr.cap.maxSendSge = 1;
+    initAttr.client.ub.qpAttr.cap.maxSendWr = 128;
+    initAttr.client.ub.qpAttr.cap.maxRecvSge = 1;
+    initAttr.client.ub.qpAttr.cap.maxRecvWr = 128;
+    initAttr.server = initAttr.client;
+    initAttr.bufferSize = PING_BUFFER_SIZE;
+
+    int ret = RaPingInit(&initAttr, &initInfo, pingHandle);
+    if (ret != 0) {
+        TEST_LOG_ERROR(phyid, "RaPingInit(RC) failed ret=%d", ret);
+        return ret;
+    }
+    TEST_LOG_INFO(
+        phyid, "RaPingInit(RC) success handle=%p transMode=%u tpType=%u", *pingHandle, (unsigned int)URMA_TM_RC,
+        (unsigned int)URMA_CTP);
+    return 0;
+}
+
 /* One host of hlt_hccp_pingmesh_test_001: the symmetric full chain. */
-static int PingMeshRun(int phyid)
+typedef int (*PingMeshInitFn)(int, uint32_t, const union HccpEid&, uint32_t, struct PingInitInfo&, void**);
+static int PingMeshRun(int phyid, PingMeshInitFn initFn = PingMeshInit)
 {
     PingMeshEnv e;
     int ret = PingMeshOfflineBase(e, phyid);
@@ -436,7 +478,7 @@ static int PingMeshRun(int phyid)
     }
 
     struct PingInitInfo initInfo = {};
-    ret = PingMeshInit(phyid, (uint32_t)phyid, eid, eidIndex, initInfo, &e.pingHandle);
+    ret = initFn(phyid, (uint32_t)phyid, eid, eidIndex, initInfo, &e.pingHandle);
     if (ret != 0) {
         return PingMeshTeardown(e, ret);
     }
@@ -575,6 +617,22 @@ TEST_F(HccpSystemTest, HltPingmeshBasic)
         int ret = PingMeshRun(phyid);
         if (ret != 0) {
             TEST_LOG_ERROR(phyid, "HltPingmeshBasic failed ret=%d", ret);
+        }
+        return ret;
+    });
+}
+
+/* RC+CTP config pass-through: same dual-host link as HltPingmeshBasic, only RaPingInit uses
+ * version=1/RC/CTP, verifying rdma_service RsPingUrmaPingCbInit accepts RC config
+ * (transMode/tpType/priority parsing) and the full-chain ping data plane works. Note: real RC
+ * link (GET_LOCAL_TP->exchange->IMPORT_BIND) is driven by upper PingMesh(HccnRcTargetAttrProcess);
+ * the ST stub(hdc) covers the data plane with a single-step TargetAdd. */
+TEST_F(HccpSystemTest, HltPingmeshRcBasic)
+{
+    RunTests({1, 5}, [this](int phyid) -> int {
+        int ret = PingMeshRun(phyid, PingMeshInitRc);
+        if (ret != 0) {
+            TEST_LOG_ERROR(phyid, "HltPingmeshRcBasic failed ret=%d", ret);
         }
         return ret;
     });
@@ -1020,6 +1078,351 @@ TEST_F(HccpSystemTest, HltPingmeshMesh)
         int ret = PingMeshMeshRun(phyid, meshN);
         if (ret != 0) {
             TEST_LOG_ERROR(phyid, "HltPingmeshMesh failed ret=%d", ret);
+        }
+        return ret;
+    });
+}
+
+/* ================= RC serial reconnect (asymmetric three phy) =================
+ *
+ * Scenario (HltPingmeshRcSerialReconnect): device0 always acts as client; device1 runs two
+ * independent processes server0/server1 (independent EID + port). client first RC-pings server0,
+ * then after teardown RC-pings server1 -- verifying RS-layer URMA serial build->teardown->rebuild:
+ *   - re-run GET_LOCAL_TP (RsPingUrmaGetLocalTpInfo) before each add to get local tpHandle;
+ *   - IMPORT_BIND (RsPingCommonImportJettyEx import+bind) binds the peer jetty;
+ *   - TargetDel (RsPingUrmaFreeTargetNode unbind+unimport) releases the single bind slot;
+ *   - the second add uses a new EID/port and can re-import+bind with no leftover state.
+ *
+ * Asymmetric mapping (three phy):
+ *   phy 1 = client  (only drives add/del, two rounds serially)
+ *   phy 5 = server0 (RaPingInit provides its own eid/jetty, handed to client via sync socket)
+ *   phy 6 = server1 (same as server0, independent EID/port)
+ *
+ * Port: server0 uses PING_MESH_PORT, server1 uses PING_MESH_PORT+1 (same HccpStCasePort offset).
+ *
+ * Coverage: serial reconnect regression of RS-layer two-step link (GET_LOCAL_TP->IMPORT_BIND)
+ * plus teardown (unbind/unimport). It is the ST equivalent of the real PingMesh upper layer
+ * (RcClientExchangeInfo/RcAttrImportBind); the data plane (sendCnt/recvCnt) is covered by the
+ * existing HltPingmeshRcBasic, this case focuses on add->del->add state and resource release
+ * without asserting send/recv counts.
+ */
+
+/* client completes one round against a single server: GET_LOCAL_TP -> IMPORT_BIND -> TargetDel.
+ * `round` distinguishes rounds in logs. peerComm is the {eid, qpInfo} exchanged from server via sync socket. */
+static int
+PingMeshRcSerialClientRound(int phyid, int round, const struct PingTargetCommInfo& peerComm, void* pingHandle)
+{
+    struct PingTargetInfo target = {};
+    target.version = 1;
+    target.localInfo.version = 1;
+    target.localInfo.ub.qosAttr.tc = (unsigned char)((33 & 0x3f) << 2);
+    target.localInfo.ub.qosAttr.sl = 4;
+    target.remoteInfo = peerComm;
+    (void)memset(target.payload.buffer, 0xff, sizeof(target.payload.buffer));
+    target.payload.size = PING_PAYLOAD_SIZE;
+
+    /* step1: GET_LOCAL_TP queries local tp; RS RsPingUrmaGetLocalTpInfo backfills tpHandle/psn */
+    target.targetAddAction = PING_TARGET_ADD_ACTION_GET_LOCAL_TP_INFO;
+    int ret = RaPingTargetAdd(pingHandle, &target, 1);
+    if (ret != 0) {
+        TEST_LOG_ERROR(phyid, "round %d GET_LOCAL_TP failed ret=%d", round, ret);
+        return ret;
+    }
+    if (target.localInfo.ub.tpHandle == 0) {
+        TEST_LOG_ERROR(phyid, "round %d GET_LOCAL_TP returned zero tpHandle", round);
+        return -1;
+    }
+    const uint64_t tpHandle = target.localInfo.ub.tpHandle;
+    const uint32_t tpPsn = target.localInfo.ub.tpPsn;
+    TEST_LOG_INFO(phyid, "round %d GET_LOCAL_TP ok tpHandle=0x%llx psn=%u", round, (unsigned long long)tpHandle, tpPsn);
+
+    /* step2: IMPORT_BIND (DEFAULT); RS RsPingCommonImportJettyEx imports+binds peer jetty with local tp */
+    target.targetAddAction = PING_TARGET_ADD_ACTION_DEFAULT;
+    ret = RaPingTargetAdd(pingHandle, &target, 1);
+    if (ret != 0) {
+        TEST_LOG_ERROR(phyid, "round %d IMPORT_BIND failed ret=%d", round, ret);
+        return ret;
+    }
+    TEST_LOG_INFO(phyid, "round %d IMPORT_BIND ok", round);
+
+    /* step3: teardown; RS RsPingUrmaFreeTargetNode unbind+unimport releases the slot */
+    struct PingTargetCommInfo targetRemote = peerComm;
+    ret = RaPingTargetDel(pingHandle, &targetRemote, 1);
+    if (ret != 0) {
+        TEST_LOG_ERROR(phyid, "round %d TargetDel failed ret=%d", round, ret);
+        return ret;
+    }
+    TEST_LOG_INFO(phyid, "round %d TargetDel ok, serial round complete", round);
+    return 0;
+}
+
+/* client side: set up an independent sync socket with server and exchange comm info. */
+static int PingMeshRcSerialClientExchange(
+    int phyid, int peerPhyid, uint32_t localIp, unsigned short port, const struct PingTargetCommInfo& mine,
+    struct PingTargetCommInfo* peerComm)
+{
+    struct SocketInitInfoT socketInit = {};
+    socketInit.rdevInfo.phyId = (unsigned int)phyid;
+    socketInit.rdevInfo.family = AF_INET;
+    socketInit.rdevInfo.localIp.addr.s_addr = localIp;
+    socketInit.scopeId = 4;
+    void* socketHandle = NULL;
+    int ret = RaSocketInitV1(NETWORK_OFFLINE, socketInit, &socketHandle);
+    if (ret != 0) {
+        TEST_LOG_ERROR(phyid, "RaSocketInitV1 failed ret=%d", ret);
+        return ret;
+    }
+
+    const uint32_t peerIp = PingMeshLoopbackIp((uint32_t)peerPhyid, HCCP_VM_IFACE_ROCE);
+    struct SocketConnectInfoT conn = {};
+    conn.socketHandle = socketHandle;
+    conn.remoteIp.addr.s_addr = peerIp;
+    conn.port = port;
+    PingMeshIpTag(peerIp, conn.tag, sizeof(conn.tag));
+    ret = RaSocketBatchConnect(&conn, 1);
+    if (ret != 0) {
+        TEST_LOG_ERROR(phyid, "client connect to peer %d failed ret=%d", peerPhyid, ret);
+        RaSocketDeinit(socketHandle);
+        return ret;
+    }
+
+    /* wait for client-role fd to be established */
+    char cliTag[SOCK_CONN_TAG_SIZE] = {0};
+    PingMeshIpTag(peerIp, cliTag, sizeof(cliTag));
+    bool cliDone = false;
+    struct SocketInfoT cliSock = {};
+    const int spinUs = 5 * 1000;
+    for (int spin = 0; !cliDone && spin * spinUs < PING_ESTABLISH_MS * 1000; spin++) {
+        cliSock = {};
+        cliSock.socketHandle = socketHandle;
+        cliSock.remoteIp.addr.s_addr = peerIp;
+        (void)snprintf(cliSock.tag, sizeof(cliSock.tag), "%s", cliTag);
+        unsigned int num = 0;
+        ret = RaGetSockets(1, &cliSock, 1, &num);
+        if (ret == 0 && num == 1 && cliSock.status == 1 && cliSock.fdHandle != nullptr) {
+            cliDone = true;
+            break;
+        }
+        usleep((useconds_t)spinUs);
+    }
+    if (!cliDone) {
+        TEST_LOG_ERROR(
+            phyid, "client sync socket to peer %d not established within %dms", peerPhyid, PING_ESTABLISH_MS);
+        RaSocketDeinit(socketHandle);
+        return 1;
+    }
+
+    /* exchange comm info: send local {eid, client qpInfo}, receive peer's */
+    ret = RaSocketSendAll(cliSock.fdHandle, &mine, sizeof(mine));
+    if (ret != 0) {
+        TEST_LOG_ERROR(phyid, "send comm info to peer %d failed ret=%d", peerPhyid, ret);
+        struct SocketCloseInfoT closeInfo = {};
+        closeInfo.socketHandle = socketHandle;
+        closeInfo.fdHandle = cliSock.fdHandle;
+        closeInfo.disuseLinger = 0;
+        (void)RaSocketBatchClose(&closeInfo, 1);
+        RaSocketDeinit(socketHandle);
+        return ret;
+    }
+    ret = RaSocketRecvAll(cliSock.fdHandle, peerComm, sizeof(*peerComm));
+    if (ret != 0) {
+        TEST_LOG_ERROR(phyid, "recv comm info from peer %d failed ret=%d", peerPhyid, ret);
+        struct SocketCloseInfoT closeInfo = {};
+        closeInfo.socketHandle = socketHandle;
+        closeInfo.fdHandle = cliSock.fdHandle;
+        closeInfo.disuseLinger = 0;
+        (void)RaSocketBatchClose(&closeInfo, 1);
+        RaSocketDeinit(socketHandle);
+        return ret;
+    }
+    TEST_LOG_INFO(
+        phyid, "comm info exchanged with peer %d: eid.in4=0x%08x token=0x%x", peerPhyid, peerComm->eid.in4.addr,
+        peerComm->qpInfo.ub.tokenValue);
+
+    struct SocketCloseInfoT closeInfo = {};
+    closeInfo.socketHandle = socketHandle;
+    closeInfo.fdHandle = cliSock.fdHandle;
+    closeInfo.disuseLinger = 0;
+    (void)RaSocketBatchClose(&closeInfo, 1);
+    RaSocketDeinit(socketHandle);
+    return 0;
+}
+
+/* server side: listen and accept client connection, exit after exchanging comm info. */
+static int PingMeshRcSerialServerExchange(
+    int phyid, uint32_t localIp, unsigned short port, const struct PingTargetCommInfo& mine,
+    struct PingTargetCommInfo* peerComm)
+{
+    struct SocketInitInfoT socketInit = {};
+    socketInit.rdevInfo.phyId = (unsigned int)phyid;
+    socketInit.rdevInfo.family = AF_INET;
+    socketInit.rdevInfo.localIp.addr.s_addr = localIp;
+    socketInit.scopeId = 4;
+    void* socketHandle = NULL;
+    int ret = RaSocketInitV1(NETWORK_OFFLINE, socketInit, &socketHandle);
+    if (ret != 0) {
+        TEST_LOG_ERROR(phyid, "RaSocketInitV1 failed ret=%d", ret);
+        return ret;
+    }
+
+    struct SocketListenInfoT listenInfo = {};
+    listenInfo.socketHandle = socketHandle;
+    listenInfo.port = port;
+    ret = RaSocketListenStart(&listenInfo, 1);
+    if (ret != 0) {
+        TEST_LOG_ERROR(phyid, "RaSocketListenStart failed ret=%d", ret);
+        RaSocketDeinit(socketHandle);
+        return ret;
+    }
+
+    /* client connects here; tag is the decimal string derived by client from local IP */
+    struct SocketWlistInfoT wlist = {};
+    wlist.remoteIp.addr.s_addr = PingMeshLoopbackIp(1, HCCP_VM_IFACE_ROCE); /* client is phy 1 */
+    wlist.connLimit = 1;
+    PingMeshIpTag(localIp, wlist.tag, sizeof(wlist.tag));
+    ret = RaSocketWhiteListAdd(socketHandle, &wlist, 1);
+    if (ret != 0) {
+        TEST_LOG_ERROR(phyid, "RaSocketWhiteListAdd failed ret=%d", ret);
+        struct SocketListenInfoT stopListen = {};
+        stopListen.socketHandle = socketHandle;
+        (void)RaSocketListenStop(&stopListen, 1);
+        RaSocketDeinit(socketHandle);
+        return ret;
+    }
+
+    char srvTag[SOCK_CONN_TAG_SIZE] = {0};
+    PingMeshIpTag(localIp, srvTag, sizeof(srvTag));
+    bool srvDone = false;
+    struct SocketInfoT srvSock = {};
+    const int spinUs = 5 * 1000;
+    for (int spin = 0; !srvDone && spin * spinUs < PING_ESTABLISH_MS * 1000; spin++) {
+        srvSock = {};
+        srvSock.socketHandle = socketHandle;
+        (void)snprintf(srvSock.tag, sizeof(srvSock.tag), "%s", srvTag);
+        unsigned int num = 0;
+        ret = RaGetSockets(0, &srvSock, 1, &num);
+        if (ret == 0 && num == 1 && srvSock.status == 1 && srvSock.fdHandle != nullptr) {
+            srvDone = true;
+            break;
+        }
+        usleep((useconds_t)spinUs);
+    }
+    if (!srvDone) {
+        TEST_LOG_ERROR(phyid, "server sync socket not established within %dms", PING_ESTABLISH_MS);
+        struct SocketListenInfoT stopListen = {};
+        stopListen.socketHandle = socketHandle;
+        (void)RaSocketListenStop(&stopListen, 1);
+        RaSocketDeinit(socketHandle);
+        return 1;
+    }
+
+    ret = RaSocketRecvAll(srvSock.fdHandle, peerComm, sizeof(*peerComm));
+    if (ret != 0) {
+        TEST_LOG_ERROR(phyid, "server recv comm info failed ret=%d", ret);
+        struct SocketCloseInfoT closeInfo = {};
+        closeInfo.socketHandle = socketHandle;
+        closeInfo.fdHandle = srvSock.fdHandle;
+        closeInfo.disuseLinger = 0;
+        (void)RaSocketBatchClose(&closeInfo, 1);
+        struct SocketListenInfoT stopListen = {};
+        stopListen.socketHandle = socketHandle;
+        (void)RaSocketListenStop(&stopListen, 1);
+        RaSocketDeinit(socketHandle);
+        return ret;
+    }
+    ret = RaSocketSendAll(srvSock.fdHandle, &mine, sizeof(mine));
+    if (ret != 0) {
+        TEST_LOG_ERROR(phyid, "server send comm info failed ret=%d", ret);
+        struct SocketCloseInfoT closeInfo = {};
+        closeInfo.socketHandle = socketHandle;
+        closeInfo.fdHandle = srvSock.fdHandle;
+        closeInfo.disuseLinger = 0;
+        (void)RaSocketBatchClose(&closeInfo, 1);
+        struct SocketListenInfoT stopListen = {};
+        stopListen.socketHandle = socketHandle;
+        (void)RaSocketListenStop(&stopListen, 1);
+        RaSocketDeinit(socketHandle);
+        return ret;
+    }
+    TEST_LOG_INFO(phyid, "server comm info exchanged: peer eid.in4=0x%08x", peerComm->eid.in4.addr);
+
+    struct SocketCloseInfoT closeInfo = {};
+    closeInfo.socketHandle = socketHandle;
+    closeInfo.fdHandle = srvSock.fdHandle;
+    closeInfo.disuseLinger = 0;
+    (void)RaSocketBatchClose(&closeInfo, 1);
+    struct SocketListenInfoT stopListen = {};
+    stopListen.socketHandle = socketHandle;
+    (void)RaSocketListenStop(&stopListen, 1);
+    RaSocketDeinit(socketHandle);
+    return 0;
+}
+
+/* Single-role main flow: role=1 is client, otherwise server0/1 (distinguished by serverIdx). */
+static int PingMeshRcSerialRun(int phyid, int role, int serverIdx)
+{
+    PingMeshEnv e;
+    int ret = PingMeshOfflineBase(e, phyid);
+    if (ret != 0) {
+        return ret;
+    }
+
+    const uint32_t localIp = PingMeshLoopbackIp((uint32_t)phyid, HCCP_VM_IFACE_ROCE);
+    union HccpEid eid = {};
+    uint32_t eidIndex = 0;
+    ret = PingMeshResolveEid(phyid, localIp, &eid, &eidIndex);
+    if (ret != 0) {
+        return PingMeshTeardown(e, ret);
+    }
+
+    struct PingInitInfo initInfo = {};
+    ret = PingMeshInitRc(phyid, (uint32_t)phyid, eid, eidIndex, initInfo, &e.pingHandle);
+    if (ret != 0) {
+        return PingMeshTeardown(e, ret);
+    }
+
+    struct PingTargetCommInfo mine = {};
+    mine.eid = eid;
+    mine.qpInfo = initInfo.client;
+
+    if (role == 1) {
+        /* client: build one sync socket with each of server0/1, exchange comm info, drive two rounds serially */
+        const int serverPhyids[2] = {5, 6};
+        const unsigned short serverPorts[2] = {PING_MESH_PORT, (unsigned short)(PING_MESH_PORT + 1)};
+        for (int round = 0; round < 2; round++) {
+            struct PingTargetCommInfo peerComm = {};
+            ret = PingMeshRcSerialClientExchange(
+                phyid, serverPhyids[round], localIp, serverPorts[round], mine, &peerComm);
+            if (ret != 0) {
+                return PingMeshTeardown(e, ret);
+            }
+            ret = PingMeshRcSerialClientRound(phyid, round, peerComm, e.pingHandle);
+            if (ret != 0) {
+                return PingMeshTeardown(e, ret);
+            }
+        }
+    } else {
+        const unsigned short port = (serverIdx == 0) ? PING_MESH_PORT : (unsigned short)(PING_MESH_PORT + 1);
+        struct PingTargetCommInfo peerComm = {};
+        ret = PingMeshRcSerialServerExchange(phyid, localIp, port, mine, &peerComm);
+        if (ret != 0) {
+            return PingMeshTeardown(e, ret);
+        }
+        TEST_LOG_INFO(phyid, "serial server%d handshake complete", serverIdx);
+    }
+
+    return PingMeshTeardown(e, 0);
+}
+
+/* Three-phy asymmetric: 1=client, 5=server0, 6=server1. client serially add->del->add two servers. */
+TEST_F(HccpSystemTest, HltPingmeshRcSerialReconnect)
+{
+    RunTests({1, 5, 6}, [this](int phyid) -> int {
+        int role = (phyid == 1) ? 1 : 0;
+        int serverIdx = (phyid == 5) ? 0 : 1;
+        int ret = PingMeshRcSerialRun(phyid, role, serverIdx);
+        if (ret != 0) {
+            TEST_LOG_ERROR(phyid, "HltPingmeshRcSerialReconnect failed ret=%d", ret);
         }
         return ret;
     });
