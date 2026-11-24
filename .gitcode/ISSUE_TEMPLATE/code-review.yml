@@ -1,0 +1,52 @@
+name: Code-Review|代码检视
+description: 当您需要提交或跟踪 PR 代码检视意见（如合入后遗留检视意见跟踪）时，请使用此模板。
+title: "[Code-Review|代码检视]: "
+labels: ["code-review"]
+type: "任务"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sending an issue! Please fill in the following template to help quickly solve your problem.
+  - type: textarea
+    attributes:
+      label: Related PR / 关联 PR (Mandatory / 必填)
+      description: 请给出检视意见对应的 PR 链接或编号
+      placeholder: "PR: https://gitcode.com/cann/hcomm/pull/1234"
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Review Baseline / 检视基线 (Optional / 选填)
+      description: 请给出检视所基于的 PR head commit 或 PR 合入时间，用于定位检视时的代码基线
+      placeholder: "PR head commit: xxxxxxx（合入时间: 2026-11-19T11:37:32+08:00）"
+    validations:
+      required: false
+  - type: textarea
+    attributes:
+      label: Review Comments / 检视意见清单 (Mandatory / 必填)
+      description: 请逐条列出检视意见，每条包含严重级别（CRITICAL/HIGH/MEDIUM/LOW）、文件与行号（file:line）、检视维度、问题分析及建议修复
+      placeholder: |
+        1. [HIGH] `src/base_comm/xxx/yyy.cc:123`
+           - 检视维度: 错误处理与返回值
+           - 问题分析: 该行未校验返回值，失败时继续向下执行
+           - 建议修复: 增加返回值校验，失败时提前返回错误码
+        2. [LOW] `src/base_comm/xxx/zzz.cc:456`
+           - 检视维度: 编码规范
+           - 问题分析: 函数命名未直接体现设置动作
+           - 建议修复: 重命名为 SetXxx
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Disposition / 处置说明 (Optional / 选填)
+      description: 请给出各检视意见的处置口径（已修复 / 部分修复 / 拒绝转跟踪等）
+      placeholder: "已修复的线程已回复并关闭；以下条目为未修复 / 部分修复 / 拒绝项，转本 Issue 跟踪。"
+    validations:
+      required: false
+  - type: textarea
+    attributes:
+      label: Special notes for this issue / 备注 (Optional / 选填)
+      description: 补充下其他您认为需要提供的信息
+    validations:
+      required: false
