@@ -15,6 +15,11 @@
 #include <map>
 #include <unordered_map>
 #include <utility>
+
+// 访问私有成员验证分段上界判定路径（与ut_rank_graph_builder.cc同款惯例）
+#define private public
+#define protected public
+
 #include "rank_gph.h"
 #include "rank_graph_v2.h"
 #include "rank_graph_builder.h"
@@ -22,6 +27,9 @@
 #include "detour_service.h"
 #include "ranktable_builder.h"
 #include "internal_exception.h"
+
+#undef private
+#undef protected
 
 using namespace Hccl;
 
@@ -1046,6 +1054,73 @@ TEST_F(RankGraphTest, Ut_VirtualGroups_When_ContinuousParent_Expect_ChildInherit
     u32 count = 0;
     ASSERT_EQ(child->GetNetInstanceList(1, sizes, count), HCCL_SUCCESS);
     EXPECT_EQ(sizes, (std::vector<u32>{1, 1, 1, 1}));
+}
+
+// 分段上界按层值比较：超过上界的层保持物理口径；稀疏层集合不因下标/层值错位误切（回归层值修复）
+TEST_F(RankGraphTest, Ut_VirtualGroups_When_BoundEqualsSparseLayerValue_Expect_BoundLayerSegmentedAbovePhysical)
+{
+    const std::vector<VirtualTestLayer> layers = {{{0}, {2}, {4}, {6}}, {{4, 6}}, {{0, 2}}, {{0, 2}}, {{0, 2}}};
+    auto graph = MakeVirtualTestGraph(0, layers);
+    EXPECT_EQ(graph->GetLevels(0), (std::set<u32>{0, 2, 3, 4}));
+    graph->physicalSuperPodLayer_ = 3; // 层值<=3切段（含上界层3）；层4>上界不切（旧下标逻辑会误切段4）
+    ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS);
+    std::vector<u32> ranks;
+    u32 count = 0;
+    ASSERT_EQ(graph->GetLocalInstRanks(2, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{0})); // 层2({0,2}非连续)按段内口径
+    EXPECT_EQ(count, 1U);
+    ASSERT_EQ(graph->GetLocalInstRanks(3, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{0})); // 层3=上界且非连续：同样切段，按段内口径
+    EXPECT_EQ(count, 1U);
+    ASSERT_EQ(graph->GetLocalInstRanks(4, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{0, 2})); // 层4超过上界：无视图，按物理成员口径
+    EXPECT_EQ(count, 2U);
+}
+
+// 子图不重算物理超节点层：直接继承父图上界，分段口径为父图段的子域投影
+TEST_F(RankGraphTest, Ut_VirtualGroups_When_SubGraph_Expect_ChildInheritsBoundAndMatchesParentSegments)
+{
+    auto layers = VirtualTestThreeLayers();
+    layers[2] = {{0, 1, 2, 3, 8, 9, 10, 11}, {4, 5, 6, 7, 12, 13, 14, 15}}; // 层2非连续：上界层本身也切段
+    auto graph = MakeVirtualTestGraph(8, layers);
+    graph->physicalSuperPodLayer_ = 2; // 上界2：层1与层2(=上界)均切段
+    ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS);
+    graph->InitFinish();
+    std::unique_ptr<RankGraph> child;
+    ASSERT_EQ(graph->CreateSubRankGraph({0, 4, 8, 12}, child), HCCL_SUCCESS);
+    ASSERT_NE(child, nullptr);
+    EXPECT_EQ(2U, child->physicalSuperPodLayer_); // 继承父图上界
+
+    std::vector<u32> ranks;
+    u32 count = 0;
+    ASSERT_EQ(graph->GetLocalInstRanks(1, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, VirtualTestRange(8, 4)); // 父图rank8层1段{8..11}
+    ASSERT_EQ(child->GetLocalInstRanks(1, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{2})); // 子图口径=父图段投影({8}->子rank2)；物理口径应为{0,2}
+    ASSERT_EQ(graph->GetLocalInstRanks(2, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, VirtualTestRange(8, 4)); // 父图层2=上界：非连续同样切段，rank8段{8..11}
+    ASSERT_EQ(child->GetLocalInstRanks(2, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{2})); // 子图层2=上界：同样切段，口径=父图段投影
+}
+
+// 父图上界为禁止切段值0（builder告警跳过写入）：子图继承后同样不建视图，不回落全域切段旧行为
+TEST_F(RankGraphTest, Ut_VirtualGroups_When_ParentBoundZero_Expect_ChildAlsoNoView)
+{
+    auto graph = MakeVirtualTestGraph(8, VirtualTestThreeLayers());
+    graph->physicalSuperPodLayer_ = 0;
+    ASSERT_EQ(graph->BuildVirtualGroups(), HCCL_SUCCESS);
+    graph->InitFinish();
+    std::unique_ptr<RankGraph> child;
+    ASSERT_EQ(graph->CreateSubRankGraph({0, 4, 8, 12}, child), HCCL_SUCCESS);
+    ASSERT_NE(child, nullptr);
+    EXPECT_EQ(0U, child->physicalSuperPodLayer_); // 继承禁止值0
+
+    std::vector<u32> ranks;
+    u32 count = 0;
+    ASSERT_EQ(graph->GetLocalInstRanks(1, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{0, 1, 2, 3, 8, 9, 10, 11})); // 父图物理成员口径（无分段视图）
+    ASSERT_EQ(child->GetLocalInstRanks(1, ranks, count), HCCL_SUCCESS);
+    EXPECT_EQ(ranks, (std::vector<u32>{0, 2})); // 子图物理成员口径：旁路已堵，不再回落全域切段
 }
 
 // ===================== worldteam 批量可达性优化新增接口 =====================

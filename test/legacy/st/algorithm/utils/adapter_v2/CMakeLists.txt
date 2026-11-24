@@ -13,6 +13,8 @@ set (include_list
     ${HCOMM_CODE_LEGACY}/common
     ${HCOMM_DIR}/src/base_comm/common/debug
     ${HCOMM_DIR}/src/coll_communicator_mgr/config_mgr
+    ${HCOMM_DIR}/include
+    ${HCOMM_DIR}/src/base_comm/inc
 
     ${UTILS_DIR}/adapter_v1/aiv
 
@@ -128,9 +130,14 @@ add_library(hccl_alg_adaption_v2 SHARED
     ${HCOMM_RANK_GRAPH}/rank_graph/rank_graph.cc
     ${HCOMM_RANK_GRAPH}/rank_graph/net_instance.cc
     ${HCOMM_RANK_GRAPH}/rank_graph_builder/rank_graph_builder.cc
+    ${HCOMM_RANK_GRAPH}/rank_graph_builder/rank_graph_builder_provider.cc
+    ${HCOMM_RANK_GRAPH}/rank_graph_builder/rank_graph_builder_bridge.cc
     ${HCOMM_RANK_GRAPH}/rank_graph_builder/detour_service.cc
     ${HCOMM_RANK_GRAPH}/rank_graph_builder/detour_rules.cc
     ${HCOMM_RANK_GRAPH}/rank_graph_builder/updater_for_64_plus_1.cc
+    ${HCOMM_DIR}/src/coll_communicator_mgr/config_mgr/net_layer_config.cc
+    ${HCOMM_DIR}/src/coll_communicator_mgr/config_mgr/env_net_layer_config.cc
+    ${UTILS_DIR}/adapter_v2/coll_comm_config_stub.cc
     ${HCOMM_LEGACY_FRAMEWORK}/env_config/env_config.cc
     ${HCOMM_LEGACY_FRAMEWORK}/env_config/env_func.cc
     ${HCOMM_LEGACY_FRAMEWORK}/env_config/base_config_legacy.cc

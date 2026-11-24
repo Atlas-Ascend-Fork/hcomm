@@ -1069,9 +1069,37 @@ HcclResult RankGraphBuilder::BuildRankGraph(bool enableVirtualGroups)
         rankGraph_->buildLayerSelection_ = RankGraph::BuildLayerSelection{availableLayers_, selectedLayers_.value()};
     }
     // 建域不要求全域连通，Send/Recv 可以只使用同组成员间的链路。
-    // 构造完成
+    // 构造完成；物理超节点层每次 BuildRankGraph 判定一次；子图不重算、直接继承父图上界；恢复路径经 RecoverBuild
+    // 重建图时重新判定。
     if (enableVirtualGroups) {
-        CHK_RET(rankGraph_->BuildVirtualGroups());
+        u32 physicalSuperPodLayer = MAX_NET_LAYER;
+        // topoInfo_ 为空时与无已注册层同样告警后跳过，不静默回落全域切段旧行为。
+        HcclResult superPodRet = HCCL_SUCCESS;
+        if (topoInfo_ == nullptr) {
+            superPodRet = HcclResult::HCCL_E_PTR;
+        } else {
+            superPodRet = FindSuperPodLayer(*rankTable_, *topoInfo_, physicalSuperPodLayer);
+        }
+        if (superPodRet == HCCL_E_NOT_SUPPORT) {
+            // 首个跨超协议层是最低层、其下没有网络层：告警后不建虚拟分组视图
+            HCCL_WARNING(
+                "[RankGraphBuilder][%s] inter layer is the lowest layer, skip building virtual groups", __func__);
+            rankGraph_->physicalSuperPodLayer_ = 0; // 禁止切段；子图继承 0 后同样不建视图
+        } else if (superPodRet == HCCL_E_NOT_FOUND) {
+            // 全表无已注册层：单独告警跳过，坏表由后续建图以各自错误报出
+            HCCL_WARNING(
+                "[RankGraphBuilder][%s] no net layer registered in table, skip building virtual groups", __func__);
+            rankGraph_->physicalSuperPodLayer_ = 0; // 禁止切段；子图继承 0 后同样不建视图
+        } else if (superPodRet == HCCL_E_PTR) {
+            // topo 解析缺失（如 PhyTopo 已初始化但 topoInfo 未发布）：告警后不建虚拟分组视图
+            HCCL_WARNING("[RankGraphBuilder][%s] topoInfo is nullptr, skip building virtual groups", __func__);
+            rankGraph_->physicalSuperPodLayer_ = 0; // 禁止切段；子图继承 0 后同样不建视图
+        } else {
+            CHK_RET(superPodRet);
+            // 上界随图保存供子图继承，写入方式与 buildLayerSelection_ 一致。
+            rankGraph_->physicalSuperPodLayer_ = physicalSuperPodLayer;
+            CHK_RET(rankGraph_->BuildVirtualGroups());
+        }
     }
     rankGraph_->InitFinish();
     if (selectedLayers_.has_value()) {

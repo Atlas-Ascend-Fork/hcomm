@@ -166,8 +166,11 @@ HcclResult RankGraph::BuildVirtualGroups()
     TRY_CATCH_RETURN(localLevels = GetLevels(myRank_););
     const std::vector<u32> levels(localLevels.begin(), localLevels.end());
     std::unordered_map<u32, LayerVirtualGroups> newViews;
-    // 当前策略：跳过当前 rank 加入的最低层级
+    // 当前策略：跳过当前 rank 加入的最低层级；分段上界为物理超节点层（层值），levels 升序，超过上界即停止切分。
     for (size_t i = 1; i < levels.size(); ++i) {
+        if (levels[i] > physicalSuperPodLayer_) {
+            break;
+        }
         LayerVirtualGroups view;
         bool hasSplit = false;
         CHK_RET(BuildLayerVirtualGroups(levels[i], view, hasSplit));
@@ -1248,8 +1251,9 @@ HcclResult RankGraph::CreateSubRankGraphImpl(
         }
         CHK_RET(subRankGraph->SetInnerRanks(subInnerRanks));
     }
-    // step6: 构造完成
+    // step6: 构造完成；子图无 rankTable/topoInfo，不重算物理超节点层，继承父图分段上界。
     if (enableVirtualGroups_) {
+        subRankGraph->physicalSuperPodLayer_ = physicalSuperPodLayer_;
         CHK_RET(subRankGraph->BuildVirtualGroups());
     }
     subRankGraph->InitFinish();

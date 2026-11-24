@@ -178,6 +178,8 @@ private:
     bool level0PcieFallback_{false};             // 本rank的level0是否为无UB兜底层
     u32 logicSuperPodSplitLayer_{MAX_NET_LAYER}; // 逻辑超节点拆分生效的目标层，MAX_NET_LAYER表示未生效
     bool logicSuperPodSplitEnabled_{false};      // 是否已启用逻辑超节点拆分
+    u32 physicalSuperPodLayer_{
+        MAX_NET_LAYER}; // 虚拟分组分段上界：默认 MAX_NET_LAYER 不限制；0 表示禁止；由 RankGraphBuilder 写入，子图继承
     std::map<RankId, std::string> logicSuperPodGroupIds_;    // rankId→逻辑ID，SetLogicSuperPodSplit时拷入
     std::unordered_map<RankId, RankIpIndexList> ipIndexMap_; // ipIndex 映射表，由 RankGraphBuilder 统一设置
     std::optional<BuildLayerSelection> buildLayerSelection_;

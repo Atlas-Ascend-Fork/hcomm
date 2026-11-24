@@ -1208,6 +1208,24 @@ TEST_F(RankGraphBuilderTest, Ut_Build_When_LogLevelDebug_Expect_Success)
     EXPECT_NO_THROW(rankGraphBuilder.Build(test::MakeRankTable2p(), "topo.json", 0));
 }
 
+// topo解析缺失：告警后写禁止切段值0并跳过建虚拟分组视图，不静默回落全域切段旧行为
+TEST_F(RankGraphBuilderTest, Ut_Build_When_TopoInfoNull_Expect_WarningSkipAndZeroBound)
+{
+    MOCKER_CPP(&hccl::PhyTopoBuilder::Build).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hccl::PhyTopoBuilder::GetTopoInfo).stubs().will(returnValue(std::shared_ptr<hccl::TopoInfo>()));
+    MOCKER_CPP(&RankGraphBuilder::BuildFromRankTable).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankGraph::BuildVirtualGroups).expects(never()); // 空指针分支不得建虚拟分组视图
+    MOCKER_CPP(&RankGraphBuilder::BuildPeer2PeerLinks).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankGraphBuilder::UpdateTopoInstForMyRankOnly).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankGraphBuilder::SetEndpointDesc).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&DetourService::InsertDetourLinks).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+
+    RankGraphBuilder rankGraphBuilder;
+    std::unique_ptr<RankGraph> rankGraph = rankGraphBuilder.Build(test::MakeRankTable2p(), "topo.json", 0);
+    ASSERT_NE(nullptr, rankGraph);
+    EXPECT_EQ(0U, rankGraph->physicalSuperPodLayer_); // 禁止切段：子图继承后同样不建视图
+}
+
 // RecoverBuild（快照恢复主链路）成功后的全量 Dump 同样受日志级别门控，DEBUG 未开启时跳过
 TEST_F(RankGraphBuilderTest, Ut_RecoverBuild_When_LogLevelNotDebug_Expect_DumpSkipped)
 {
@@ -2223,6 +2241,54 @@ TEST_F(TableRewriteBuildTest, Ut_Build_When_TwoPhysicalSuperpods_Expect_BothRewr
     EXPECT_FALSE(graph->GetPaths(TARGET_LAYER, RANK_0, RANK_1).empty()); // 同物理同组超内保留
     EXPECT_TRUE(graph->GetPaths(TARGET_LAYER, RANK_0, RANK_2).empty());  // 跨物理目标层0条
     EXPECT_FALSE(graph->GetPaths(INTER_LAYER, RANK_0, RANK_2).empty());  // 跨超层可用
+}
+
+// FindSuperPodLayer判定跨超层为最低已注册层(NOT_SUPPORT)：告警后写禁止切段值0、不建虚拟分组视图
+TEST_F(TableRewriteBuildTest, Ut_RecoverBuild_When_FindNotSupport_Expect_ZeroBoundNoView)
+{
+    MOCKER(Hccl::FindSuperPodLayer).stubs().will(returnValue(HcclResult::HCCL_E_NOT_SUPPORT));
+    MOCKER_CPP(&RankGraph::BuildVirtualGroups).expects(never()); // 告警跳过分支不得建虚拟分组视图
+
+    const auto* bridge = GetRankGraphBuilderBridge();
+    ASSERT_NE(bridge, nullptr);
+    RankGraphBuildResult result;
+    ASSERT_EQ(bridge->recoverBuild(MakeSuperpodTable(), MakeSuperpodTopo(), RANK_0, true, "", result), HCCL_SUCCESS);
+    auto graph = result.rankGraph;
+    ASSERT_NE(graph, nullptr);
+    EXPECT_EQ(0U, graph->physicalSuperPodLayer_); // 禁止切段：子图继承后同样不建
+}
+
+// FindSuperPodLayer全表无已注册层(NOT_FOUND)：告警后写禁止切段值0、不建虚拟分组视图
+TEST_F(TableRewriteBuildTest, Ut_RecoverBuild_When_FindNotFound_Expect_ZeroBoundNoView)
+{
+    MOCKER(Hccl::FindSuperPodLayer).stubs().will(returnValue(HcclResult::HCCL_E_NOT_FOUND));
+    MOCKER_CPP(&RankGraph::BuildVirtualGroups).expects(never()); // 告警跳过分支不得建虚拟分组视图
+
+    const auto* bridge = GetRankGraphBuilderBridge();
+    ASSERT_NE(bridge, nullptr);
+    RankGraphBuildResult result;
+    ASSERT_EQ(bridge->recoverBuild(MakeSuperpodTable(), MakeSuperpodTopo(), RANK_0, true, "", result), HCCL_SUCCESS);
+    auto graph = result.rankGraph;
+    ASSERT_NE(graph, nullptr);
+    EXPECT_EQ(0U, graph->physicalSuperPodLayer_); // 禁止切段：子图继承后同样不建
+}
+
+// 成功分支：判定出的物理超节点层写入图供BuildVirtualGroups与子图继承；层值超过上界的层保持物理口径
+TEST_F(TableRewriteBuildTest, Ut_RecoverBuild_When_FindSucceeded_Expect_BoundWrittenAndLayersAboveBoundPhysical)
+{
+    const auto* bridge = GetRankGraphBuilderBridge();
+    ASSERT_NE(bridge, nullptr);
+    RankGraphBuildResult result;
+    ASSERT_EQ(bridge->recoverBuild(MakeSuperpodTable(), MakeSuperpodTopo(), RANK_0, true, "", result), HCCL_SUCCESS);
+    auto graph = result.rankGraph;
+    ASSERT_NE(graph, nullptr);
+    EXPECT_EQ(TARGET_LAYER, graph->physicalSuperPodLayer_); // 判定值1，非默认8亦非禁止值0
+
+    std::vector<u32> rankList;
+    u32 rankNum = 0;
+    EXPECT_EQ(graph->GetLocalInstRanks(INTER_LAYER, rankList, rankNum), HCCL_SUCCESS);
+    EXPECT_EQ(rankNum, 4U); // 层2超过上界(1)：不切段，按物理实例成员口径返回
+    EXPECT_EQ(rankList, std::vector<u32>({RANK_0, RANK_1, RANK_2, RANK_3}));
 }
 
 // 已配置但topo文件不可读时，返回错误且不改写原表
