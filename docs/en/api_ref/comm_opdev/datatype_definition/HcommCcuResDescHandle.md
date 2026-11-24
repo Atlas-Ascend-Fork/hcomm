@@ -4,7 +4,7 @@
 
 ## Description
 
-CCU resource descriptor handle type (`uint64_t`). A resource descriptor describes the quantity specifications of various resources (loop, buffer, variable, address, event, thread, instruction) required by a CCU instance, and does not contain actual resources. One resource descriptor corresponds to one IO die.
+CCU resource descriptor handle type (`uint64_t`). A resource descriptor describes the quantity specifications of various resources (loop, buffer, variable, address, event, thread, instruction, casc count) required by a CCU instance, and does not contain actual resources. One resource descriptor corresponds to one IO die.
 
 It is created by [HcommCcuInsResDescCreate](../control_plane_api/ccu_resource_mgmt/HcommCcuInsResDescCreate.md) on the host side. After creation, the quantity of each resource type is initialized to 0. The quantity can be set type by type through [HcommCcuInsResDescSetNum](../control_plane_api/ccu_resource_mgmt/HcommCcuInsResDescSetNum.md) and queried through [HcommCcuInsResDescQueryNum](../control_plane_api/ccu_resource_mgmt/HcommCcuInsResDescQueryNum.md). After the settings are complete, it is passed to [HcommCcuInsCreate](../control_plane_api/ccu_resource_mgmt/HcommCcuInsCreate.md) to create a CCU instance.
 

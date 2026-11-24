@@ -53,8 +53,11 @@ int32_t：接口成功返回0，其他失败。
     <!-- end id8 -->
 <!-- end id6 -->
 <!-- npu="950" id9 -->
-- 针对Ascend 950PR&950DT系列产品，在Host CPU侧调用时，申请入参`channel`使用的通信引擎须为`COMM_ENGINE_CPU`，且`channelDesc.remoteEndpoint.protocol`须为`COMM_PROTOCOL_ROCE`或`COMM_PROTOCOL_UB_CTP`。
-- 针对Ascend 950PR&950DT系列产品，也支持在Device侧以Host CPU线程（[HcclThreadAcquireWithConfig](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquireWithConfig.md)接口申请的`THREAD_TYPE_CPU`线程）调用：该接口将排空任务提交至Host CPU线程的任务队列后立即返回，由Host侧按提交顺序执行，接口返回成功仅表示提交成功；入参`channel`须满足上述Host CPU侧调用时的通道约束。
+针对Ascend 950PR&950DT系列产品，支持AI CPU侧、Host CPU侧调用，也支持在Device侧以Host CPU线程（[HcclThreadAcquireWithConfig](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquireWithConfig.md)接口申请的`THREAD_TYPE_CPU`线程）调用。
+
+- AI CPU侧调用时，通信引擎为AICPU_TS，支持通信协议UB_CTP、UBoE、UB_RTP。
+- Host CPU侧调用时，调用[HcommChannelCreate](../../../control_plane_api/basic_resource_mgmt/HcommChannelCreate.md)或[HcclChannelAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclChannelAcquire.md)申请入参channel时，需传入`engine = COMM_ENGINE_CPU`，且`channelDesc.remoteEndpoint.protocol`需为`COMM_PROTOCOL_ROCE`或`COMM_PROTOCOL_UB_CTP`。
+- Host CPU线程模式下，该接口将排空任务提交至Host CPU线程的任务队列后立即返回，由Host侧按提交顺序执行，接口返回成功仅表示提交成功；入参`channel`须满足上述Host CPU侧调用时的通道约束。
 <!-- end id9 -->
 - 同一个`ChannelHandle`不支持多线程并发访问。
 - 同一个`ThreadHandle`不支持多线程并发访问。

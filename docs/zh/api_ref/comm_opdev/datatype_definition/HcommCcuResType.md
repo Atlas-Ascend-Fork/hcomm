@@ -15,7 +15,8 @@ typedef enum {
     HCOMM_CCU_RES_TYPE_ADDRESS = 3,
     HCOMM_CCU_RES_TYPE_EVENT = 4,
     HCOMM_CCU_RES_TYPE_CCU_THREAD = 5,
-    HCOMM_CCU_RES_TYPE_INSTRUCTION = 6
+    HCOMM_CCU_RES_TYPE_INSTRUCTION = 6,
+    HCOMM_CCU_RES_TYPE_CASC_CNT = 7
 } HcommCcuResType;
 ```
 
@@ -31,3 +32,4 @@ typedef enum {
 | HCOMM_CCU_RES_TYPE_EVENT | 4 | Event资源，即Kernel内通过[Event](../data_plane_api/ccu/resource_allocation_operation/Event.md)创建的事件资源。 |
 | HCOMM_CCU_RES_TYPE_CCU_THREAD | 5 | CCU Thread资源。 |
 | HCOMM_CCU_RES_TYPE_INSTRUCTION | 6 | Instruction资源。 |
+| HCOMM_CCU_RES_TYPE_CASC_CNT | 7 | 级联计数器（Casc Count）资源。 |

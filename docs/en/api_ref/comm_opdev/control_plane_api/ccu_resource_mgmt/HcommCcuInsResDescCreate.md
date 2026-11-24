@@ -22,7 +22,7 @@
 
 ## Description
 
-Creates an empty CCU resource descriptor. A resource descriptor describes the quantity specifications of various resources (loop, buffer, variable, address, event, thread, instruction) required by a CCU instance, and does not contain actual resources.
+Creates an empty CCU resource descriptor. A resource descriptor describes the quantity specifications of various resources (loop, buffer, variable, address, event, thread, instruction, casc count) required by a CCU instance, and does not contain actual resources.
 
 One resource descriptor corresponds to one IO die. After creation, the quantity of each internal resource type is initialized to 0, and can be set type by type later through `HcommCcuInsResDescSetNum`.
 

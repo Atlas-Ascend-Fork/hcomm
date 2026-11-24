@@ -36,7 +36,7 @@ int32_t HcommChannelDrainOnThread(ThreadHandle thread, ChannelHandle channel)
 
 | Parameter | Input/Output | Description |
 | --- | --- | --- |
-| thread | Input | Communication thread handle. When called on the AI CPU side, this is the thread obtained through the [HcclThreadAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquire.md) API. When called on the host CPU side, this parameter can be set to **0**.<br>For the definition of the ThreadHandle type, see [ThreadHandle](../../../datatype_definition/ThreadHandle.md). |
+| thread | Input | Communication thread handle. When called on the AI CPU side, this is the thread obtained through the [HcclThreadAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquire.md) or [HcclThreadAcquireWithConfig](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquireWithConfig.md) API. When called on the host CPU side, this parameter can be set to **0**. The host CPU thread (`THREAD_TYPE_CPU`) can only be obtained through the [HcclThreadAcquireWithConfig](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquireWithConfig.md) API.<br>For the definition of the ThreadHandle type, see [ThreadHandle](../../../datatype_definition/ThreadHandle.md). |
 | channel | Input | Communication channel handle, which is the channel obtained through [HcommChannelCreate](../../../control_plane_api/basic_resource_mgmt/HcommChannelCreate.md) or [HcclChannelAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclChannelAcquire.md).<br>For the definition of the ChannelHandle type, see [ChannelHandle](../../../datatype_definition/ChannelHandle.md). |
 
 ## Return Value
@@ -55,7 +55,11 @@ int32_t HcommChannelDrainOnThread(ThreadHandle thread, ChannelHandle channel)
     <!-- end id8 -->
 <!-- end id6 -->
 <!-- npu="950" id9 -->
-- For the Ascend 950PR&950DT products, when calling from the host CPU side, the communication engine used by the input parameter `channel` must be `COMM_ENGINE_CPU`, and `channelDesc.remoteEndpoint.protocol` must be `COMM_PROTOCOL_ROCE` or `COMM_PROTOCOL_UB_CTP`.
+For Ascend 950PR&950DT products, this API can be called on the AI CPU side and the host CPU side, and can also be called on the device side using a host CPU thread (the `THREAD_TYPE_CPU` thread applied for through the [HcclThreadAcquireWithConfig](../../../control_plane_api/comms_domain_resource_mgmt/HcclThreadAcquireWithConfig.md) API).
+
+- When the API is called on the AI CPU side, the communication engine is AICPU_TS, and the communication protocols UB_CTP, UBoE, and UB_RTP are supported.
+- When the API is called on the host CPU side, if [HcommChannelCreate](../../../control_plane_api/basic_resource_mgmt/HcommChannelCreate.md) or [HcclChannelAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclChannelAcquire.md) is called to allocate the input parameter `channel`, `engine = COMM_ENGINE_CPU` must be passed in, and `channelDesc.remoteEndpoint.protocol` must be `COMM_PROTOCOL_ROCE` or `COMM_PROTOCOL_UB_CTP`.
+- In host CPU thread mode, this API submits the drain task to the task queue of the host CPU thread and returns immediately. The task is executed by the host in submission order, and a success return only indicates that the submission is successful. The input parameter `channel` must meet the channel constraints for the host CPU side described above.
 <!-- end id9 -->
 - The same `ChannelHandle` does not support concurrent access from multiple threads.
 

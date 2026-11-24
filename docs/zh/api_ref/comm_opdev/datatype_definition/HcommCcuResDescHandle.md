@@ -2,7 +2,7 @@
 
 ## 功能说明
 
-CCU资源描述符句柄类型（`uint64_t`）。资源描述符用于描述CCU实例所需的各类资源（loop、buffer、variable、address、event、thread、instruction）的数量规格，不包含实际资源；一个资源描述符对应一个IO Die。
+CCU资源描述符句柄类型（`uint64_t`）。资源描述符用于描述CCU实例所需的各类资源（loop、buffer、variable、address、event、thread、instruction、casc count）的数量规格，不包含实际资源；一个资源描述符对应一个IO Die。
 
 由Host侧[HcommCcuInsResDescCreate](../control_plane_api/ccu_resource_mgmt/HcommCcuInsResDescCreate.md)创建，创建后各资源类型的数量初始化为0，可通过[HcommCcuInsResDescSetNum](../control_plane_api/ccu_resource_mgmt/HcommCcuInsResDescSetNum.md)逐类型设置，通过[HcommCcuInsResDescQueryNum](../control_plane_api/ccu_resource_mgmt/HcommCcuInsResDescQueryNum.md)查询。设置完成后传给[HcommCcuInsCreate](../control_plane_api/ccu_resource_mgmt/HcommCcuInsCreate.md)创建CCU实例。
 

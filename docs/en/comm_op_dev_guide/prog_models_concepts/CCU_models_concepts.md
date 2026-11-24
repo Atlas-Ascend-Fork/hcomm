@@ -74,12 +74,10 @@ A typical CCU usage pattern is to use on-chip cache for data relay, thereby redu
 - Single resource creation: Use the default constructor to create a resource directly.
 - Batch contiguous resource creation (Loop and LoopGroup operations require resource contiguity):
 
-  Use **ccu::Array** to create resources. Note that using native arrays to create resources (for example, **Variable vars\[10\]**) does not guarantee resource contiguity.
-
 > [!NOTE] Note
 >
 > - CCU concurrent operations require resource contiguity.
-> - Using native arrays to create resources (for example, **Variable vars\[10\]**) does not guarantee resource contiguity.
+> - Use **ccu::Array** to create resources. Note that using native arrays to create resources (for example, **Variable vars\[10\]**) does not guarantee resource contiguity.
 
 ### Usage Example
 

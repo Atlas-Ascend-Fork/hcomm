@@ -20,7 +20,7 @@
 
 ## 功能说明
 
-创建空白CCU资源描述符。资源描述符用于描述CCU实例所需的各类资源（loop、buffer、variable、address、event、thread、instruction）的数量规格，不包含实际资源。
+创建空白CCU资源描述符。资源描述符用于描述CCU实例所需的各类资源（loop、buffer、variable、address、event、thread、instruction、casc count）的数量规格，不包含实际资源。
 
 一个资源描述符对应一个IO Die。创建后其内部各资源类型的数量初始化为0，后续可通过`HcommCcuInsResDescSetNum`逐类型设置。
 
