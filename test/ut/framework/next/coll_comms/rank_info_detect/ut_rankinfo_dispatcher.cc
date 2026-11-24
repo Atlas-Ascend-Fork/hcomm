@@ -402,6 +402,7 @@ TEST_F(RankInfoDispatcherTest, Ut_PrepareResource_BroadcastsNetLayerCheckResult)
     clusterInfo.ranks.push_back(secondRank);
     clusterInfo.rankCount = 2;
     server.rankTable_ = clusterInfo;
+    server.SetRootRankId(0);
 
     NetLayerCheckInfo selected;
     selected.version = NetLayerCheckInfo::VERSION;
@@ -436,12 +437,14 @@ TEST_F(RankInfoDispatcherTest, Ut_PrepareResource_BroadcastsNetLayerCheckResult)
         BinaryStream stream(workers.rankTableMsg_);
         RankTableInfo receivedTable(stream);
         u32 step = 0;
+        u32 receivedRootRankId = UINT32_MAX;
         std::string failedRanks;
-        stream >> step >> failedRanks;
+        stream >> step >> receivedRootRankId >> failedRanks;
         NetLayerCheckInfo received;
         ASSERT_EQ(received.Deserialize(stream), HCCL_SUCCESS);
         EXPECT_EQ(receivedTable.rankCount, 2);
         EXPECT_EQ(step, 1);
+        EXPECT_EQ(receivedRootRankId, 0U);
         EXPECT_TRUE(failedRanks.empty());
         const bool omitted = !item.explicitSelection && item.result == HCCL_SUCCESS;
         EXPECT_EQ(received.version, omitted ? 0U : static_cast<u32>(NetLayerCheckInfo::VERSION));

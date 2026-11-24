@@ -34,7 +34,6 @@
 #include "hccl/hccl_comm.h"
 #include "securec.h"
 #include <cstring>
-#include <cctype>
 #include "common/cast_utils_pub.h"
 #include "sal_pub.h"
 
@@ -60,28 +59,6 @@ namespace {
     // dpu2npu半区flag语义：0=空闲，1=响应就绪，2=对端异常退出（读侧见base_comm/primitives/api_c_adpt下
     // aicpu_ts_sync_data_c_adpt.cc中的WaitFlagReady
     constexpr uint8_t DPU2NPU_FLAG_ABORT = 2;
-
-    // rootHandle.identifier 格式为 hostIp_hostPort_devPhyId_timestamp，取倒数第二段。
-    bool ParseRootDevPhyId(const Hccl::HcclRootHandleV2& rootHandle, u32& rootDevPhyId)
-    {
-        const std::string identifier(rootHandle.identifier);
-        const size_t timestampSep = identifier.rfind('_');
-        if (timestampSep == std::string::npos || timestampSep == 0) {
-            return false;
-        }
-        const size_t devPhyIdSep = identifier.rfind('_', timestampSep - 1);
-        if (devPhyIdSep == std::string::npos || devPhyIdSep + 1 >= timestampSep) {
-            return false;
-        }
-        const std::string devPhyIdStr = identifier.substr(devPhyIdSep + 1, timestampSep - devPhyIdSep - 1);
-        const bool isAllDigits = std::all_of(devPhyIdStr.begin(), devPhyIdStr.end(), [](char ch) {
-            return std::isdigit(static_cast<unsigned char>(ch)) != 0;
-        });
-        if (!isAllDigits) {
-            return false;
-        }
-        return SalStrToULong(devPhyIdStr, HCCL_BASE_DECIMAL, rootDevPhyId) == HCCL_SUCCESS;
-    }
 
     // 注册本 rank 的 host RDMA flush handle：flush 只在 host 网卡参与通信时才需排空，故只挑 rank graph
     // 中 HOST 位置且支持 ROCE 的接口。FlushManager 与 CollComm 同处 hcomm.so，直接调用即可。
@@ -1122,6 +1099,15 @@ HcclResult CollComm::ShutdownRankInfoDetect()
     return HCCL_SUCCESS;
 }
 
+void CollComm::ReleaseCommunicatorResources()
+{
+    // 通信域销毁时必须先释放 HcclCommunicator 的最后一个强引用，让 channel / UB RMA buffer
+    // 在 RankInfoDetect / HccpPeerManager / HccpHdcManager 释放 RA 资源之前完成析构。
+    ownedCommunicator_.reset();
+    hcclCommunicator_.reset();
+    comm_ = nullptr;
+}
+
 HcclResult CollComm::DestroyAicpuComm()
 {
     CHK_PTR_NULL(callbacks_.getAicpuCommState);
@@ -1201,9 +1187,9 @@ HcclResult CollComm::TakeRankInfoDetectFromCommunicator()
         CHK_PRT_RET(
             rootHandle.listenPort == HCCL_INVALID_PORT,
             HCCL_ERROR("[CollComm][%s] rootHandle is not initialized by rank info detect.", __func__), HCCL_E_INTERNAL);
-        // rootRankId 允许在首次 Grow/Shrink 前补取，init 阶段只要求 rootHandle 端点有效。
+        // rootRankId 随初始拓扑广播下发，Init 完成时必须有效。
         CHK_PRT_RET(
-            rootHandle.rootRankId != UINT32_MAX && rootHandle.rootRankId >= GetRankSize(),
+            rootHandle.rootRankId == UINT32_MAX || rootHandle.rootRankId >= GetRankSize(),
             HCCL_ERROR(
                 "[CollComm][%s] invalid root rankId[%u], rankSize[%u].", __func__, rootHandle.rootRankId,
                 GetRankSize()),
@@ -1218,12 +1204,7 @@ HcclResult CollComm::TakeRankInfoDetectFromCommunicator()
 
 HcclResult CollComm::GetCollCommRootInfo(Hccl::HcclRootHandleV2& rootInfo)
 {
-    if (IsRootEndpointValid()) {
-        if (rootHandle_.rootRankId == UINT32_MAX) {
-            // rootRankId 在 init 阶段可能未知：root 直接使用自身 rank，非 root 从本地拓扑解析。
-            CHK_RET(ResolveRootRankIdForDerivation());
-            SetRootHandle(rootHandle_);
-        }
+    if (IsRootIdentityValid()) {
         CHK_PRT_RET(
             generationIndex_ == UINT32_MAX,
             HCCL_ERROR("[CollComm][%s] generationIndex overflow, current[%u].", __func__, generationIndex_),
@@ -1800,8 +1781,8 @@ HcclResult CollComm::BuildShrinkSurvivorRanks(
     uint32_t rankSize = GetRankSize();
     uint32_t myRank = GetMyRankId();
     uint32_t rootRankId = GetRootRankId();
-    // 使用 endpoint 有效性判断“当前域是否有 root”，与 rootRankId 是否已解析解耦。
-    const bool hasRoot = IsRootEndpointValid();
+    // endpoint 与 rootRankId 共同构成有效的 root 身份。
+    const bool hasRoot = IsRootIdentityValid();
     HCCL_INFO("[%s] excludeRanksCount[%u], rankSize[%u], myRank[%u].", __func__, excludeRanksCount, rankSize, myRank);
     // root 存在时 rootRankId 必须已初始化且落在当前域内；root 被剔除后的派生域允许 root 不存在
     if (hasRoot) {
@@ -1853,105 +1834,6 @@ HcclResult CollComm::BuildShrinkSurvivorRanks(
     return HCCL_SUCCESS;
 }
 
-HcclResult CollComm::ResolveRootRankIdForDerivation()
-{
-    // rootHandle 已清空表示当前派生域本来就没有 root，后续 Shrink/Grow 无需再解析。
-    if (!IsRootEndpointValid()) {
-        HCCL_INFO("[%s] current comm has no root, skip root rank resolution.", __func__);
-        return HCCL_SUCCESS;
-    }
-    if (GetRootRankId() != UINT32_MAX) {
-        CHK_PRT_RET(
-            GetRootRankId() >= GetRankSize(),
-            HCCL_ERROR("[%s] invalid root rankId[%u], rankSize[%u].", __func__, GetRootRankId(), GetRankSize()),
-            HCCL_E_INTERNAL);
-        return HCCL_SUCCESS;
-    }
-    if (IsRoot()) {
-        rootHandle_.rootRankId = GetMyRankId();
-        HCCL_INFO("[%s] local rank is root, rootRankId[%u].", __func__, rootHandle_.rootRankId);
-        return HCCL_SUCCESS;
-    }
-
-    u32 rootDevPhyId = UINT32_MAX;
-    CHK_PRT_RET(
-        !ParseRootDevPhyId(rootHandle_, rootDevPhyId),
-        HCCL_ERROR("[%s] cannot parse devPhyId from rootHandle identifier[%s].", __func__, rootHandle_.identifier),
-        HCCL_E_INTERNAL);
-
-    // rankGraph 是通信域内的权威拓扑：V1 的 GraphRankInfo 与 V2 的 Peer 都携带 devicePhyId。
-    std::vector<u32> graphCandidates;
-    if (auto* rankGraphV1 = dynamic_cast<RankGraphV1*>(rankgraph_); rankGraphV1 != nullptr) {
-        void* graph = nullptr;
-        u32 graphLen = 0;
-        if (rankGraphV1->GetRankGraphInfo(RANK_GRAPH_910_93, &graph, &graphLen) == HCCL_SUCCESS && graph != nullptr) {
-            const auto* rankInfos = static_cast<const GraphRankInfo*>(graph);
-            const u32 rankCount = graphLen / sizeof(GraphRankInfo);
-            for (u32 i = 0; i < rankCount; ++i) {
-                if (rankInfos[i].deviceInfo.devicePhyId == static_cast<s32>(rootDevPhyId)) {
-                    graphCandidates.push_back(rankInfos[i].rankId);
-                }
-            }
-        }
-    } else if (auto* rankGraphV2 = dynamic_cast<RankGraphV2*>(rankgraph_); rankGraphV2 != nullptr) {
-        u32 rankSize = 0;
-        if (rankGraphV2->GetRankSize(&rankSize) == HCCL_SUCCESS) {
-            for (u32 rankId = 0; rankId < rankSize; ++rankId) {
-                u32 deviceId = UINT32_MAX;
-                if (rankGraphV2->GetDeviceId(rankId, &deviceId) == HCCL_SUCCESS && deviceId == rootDevPhyId) {
-                    graphCandidates.push_back(rankId);
-                }
-            }
-        }
-    }
-
-    if (graphCandidates.size() == 1) {
-        rootHandle_.rootRankId = graphCandidates[0];
-        HCCL_INFO(
-            "[%s] resolved root rankId[%u] from rankGraph, devPhyId[%u].", __func__, rootHandle_.rootRankId,
-            rootDevPhyId);
-        return HCCL_SUCCESS;
-    }
-
-    // 多节点 deviceId 会重复，rankGraph 无法唯一确定时用 rankTable 的 control plane 地址消歧。
-    // RankTableInfo::NewRankInfo::deviceId 来自 ranktable 的 device_id 字段，本仓写入的是 devPhyId。
-    std::vector<u32> tableCandidates;
-    std::vector<u32> addrCandidates;
-    auto detect = GetRankInfoDetect();
-    if (detect != nullptr) {
-        Hccl::RankTableInfo rankTable{};
-        detect->GetRankTable(rankTable);
-        const Hccl::IpAddress rootIp(std::string(rootHandle_.ip));
-        for (const auto& rankInfo : rankTable.ranks) {
-            if (rankInfo.deviceId != rootDevPhyId) {
-                continue;
-            }
-            tableCandidates.push_back(rankInfo.rankId);
-            if (!rootIp.IsInvalid() && !rankInfo.controlPlane.addr.IsInvalid()
-                && rankInfo.controlPlane.addr == rootIp) {
-                addrCandidates.push_back(rankInfo.rankId);
-            }
-        }
-    }
-    if (addrCandidates.size() == 1) {
-        rootHandle_.rootRankId = addrCandidates[0];
-    } else if (tableCandidates.size() == 1) {
-        rootHandle_.rootRankId = tableCandidates[0];
-    }
-
-    CHK_PRT_RET(
-        rootHandle_.rootRankId == UINT32_MAX || rootHandle_.rootRankId >= GetRankSize(),
-        HCCL_ERROR(
-            "[%s] cannot resolve root rankId, rootHandle[ip=%s, port=%u, identifier=%s], devPhyId[%u], "
-            "rankGraphMatches[%zu], rankTableMatches[%zu], rankTableAddrMatches[%zu], rankSize[%u].",
-            __func__, rootHandle_.ip, rootHandle_.listenPort, rootHandle_.identifier, rootDevPhyId,
-            graphCandidates.size(), tableCandidates.size(), addrCandidates.size(), GetRankSize()),
-        HCCL_E_INTERNAL);
-    HCCL_INFO(
-        "[%s] resolved root rankId[%u] from rankTable, devPhyId[%u].", __func__, rootHandle_.rootRankId, rootDevPhyId);
-    return HCCL_SUCCESS;
-}
-
 HcclResult CollComm::CommShrink(
     const uint32_t* excludeRanksList, uint32_t excludeRanksCount, std::unique_ptr<CollComm>& newCollComm,
     const HcclCommConfig* config)
@@ -1971,8 +1853,6 @@ HcclResult CollComm::CommShrink(
 
     // 防止 excludeRanksCount >= rankSize 导致 reserve 下溢、自身被剔除等越界风险。
     CHK_RET(ValidateShrinkParams(excludeRanksList, excludeRanksCount));
-    // rootRankId 在 init 阶段可能不可知；Shrink 前从本端 rankGraph/rankTable 解析，不做 socket 交互。
-    CHK_RET(ResolveRootRankIdForDerivation());
 
     // 两路径 config：config != nullptr 用用户 config（未设置字段走默认）；config == nullptr 继承父域全量 config
     HcclCommConfig subConfig;
@@ -2042,20 +1922,16 @@ HcclResult CollComm::HandleGrowRootReselect(
     Hccl::HcclRootHandleV2 newRootHandle{};
     CHK_SAFETY_FUNC_RET(memcpy_s(&newRootHandle, sizeof(newRootHandle), rootInfo->internal, sizeof(newRootHandle)));
 
-    // root 重选：协调者进程已通过 HcclCommGetRootInfo → SetPendingDetect 存入 CollComm
-    auto existingDetect = std::static_pointer_cast<Hccl::RankInfoDetect>(TakePendingDetect());
+    auto existingDetect = std::static_pointer_cast<Hccl::RankInfoDetect>(pendingDetect_);
     std::shared_ptr<Hccl::RankInfoDetect> reselectDetect;
     Hccl::HcclRootHandleV2 detectRootHandle = newRootHandle;
     // 重选需要 initial detect：协调者复用已启动 initial detect 的 server detect，并补自身 client 连接。
     if (existingDetect != nullptr) {
-        // 协调者节点（root 节点）复用 server detect，更新 rootRankId 并补自身 client 连接
         reselectDetect = existingDetect;
         HCCL_INFO("[%s][RootReselect] coordinator, reuse server detect from bridge.", __func__);
         CHK_PRT_RET(
-            !reselectDetect->IsReadyForGrow(),
-            HCCL_ERROR(
-                "[%s][RootReselect] detect service is not ready for grow, previous round has not completed.", __func__),
-            HCCL_E_UNAVAIL);
+            !reselectDetect->IsInitialDetectRunning(),
+            HCCL_ERROR("[%s][RootReselect] pending initial detect is not running.", __func__), HCCL_E_UNAVAIL);
         detectRootHandle = reselectDetect->GetRootHandleInfo();
         detectRootHandle.rootRankId = rank;
         reselectDetect->SetRootHandle(detectRootHandle);
@@ -2064,6 +1940,11 @@ HcclResult CollComm::HandleGrowRootReselect(
         // 非 root 节点需要新建本地 detect，连接协调者的 server detect。
         EXCEPTION_CATCH(reselectDetect = std::make_shared<Hccl::RankInfoDetect>(), return HCCL_E_MEMORY);
         HCCL_INFO("[%s][RootReselect] non-coordinator, new local detect.", __func__);
+    }
+
+    // 校验通过后再消费 pendingDetect，避免本次调用失败后无法复用原有 server。
+    if (existingDetect != nullptr) {
+        (void)TakePendingDetect();
     }
 
     // 所有 rank 都走同一次 initial detect：SetupAgent 建链并收广播，WaitComplete 等 initial detect 完成。
@@ -2130,7 +2011,11 @@ HcclResult CollComm::CommGrow(
     Hccl::RankTableInfo mergedRankTable{};
     // HcclCommGetRootInfo 创建的新 root server 已暂存在 pendingDetect_ 中，优先按 root 重选处理
     bool rootReselect = HasPendingDetect();
-    if (!rootReselect && IsRootEndpointValid() && rootInfo != nullptr) {
+    if (!rootReselect && !IsRootIdentityValid()) {
+        // rootHandle 无效，必须走 root 重选
+        rootReselect = true;
+    }
+    if (!rootReselect && rootInfo != nullptr) {
         // root 存活：比对 rootHandle_ 与传入 rootInfo 的 listenPort / identifier 是否一致
         Hccl::HcclRootHandleV2 inputRootHandle{};
         CHK_SAFETY_FUNC_RET(
@@ -2147,9 +2032,6 @@ HcclResult CollComm::CommGrow(
                 inputRootHandle.identifier);
             rootReselect = true;
         }
-    } else if (!rootReselect && !IsRootEndpointValid()) {
-        // rootHandle 无效（Shrink 剔除或首父未初始化），必须走 root 重选
-        rootReselect = true;
     }
     if (rootReselect) {
         CHK_PRT_RET(
@@ -2160,7 +2042,6 @@ HcclResult CollComm::CommGrow(
             HCCL_E_PARA);
         CHK_RET(HandleGrowRootReselect(nRanks, rank, rootInfo, config, mergedRankTable));
     } else {
-        CHK_RET(ResolveRootRankIdForDerivation());
         CHK_RET(HandleGrowNormal(nRanks, mergedRankTable));
     }
 

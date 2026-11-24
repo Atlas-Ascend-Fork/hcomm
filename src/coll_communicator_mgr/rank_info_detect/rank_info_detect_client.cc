@@ -533,7 +533,7 @@ HcclResult RankInfoDetectClient::ParseRankTable(vector<char>& rankInfoMsg)
 {
     HCCL_INFO("[RankInfoDetectClient::%s] start.", __func__);
 
-    // 消息体: [RankTable序列化数据][step(u32)][failedAgentIdList(string)][可选NetLayerCheckInfo]
+    // 消息体: [RankTable序列化数据][step(u32)][rootRankId(u32)][failedAgentIdList(string)][可选NetLayerCheckInfo]
     BinaryStream binStream(rankInfoMsg);
 
     // 解析localRankInfo
@@ -546,6 +546,9 @@ HcclResult RankInfoDetectClient::ParseRankTable(vector<char>& rankInfoMsg)
     // 解析step
     u32 receivedStep;
     binStream >> receivedStep;
+
+    // 解析 root 节点广播的权威 rootRankId，后续派生域无需再根据 deviceId/IP 反推
+    binStream >> rootRankId_;
 
     // 解析failedAgentIdList
     std::string failedAgentIdList;
@@ -605,6 +608,11 @@ HcclResult RankInfoDetectClient::VerifyRankTable()
             rankSize_);
         return HCCL_E_PARA;
     }
+    CHK_PRT_RET(
+        rootRankId_ != UINT32_MAX && rootRankId_ >= rankSize_,
+        HCCL_ERROR(
+            "[RankInfoDetectClient::%s] invalid rootRankId[%u], rankSize[%u].", __func__, rootRankId_, rankSize_),
+        HCCL_E_INTERNAL);
 
     // 校验rankTable内容
     CHK_RET(rankTable_.Check());

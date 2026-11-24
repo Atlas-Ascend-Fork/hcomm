@@ -13,6 +13,7 @@
 
 #include <vector>
 #include <climits>
+#include <cstdint>
 #include "socket.h"
 #include <chrono>
 #include <functional>
@@ -88,6 +89,8 @@ public:
     HcclResult Shutdown();
     // 完成后线程退出时置 true，TriggerGrowCollect 据此判断是否需重启 SetupGrowLoop 线程
     bool IsThreadExited() const { return threadExited_.load(); }
+    void SetRootRankId(u32 rootRankId) { rootRankId_.store(rootRankId); }
+    u32 GetRootRankId() const { return rootRankId_.load(); }
     GrowState GetGrowState() const
     {
         std::lock_guard<std::mutex> lock(mtx_);
@@ -104,6 +107,12 @@ public:
             return growState_ == GrowState::STARTING || growState_ == GrowState::IDLE;
         }
         return growState_ == GrowState::IDLE;
+    }
+    // 用例root重选路径，initial detect 线程正在运行，service 刚构造等待各 rank 接入
+    bool IsInitialDetectRunning() const
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        return !shutdown_ && !threadExited_ && growState_ == GrowState::STARTING;
     }
     // 旧 service 的 Grow 线程退出后，仅非终态允许重建 Grow 线程
     bool IsSupportGrowLoop() const
@@ -177,7 +186,7 @@ private:
     u32 expectedNewRankCount_{0};
     HcclResult collectResult_{HCCL_SUCCESS};
 
-    // 事件驱动唤醒：替代 SaluSleep 轮询，idle 时零 CPU，Trigger/Finish 唤醒纳秒级响应
+    // 使用condition_variable同步收集线程与主线程，避免主线程轮询等待
     mutable std::mutex mtx_{};
     mutable std::condition_variable cv_{};
     // 保护 connSockets_/newAgentIds_；锁内只做容器操作，阻塞 socket 操作在锁外执行
@@ -185,6 +194,7 @@ private:
 
     std::atomic<bool> tornDown_{false}; // TearDown 防重入 flag
     std::atomic<bool> threadExited_{false}; // Setup/Grow 线程退出后置 true，TriggerGrowCollect 据此判断是否需重启线程
+    std::atomic<u32> rootRankId_{UINT32_MAX};
     GrowState growState_{GrowState::STARTING};
     HcclResult growResult_{HCCL_SUCCESS};
 

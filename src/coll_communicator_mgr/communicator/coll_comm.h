@@ -132,6 +132,8 @@ public:
 
     // 显式释放 rankInfoDetect 资源（Shutdown persistent server + client socket）
     HcclResult ShutdownRankInfoDetect();
+    // 显式释放 HcclCommunicator 强引用，确保 channel / UB RMA buffer 在 detect Shutdown 前析构。
+    void ReleaseCommunicatorResources();
 
     // 获取MyRank
     MyRank* GetMyRank() const { return myRank_.get(); }
@@ -148,16 +150,14 @@ public:
     uint32_t GetRootRankId() const { return rootHandle_.rootRankId; }
     const Hccl::HcclRootHandleV2& GetCollCommRootHandle() const { return rootHandle_; }
     void SetRootHandle(const Hccl::HcclRootHandleV2& handle);
-    // 获取 Grow 使用的 rootInfo；root endpoint 无效时可能触发 root 重选并创建新 server。
+    // 获取 Grow 使用的 rootInfo；root 身份无效时可能触发 root 重选并创建新 server。
     HcclResult GetCollCommRootInfo(Hccl::HcclRootHandleV2& rootInfo);
-    bool IsRootHandleValid() const
+    bool IsRootIdentityValid() const
     {
-        return rootHandle_.listenPort != HCCL_INVALID_PORT && rootHandle_.rootRankId != UINT32_MAX;
+        return rootHandle_.listenPort != HCCL_INVALID_PORT && rootHandle_.identifier[0] != '\0'
+               && rootHandle_.rootRankId != UINT32_MAX;
     }
-    bool IsRootEndpointValid() const
-    {
-        return rootHandle_.listenPort != HCCL_INVALID_PORT && rootHandle_.identifier[0] != '\0';
-    }
+    bool IsRootHandleValid() const { return IsRootIdentityValid(); }
 
     // 获取 ManagerCallbacks
     const ManagerCallbacks& GetCallbacks() const { return callbacks_; }
@@ -374,8 +374,6 @@ private:
     HcclResult HandleGrowNormal(uint32_t nRanks, Hccl::RankTableInfo& mergedRankTable) const;
     HcclResult BuildShrinkSurvivorRanks(
         const uint32_t* excludeRanksList, uint32_t excludeRanksCount, ShrinkSurvivorResult& result) const;
-    // Grow/Shrink 前在本地解析当前域 rootRankId，不依赖 root 侧 socket 交互。
-    HcclResult ResolveRootRankIdForDerivation();
 
     void* comm_{nullptr};
     // 持有 HcclCommunicator 的 shared_ptr，延长其生命周期至 CollComm 析构。

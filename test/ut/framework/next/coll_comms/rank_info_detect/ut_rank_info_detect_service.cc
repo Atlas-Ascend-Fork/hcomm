@@ -1482,6 +1482,23 @@ TEST_F(RankInfoDetectServiceTest, Ut_IsReadyForGrow_When_StateTransitions_Expect
     EXPECT_FALSE(rankInfoDetectService_->IsReadyForGrow());
 }
 
+// 验证 initial detect 仅在线程存活且仍处于 STARTING 时视为运行中
+TEST_F(RankInfoDetectServiceTest, Ut_IsInitialDetectRunning_When_StartingThenExited_ExpectExpected)
+{
+    EXPECT_TRUE(rankInfoDetectService_->IsInitialDetectRunning());
+
+    rankInfoDetectService_->MarkThreadExited();
+    EXPECT_FALSE(rankInfoDetectService_->IsInitialDetectRunning());
+}
+
+TEST_F(RankInfoDetectServiceTest, Ut_RootRankId_When_Set_Expect_Get)
+{
+    EXPECT_EQ(rankInfoDetectService_->GetRootRankId(), UINT32_MAX);
+
+    rankInfoDetectService_->SetRootRankId(3);
+    EXPECT_EQ(rankInfoDetectService_->GetRootRankId(), 3U);
+}
+
 // 验证 Grow 失败后进入 ERROR 终态，等待和后续触发都不再复用 service
 TEST_F(RankInfoDetectServiceTest, Ut_GrowCollect_When_Fail_Expect_ErrorTerminal)
 {

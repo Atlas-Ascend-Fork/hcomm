@@ -113,6 +113,8 @@ HcclResult RankInfoDispatcher::PrepareResource(
     BinaryStream binaryStream;
     CHK_RET(clusterInfo.GetBinStream(true, binaryStream));
     binaryStream << step;
+    const u32 rootRankId = rankInfoDetectServer_ == nullptr ? UINT32_MAX : rankInfoDetectServer_->GetRootRankId();
+    binaryStream << rootRankId;
     binaryStream << failedAgentIdList;
     if (rankInfoDetectServer_ != nullptr) {
         const auto checkResult = rankInfoDetectServer_->GetNetLayerCheckResult();

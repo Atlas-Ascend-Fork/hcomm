@@ -223,8 +223,8 @@ protected:
     RankInfoDetectClient* rankInfoDetectClient_{nullptr};
     SocketHandle socketHandle;
 
-    // 辅助函数：构建含指定 failedAgentIdList 的 Mock rankInfo 消息
-    vector<char> BuildMockRankInfoMsg(const std::string& failedAgentIdList)
+    // 辅助函数：构建含指定 rootRankId/failedAgentIdList 的 Mock rankInfo 消息
+    vector<char> BuildMockRankInfoMsg(const std::string& failedAgentIdList, u32 rootRankId = UINT32_MAX)
     {
         RankTableInfo localRankTable;
         localRankTable.version = "1.0";
@@ -237,6 +237,7 @@ protected:
         BinaryStream binaryStream;
         EXPECT_EQ(localRankTable.GetBinStream(true, binaryStream), HCCL_SUCCESS);
         binaryStream << rankInfoDetectClient_->currentStep_;
+        binaryStream << rootRankId;
         binaryStream << failedAgentIdList;
 
         vector<char> rankInfoMsg;
@@ -1097,6 +1098,14 @@ TEST_F(RankInfoDetectClientTest, Ut_ParseRankTable_When_FailedAgentIdListNotEmpt
     EXPECT_EQ(HCCL_SUCCESS, rankInfoDetectClient_->ParseRankTable(rankInfoMsg));
     // failedAgentIdList 分支已收敛为不再单独上报 EI0015，避免与 root 节点上报重复
     EXPECT_NE(g_clientCapturedErrorCode, "EI0015");
+}
+
+TEST_F(RankInfoDetectClientTest, Ut_ParseRankTable_When_RootRankIdBroadcast_Expect_Stored)
+{
+    vector<char> rankInfoMsg = BuildMockRankInfoMsg("", 3);
+
+    EXPECT_EQ(HCCL_SUCCESS, rankInfoDetectClient_->ParseRankTable(rankInfoMsg));
+    EXPECT_EQ(rankInfoDetectClient_->GetRootRankId(), 3U);
 }
 
 // M6：区间压缩编码与异常数据均走打印容错（截断 + 解析失败兜底），不影响后续校验路径

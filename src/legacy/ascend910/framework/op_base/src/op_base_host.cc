@@ -1296,6 +1296,8 @@ HcclResult HcclCommDestroyWrapper([[maybe_unused]] struct hcclAsyncJob* job_)
         CHK_RET(HcclCommDestroyV2(
             commV2)); // 临时处理，dpustream的销毁要在其他资源销毁前完成。待新方案CpuThread上库后，原dpuStream删除可以恢复顺序
         if (hcclComm->GetCollComm() != nullptr) {
+            // 下列析构仅对静态扩缩容后的派生域生效
+            hcclComm->GetCollComm()->ReleaseCommunicatorResources();
             (void)hcclComm->GetCollComm()->ShutdownRankInfoDetect();
         }
         string group = hcclComm->GetIdentifier();
@@ -1410,6 +1412,8 @@ HcclResult HcclCommDestroy([[maybe_unused]] HcclComm comm)
         CHK_RET(HcclCommDestroyV2(
             commV2)); // 临时处理，dpustream的销毁要在其他资源销毁前完成。待新方案CpuThread上库后，原dpuStream删除可以恢复顺序
         if (hcclComm->GetCollComm() != nullptr) {
+            // 下列析构仅对静态扩缩容后的派生域生效
+            hcclComm->GetCollComm()->ReleaseCommunicatorResources();
             CHK_RET(hcclComm->GetCollComm()->ShutdownRankInfoDetect());
         }
         string group = hcclComm->GetIdentifier();

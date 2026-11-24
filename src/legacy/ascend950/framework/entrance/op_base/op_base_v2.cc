@@ -801,7 +801,10 @@ HcclResult HcclCommDestroyV2(HcclComm comm)
         return HCCL_E_AGAIN;
     }
     std::unique_lock<std::mutex> lock(opbasedCommInfoV2.groupParamsLock);
-    if (commId == opbasedCommInfoV2.commParams.commId && opbasedCommInfoV2.pComm != nullptr) {
+    // 首父通信域和派生域都需要清空
+    const bool isTopParentComm = (commId == opbasedCommInfoV2.commParams.commId);
+    const bool isDrivedPComm = (opbasedCommInfoV2.pComm != nullptr && opbasedCommInfoV2.pComm.get() == communicator);
+    if ((isTopParentComm || isDrivedPComm) && opbasedCommInfoV2.pComm != nullptr) {
         // 通信域销毁，更新子通信域ccu使用情况
         opbasedCommInfoV2.ccuStatus.RemoveCommId(opbasedCommInfoV2.pComm->GetId());
         for (auto iterGroup : opbasedCommInfoV2.hcclGroupMap) {

@@ -63,6 +63,7 @@ public:
 
     // expectedRankCount 扩容后预期总 rank 数，用于校验接收到的 rankCount。
     HcclResult WaitForNextBroadcast(RankTableInfo& rankTable, uint32_t expectedRankCount);
+    u32 GetRootRankId() const { return rootRankId_; }
 
 private:
     hccl::NetLayerSelection netLayerSelection_{};
@@ -71,6 +72,7 @@ private:
     u32 devPhyId_{0};
     u32 rankSize_{0};
     u32 rankId_{0};
+    u32 rootRankId_{UINT32_MAX};
     std::shared_ptr<Socket> clientSocket_{nullptr};
     u32 currentStep_{0};
     RankTableInfo rankTable_{};

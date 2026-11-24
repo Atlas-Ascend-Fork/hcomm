@@ -61,6 +61,7 @@ HcclResult RankInfoDetect::TriggerGrowCollect(u32 newRankCount, RankTableInfo& m
         auto newService = std::make_shared<RankInfoDetectService>(devPhyId_, serverSocket, identifier_, wlistInfo_);
         newService->SetRankTable(std::move(prevRankTable));
         newService->SetConnSockets(std::move(prevConnSockets));
+        newService->SetRootRankId(rootHandle_.rootRankId);
 
         auto service = newService;
         auto errorContext = hrtErrMGetErrorContextPub();
@@ -116,6 +117,10 @@ HcclResult RankInfoDetect::WaitForNextBroadcast(RankTableInfo& rankTable, uint32
     }
     CHK_RET(rankInfoDetectClient->WaitForNextBroadcast(rankTable, expectedRankCount));
     rankTable_ = rankTable;
+    const u32 broadcastRootRankId = rankInfoDetectClient->GetRootRankId();
+    if (broadcastRootRankId != UINT32_MAX) {
+        rootHandle_.rootRankId = broadcastRootRankId;
+    }
     return HCCL_SUCCESS;
 }
 
@@ -445,6 +450,11 @@ HcclResult RankInfoDetect::SetupAgent(u32 rankSize, u32 rankId, const HcclRootHa
     HCCL_DEBUG("[RankInfoDetect::%s] setup agent start.", __func__);
     rankId_ = rankId;
     rootHandle_ = rootHandle;
+    if (IsRoot()) {
+        // root 进程复用 server detect 时，记录自身在当前域的 rankId，供广播拓扑时下发。
+        rootHandle_.rootRankId = rankId;
+        rankInfoDetectService_->SetRootRankId(rankId);
+    }
 
     // 网卡使能
     TRY_CATCH_RETURN(HccpPeerManager::GetInstance().Init(devLogicId_););
@@ -465,6 +475,10 @@ HcclResult RankInfoDetect::SetupAgent(u32 rankSize, u32 rankId, const HcclRootHa
     // 2. 调用RankInfoDetectClient.Setup, 获取rankTable
     rankInfoDetectClient->SetNetLayerSelection(netLayerSelection_);
     CHK_RET(rankInfoDetectClient->Setup(rankTable_));
+    const u32 broadcastRootRankId = rankInfoDetectClient->GetRootRankId();
+    if (broadcastRootRankId != UINT32_MAX) {
+        rootHandle_.rootRankId = broadcastRootRankId;
+    }
 
     HCCL_DEBUG("[RankInfoDetect::%s] setup agent end.", __func__);
     return HCCL_SUCCESS;

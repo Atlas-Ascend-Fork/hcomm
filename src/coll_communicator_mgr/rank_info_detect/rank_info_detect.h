@@ -43,7 +43,13 @@ public:
     HcclResult SetupServer(HcclRootHandleV2& rootHandle);
     HcclResult SetupAgent(u32 rankSize, u32 rankId, const HcclRootHandleV2& rootHandle);
     const HcclRootHandleV2& GetRootHandleInfo() const { return rootHandle_; }
-    void SetRootHandle(const HcclRootHandleV2& rootHandle) { rootHandle_ = rootHandle; }
+    void SetRootHandle(const HcclRootHandleV2& rootHandle)
+    {
+        rootHandle_ = rootHandle;
+        if (rankInfoDetectService_ != nullptr) {
+            rankInfoDetectService_->SetRootRankId(rootHandle.rootRankId);
+        }
+    }
     void SetNetLayerSelection(const hccl::NetLayerSelection& selection) { netLayerSelection_ = selection; }
     void GetRankTable(RankTableInfo& ranktable) const;
     HcclResult WaitComplete(u32 listenPort, u32 listenStatus) const;
@@ -67,6 +73,11 @@ public:
     bool IsReadyForGrow() const
     {
         return rankInfoDetectService_ != nullptr && rankInfoDetectService_->IsReadyForGrow();
+    }
+    // root 侧的 initial detect 已启动，正在等待各 rank 接入
+    bool IsInitialDetectRunning() const
+    {
+        return rankInfoDetectService_ != nullptr && rankInfoDetectService_->IsInitialDetectRunning();
     }
 
     /// 返回对象构造时绑定的物理设备 ID，供调用方判断是否属于当前线程设备

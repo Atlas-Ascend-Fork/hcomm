@@ -1774,7 +1774,7 @@ TEST_F(CollCommGrowDetectTest, Ut_GetCollCommRootInfo_When_PendingDetect_Expect_
     HcclRootHandleV2 actualRootHandle{};
     EXPECT_EQ(collComm.GetCollCommRootInfo(actualRootHandle), HCCL_SUCCESS);
     EXPECT_EQ(actualRootHandle.listenPort, pendingRootHandle.listenPort);
-    EXPECT_FALSE(collComm.IsRootEndpointValid());
+    EXPECT_FALSE(collComm.IsRootIdentityValid());
     EXPECT_TRUE(collComm.HasPendingDetect());
 }
 
@@ -1791,6 +1791,22 @@ TEST_F(CollCommGrowDetectTest, Ut_GetCollCommRootInfo_When_RootSurvives_Expect_I
     EXPECT_EQ(actualRootHandle.generationIndex, 2u);
     EXPECT_EQ(std::string(actualRootHandle.topParentIdentifier), "root_identifier");
     EXPECT_EQ(std::string(actualRootHandle.identifier), "ut_grow");
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_IsRootIdentityValid_When_RootRankIdMissing_Expect_False)
+{
+    CollComm collComm(nullptr, 0, "ut", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    HcclRootHandleV2 rootHandle{};
+    rootHandle.listenPort = 60020;
+    strncpy_s(rootHandle.identifier, sizeof(rootHandle.identifier), "ut_root", 7);
+    rootHandle.rootRankId = UINT32_MAX;
+
+    collComm.SetRootHandle(rootHandle);
+    EXPECT_FALSE(collComm.IsRootIdentityValid());
+
+    rootHandle.rootRankId = 0;
+    collComm.SetRootHandle(rootHandle);
+    EXPECT_TRUE(collComm.IsRootIdentityValid());
 }
 
 TEST_F(CollCommGrowDetectTest, Ut_InitDerivationFields_When_NoLineage_Expect_RootHandleIdentifier)
@@ -1976,7 +1992,9 @@ TEST_F(CollCommGrowDetectTest, Ut_HandleGrowRootReselect_When_CoordinatorWithPen
 {
     MockRankGraphForGrow mockGraph;
     auto detect = std::make_shared<RankInfoDetect>();
-    MOCKER_CPP(&RankInfoDetect::IsReadyForGrow, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetect::IsInitialDetectRunning, bool(RankInfoDetect::*)() const)
+        .stubs()
+        .will(returnValue(true));
     MOCKER_CPP(&RankInfoDetect::SetupAgent)
         .expects(once())
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
@@ -2009,7 +2027,7 @@ TEST_F(CollCommGrowDetectTest, Ut_HandleGrowRootReselect_When_CoordinatorWithPen
     HcclResult ret = collComm->HandleGrowRootReselect(8, 0, &rootInfo, nullptr, mergedRankTable);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(mergedRankTable.rankCount, 8u);
-    EXPECT_TRUE(collComm->IsRootEndpointValid());
+    EXPECT_TRUE(collComm->IsRootIdentityValid());
     EXPECT_EQ(collComm->TakePendingDetect(), nullptr);
     EXPECT_NE(collComm->GetRankInfoDetect(), nullptr);
 }
@@ -2033,13 +2051,16 @@ TEST_F(CollCommGrowDetectTest, Ut_HandleGrowRootReselect_When_DetectNotReady_Exp
 
     RankTableInfo mergedRankTable{};
     EXPECT_EQ(collComm->HandleGrowRootReselect(8, 0, &rootInfo, nullptr, mergedRankTable), HCCL_E_UNAVAIL);
+    EXPECT_TRUE(collComm->HasPendingDetect());
 }
 
 TEST_F(CollCommGrowDetectTest, Ut_HandleGrowRootReselect_When_WaitCompleteFails_Expect_Error)
 {
     MockRankGraphForGrow mockGraph;
     auto detect = std::make_shared<RankInfoDetect>();
-    MOCKER_CPP(&RankInfoDetect::IsReadyForGrow, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetect::IsInitialDetectRunning, bool(RankInfoDetect::*)() const)
+        .stubs()
+        .will(returnValue(true));
     MOCKER_CPP(&RankInfoDetect::SetupAgent)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
@@ -2061,7 +2082,7 @@ TEST_F(CollCommGrowDetectTest, Ut_HandleGrowRootReselect_When_WaitCompleteFails_
     RankTableInfo mergedRankTable{};
     HcclResult ret = collComm->HandleGrowRootReselect(8, 0, &rootInfo, nullptr, mergedRankTable);
     EXPECT_EQ(ret, HCCL_E_INTERNAL);
-    EXPECT_FALSE(collComm->IsRootEndpointValid());
+    EXPECT_FALSE(collComm->IsRootIdentityValid());
 }
 
 TEST_F(CollCommGrowDetectTest, Ut_HandleGrowRootReselect_When_NoPendingDetect_Expect_NewDetectSetupAgent)
@@ -2601,7 +2622,9 @@ TEST_F(CollCommShrinkGrowTest, Ut_CommGrow_When_RootInfoPortMismatch_Expect_Root
     memcpy_s(rootInfo.internal, sizeof(rootInfo.internal), &mismatchHandle, sizeof(mismatchHandle));
 
     auto pendingDetect = std::make_shared<RankInfoDetect>();
-    MOCKER_CPP(&RankInfoDetect::IsReadyForGrow, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetect::IsInitialDetectRunning, bool(RankInfoDetect::*)() const)
+        .stubs()
+        .will(returnValue(true));
     HcclRootHandleV2 pendingRootHandle{};
     pendingRootHandle.listenPort = 60030;
     pendingRootHandle.rootRankId = 0;
@@ -2609,7 +2632,9 @@ TEST_F(CollCommShrinkGrowTest, Ut_CommGrow_When_RootInfoPortMismatch_Expect_Root
     pendingDetect->SetRootHandle(pendingRootHandle);
     comm->SetPendingDetect(pendingDetect);
 
-    MOCKER_CPP(&RankInfoDetect::IsRoot, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetect::IsInitialDetectRunning, bool(RankInfoDetect::*)() const)
+        .stubs()
+        .will(returnValue(true));
     MOCKER_CPP(&RankInfoDetect::SetupAgent)
         .expects(once())
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
@@ -2658,7 +2683,9 @@ TEST_F(CollCommShrinkGrowTest, Ut_CommGrow_When_RootInfoIdentifierMismatch_Expec
     memcpy_s(rootInfo.internal, sizeof(rootInfo.internal), &mismatchHandle, sizeof(mismatchHandle));
 
     auto pendingDetect = std::make_shared<RankInfoDetect>();
-    MOCKER_CPP(&RankInfoDetect::IsReadyForGrow, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetect::IsInitialDetectRunning, bool(RankInfoDetect::*)() const)
+        .stubs()
+        .will(returnValue(true));
     HcclRootHandleV2 pendingRootHandle{};
     pendingRootHandle.listenPort = 60030;
     pendingRootHandle.rootRankId = 0;
@@ -2666,7 +2693,9 @@ TEST_F(CollCommShrinkGrowTest, Ut_CommGrow_When_RootInfoIdentifierMismatch_Expec
     pendingDetect->SetRootHandle(pendingRootHandle);
     comm->SetPendingDetect(pendingDetect);
 
-    MOCKER_CPP(&RankInfoDetect::IsRoot, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetect::IsInitialDetectRunning, bool(RankInfoDetect::*)() const)
+        .stubs()
+        .will(returnValue(true));
     MOCKER_CPP(&RankInfoDetect::SetupAgent)
         .expects(once())
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
@@ -3449,29 +3478,6 @@ public:
     }
 };
 
-// ── MockRankGraphV1Info：为 rootRankId 解析提供 V1 GraphRankInfo ──
-class MockRankGraphV1Info : public hccl::RankGraphV1 {
-public:
-    std::vector<GraphRankInfo> rankInfos;
-
-    HcclResult GetRankSize(uint32_t* rankSize) override
-    {
-        *rankSize = static_cast<uint32_t>(rankInfos.size());
-        return HCCL_SUCCESS;
-    }
-    HcclResult GetRankGraphInfo(GraphType type, void** graph, uint32_t* len) override
-    {
-        CHK_PTR_NULL(graph);
-        CHK_PTR_NULL(len);
-        if (type != RANK_GRAPH_910_93) {
-            return HCCL_E_NOT_SUPPORT;
-        }
-        *graph = rankInfos.data();
-        *len = static_cast<uint32_t>(rankInfos.size() * sizeof(GraphRankInfo));
-        return HCCL_SUCCESS;
-    }
-};
-
 // ── CommShrink 测试固件 ──
 class CollCommShrinkTest : public testing::Test {
 protected:
@@ -3495,30 +3501,6 @@ protected:
         HcclCommConfigInit(&collComm.hcclCommConfig_);
     }
 };
-
-// 分支: rootRankId 未初始化 → 用 rootHandle.identifier 中的 devPhyId 在 V1 rankGraph 中唯一匹配
-TEST_F(CollCommShrinkTest, Ut_ResolveRootRankId_When_RankGraphDevPhyIdUnique_Expect_Success)
-{
-    MockRankGraphV1Info mockGraph;
-    mockGraph.rankInfos.resize(4);
-    for (size_t rankId = 0; rankId < mockGraph.rankInfos.size(); ++rankId) {
-        mockGraph.rankInfos[rankId].rankId = static_cast<u32>(rankId);
-        mockGraph.rankInfos[rankId].deviceInfo.devicePhyId = static_cast<s32>(rankId);
-    }
-
-    CollComm collComm(nullptr, 1, "ut_resolve_root", ManagerCallbacks{}, CollCommInitMode::simpleMode);
-    collComm.rankgraph_ = &mockGraph;
-    collComm.rankId_ = 1;
-    collComm.rootHandle_.listenPort = 60000;
-    collComm.rootHandle_.rootRankId = UINT32_MAX;
-    strncpy_s(
-        collComm.rootHandle_.identifier, sizeof(collComm.rootHandle_.identifier), "10.0.0.1_60000_0_123456",
-        sizeof("10.0.0.1_60000_0_123456") - 1);
-    strncpy_s(collComm.rootHandle_.ip, sizeof(collComm.rootHandle_.ip), "10.0.0.1", 8);
-
-    EXPECT_EQ(collComm.ResolveRootRankIdForDerivation(), HCCL_SUCCESS);
-    EXPECT_EQ(collComm.GetRootRankId(), 0u);
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 // ValidateShrinkParams 分支覆盖
