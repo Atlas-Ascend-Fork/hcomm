@@ -143,6 +143,134 @@
           "criteria": "新意见经行号验证后提交"
         }
       ]
+    },
+    {
+      "id": 7,
+      "name": "paired-api-destroy-name-searchable",
+      "prompt": "检视一个 PR：新增代码调用 hrtIpcOpenNotify 打开 IPC notify 句柄，但在错误返回路径上未调用任何 Destroy/Close 函数释放该句柄。",
+      "expected_output": "按 coding-and-security.md 规则「成对资源 API（Open/Init/Create）必须配对 Close/DeInit/Destroy」：成对资源 API 的释放列必须使用可检索的函数名。配对表第 127 行已将「对应 Destroy」改为「hrtNotifyDestroy」。检视者应搜索 hrtIpcOpenNotify 的配对释放函数 hrtNotifyDestroy，发现错误路径缺失该调用，产出 HIGH 意见指出资源泄漏，意见体须提及 hrtNotifyDestroy 作为正确的配对释放函数。",
+      "files": [],
+      "assertions": [
+        {
+          "name": "产出恰好一条资源生命周期意见",
+          "type": "count_findings",
+          "dimension": "Resource Lifecycle",
+          "expected": 1
+        },
+        {
+          "name": "severity 为 HIGH",
+          "type": "field_equals",
+          "field": "severity",
+          "expected": "HIGH"
+        },
+        {
+          "name": "意见体提及正确的配对释放函数名 hrtNotifyDestroy",
+          "type": "body_contains",
+          "text": "hrtNotifyDestroy"
+        },
+        {
+          "name": "意见体不含「对应 Destroy」占位文字",
+          "type": "manual_review",
+          "criteria": "意见体不得出现「对应 Destroy」占位文字，须使用具体函数名 hrtNotifyDestroy（已由 body_contains 断言正面覆盖）"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "token-policy-camel-case-and-constant-family",
+      "prompt": "检视一个 PR：在 src/base_comm/resources/southbound_adpt/hcomm_adapter_hccp.cc 中新增一行 info.in.ub.flag.bs.tokenPolicy = TOKEN_POLICY_NONE;（驼峰字段名 + TOKEN_POLICY_ 常量族，非 URMA_TOKEN_ 宏）。",
+      "expected_output": "按 coding-and-security.md 规则「禁止在 UB 通信中将 token_policy 设置为 URMA_TOKEN_NONE」：检索须覆盖 token_policy（下划线）和 tokenPolicy（驼峰）两套字段名，以及 URMA_TOKEN_*/TOKEN_POLICY_*/MEM_SEG_TOKEN_* 三套等价常量族。TOKEN_POLICY_NONE 等价于 URMA_TOKEN_NONE（值=0，关闭 token 校验）。检视者应产出 CRITICAL 意见，指出 tokenPolicy 被设为 TOKEN_POLICY_NONE 等同于关闭 token 校验，意见体须同时提及 tokenPolicy（驼峰）和 TOKEN_POLICY_NONE。",
+      "files": [],
+      "assertions": [
+        {
+          "name": "产出恰好一条安全意见",
+          "type": "count_findings",
+          "dimension": "Security",
+          "expected": 1
+        },
+        {
+          "name": "severity 为 CRITICAL",
+          "type": "field_equals",
+          "field": "severity",
+          "expected": "CRITICAL"
+        },
+        {
+          "name": "意见体提及驼峰字段名 tokenPolicy",
+          "type": "body_contains",
+          "text": "tokenPolicy"
+        },
+        {
+          "name": "意见体提及 TOKEN_POLICY_NONE 常量",
+          "type": "body_contains",
+          "text": "TOKEN_POLICY_NONE"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "name": "token-value-logging-exclude-isvalid-noise",
+      "prompt": "检视一个 PR：在 src/base_comm/resources/ccu/ccu_device/ccu_comp/ccu_channel/ccu_jetty_ctx_mgr.cc 中新增两行日志：(1) HCCL_INFO(\"tokenValueIsValid: 0x%04x\", data.tokenValueIsValid); (2) HCCL_DEBUG(\"token value: %u\", tokenValue);。其中 tokenValueIsValid 是有效性标志（uint16_t:1），tokenValue 是凭证值（uint32_t）。",
+      "expected_output": "按 coding-and-security.md 规则「禁止将 tokenValue 输出到任何等级日志中」：tokenValue（凭证值）禁止输出到日志 → CRITICAL；tokenValueIsValid（有效性标志）允许输出到日志（参见规则「tokenValueIsValid 允许输出到日志，但下发/使用前必须赋值为 TOKEN_VALUE_IS_VALIDE」）→ 不报。检索时只用 grep -v 排除 tokenValueIsValid；tokenValueLow/Middle/High 与 dstTokenValueLow/Middle/High 属 dbTokenValue/memTokenValue 的凭证数据位域分片，不得排除，输出到日志同样构成泄露。仅第 (2) 行被报为 CRITICAL，第 (1) 行不报。",
+      "files": [],
+      "assertions": [
+        {
+          "name": "仅产出一条 tokenValue 日志泄露意见（不含 tokenValueIsValid）",
+          "type": "count_findings",
+          "dimension": "Security",
+          "expected": 1
+        },
+        {
+          "name": "severity 为 CRITICAL",
+          "type": "field_equals",
+          "field": "severity",
+          "expected": "CRITICAL"
+        },
+        {
+          "name": "意见体引用的日志行含 tokenValue 但不含 tokenValueIsValid",
+          "type": "manual_review",
+          "criteria": "意见体引用的日志行含 tokenValue（凭证值），但不得含 tokenValueIsValid（有效性标志）——前者是 CRITICAL 违规，后者允许输出不应报"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "name": "pointer-check-recognize-hcom-wrapper-not-hccl",
+      "prompt": "检视一个 PR：在 src/legacy/ascend910/framework/common/src/param_check.cc 中新增函数，首行 CHK_RET(HcomCheckTag(tag)); 随后使用 strlen(tag)。检视者需判断 tag 是否在首次使用前已有 nullptr 校验。",
+      "expected_output": "按 coding-and-security.md 规则「函数指针参数必须在首次使用前检查 nullptr（最高优先级）」子规则B（跨函数校验追踪）：HcomCheckTag 内部执行 CHK_PTR_NULL(tag) + 长度检查，是有效的跨函数校验 wrapper。旧版规则误引用 HCCL 仓专属符号 HcclCheckTag（HCOMM 仓不存在），新版已改为 HcomCheckTag。检视者应识别 HcomCheckTag 提供了 nullptr 校验，不报 tag 的空指针问题。",
+      "files": [],
+      "assertions": [
+        {
+          "name": "不产出 tag 空指针意见（HcomCheckTag 已提供校验）",
+          "type": "count_findings",
+          "dimension": "Pointer Safety",
+          "expected": 0
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "name": "c-compatible-header-no-nullptr-default",
+      "prompt": "检视一个 PR：在 include/hccl/hccl_comm.h（C 兼容头文件，含 extern \"C\" 包裹）的结构体定义中新增指针成员并写了默认初值 HcclCommSymWin* winPtr = nullptr;。",
+      "expected_output": "按 coding-and-security.md 规则「公开 API 结构体指针成员使用前必须零初始化」：C 兼容头文件（include/ 下、含 extern \"C\"、需被 C 代码 include）禁止在结构体定义中写 = nullptr 成员默认初值（C 标准不允许结构体内成员默认初值，nullptr 是 C++11 关键字）。检视者应产出意见指出此写法破坏 C 兼容性，建议改由使用方用 {0} 整体初始化或 memset 清零。",
+      "files": [],
+      "assertions": [
+        {
+          "name": "产出恰好一条 C 兼容性意见",
+          "type": "count_findings",
+          "dimension": "API Compatibility",
+          "expected": 1
+        },
+        {
+          "name": "意见体提及 C 兼容性",
+          "type": "body_regex",
+          "pattern": "C 兼容|C兼容|extern \"C\"|C 标准不允许|结构体内.*默认初值"
+        },
+        {
+          "name": "意见体建议 {0} 或 memset 替代方案",
+          "type": "body_regex",
+          "pattern": "\\{0\\}|memset"
+        }
+      ]
     }
   ]
 }
