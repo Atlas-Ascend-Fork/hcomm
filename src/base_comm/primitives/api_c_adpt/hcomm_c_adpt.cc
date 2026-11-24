@@ -37,11 +37,11 @@ using namespace hcomm;
 namespace {
 HcclResult RefreshCurrentDeviceContext()
 {
-    s32 deviceLogicId = 0;
-    CHK_RET(hrtGetDeviceRefresh(&deviceLogicId));
+    s32 userDevId = 0;
+    CHK_RET(hrtGetDeviceRefresh(&userDevId));
     u32 devicePhyId = 0;
-    CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<u32>(deviceLogicId), devicePhyId, true));
-    HCCL_INFO("[RefreshCurrentDeviceContext] deviceLogicId[%d], devicePhyId[%u].", deviceLogicId, devicePhyId);
+    CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<u32>(userDevId), devicePhyId, true));
+    HCCL_INFO("[RefreshCurrentDeviceContext] userDevId[%d], devicePhyId[%u].", userDevId, devicePhyId);
     return HCCL_SUCCESS;
 }
 } // namespace

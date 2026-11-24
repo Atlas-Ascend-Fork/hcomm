@@ -28,14 +28,14 @@ Queries the network-semantic `Endpoint` description on a specified NPU device, i
 
 ```c
 HcommResult HcommEndpointGetDescs(
-    int32_t deviceLogicId, uint32_t *descNum, EndpointDesc *endpointDescs)
+    int32_t userDevId, uint32_t *descNum, EndpointDesc *endpointDescs)
 ```
 
 ## Parameters
 
 | Parameter | Input/Output | Description |
 | --- | --- | --- |
-| `deviceLogicId` | Input | Logical ID of the NPU device. |
+| `userDevId` | Input | User device ID of the NPU. |
 | `descNum` | Input/Output | On input, this parameter indicates the number of `EndpointDesc` elements that the `endpointDescs` array can actually hold. On success of the API call, it outputs the number of `Endpoint` elements actually returned. On failure of the API call, the parameter value remains the input array capacity. This parameter cannot be a null pointer. |
 | `endpointDescs` | Output | This parameter returns the `Endpoint` description array, whose memory is allocated and released by the caller. On success of the API call, the first `descNum` elements are valid. On failure of the API call, the array content must not be used. This parameter cannot be a null pointer.<br>For the definition of the `EndpointDesc` type, see [`EndpointDesc`](../../datatype_definition/EndpointDesc.md). |
 
@@ -63,7 +63,7 @@ For all returned items, `loc.locType` is `ENDPOINT_LOC_TYPE_DEVICE`, and `loc.de
 
 - Currently, only the Ascend 950PR&950DT products are supported.
 - The query scope includes only network-semantic `Endpoint` objects. The returned communication protocols include `COMM_PROTOCOL_UBC_CTP`, `COMM_PROTOCOL_UBG`, and `COMM_PROTOCOL_UBOE`, and do not return memory-semantic `Endpoint` objects such as `COMM_PROTOCOL_UB_MEM` and `COMM_PROTOCOL_HCCS`.
-- `deviceLogicId` must be the logical ID of a valid and in-place NPU device.
+- `userDevId` must be the user device ID of a valid and in-place NPU device.
 - `endpointDescs` must be allocated by the caller in advance. It is recommended to call [`HcommEndpointGetDescNum`](HcommEndpointGetDescNum.md) first to query the array capacity.
 - The input value of `descNum` should be the actual available capacity of the `endpointDescs` array.
 - When the capacity of the `endpointDescs` array is smaller than the actual number of `Endpoint` objects, the API returns a parameter error and `descNum` remains unchanged from its input value. The caller must call [`HcommEndpointGetDescNum`](HcommEndpointGetDescNum.md) again, reallocate the array, and retry.
@@ -80,9 +80,9 @@ For all returned items, `loc.locType` is `ENDPOINT_LOC_TYPE_DEVICE`, and `loc.de
 int main(void)
 {
     /* Step 1: Query the number of endpoints. */
-    const int32_t deviceLogicId = 0;
+    const int32_t userDevId = 0;
     uint32_t descNum = 0;
-    HcommResult result = HcommEndpointGetDescNum(deviceLogicId, &descNum);
+    HcommResult result = HcommEndpointGetDescNum(userDevId, &descNum);
     if (result != 0) {
         (void)fprintf(stderr, "HcommEndpointGetDescNum failed, result = %d\n", (int)result);
         return 1;
@@ -100,7 +100,7 @@ int main(void)
     }
 
     /* Step 3: Input the array capacity. On success, descNum is updated to the actual number returned. */
-    result = HcommEndpointGetDescs(deviceLogicId, &descNum, endpointDescs);
+    result = HcommEndpointGetDescs(userDevId, &descNum, endpointDescs);
     if (result != 0) {
         (void)fprintf(stderr, "HcommEndpointGetDescs failed, result = %d\n", (int)result);
         free(endpointDescs);

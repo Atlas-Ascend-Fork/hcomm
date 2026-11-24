@@ -27,14 +27,14 @@ Queries the number of network-semantic `Endpoint` objects on a specified NPU dev
 ## Function Prototype
 
 ```c
-HcommResult HcommEndpointGetDescNum(int32_t deviceLogicId, uint32_t *descNum)
+HcommResult HcommEndpointGetDescNum(int32_t userDevId, uint32_t *descNum)
 ```
 
 ## Parameters
 
 | Parameter | Input/Output | Description |
 | --- | --- | --- |
-| `deviceLogicId` | Input | Logical ID of the NPU device. |
+| `userDevId` | Input | User device ID of the NPU. |
 | `descNum` | Output | When the API is called successfully, the number of network-semantic `Endpoint` objects is returned. When this pointer is non-null but the API call fails, the value is `0`. This parameter cannot be a null pointer. |
 
 ## Return Value
@@ -45,7 +45,7 @@ HcommResult HcommEndpointGetDescNum(int32_t deviceLogicId, uint32_t *descNum)
 
 - Currently, this API is supported only on Ascend 950PR&950DT products.
 - The query scope includes only network-semantic `Endpoint` objects. Supported communication protocols include `COMM_PROTOCOL_UBC_CTP`, `COMM_PROTOCOL_UBG`, and `COMM_PROTOCOL_UBOE`. Memory-semantic `Endpoint` objects such as `COMM_PROTOCOL_UB_MEM` and `COMM_PROTOCOL_HCCS` are not returned.
-- `deviceLogicId` must be the logical ID of a valid and present NPU device.
+- `userDevId` must be the user device ID of a valid and present NPU device.
 - If the NPU device has no EID configured, the API returns a not-found error, and `descNum` is `0`.
 
 ## Example
@@ -57,12 +57,12 @@ HcommResult HcommEndpointGetDescNum(int32_t deviceLogicId, uint32_t *descNum)
 
 int main(void)
 {
-    /* Input: logical ID of the NPU device to query. */
-    const int32_t deviceLogicId = 0;
+    /* Input: user device ID of the NPU device to query. */
+    const int32_t userDevId = 0;
 
     /* Output: number of network-semantic endpoints. */
     uint32_t descNum = 0;
-    HcommResult result = HcommEndpointGetDescNum(deviceLogicId, &descNum);
+    HcommResult result = HcommEndpointGetDescNum(userDevId, &descNum);
     if (result != 0) {
         (void)fprintf(stderr, "HcommEndpointGetDescNum failed, result = %d\n", (int)result);
         return 1;

@@ -26,14 +26,14 @@
 
 ```c
 HcommResult HcommEndpointGetDescs(
-    int32_t deviceLogicId, uint32_t *descNum, EndpointDesc *endpointDescs)
+    int32_t userDevId, uint32_t *descNum, EndpointDesc *endpointDescs)
 ```
 
 ## 参数说明
 
 | 参数名 | 输入/输出 | 描述 |
 | --- | --- | --- |
-| `deviceLogicId` | 输入 | NPU设备逻辑ID。 |
+| `userDevId` | 输入 | NPU用户设备ID。 |
 | `descNum` | 输入/输出 | 输入时，表示`endpointDescs`数组实际可容纳的`EndpointDesc`元素数量；接口调用成功时，输出实际返回的`Endpoint`数量。接口调用失败时，该值保持为输入的数组容量。该参数不能为空指针。 |
 | `endpointDescs` | 输出 | 返回`Endpoint`描述数组，内存由调用方申请和释放。接口调用成功时，前`descNum`个元素有效；接口调用失败时，不应使用数组内容。该参数不能为空指针。<br>`EndpointDesc`类型的定义请参见[`EndpointDesc`](../../datatype_definition/EndpointDesc.md)。 |
 
@@ -61,7 +61,7 @@ HcommResult HcommEndpointGetDescs(
 
 - 当前仅支持Ascend 950PR&950DT系列产品。
 - 查询范围仅包含网络语义`Endpoint`，返回的通信协议包括`COMM_PROTOCOL_UBC_CTP`、`COMM_PROTOCOL_UBG`和`COMM_PROTOCOL_UBOE`，不返回`COMM_PROTOCOL_UB_MEM`、`COMM_PROTOCOL_HCCS`等内存语义`Endpoint`。
-- `deviceLogicId`必须是有效且在位的NPU设备逻辑ID。
+- `userDevId`必须是有效且在位的NPU用户设备ID。
 - `endpointDescs`必须由调用方提前申请，建议先调用[`HcommEndpointGetDescNum`](HcommEndpointGetDescNum.md)查询数组容量。
 - `descNum`输入值应填写`endpointDescs`数组的实际可用容量。
 - `endpointDescs`数组容量小于实际`Endpoint`数量时，接口返回参数错误，且`descNum`保持输入值不变；调用方需重新调用[`HcommEndpointGetDescNum`](HcommEndpointGetDescNum.md)、重新申请数组并重试。
@@ -78,9 +78,9 @@ HcommResult HcommEndpointGetDescs(
 int main(void)
 {
     /* 第一步：查询Endpoint数量。 */
-    const int32_t deviceLogicId = 0;
+    const int32_t userDevId = 0;
     uint32_t descNum = 0;
-    HcommResult result = HcommEndpointGetDescNum(deviceLogicId, &descNum);
+    HcommResult result = HcommEndpointGetDescNum(userDevId, &descNum);
     if (result != 0) {
         (void)fprintf(stderr, "HcommEndpointGetDescNum failed, result = %d\n", (int)result);
         return 1;
@@ -98,7 +98,7 @@ int main(void)
     }
 
     /* 第三步：输入数组容量，成功后descNum更新为实际返回数量。 */
-    result = HcommEndpointGetDescs(deviceLogicId, &descNum, endpointDescs);
+    result = HcommEndpointGetDescs(userDevId, &descNum, endpointDescs);
     if (result != 0) {
         (void)fprintf(stderr, "HcommEndpointGetDescs failed, result = %d\n", (int)result);
         free(endpointDescs);

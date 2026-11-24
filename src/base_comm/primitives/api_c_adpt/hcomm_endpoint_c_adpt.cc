@@ -41,14 +41,13 @@
 using namespace hcomm;
 
 namespace {
-HcclResult GetDeviceEidInfos(int32_t deviceLogicId, uint32_t devicePhyId, std::vector<DevEidInfo>& eidInfos)
+HcclResult GetDeviceEidInfos(int32_t userDevId, uint32_t devicePhyId, std::vector<DevEidInfo>& eidInfos)
 {
-    Hccl::HccpHdcManager::GetInstance().Init(static_cast<uint32_t>(deviceLogicId));
+    Hccl::HccpHdcManager::GetInstance().Init(static_cast<uint32_t>(userDevId));
     CHK_RET(GetEidInfoMgr(devicePhyId).GetEidInfos(eidInfos));
     CHK_PRT_RET(
         eidInfos.empty(),
-        HCCL_ERROR(
-            "[%s] no endpoint EID found, deviceLogicId[%d], devicePhyId[%u].", __func__, deviceLogicId, devicePhyId),
+        HCCL_ERROR("[%s] no endpoint EID found, userDevId[%d], devicePhyId[%u].", __func__, userDevId, devicePhyId),
         HCCL_E_NOT_FOUND);
     return HCCL_SUCCESS;
 }
@@ -252,7 +251,7 @@ HcclResult CreateBuiltinEndpoint(const EndpointDesc* endpoint, EndpointHandle* e
 
 } // namespace
 
-HcommResult HcommEndpointGetDescNum(int32_t deviceLogicId, uint32_t* descNum)
+HcommResult HcommEndpointGetDescNum(int32_t userDevId, uint32_t* descNum)
 {
     EXCEPTION_HANDLE_BEGIN
     CHK_PTR_NULL(descNum);
@@ -260,8 +259,7 @@ HcommResult HcommEndpointGetDescNum(int32_t deviceLogicId, uint32_t* descNum)
     BaseCommMgr::RegisterDeviceResetCallback();
     BaseCommMgr::RegisterDeviceRefreshCallback();
 
-    CHK_PRT_RET(
-        deviceLogicId < 0, HCCL_ERROR("[%s] deviceLogicId[%d] is invalid.", __func__, deviceLogicId), HCCL_E_PARA);
+    CHK_PRT_RET(userDevId < 0, HCCL_ERROR("[%s] userDevId[%d] is invalid.", __func__, userDevId), HCCL_E_PARA);
     DevType deviceType = DevType::DEV_TYPE_COUNT;
     CHK_RET(hrtGetDeviceType(deviceType));
     CHK_PRT_RET(
@@ -271,19 +269,17 @@ HcommResult HcommEndpointGetDescNum(int32_t deviceLogicId, uint32_t* descNum)
             static_cast<int32_t>(deviceType)),
         HCCL_E_NOT_SUPPORT);
     uint32_t devicePhyId = 0;
-    CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<uint32_t>(deviceLogicId), devicePhyId));
+    CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<uint32_t>(userDevId), devicePhyId));
     std::vector<DevEidInfo> eidInfos;
-    CHK_RET(GetDeviceEidInfos(deviceLogicId, devicePhyId, eidInfos));
+    CHK_RET(GetDeviceEidInfos(userDevId, devicePhyId, eidInfos));
 
     *descNum = static_cast<uint32_t>(eidInfos.size());
-    HCCL_INFO(
-        "[%s] success, deviceLogicId[%d], devicePhyId[%u], descNum[%u].", __func__, deviceLogicId, devicePhyId,
-        *descNum);
+    HCCL_INFO("[%s] success, userDevId[%d], devicePhyId[%u], descNum[%u].", __func__, userDevId, devicePhyId, *descNum);
     EXCEPTION_HANDLE_END
     return HCCL_SUCCESS;
 }
 
-HcommResult HcommEndpointGetDescs(int32_t deviceLogicId, uint32_t* descNum, EndpointDesc* endpointDescs)
+HcommResult HcommEndpointGetDescs(int32_t userDevId, uint32_t* descNum, EndpointDesc* endpointDescs)
 {
     EXCEPTION_HANDLE_BEGIN
     CHK_PTR_NULL(descNum);
@@ -293,8 +289,7 @@ HcommResult HcommEndpointGetDescs(int32_t deviceLogicId, uint32_t* descNum, Endp
 
     uint32_t devicePhyId = 0;
     std::vector<DevEidInfo> eidInfos;
-    CHK_PRT_RET(
-        deviceLogicId < 0, HCCL_ERROR("[%s] deviceLogicId[%d] is invalid.", __func__, deviceLogicId), HCCL_E_PARA);
+    CHK_PRT_RET(userDevId < 0, HCCL_ERROR("[%s] userDevId[%d] is invalid.", __func__, userDevId), HCCL_E_PARA);
     const uint32_t capacity = *descNum;
     DevType deviceType = DevType::DEV_TYPE_COUNT;
     CHK_RET(hrtGetDeviceType(deviceType));
@@ -304,8 +299,8 @@ HcommResult HcommEndpointGetDescs(int32_t deviceLogicId, uint32_t* descNum, Endp
             "[%s] endpoint query only supports DEV_TYPE_950 and later, current deviceType[%d].", __func__,
             static_cast<int32_t>(deviceType)),
         HCCL_E_NOT_SUPPORT);
-    CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<uint32_t>(deviceLogicId), devicePhyId));
-    CHK_RET(GetDeviceEidInfos(deviceLogicId, devicePhyId, eidInfos));
+    CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<uint32_t>(userDevId), devicePhyId));
+    CHK_RET(GetDeviceEidInfos(userDevId, devicePhyId, eidInfos));
     CHK_PRT_RET(
         eidInfos.size() > capacity,
         HCCL_ERROR(
@@ -322,9 +317,7 @@ HcommResult HcommEndpointGetDescs(int32_t deviceLogicId, uint32_t* descNum, Endp
     }
 
     *descNum = actualNum;
-    HCCL_INFO(
-        "[%s] success, deviceLogicId[%d], devicePhyId[%u], descNum[%u].", __func__, deviceLogicId, devicePhyId,
-        *descNum);
+    HCCL_INFO("[%s] success, userDevId[%d], devicePhyId[%u], descNum[%u].", __func__, userDevId, devicePhyId, *descNum);
     EXCEPTION_HANDLE_END
     return HCCL_SUCCESS;
 }

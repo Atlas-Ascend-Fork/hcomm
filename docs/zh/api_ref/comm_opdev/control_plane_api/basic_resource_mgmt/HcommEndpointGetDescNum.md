@@ -25,14 +25,14 @@
 ## 函数原型
 
 ```c
-HcommResult HcommEndpointGetDescNum(int32_t deviceLogicId, uint32_t *descNum)
+HcommResult HcommEndpointGetDescNum(int32_t userDevId, uint32_t *descNum)
 ```
 
 ## 参数说明
 
 | 参数名 | 输入/输出 | 描述 |
 | --- | --- | --- |
-| `deviceLogicId` | 输入 | NPU设备逻辑ID。 |
+| `userDevId` | 输入 | NPU用户设备ID。 |
 | `descNum` | 输出 | 接口调用成功时，返回网络语义`Endpoint`的数量；当该指针非空但接口调用失败时，值为`0`。该参数不能为空指针。 |
 
 ## 返回值
@@ -43,7 +43,7 @@ HcommResult HcommEndpointGetDescNum(int32_t deviceLogicId, uint32_t *descNum)
 
 - 当前仅支持Ascend 950PR&950DT系列产品。
 - 查询范围仅包含网络语义`Endpoint`，支持的通信协议包括`COMM_PROTOCOL_UBC_CTP`、`COMM_PROTOCOL_UBG`和`COMM_PROTOCOL_UBOE`，不返回`COMM_PROTOCOL_UB_MEM`、`COMM_PROTOCOL_HCCS`等内存语义`Endpoint`。
-- `deviceLogicId`必须是有效且在位的NPU设备逻辑ID。
+- `userDevId`必须是有效且在位的NPU用户设备ID。
 - NPU设备未配置EID时，接口返回未找到错误，此时`descNum`为`0`。
 
 ## 调用示例
@@ -55,12 +55,12 @@ HcommResult HcommEndpointGetDescNum(int32_t deviceLogicId, uint32_t *descNum)
 
 int main(void)
 {
-    /* 输入：待查询的NPU设备逻辑ID。 */
-    const int32_t deviceLogicId = 0;
+    /* 输入：待查询的NPU用户设备ID。 */
+    const int32_t userDevId = 0;
 
     /* 输出：网络语义Endpoint的数量。 */
     uint32_t descNum = 0;
-    HcommResult result = HcommEndpointGetDescNum(deviceLogicId, &descNum);
+    HcommResult result = HcommEndpointGetDescNum(userDevId, &descNum);
     if (result != 0) {
         (void)fprintf(stderr, "HcommEndpointGetDescNum failed, result = %d\n", (int)result);
         return 1;
