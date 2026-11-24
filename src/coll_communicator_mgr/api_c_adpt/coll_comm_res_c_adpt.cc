@@ -16,6 +16,7 @@
 #include <array>
 #include <iterator>
 #include <limits>
+#include <type_traits>
 #include <functional>
 #include <thread>
 #include "hccl_comm_pub.h"
@@ -592,6 +593,15 @@ static HcclResult UpdateSymmetricRemoteMems(
     return HCCL_SUCCESS;
 }
 
+static std::string OpExpansionModeToString(uint32_t opExpansionMode)
+{
+    using UnderlyingType = std::underlying_type<Hccl::HcclAccelerator::Value>::type;
+    if (opExpansionMode > static_cast<uint32_t>(std::numeric_limits<UnderlyingType>::max())) {
+        return "Invalid";
+    }
+    return Hccl::HcclAccelerator(static_cast<Hccl::HcclAccelerator::Value>(opExpansionMode)).Describe();
+}
+
 bool CheckCommEngine(const CommEngine engine, const uint32_t opExpansionMode)
 {
     constexpr uint32_t DEFAULT_MODE = 0;
@@ -657,7 +667,8 @@ static HcclResult PrepareV2ChannelAcquire(hccl::hcclComm* hcclComm, HcclComm com
     const uint32_t opExpansionMode = myRank->GetOpExpansionMode();
     if (!CheckCommEngine(engine, opExpansionMode)) {
         HCCL_ERROR(
-            "[%s] opExpansionMode[%d] not supported by engine[%s].", __func__, opExpansionMode,
+            "[%s] opExpansionMode[%s] not supported by engine[%s].", __func__,
+            OpExpansionModeToString(opExpansionMode).c_str(),
             GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str());
         return HCCL_E_PARA;
     }
@@ -926,7 +937,8 @@ HcclResult HcclChannelQuery(
     const uint32_t opExpansionMode = myRank->GetOpExpansionMode();
     if (!CheckCommEngine(engine, opExpansionMode)) {
         HCCL_ERROR(
-            "[%s] opExpansionMode[%d] not supported by engine[%s].", __func__, opExpansionMode,
+            "[%s] opExpansionMode[%s] not supported by engine[%s].", __func__,
+            OpExpansionModeToString(opExpansionMode).c_str(),
             GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str());
         return HCCL_E_PARA;
     }

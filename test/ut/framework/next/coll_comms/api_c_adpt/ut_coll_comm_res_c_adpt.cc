@@ -966,6 +966,48 @@ TEST_F(HcclChannelDescTest, Ut_HcclChannelQuery_When_Normal_Expect_SUCCESS)
         HcclChannelQuery(comm, CommEngine::COMM_ENGINE_CCU, channelDesc.data(), 1, channels.data()), HCCL_SUCCESS);
 }
 
+// opExpansionMode 为合法枚举值但 CCU 引擎不支持，CheckCommEngine 校验失败返回 E_PARA
+TEST_F(HcclChannelDescTest, Ut_HcclChannelQuery_When_OpExpansionModeCcuNotSupport_Expect_E_PARA)
+{
+    MOCKER_CPP(&MyRank::GetOpExpansionMode).stubs().will(returnValue(1u));
+    std::vector<HcclChannelDesc> channelDesc(1);
+    std::vector<ChannelHandle> channels(1);
+    GetChannelDesc(channelDesc);
+    EXPECT_EQ(HcclChannelQuery(comm, CommEngine::COMM_ENGINE_CCU, channelDesc.data(), 1, channels.data()), HCCL_E_PARA);
+}
+
+// opExpansionMode 为 0~255 内的越界值，CheckCommEngine 校验失败返回 E_PARA
+TEST_F(HcclChannelDescTest, Ut_HcclChannelQuery_When_OpExpansionModeOutOfRange_Expect_E_PARA)
+{
+    MOCKER_CPP(&MyRank::GetOpExpansionMode).stubs().will(returnValue(100u));
+    std::vector<HcclChannelDesc> channelDesc(1);
+    std::vector<ChannelHandle> channels(1);
+    GetChannelDesc(channelDesc);
+    EXPECT_EQ(HcclChannelQuery(comm, CommEngine::COMM_ENGINE_CCU, channelDesc.data(), 1, channels.data()), HCCL_E_PARA);
+}
+
+// opExpansionMode 超出 HcclAccelerator::Value 底层类型表示范围（会截断的值），CheckCommEngine 校验失败返回 E_PARA
+TEST_F(HcclChannelDescTest, Ut_HcclChannelQuery_When_OpExpansionModeTruncateRisk_Expect_E_PARA)
+{
+    MOCKER_CPP(&MyRank::GetOpExpansionMode).stubs().will(returnValue(261u));
+    std::vector<HcclChannelDesc> channelDesc(1);
+    std::vector<ChannelHandle> channels(1);
+    GetChannelDesc(channelDesc);
+    EXPECT_EQ(HcclChannelQuery(comm, CommEngine::COMM_ENGINE_CCU, channelDesc.data(), 1, channels.data()), HCCL_E_PARA);
+}
+
+// opExpansionMode 为 CCU 引擎支持的模式（CCU_MS），CheckCommEngine 校验通过正常放行
+TEST_F(HcclChannelDescTest, Ut_HcclChannelQuery_When_CcuSupportedOpExpansionMode_Expect_SUCCESS)
+{
+    MOCKER_CPP(&MyRank::GetOpExpansionMode).stubs().will(returnValue(5u));
+    MOCKER_CPP(&MyRank::QueryChannels).stubs().will(returnValue(HCCL_SUCCESS));
+    std::vector<HcclChannelDesc> channelDesc(1);
+    std::vector<ChannelHandle> channels(1);
+    GetChannelDesc(channelDesc);
+    EXPECT_EQ(
+        HcclChannelQuery(comm, CommEngine::COMM_ENGINE_CCU, channelDesc.data(), 1, channels.data()), HCCL_SUCCESS);
+}
+
 TEST_F(HcclChannelDescTest, Ut_HcclChannelQuery_When_MyRankFailed_Expect_ErrorPropagated)
 {
     MOCKER_CPP(&MyRank::GetOpExpansionMode).stubs().will(returnValue(0u));
