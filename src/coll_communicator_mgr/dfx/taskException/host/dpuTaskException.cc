@@ -87,8 +87,8 @@ HcclResult DpuTaskException::GetDpuExceptionInfo(
     }
     if (dpuErrCode == 0 || expRef.addr == nullptr) {
         HCCL_RUN_WARNING(
-            "[%s] dpuErrCode[%u], taskExpPtr[%p]. maybe not dpu task, please check if dpu ERROR before.", __func__,
-            dpuErrCode, expRef.addr);
+            "[%s] dpuErrCode[%u], taskExpPtr[%p]. maybe not dpu task, please check if dpu task unsuccessful before.",
+            __func__, dpuErrCode, expRef.addr);
     }
     return HCCL_SUCCESS;
 }
