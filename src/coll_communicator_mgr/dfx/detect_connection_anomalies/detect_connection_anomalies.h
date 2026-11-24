@@ -12,9 +12,23 @@
 #define HCOMM_DETECT_CONNECTION_ANOMALIES_H
 
 #include <atomic>
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <mutex>
 #include <queue>
+#include <set>
+#include <string>
 #include <thread>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
+#include "hccl/hccl_types.h"
+#include "hcomm_res_defs.h"
+#include "ip_address.h"
+#include "port.h"
 #include "referenced.h"
 #include "socket.h"
 

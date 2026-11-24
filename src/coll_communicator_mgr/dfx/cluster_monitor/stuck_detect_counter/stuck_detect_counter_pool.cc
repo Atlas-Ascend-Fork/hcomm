@@ -140,7 +140,7 @@ HcclResult StuckDetectCounterPool::AllocateSlotLocked(uint32_t& slotIdx, StuckDe
 
 void StuckDetectCounterPool::FreeSlotLocked(uint32_t slotIdx) { freeSlotList_.push_back(slotIdx); }
 
-HcclResult StuckDetectCounterPool::ResetSlotLocked(uint32_t slotIdx)
+HcclResult StuckDetectCounterPool::ResetSlotLocked(uint32_t slotIdx) const
 {
     if (!IsReadyLocked()) {
         return HCCL_E_PTR;

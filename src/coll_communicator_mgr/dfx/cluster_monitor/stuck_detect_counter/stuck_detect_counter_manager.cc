@@ -18,6 +18,11 @@
 
 namespace hcomm {
 
+namespace {
+    // 卡住日志打印的退避系数：每打印一次，下一轮打印阈值翻倍，避免持续卡住时刷日志。
+    constexpr uint32_t PRINT_ROUND_BACKOFF = 2;
+} // namespace
+
 // ---------- 生命周期 ----------
 
 StuckDetectCounterManager::StuckDetectCounterManager(int32_t deviceLogicId) : counterPool_(deviceLogicId) {}
@@ -118,7 +123,7 @@ HcclResult StuckDetectCounterManager::ResetCounter(const std::string& commId)
 // ---------- 卡住检测 ----------
 
 HcclResult StuckDetectCounterManager::UpdateCommStatusLocked(
-    StuckDetectCounterInfo& counterInfo, const std::vector<int32_t>& counterBuf)
+    StuckDetectCounterInfo& counterInfo, const std::vector<int32_t>& counterBuf) const
 {
     if (counterInfo.slotIdx >= StuckDetectCounterPool::MAX_SLOT_NUM) {
         HCCL_WARNING(
@@ -235,7 +240,7 @@ HcclResult StuckDetectCounterManager::CheckProcessStuck(uint32_t reportThreshold
             ++processStuckRounds_;
             if (processStuckRounds_ >= nextPrintRound_) {
                 needPrint = true;
-                nextPrintRound_ *= 2;
+                nextPrintRound_ *= PRINT_ROUND_BACKOFF;
             }
         } else {
             needReportStuck = false;

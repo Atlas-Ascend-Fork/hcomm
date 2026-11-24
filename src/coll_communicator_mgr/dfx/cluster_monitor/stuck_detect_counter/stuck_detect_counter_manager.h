@@ -65,7 +65,8 @@ private:
     // 打印所有未析构通信域的计数和状态。
     void PrintActiveCommCounters() const;
     // 根据最新计数更新单个通信域的卡住状态。
-    HcclResult UpdateCommStatusLocked(StuckDetectCounterInfo& counterInfo, const std::vector<int32_t>& counterBuf);
+    HcclResult
+    UpdateCommStatusLocked(StuckDetectCounterInfo& counterInfo, const std::vector<int32_t>& counterBuf) const;
     // 打印单个通信域的计数和状态。
     void PrintCommCounter(const StuckDetectCounterInfo& counterInfo) const;
 

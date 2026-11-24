@@ -51,7 +51,7 @@ public:
     void FreeSlotLocked(uint32_t slotIdx);
 
     // 清零 slot 的 head/tail。
-    HcclResult ResetSlotLocked(uint32_t slotIdx);
+    HcclResult ResetSlotLocked(uint32_t slotIdx) const;
 
     // 获取已有 slot 的设备地址。
     HcclResult GetCounterAddressLocked(uint32_t slotIdx, StuckDetectCounterAddress& address) const;
