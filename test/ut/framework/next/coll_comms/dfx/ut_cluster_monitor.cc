@@ -936,6 +936,59 @@ TEST_F(ClusterMonitorTest, Ut_InsertClusterMonitorCtx_When_GetLinksSuccess_ZeroL
     GlobalMockObject::verify();
 }
 
+// 返回1条PCIE协议link，endpoint为DEVICE侧，用于验证PCIE链路
+static HcclResult HcclRankGraphGetLinksPcieStub(
+    HcclComm comm, uint32_t netLayer, uint32_t srcRank, uint32_t dstRank, CommLink** links, uint32_t* linkNum)
+{
+    static CommLink link;
+    (void)memset_s(&link, sizeof(link), 0, sizeof(link));
+    link.srcEndpointDesc.commAddr.type = CommAddrType::COMM_ADDR_TYPE_IP_V4;
+    inet_pton(AF_INET, "1.0.0.1", &link.srcEndpointDesc.commAddr.addr);
+    link.srcEndpointDesc.loc.locType = EndpointLocType::ENDPOINT_LOC_TYPE_DEVICE;
+    link.dstEndpointDesc.commAddr.type = CommAddrType::COMM_ADDR_TYPE_IP_V4;
+    inet_pton(AF_INET, "2.0.0.1", &link.dstEndpointDesc.commAddr.addr);
+    link.dstEndpointDesc.loc.locType = EndpointLocType::ENDPOINT_LOC_TYPE_DEVICE;
+    link.linkAttr.linkProtocol = CommProtocol::COMM_PROTOCOL_PCIE;
+    *links = &link;
+    *linkNum = 1;
+    return HCCL_SUCCESS;
+}
+
+TEST_F(ClusterMonitorTest, Ut_InsertClusterMonitorCtx_When_PcieLink_Expect_NotAdded)
+{
+    auto ctx = CreateHcclCommForInsertTest();
+    ASSERT_NE(ctx.hcclCommPtr, nullptr);
+    HcclComm comm = static_cast<HcclComm>(ctx.hcclCommPtr.get());
+
+    ClusterUIDType myUid;
+    int ret = memcpy_s(myUid.id, sizeof(myUid.id), "myInstance/1", sizeof("myInstance/1"));
+    EXPECT_EQ(ret, EOK);
+    g_monitor.myRankUID_ = myUid;
+    g_monitor.myRankLocalId_ = 1;
+    g_monitor.myRankNetInstId_ = "myInstance";
+
+    ClusterUIDType remoteUid;
+    ret = memcpy_s(remoteUid.id, sizeof(remoteUid.id), "remoteInstance/0", sizeof("remoteInstance/0"));
+    EXPECT_EQ(ret, EOK);
+    UIDContext remoteCtx(remoteUid, 0, 0, 0, "remoteInstance");
+
+    std::map<ClusterUIDType, ClusterMonitorSocketCtx> needConnectRank;
+
+    MOCKER(HcclRankGraphGetLinks).stubs().will(invoke(HcclRankGraphGetLinksPcieStub));
+
+    // InsertClusterMonitorCtx内部调用GetSocketDescFromRankInfo，PCIE链路返回NOT_FOUND被跳过
+    HcclResult result = g_monitor.InsertClusterMonitorCtx(comm, remoteCtx, needConnectRank);
+    EXPECT_EQ(result, HCCL_SUCCESS);
+    EXPECT_TRUE(needConnectRank.empty());
+
+    // 直接验证GetSocketDescFromRankInfo对PCIE链路返回NOT_FOUND
+    SocketDesc socketDesc{};
+    HcclResult sockRet = g_monitor.GetSocketDescFromRankInfo(comm, 0, 0, remoteUid, socketDesc);
+    EXPECT_EQ(sockRet, HCCL_E_NOT_FOUND);
+
+    GlobalMockObject::verify();
+}
+
 TEST_F(ClusterMonitorTest, Ut_FormatConnTag_When_ClientRole_Expect_CorrectFormat)
 {
     ClusterUIDType uid1;

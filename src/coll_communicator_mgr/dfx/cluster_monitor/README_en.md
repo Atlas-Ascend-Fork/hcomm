@@ -364,7 +364,7 @@ The module registers two callbacks with the AICPU/CCU framework at load time: **
 | **Role decision** | SERVER/CLIENT is determined by `localIpAddr < remoteIpAddr`; when local is SERVER, fill local `listenPort`, otherwise fill peer `rmtPort`, must be consistent with SocketConfig's listener strategy. |
 | **Broadcast strategy** | `ProcessExceptionEvent` only broadcasts to neighbors where "`rem != informer` and `status == OK`", avoiding loop storms; non-OK neighbors are already self-aware. |
 | **Status priority** | Error query order: CQE_ERR > LOST (call order within `PrintEvents`). |
-| **Device scope** | Singleton maintained per device; each device has independent heartbeats in multi-device scenarios without mutual interference. |
+| **Device scope** | Singleton maintained per device; each device has independent heartbeats in multi-device scenarios without mutual interference; PCIe (PCI Express) link does not participate in heartbeat monitoring. |
 | **Platform dependencies** | Depends on `HcclCommunicator` (v2), `RankGraph`, and Socket abstraction layer (`SocketCreate/SendNb/RecvNb/GetStatus/Destroy`); v1 communicator path is not supported. |
 | **Environment switch** | When `clusterHeartBeatEnable = false`, no new sockets are created during registration (commIdMap_ markers are retained), CQE error callbacks directly `return`. |
 | **Error propagation path** | Abnormal frames spread gradually through the Ring link; propagation delay ≈ `BROADCAST_INTERVAL` × Ring hops; not instantaneous synchronization. |

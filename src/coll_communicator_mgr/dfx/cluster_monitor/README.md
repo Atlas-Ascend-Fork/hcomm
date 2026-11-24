@@ -364,7 +364,7 @@ ClusterMonitorCallBackInit() {
 | **角色决策** | SERVER/CLIENT由 `localIpAddr < remoteIpAddr` 决定；本地为SERVER时填本地 `listenPort`，否则填对端 `rmtPort`，需与SocketConfig中监听方策略一致。 |
 | **广播策略** | `ProcessExceptionEvent` 仅向 "`rem != informer` 且 `status == OK`" 的邻居广播，避免回环风暴；非OK邻居已自感知。 |
 | **状态优先级** | 错误查询顺序：CQE_ERR > LOST（`PrintEvents` 内调用顺序）。 |
-| **设备范围** | 仅按device维护单例；多device场景下每个device独立心跳，互不影响。 |
+| **设备范围** | 仅按device维护单例；多device场景下每个device独立心跳，互不影响；PCIe（PCI Express）链路不参与心跳监控。 |
 | **平台依赖** | 依赖 `HcclCommunicator`（v2）、`RankGraph`、Socket抽象层（`SocketCreate/SendNb/RecvNb/GetStatus/Destroy`）；v1 communicator路径不受支持。 |
 | **环境开关** | `clusterHeartBeatEnable = false` 时，注册阶段不发起新socket（保留commIdMap_标记），CQE错误回调直接 `return`。 |
 | **错误传播路径** | 异常帧通过Ring链路逐步扩散，传播延迟 ≈ `BROADCAST_INTERVAL` × Ring跳数；非即时同步。 |

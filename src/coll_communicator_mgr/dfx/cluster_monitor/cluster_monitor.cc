@@ -145,6 +145,13 @@ HcclResult ClusterMonitor::GetSocketDescFromRankInfo(
         HCCL_INFO("[%s] no link between myRank[%u] and remoteRank[%u]", __func__, myRankId, remoteRank);
         return HCCL_E_NOT_FOUND;
     }
+    // PCIE链路不做cluster_monitor功能
+    if (links[0].linkAttr.linkProtocol == CommProtocol::COMM_PROTOCOL_PCIE) {
+        HCCL_INFO(
+            "[%s] skip cluster monitor for PCIE link between myRank[%u] and remoteRank[%u]", __func__, myRankId,
+            remoteRank);
+        return HCCL_E_NOT_FOUND;
+    }
     // 查询该socket链接的server端监听的端口（监听方的选择策略需要跟SocketConfig中保持一致）
     Hccl::IpAddress localIpAddr{};
     Hccl::IpAddress remoteIpAddr{};
