@@ -22,6 +22,11 @@ STATIC void *RaHdcWorkerThread(void *arg)
     struct RaHdcThreadPool *pool = (struct RaHdcThreadPool *)arg;
     pthread_t tidp = pthread_self();
     struct RaHdcTask task = {0};
+    int ret;
+
+    // detach self so thread resources are reclaimed automatically after exit
+    ret = pthread_detach(tidp);
+    CHK_PRT_RETURN(ret != 0, hccp_err("pthread detach failed ret %d", ret), NULL);
 
     (void)prctl(PR_SET_NAME, (uintptr_t) "hccp_rs_work", 0, 0, 0);
 

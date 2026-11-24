@@ -721,7 +721,8 @@ void TcRaHdcPoolCreate()
 
 void TcRaAsyncHandlePkt()
 {
-    struct MsgHead recvBuf = {0};
+    // close_session branch frees recv_buf itself, so it must be heap memory
+    struct MsgHead* recvBuf = (struct MsgHead*)calloc(1, sizeof(struct MsgHead));
 
     mocker_clean();
     mocker(RaHdcHandleSendPkt, 1, 0);
@@ -729,7 +730,16 @@ void TcRaAsyncHandlePkt()
     mocker(RaHdcPoolAddTask, 1, 0);
     mocker(pthread_mutex_lock, 10, 0);
     mocker(pthread_mutex_unlock, 10, 0);
-    RaAsyncHandlePkt(1, &recvBuf, 0);
+    RaAsyncHandlePkt(1, recvBuf, 0);
+    mocker_clean();
+
+    // empty pkt (recv_buf is NULL): session is abnormal, close it without reply pkt.
+    // atMost(0) asserts ra_hdc_handle_send_pkt is never entered with NULL msg.
+    mocker_clean();
+    mocker(RaHdcHandleSendPkt, 0, 0);
+    mocker(pthread_mutex_lock, 10, 0);
+    mocker(pthread_mutex_unlock, 10, 0);
+    RaAsyncHandlePkt(1, NULL, 0);
     mocker_clean();
 }
 

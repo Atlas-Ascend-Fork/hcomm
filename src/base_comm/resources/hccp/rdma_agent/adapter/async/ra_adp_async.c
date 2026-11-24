@@ -81,7 +81,12 @@ STATIC void RaAsyncHandlePkt(unsigned int chipId, void *recvBuf, unsigned int re
         closeSession = true;
     }
     if (closeSession) {
-        (void)RaHdcHandleSendPkt(chipId, recvBuf, recvLen);
+        if (recvBuf != NULL) {
+            (void)RaHdcHandleSendPkt(chipId, recvBuf, recvLen);
+        }
+        // recv_buf is alloced by recv thread, free it here instead of work thread
+        free(recvBuf);
+        recvBuf = NULL;
         RA_PTHREAD_MUTEX_LOCK(&gHdcAsyncInitPara.mutex);
         gHdcAsyncInitPara.connectStatus = HDC_UNCONNECTED;
         RA_PTHREAD_MUTEX_UNLOCK(&gHdcAsyncInitPara.mutex);
@@ -133,6 +138,8 @@ STATIC void *RaAsyncPthread(void *arg)
         }
 
         RaAsyncHandlePkt(chipId, recvBuf, recvLen);
+        recvBuf = NULL;
+        recvLen = 0;
     }
 
     hccp_info_others("thread [%d] is out, cleaning resources", getpid());
