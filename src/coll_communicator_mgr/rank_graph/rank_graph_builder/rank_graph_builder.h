@@ -46,20 +46,20 @@ public:
     HcclResult SetEndpointDesc();
 
 private:
-    std::unique_ptr<RankTableInfo> rankTable_;
-    std::unique_ptr<RankGraph> rankGraph_;
-    RankId2PeerMap peers_;
-    Level2Id2NetInst tempNetInsts_;
-    RankId myRank_;
+    std::unique_ptr<RankTableInfo> rankTable_{nullptr};
+    std::unique_ptr<RankGraph> rankGraph_{nullptr};
+    RankId2PeerMap peers_{};
+    Level2Id2NetInst tempNetInsts_{};
+    RankId myRank_{0};
     // 无UB兜底标记：本rank的level0为pcie fallback层（ranktable中pcie_fallback字段），
     // BuildFromRankTable时记录，供建链/topoInst注册路径替代实例名前缀匹配
     bool level0PcieFallback_{false};
-    std::shared_ptr<hccl::TopoInfo> topoInfo_;
+    std::shared_ptr<hccl::TopoInfo> topoInfo_{nullptr};
     // 350L拆层形态: 非对称mesh组时为true, AddTopoDescFabricInfo据此过滤graph(0)中的clos边,
     // 维持"level0纯mesh"视图; 对称形态在RestoreSymmetricLevel0View中已还原单层, 无需过滤
     bool filterClosInLevel0_{false};
     UpdaterFor64Plus1 updaterFor64Plus1_{};
-    std::optional<u32> selectedLayers_;
+    std::optional<u32> selectedLayers_{std::nullopt};
     u32 availableLayers_{0};
     LayerSelector layerSelector_;
 
