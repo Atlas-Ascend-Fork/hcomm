@@ -36,6 +36,8 @@ class IpcRemoteNotify : public BaseRemoteNotify {
 public:
     IpcRemoteNotify();
 
+    ~IpcRemoteNotify() override;
+
     explicit IpcRemoteNotify(const Serializable& rmtDto);
 
     IpcRemoteNotify(const IpcRemoteNotify& that) = delete;
@@ -59,6 +61,7 @@ private:
     u32 rmtPid{0};
     u32 rmtDevPhyId{0};
     bool devUsed{false};
+    bool handleOwned{false}; // 仅跨进程(HrtIpcOpenNotify*)分支置 true, 同进程分支借用本地 RtsNotify 句柄不可销毁
     RtNotify_t handle{};
     u64 addr{0};
     u32 size{0};

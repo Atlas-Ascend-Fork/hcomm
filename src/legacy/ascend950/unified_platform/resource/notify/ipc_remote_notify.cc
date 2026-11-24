@@ -15,6 +15,13 @@ namespace Hccl {
 
 IpcRemoteNotify::IpcRemoteNotify() : BaseRemoteNotify(RmaType::IPC) {}
 
+IpcRemoteNotify::~IpcRemoteNotify()
+{
+    if (handleOwned) {
+        DECTOR_TRY_CATCH("IpcRemoteNotify", HrtNotifyDestroy(handle));
+    }
+}
+
 IpcRemoteNotify::IpcRemoteNotify(const Serializable& rmtDto) : BaseRemoteNotify(RmaType::IPC)
 {
     auto dto = dynamic_cast<const ExchangeIpcNotifyDto&>(rmtDto);
@@ -35,9 +42,18 @@ IpcRemoteNotify::IpcRemoteNotify(const Serializable& rmtDto) : BaseRemoteNotify(
         } else {
             handle = HrtIpcOpenNotify(name);
         }
+        handleOwned = true;
     }
-    addr = HrtNotifyGetAddr(handle);
-    size = DevCapability::GetInstance().GetNotifySize();
+    try {
+        addr = HrtNotifyGetAddr(handle);
+        size = DevCapability::GetInstance().GetNotifySize();
+    } catch (...) {
+        if (handleOwned) {
+            DECTOR_TRY_CATCH("IpcRemoteNotify", HrtNotifyDestroy(handle));
+            handleOwned = false;
+        }
+        throw;
+    }
     HCCL_INFO(
         "IpcRemoteNotify[name=%s, handleAddr=0x%llx, id=%u, rmtPid=%u, rmtDevPhyId=%u, devUsed=%d, addr=0x%llx, "
         "handle=%p]",

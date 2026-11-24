@@ -50,6 +50,36 @@ protected:
     char fakeName[65] = "testRtsNotify";
 };
 
+// 跨进程(rmtPid != myPid): 句柄由 HrtIpcOpenNotify 打开, 归本对象所有, 析构应销毁一次
+TEST_F(IpcRemoteNotifyTest, Ut_When_CrossProcess_ThenDestruct_Expect_DestroyCalledOnce)
+{
+    // given: rmtPid != myPid, 走 HrtIpcOpenNotify 跨进程分支
+    MOCKER(HrtNotifyDestroy).expects(once());
+    ExchangeIpcNotifyDto dto(fakeNotifyHandleAddr, fakeNotifyId, fakePid + 1, 0, false);
+
+    // when: 构造后析构
+    {
+        IpcRemoteNotify remoteNotify(dto);
+    }
+
+    // then: 析构销毁自有句柄一次(由 TearDown 的 GlobalMockObject::verify 校验)
+}
+
+// 同进程(rmtPid == myPid): handle 借用本地 RtsNotify 句柄, 不归本对象所有, 析构不应销毁
+TEST_F(IpcRemoteNotifyTest, Ut_When_SameProcess_ThenDestruct_Expect_DestroyNotCalled)
+{
+    // given: rmtPid == myPid, 同进程分支借用本地 RtsNotify 句柄
+    MOCKER(HrtNotifyDestroy).expects(never());
+    ExchangeIpcNotifyDto dto(fakeNotifyHandleAddr, fakeNotifyId, fakePid, 0, false);
+
+    // when: 构造后析构
+    {
+        IpcRemoteNotify remoteNotify(dto);
+    }
+
+    // then: 析构不销毁借用句柄(由 TearDown 的 GlobalMockObject::verify 校验)
+}
+
 class RdmaRemoteNotifyTest : public testing::Test {
 protected:
     static void SetUpTestCase() { std::cout << "RdmaRemoteNotifyTest SetUP" << std::endl; }
