@@ -506,11 +506,11 @@ STATIC int RsOpenHrnSo(void)
     pthread_mutex_lock(&gHrnApiLock);
 #ifndef CA_CONFIG_LLT
     if (gHrnApiHandle == NULL) {
-        gHrnApiHandle = HccpDlopen("libhrn5-rdmav34.so", RTLD_NOW);
+        gHrnApiHandle = HccpDlopen("libhrn5-rdmav34.so", RTLD_NOW | RTLD_NODELETE);
         if (gHrnApiHandle != NULL) {
             goto out;
         }
-        gHrnApiHandle = HccpDlopen("libhrn5.so.1", RTLD_NOW);
+        gHrnApiHandle = HccpDlopen("libhrn5.so.1", RTLD_NOW | RTLD_NODELETE);
         if (gHrnApiHandle != NULL) {
             goto out;
         }
@@ -593,9 +593,9 @@ DL_ATTRI_VISI_DEF int RsApiInit(void)
     ret = RsRoceUserApiInit();
     if (ret != 0) {
         hccp_err("rs_roce_user_api_init failed! ret=[%d]", ret);
+        RsIbvExtendApiDeinit();
         RsCloseHrnSo();
         RsCloseIbverbsSo();
-        RsIbvExtendApiDeinit();
         return ret;
     }
 #endif
@@ -605,10 +605,10 @@ DL_ATTRI_VISI_DEF int RsApiInit(void)
 
 DL_ATTRI_VISI_DEF void RsApiDeinit(void)
 {
-    RsCloseIbverbsSo();
-    RsCloseHrnSo();
-    RsIbvExtendApiDeinit();
     RsCloseRoceUserSo();
+    RsIbvExtendApiDeinit();
+    RsCloseHrnSo();
+    RsCloseIbverbsSo();
     return;
 }
 
