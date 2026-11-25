@@ -316,6 +316,7 @@ TEST_M(RdmaAgent, TcRaHdcAsyncRecvPkt);
 TEST_M(RdmaAgent, TcHdcAsyncRecvPkt);
 TEST_M(RdmaAgent, TcRaHdcPoolCreate);
 TEST_M(RdmaAgent, TcRaAsyncHandlePkt);
+TEST_M(RdmaAgent, TcRaAsyncPthread);
 TEST_M(RdmaAgent, TcRaHdcAsyncHandleSocketListenStart);
 TEST_M(RdmaAgent, TcRaHdcAsyncHandleQpImport);
 TEST_M(RdmaAgent, TcRaPeerCtxInit);

@@ -133,7 +133,7 @@ STATIC void *RaAsyncPthread(void *arg)
         // recv msg from hdc, alloc recv_buf in ra_async_pthread, free in work_pthread
         ret = RaHdcAsyncRecvPkt(&gHdcAsync[chipId], chipId, &recvBuf, &recvLen);
         if (ret != 0) {
-            hccp_err("ra_hdc_async_recv_pkt failed, ret:%d chipId:%u", ret, chipId);
+            hccp_run_warn("RaHdcAsyncRecvPkt unsuccessful, ret:%d chipId:%u", ret, chipId);
             break;
         }
 
