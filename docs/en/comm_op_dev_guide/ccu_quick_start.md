@@ -18,7 +18,7 @@ This sample supports the following Ascend products. The networking requires Mesh
 
 ## Sample Introduction
 
-You can click [here](https://gitcode.com/cann/hccl/tree/master/examples/05_custom_ops_allgather/ccu) to obtain the complete CCU sample code. This sample uses the HCCL communication operator development APIs to implement the AllGather operator based on the CCU communication engine. The main implementation process is as follows:
+You can click [here](https://gitcode.com/cann/hccl/tree/9.3.0/examples/05_custom_ops_allgather/ccu) to obtain the complete CCU sample code. This sample uses the HCCL communication operator development APIs to implement the AllGather operator based on the CCU communication engine. The main implementation process is as follows:
 
 - **Query the topology information of the communicator**: Call the topology information query APIs **HcclGetRankId\(\)** and **HcclGetRankSize\(\)** to obtain the **rank\_id** of the current thread and the number of ranks in the communicator.
 - **Create thread resources**: Call the resource management API **HcclThreadAcquire\(\)** to allocate communication thread resources.

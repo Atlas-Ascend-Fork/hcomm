@@ -4,7 +4,7 @@
 
 ## 了解自定义算子编译打包工程
 
-HCCL代码仓提供了自定义算子编译打包工程，开发者可参考[自定义Send/Receive通信算子样例](https://gitcode.com/cann/hccl/tree/master/examples/04_custom_ops_p2p)进行开发，其目录结构如下：
+HCCL代码仓提供了自定义算子编译打包工程，开发者可参考[自定义Send/Receive通信算子样例](https://gitcode.com/cann/hccl/tree/9.3.0/examples/04_custom_ops_p2p)进行开发，其目录结构如下：
 
 ```text
 ├── build.sh                                # HCCL代码仓根目录编译工程入口
