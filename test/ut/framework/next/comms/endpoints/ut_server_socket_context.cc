@@ -21,7 +21,6 @@
 #include "server_socket_context/device_server_socket_context.h"
 #include "server_socket_context/aicpu_ts_roce_server_socket_context.h"
 #include "server_socket_context/aicpu_ts_hccs_server_socket_context.h"
-#include "server_socket_context/ub_rtp_uboe_server_socket_context.h"
 #include "server_socket_mgr.h"
 #undef protected
 #undef private
@@ -324,26 +323,6 @@ TEST_F(ServerSocketContextTest, Ut_AicpuTsRoceStopListenGetListenPort_When_Inher
 TEST_F(ServerSocketContextTest, Ut_AicpuTsHccsGetListenPort_When_InheritBaseDefault_Expect_NotSupport)
 {
     AicpuTsHccsServerSocketContext ctx(0U, 16666U);
-
-    uint32_t port = 0;
-    EXPECT_EQ(ctx.ServerSocketGetListenPort(&port), HCCL_E_NOT_SUPPORT);
-}
-
-// TC-UbRtpUboeServerSocketContext_Listen/StopListen-001:
-// Uboe/UbRtp 迁移前（Endpoint 时期）经 UboeUbRtpEndpointHelper 的 Listen/StopListen 为 no-op SUCCESS
-// （仅 HCCL_INFO），迁移恢复后由本 context 承载该 no-op 语义
-TEST_F(ServerSocketContextTest, Ut_UbRtpUboeListenStopListen_When_NoOp_Expect_Success)
-{
-    UbRtpUboeServerSocketContext ctx;
-    EXPECT_EQ(ctx.ServerSocketListen(60001U), HCCL_SUCCESS);
-    EXPECT_EQ(ctx.ServerSocketStopListen(60001U), HCCL_SUCCESS);
-}
-
-// TC-UbRtpUboeServerSocketContext_GetListenPort-001:
-// GetListenPort 迁移前未覆写，走基类默认 NOT_SUPPORT，本 context 不覆写保持迁移前对外行为
-TEST_F(ServerSocketContextTest, Ut_UbRtpUboeGetListenPort_When_InheritBaseDefault_Expect_NotSupport)
-{
-    UbRtpUboeServerSocketContext ctx;
 
     uint32_t port = 0;
     EXPECT_EQ(ctx.ServerSocketGetListenPort(&port), HCCL_E_NOT_SUPPORT);

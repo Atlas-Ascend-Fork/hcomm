@@ -169,9 +169,6 @@ HcclResult Channel::ParseInputParam()
     HCCL_INFO("[%s::%s] localProtocol[%d]", channelClassName_, __func__, local_.ep.protocol);
 
     CHK_RET(DecideSocketRole());
-    if (traits_.socketBuildMode == SocketBuildMode::LISTEN_AND_BORROW) {
-        local_.isSocketServer = false;
-    }
 
     return HCCL_SUCCESS;
 }
@@ -254,24 +251,6 @@ HcclResult Channel::StartListen()
 
         CHK_RET(static_cast<HcclResult>(HcommEndpointStartListen(endpointHandle_, local_.serverPort, nullptr)));
         HCCL_INFO("[%s::%s] SUCCESS. port[%u].", channelClassName_, __func__, local_.serverPort);
-    }
-
-    if (local_.socket == nullptr && traits_.socketBuildMode == SocketBuildMode::LISTEN_AND_BORROW) {
-        Hccl::IpAddress ipaddr{};
-        CHK_RET(CommAddrToIpAddress(local_.ep.commAddr, ipaddr));
-        Hccl::PortData localPort = Hccl::PortData(
-            static_cast<Hccl::RankId>(local_.ep.loc.device.devPhyId), Hccl::DevNetPortType(traits_.listenPortType), 0,
-            ipaddr);
-        Hccl::SocketHandle socketHandle
-            = Hccl::SocketHandleManager::GetInstance().Create(local_.ep.loc.device.devPhyId, localPort);
-        EXCEPTION_CATCH(
-            local_.serverSocket = std::make_unique<Hccl::Socket>(
-                socketHandle, ipaddr, traits_.defaultListenPort, ipaddr, "server", Hccl::SocketRole::SERVER,
-                Hccl::NicType::DEVICE_NIC_TYPE),
-            return HCCL_E_PARA);
-        HCCL_INFO(
-            "[%s::%s] listen_socket_info[%s]", channelClassName_, __func__, local_.serverSocket->Describe().c_str());
-        EXCEPTION_CATCH(local_.serverSocket->Listen(), return HCCL_E_INTERNAL);
     }
 
     return HCCL_SUCCESS;

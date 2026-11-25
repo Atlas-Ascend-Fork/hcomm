@@ -203,9 +203,9 @@ TEST_F(AicpuTsP2pChannelTest, Ut_ParseInputParam_Expect_ListenAndBorrowMode)
     EXPECT_EQ(ch.traits_.socketBuildMode, SocketBuildMode::LISTEN_AND_BORROW);
 }
 
-TEST_F(AicpuTsP2pChannelTest, Ut_StartListen_WhenSocketNull_Expect_PcieListenPortTypeThrows)
+TEST_F(AicpuTsP2pChannelTest, Ut_StartListen_WhenSocketNull_Expect_NoSelfListen)
 {
-    StubEndpointForP2pChannel endpoint; // MakeDesc 未配 commAddr，LISTEN 分支的 CommAddrToIpAddress 需打桩
+    StubEndpointForP2pChannel endpoint;
     auto localRmaBuffer = MakeLocalIpcRmaBuffer(0x3200U, 0x1000U, "p2p_listen");
     HcommMemHandle memHandles[1] = {reinterpret_cast<HcommMemHandle>(localRmaBuffer.get())};
     HcommChannelDesc desc{};
@@ -218,22 +218,13 @@ TEST_F(AicpuTsP2pChannelTest, Ut_StartListen_WhenSocketNull_Expect_PcieListenPor
     ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
     ASSERT_EQ(ch.local_.socket, nullptr);
 
-    // 打桩 commAddr 解析成功以抵达真实抛点：自建监听已收口进 StartListen 的 LISTEN 分支，P2P 无专属
-    // 监听端口类型，GetListenPortType() default 分支返回 DevNetPortType(PCIE)，而 DevNetPortType
-    // 合法集 {TCP,RDMA,UB} 不含 PCIE，PortData 构造即抛 InvalidParamsException。与原实现完全一致
-    // （原代码即 DevNetPortType(PCIE)，自带 "TODO PROTOTYPE P2P?" 注释），属存量原型地雷而非收口
-    // 回归，此处钉住真实行为；PortData 之后的 Create/GetSocket/借出不可达，无需打桩。P2P 原型完善时
-    // 应引入 P2P 族端口类型（P2PPortType 合法集含 PCIE）。urma 路径（DevNetPortType(UB) 合法）的
-    // LISTEN_AND_BORROW 全流程行为由 ut_aicpu_ts_urma_channel.cc 对应用例钉住。
-    // （Listen() 虚函数由链接级 llt 桩接管，MOCKER_CPP 打虚函数拿到虚表偏移伪指针会段错误）
-    MOCKER(CommAddrToIpAddress).stubs().will(returnValue(HCCL_SUCCESS));
-    EXPECT_THROW(ch.StartListen(), Hccl::InvalidParamsException);
+    EXPECT_EQ(ch.StartListen(), HCCL_SUCCESS);
+    EXPECT_EQ(ch.local_.serverSocket, nullptr);
 }
 
 // ===================== Resume 错误码传播钉住 =====================
 // Resume 内 BuildSocket/BuildConnection/BuildBuffer 裸调已改 CHK_RET：重建失败须上抛，不得静默吞错后
-// 返回 SUCCESS。P2P 的 socketBuildMode 是 LISTEN_AND_BORROW 而非 NONE，BuildSocket 须 mock 直通 SUCCESS
-// （不打桩则 LISTEN 分支撞 PCIE 监听端口类型存量地雷直接抛异常），失败注入聚焦后两个 hook
+// 返回 SUCCESS。
 
 TEST_F(AicpuTsP2pChannelTest, Ut_Resume_WhenBuildConnectionFails_Expect_ErrorPropagated)
 {

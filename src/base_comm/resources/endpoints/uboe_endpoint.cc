@@ -131,6 +131,15 @@ HcclResult UboeEndpoint::Init()
         return ret;
     }
 
+    EXCEPTION_CATCH(
+        serverSocketContext_.emplace(
+            Hccl::ConnectProtoType::UB, endpointDesc_.loc.device.devPhyId, endpointDesc_.loc.locType,
+            endpointDesc_.commAddr),
+        {
+            CHK_RET(ReleaseEndpointCtx());
+            return HCCL_E_INTERNAL;
+        });
+
     return HcclResult::HCCL_SUCCESS;
 }
 

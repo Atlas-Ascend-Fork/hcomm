@@ -430,7 +430,7 @@ TEST_F(AicpuTsUrmaChannelTest, Ut_StartListenAndBuildSocket_WhenRoleReserved_Exp
     HcommMemHandle memHandles[1] = {reinterpret_cast<HcommMemHandle>(localBuffer.get())};
     HcommChannelDesc desc{};
     desc.role = HCOMM_SOCKET_ROLE_RESERVED;
-    desc.port = 61001; // 验证自建监听端口不受 desc.port 影响（RESERVED 自建监听固定 defaultListenPort=60001）
+    desc.port = 61001;
     desc.memHandles = memHandles;
     desc.memHandleNum = 1;
     AicpuTsUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
@@ -448,10 +448,9 @@ TEST_F(AicpuTsUrmaChannelTest, Ut_StartListenAndBuildSocket_WhenRoleReserved_Exp
         Hccl::NicType::DEVICE_NIC_TYPE);
     MOCKER_CPP(&SocketMgr::GetSocket).stubs().with(mockcpp::any(), outBound(&borrowed)).will(returnValue(HCCL_SUCCESS));
 
-    // 自建监听已收口进 StartListen（与端点侧监听统一入口）；RESERVED 非 server 角色，ctx 路径被门控跳过
     EXPECT_EQ(ch.StartListen(), HCCL_SUCCESS);
-    ASSERT_NE(ch.local_.serverSocket, nullptr);                 // 本端自建监听 socket 建立
-    EXPECT_EQ(ch.local_.serverSocket->GetListenPort(), 60001U); // 自建监听端口=defaultListenPort（base 行为）
+    EXPECT_EQ(ch.local_.serverPort, 61001U);
+    EXPECT_EQ(ch.local_.serverSocket, nullptr);
 
     EXPECT_EQ(ch.BuildSocket(), HCCL_SUCCESS); // 监听已就绪，BuildSocket 只做配置保存与数据 socket 借出
     ASSERT_NE(ch.local_.socketConfig, nullptr);
