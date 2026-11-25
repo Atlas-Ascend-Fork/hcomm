@@ -138,9 +138,14 @@ HcclResult UpdaterFor64Plus1::AddPeer2BackupLinks(
     std::shared_ptr<PhyTopo::Link> peer2PlaneEdges;
     TRY_CATCH_RETURN(peer2PlaneEdges = GetPeer2PlaneEdges(backupPlaneId, peer, phyTopoGraph););
 
+    const auto backD2PlaneIface = backD2PlaneEdges->GetSourceIFace();
+    const auto peer2PlaneIface = peer2PlaneEdges->GetSourceIFace();
+    CHK_PTR_NULL(backD2PlaneIface);
+    CHK_PTR_NULL(peer2PlaneIface);
+
     // 取得端口列表，根据backupLinkIdx去选择对应的端口
-    std::set<std::string> backD2PlanePorts = backD2PlaneEdges->GetSourceIFace()->GetPorts();
-    std::set<std::string> peer2PlanePorts = peer2PlaneEdges->GetSourceIFace()->GetPorts();
+    std::set<std::string> backD2PlanePorts = backD2PlaneIface->GetPorts();
+    std::set<std::string> peer2PlanePorts = peer2PlaneIface->GetPorts();
 
     // 校验端口集合大小是否符合预期
     if (backD2PlanePorts.size() != BACKUP_TO_PLANE_ADDR_NUM) {
@@ -180,20 +185,16 @@ HcclResult UpdaterFor64Plus1::AddPeer2BackupLinks(
     IpAddress peer2PlaneAddr = peer2PlaneIter->second[0];
 
     // 组装成NetInstance的conninterface，加入peer和backupPeer
-    if (backD2PlaneEdges->GetSourceIFace() == nullptr || peer2PlaneEdges->GetSourceIFace() == nullptr) {
-        HCCL_ERROR("[UpdaterFor64Plus1][%s] source ConnInterface is nullptr", __func__);
-        return HCCL_E_PARA;
-    }
     std::set<string> peer2PlanePortSet;
     peer2PlanePortSet.insert(peer2PlanePort);
     std::set<string> backD2PlanePortSet;
     backD2PlanePortSet.insert(backD2PlanePort);
 
     shared_ptr<NetInstance::ConnInterface> backupIface = make_shared<NetInstance::ConnInterface>(
-        backD2PlaneAddr, backD2PlanePortSet, backD2PlaneEdges->GetSourceIFace()->GetPos(), LinkType::PEER2PEER,
+        backD2PlaneAddr, backD2PlanePortSet, backD2PlaneIface->GetPos(), LinkType::PEER2PEER,
         backD2PlaneEdges->GetLinkProtocols(), backD2PlaneEdges->GetTopoType(), backD2PlaneEdges->GetTopoInstId());
     shared_ptr<NetInstance::ConnInterface> peerIface = make_shared<NetInstance::ConnInterface>(
-        peer2PlaneAddr, peer2PlanePortSet, peer2PlaneEdges->GetSourceIFace()->GetPos(), LinkType::PEER2PEER,
+        peer2PlaneAddr, peer2PlanePortSet, peer2PlaneIface->GetPos(), LinkType::PEER2PEER,
         peer2PlaneEdges->GetLinkProtocols(), backD2PlaneEdges->GetTopoType(), backD2PlaneEdges->GetTopoInstId());
 
     backupPeer->AddConnInterface(0, backupIface);

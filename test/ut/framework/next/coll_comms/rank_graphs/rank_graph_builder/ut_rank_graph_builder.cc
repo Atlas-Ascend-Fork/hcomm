@@ -2738,6 +2738,64 @@ RankTableInfo MakeRankTable2x2WithTopoBackupLocalId()
 
 } // namespace
 
+TEST_F(RankGraphBuilderTest, Ut_AddPeer2BackupLinks_When_SourceIfaceValid_Expect_Success)
+{
+    RankTableInfo rankTable = MakeRankTable2x2WithTopoBackupLocalId();
+    RankGraphBuilder rankGraphBuilder;
+    std::unique_ptr<RankGraph> rankGraph
+        = rankGraphBuilder.RecoverBuild(rankTable, test::MakeTwoByTwoPlusBackupTopo(), 0);
+    ASSERT_NE(rankGraph, nullptr);
+    NetInstance* netInst = rankGraph->GetNetInstanceByNetInstId(0, "az0-rack0");
+    ASSERT_NE(netInst, nullptr);
+    ASSERT_NE(PhyTopo::GetInstance()->GetTopoGraph(0), nullptr);
+
+    UpdaterFor64Plus1 updater;
+    constexpr LocalId replacedLocalId = 1U;
+    auto backupPeer = FindPeerByLocalId(netInst, 64U);
+    auto peer = FindPeerLinkedToReplaced(updater, netInst, replacedLocalId);
+    ASSERT_NE(backupPeer, nullptr);
+    ASSERT_NE(peer, nullptr);
+
+    EXPECT_EQ(updater.AddPeer2BackupLinks(peer, backupPeer, replacedLocalId, netInst, &rankTable), HCCL_SUCCESS);
+}
+
+TEST_F(RankGraphBuilderTest, Ut_AddPeer2BackupLinks_When_SourceIfaceMissing_Expect_E_Ptr)
+{
+    RankTableInfo rankTable = MakeRankTable2x2WithTopoBackupLocalId();
+    RankGraphBuilder rankGraphBuilder;
+    std::unique_ptr<RankGraph> rankGraph
+        = rankGraphBuilder.RecoverBuild(rankTable, test::MakeTwoByTwoPlusBackupTopo(), 0);
+    ASSERT_NE(rankGraph, nullptr);
+    NetInstance* netInst = rankGraph->GetNetInstanceByNetInstId(0, "az0-rack0");
+    ASSERT_NE(netInst, nullptr);
+    auto phyGraph = PhyTopo::GetInstance()->GetTopoGraph(0);
+    ASSERT_NE(phyGraph, nullptr);
+
+    UpdaterFor64Plus1 updater;
+    constexpr LocalId replacedLocalId = 1U;
+    auto backupPeer = FindPeerByLocalId(netInst, 64U);
+    auto peer = FindPeerLinkedToReplaced(updater, netInst, replacedLocalId);
+    ASSERT_NE(backupPeer, nullptr);
+    ASSERT_NE(peer, nullptr);
+
+    const auto backupPlaneId = updater.GetLinkIndex(peer->GetLocalId(), replacedLocalId).first;
+    auto backD2PlaneEdges = updater.GetPeer2PlaneEdges(backupPlaneId, backupPeer, phyGraph);
+    auto peer2PlaneEdges = updater.GetPeer2PlaneEdges(backupPlaneId, peer, phyGraph);
+    ASSERT_NE(backD2PlaneEdges, nullptr);
+    ASSERT_NE(peer2PlaneEdges, nullptr);
+    const auto backD2PlaneIface = backD2PlaneEdges->GetSourceIFace();
+    const auto peer2PlaneIface = peer2PlaneEdges->GetSourceIFace();
+    ASSERT_NE(backD2PlaneIface, nullptr);
+    ASSERT_NE(peer2PlaneIface, nullptr);
+
+    backD2PlaneEdges->SetSourceIface(nullptr);
+    EXPECT_EQ(updater.AddPeer2BackupLinks(peer, backupPeer, replacedLocalId, netInst, &rankTable), HCCL_E_PTR);
+
+    backD2PlaneEdges->SetSourceIface(backD2PlaneIface);
+    peer2PlaneEdges->SetSourceIface(nullptr);
+    EXPECT_EQ(updater.AddPeer2BackupLinks(peer, backupPeer, replacedLocalId, netInst, &rankTable), HCCL_E_PTR);
+}
+
 TEST_F(RankGraphBuilderTest, Ut_AddPeer2BackupLinks_When_BackupPortMissing_Expect_E_Para)
 {
     RankTableInfo rankTable = MakeRankTable2x2WithTopoBackupLocalId();
