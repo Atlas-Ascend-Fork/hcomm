@@ -278,7 +278,6 @@ TEST_F(EnvConfigTest, parse_env_config_should_success)
         EXPECT_EQ(envCfg.GetRdmaConfig().GetRdmaRetryCnt(), 5);
         EXPECT_EQ(envCfg.GetRdmaConfig().GetRdmaQueueNum(), 1);
         EXPECT_EQ(envCfg.GetRdmaConfig().GetRdmaMultiQpThreshold(), 524288); // 512 KB 转 524288 B
-        EXPECT_EQ(envCfg.GetAlgoConfig().GetPrimQueueGenName(), "AllReduceRing");
         std::map<OpType, std::vector<HcclAlgoType>> algoMap = {};
         EXPECT_EQ(envCfg.GetAlgoConfig().GetAlgoConfig(), algoMap);
         EXPECT_EQ(envCfg.GetAlgoConfig().GetBuffSize(), 200 * 1024 * 1024);
@@ -324,7 +323,6 @@ true})), true); EXPECT_EQ(envCfg.GetHostNicConfig().GetWhitelistDisable(), false
     EXPECT_EQ(envCfg.GetRdmaConfig().GetRdmaServerLevel(), 3);
     EXPECT_EQ(envCfg.GetRdmaConfig().GetRdmaTimeOut(), 6);
     EXPECT_EQ(envCfg.GetRdmaConfig().GetRdmaRetryCnt(), 5);
-    EXPECT_EQ(envCfg.GetAlgoConfig().GetPrimQueueGenName(), "AllReduceRing");
     EXPECT_EQ(envCfg.GetAlgoConfig().GetAlgoConfig(), vector<HcclAlgoType>({HcclAlgoType::HCCL_ALGO_TYPE_RING,
 HcclAlgoType::HCCL_ALGO_TYPE_RING, HcclAlgoType::HCCL_ALGO_TYPE_DEFAULT, HcclAlgoType::HCCL_ALGO_TYPE_DEFAULT}));
     EXPECT_EQ(envCfg.GetAlgoConfig().GetBuffSize(), 200*1024*1024);
@@ -355,7 +353,6 @@ true})), true); EXPECT_EQ(envCfg.GetHostNicConfig().GetWhitelistDisable(), false
     EXPECT_EQ(envCfg.GetRdmaConfig().GetRdmaServerLevel(), 3);
     EXPECT_EQ(envCfg.GetRdmaConfig().GetRdmaTimeOut(), 6);
     EXPECT_EQ(envCfg.GetRdmaConfig().GetRdmaRetryCnt(), 5);
-    EXPECT_EQ(envCfg.GetAlgoConfig().GetPrimQueueGenName(), "AllReduceRing");
     EXPECT_EQ(envCfg.GetAlgoConfig().GetAlgoConfig(), vector<HcclAlgoType>({HcclAlgoType::HCCL_ALGO_TYPE_DEFAULT,
 HcclAlgoType::HCCL_ALGO_TYPE_DEFAULT, HcclAlgoType::HCCL_ALGO_TYPE_DEFAULT, HcclAlgoType::HCCL_ALGO_TYPE_DEFAULT}));
     EXPECT_EQ(envCfg.GetAlgoConfig().GetBuffSize(), 200*1024*1024);

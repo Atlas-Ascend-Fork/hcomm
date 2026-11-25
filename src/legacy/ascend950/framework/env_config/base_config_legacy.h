@@ -197,7 +197,6 @@ class EnvAlgoConfig : public BaseConfig {
 public:
     void Parse() override;
     void SetDeterministic(u8 deterministic);
-    const std::string& GetPrimQueueGenName() const;
     const std::map<OpType, std::vector<HcclAlgoType>> GetAlgoConfig() const;
     u64 GetBuffSize() const;
     HcclAccelerator GetHcclAccelerator() const;
@@ -208,8 +207,6 @@ private:
     static constexpr u32 HCCL_CCL_COMM_DEFAULT_BUFFER_SIZE = 200;
     static constexpr u32 HCCL_CCL_COMM_BUFFER_MIN = 1;
     static constexpr u64 HCCL_CCL_COMM_FIXED_CALC_BUFFER_SIZE = (1 * 1024 * 1024);
-
-    CfgField<std::string> primQueueGenName{"PRIM_QUEUE_GEN_NAME", "", Str2T<std::string>};
 
     CfgField<std::map<OpType, std::vector<HcclAlgoType>>> hcclAlgoConfig{
         "HCCL_ALGO", std::map<OpType, std::vector<HcclAlgoType>>(),

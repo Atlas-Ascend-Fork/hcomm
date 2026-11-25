@@ -489,7 +489,6 @@ TEST_F(CollServiceDefaultImplTest, test_base_register_offload_stream)
 #if 0
 TEST_F(CollServiceDefaultImplTest, test_calc_coll_offload_op_res_with_hccl_success_returned)
 {
-    setenv("PRIM_QUEUE_GEN_NAME", "CcuAllReduceMesh1D", 1);
     CommunicatorImpl comm;
     comm.id = "commId";
     comm.streamManager = make_unique<StreamManager>(&comm);

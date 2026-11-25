@@ -34,7 +34,6 @@ const std::map<std::string, std::string> defaultEnvCfgMap
        {"HCCL_INTRA_PCIE_ENABLE", "1"},
        {"HCCL_INTRA_ROCE_ENABLE", "0"},
        {"HCCL_INTER_HCCS_DISABLE", "FALSE"},
-       {"PRIM_QUEUE_GEN_NAME", "AllReduceRing"},
        {"HCCL_ALGO", "allreduce=level0:NA;level1:ring"},
        {"HCCL_BUFFSIZE", "200"},
        {"HCCL_OP_EXPANSION_MODE", "AI_CPU"},

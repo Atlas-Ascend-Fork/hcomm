@@ -388,11 +388,6 @@ const MultiQpSrcPortConfig& EnvRdmaConfig::GetMultiQpSrcPortConfig() const { ret
 void EnvAlgoConfig::Parse()
 {
     // Hcomm中不再解析HCCL_ALGO配置，因为没有实际使用
-    primQueueGenName.Parse();
-    HCCL_RUN_INFO(
-        "[HCCL_ENV] PRIM_QUEUE_GEN_NAME set by %s to [%s]", primQueueGenName.GetSource(),
-        GetPrimQueueGenName().c_str());
-
     bufferSize.Parse();
     HCCL_RUN_INFO("[HCCL_ENV] HCCL_BUFFSIZE set by %s to [%llu]B", bufferSize.GetSource(), GetBuffSize());
 
@@ -409,8 +404,6 @@ void EnvAlgoConfig::Parse()
 }
 
 void EnvAlgoConfig::SetDeterministic(u8 deterministic) { deterministic_ = deterministic; }
-
-const std::string& EnvAlgoConfig::GetPrimQueueGenName() const { return primQueueGenName.Get(); }
 
 const std::map<OpType, std::vector<HcclAlgoType>> EnvAlgoConfig::GetAlgoConfig() const
 {

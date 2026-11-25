@@ -185,7 +185,6 @@ bool HcclStTestCase::Verify()
 
 void HcclStTestCase::InitSituationEnv()
 {
-    situation.SetEnv("PRIM_QUEUE_GEN_NAME", "AllReduceRing");
     // 为提升覆盖率，多解析一些环境变量。后续用例增多后可逐渐去除
     situation.SetEnv("HCCL_IF_IP", "10.10.10.1");
     situation.SetEnv("HCCL_IF_BASE_PORT", "50000");
@@ -202,7 +201,6 @@ void HcclStTestCase::InitSituationEnv()
     situation.SetEnv("HCCL_INTRA_PCIE_ENABLE", "1");
     situation.SetEnv("HCCL_INTRA_ROCE_ENABLE", "0");
     situation.SetEnv("HCCL_INTER_HCCS_DISABLE", "FALSE");
-    situation.SetEnv("PRIM_QUEUE_GEN_NAME", "AllReduceRing");
     situation.SetEnv("HCCL_ALGO", "level0:NA;level1:ring");
     situation.SetEnv("HCCL_BUFFSIZE", "200");
     situation.SetEnv("HCCL_OP_EXPANSION_MODE", "AI_CPU");
