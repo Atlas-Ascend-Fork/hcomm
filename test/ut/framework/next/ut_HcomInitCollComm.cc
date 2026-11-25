@@ -25,7 +25,7 @@
 #include "env_net_layer_config.h"
 #include "hcom_common.h"
 #include "hcomm_c_adpt.h"
-#include "common/result_defs_pub.h"
+#include "hcomm_res_defs.h"
 #include "my_rank.h"
 #include "op_base.h"
 #include "coll_comm_mgr.h"

@@ -26,6 +26,16 @@ extern "C" {
 
 typedef int32_t HcommResult;
 
+typedef enum {
+    HCOMM_SUCCESS = 0,       /**< success */
+    HCOMM_E_PARA = 1,        /**< parameter error */
+    HCOMM_E_PTR = 2,         /**< empty pointer */
+    HCOMM_E_MEMORY = 3,      /**< memory error */
+    HCOMM_E_INTERNAL = 4,    /**< internal error */
+    HCOMM_E_NOT_SUPPORT = 5, /**< not support feature */
+    HCOMM_E_NOT_FOUND = 6    /**< not found specific resource */
+} HcommResultDef;
+
 /* 网络设备句柄 */
 typedef void* EndpointHandle;
 

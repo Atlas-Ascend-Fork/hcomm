@@ -17,7 +17,6 @@
 #include "log.h"
 #include "endpoint.h"
 #include "endpoint_monitor.h"
-#include "common/result_defs_pub.h"
 #include "param_check_pub.h"
 #include "exception_handler.h"
 #include "opbase_adpt.h"

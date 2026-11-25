@@ -20,7 +20,6 @@
 #include "comm_engine/thread/thread_pub.h"
 #include "hcomm_res.h"
 #include "hcomm_res_defs.h"
-#include "common/result_defs_pub.h"
 #include "hccl/hccl_res.h"
 #include "dfx/res_pub.h"
 #include "resources/comm_engine_res/aicpu_comm_engine_bin_proc.h"

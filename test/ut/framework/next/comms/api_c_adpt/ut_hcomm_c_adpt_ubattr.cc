@@ -12,7 +12,6 @@
 #include "mockcpp/mokc.h"
 #include <mockcpp/mockcpp.hpp>
 #include "hcomm_c_adpt.h"
-#include "common/result_defs_pub.h"
 #include "hcomm_res_defs.h"
 #include "hcomm_channel.h"
 #include "adapter_rts.h"

@@ -10,7 +10,6 @@
 
 #include "hccl/hccl_sym_win.h"
 #include "hcomm_team_mgr.h"
-#include "common/result_defs_pub.h"
 #include "log.h"
 
 using namespace hcomm;

@@ -15,7 +15,6 @@
 #include <stdbool.h>
 #include "hcomm_res_defs.h"
 #include "hcomm_team_defs.h"
-#include "common/result_defs_pub.h"
 #include "hccl_types.h"
 
 #ifdef __cplusplus

@@ -37,7 +37,6 @@
 #include "hcomm_team.h"
 #include "hcomm_res_expt.h"
 #include "hcomm_res_defs.h"
-#include "common/result_defs_pub.h"
 #include "adapter_rts_common.h"
 
 namespace hcomm_ut {

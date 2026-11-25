@@ -17,7 +17,6 @@
 
 #include <stddef.h>
 #include "hcomm_res_defs.h"
-#include "common/result_defs_pub.h"
 
 /**
  * @brief Batch supplement thread notify resources; for threads created with COMM_ENGINE_AICPU it refreshes

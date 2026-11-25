@@ -18,7 +18,6 @@
 #include <stdint.h>
 #include "hcomm_res_defs.h"
 #include "hcomm_res_entity_defs.h"
-#include "common/result_defs_pub.h"
 
 // AICPU TS Thread状态枚举。taskexception 背景线程检测到 error CQE 时置 THREAD_EXCEPTION，
 // 使dpu算法中调用的 HcommThreadSynchronize 能退出 sqHead != sqTail 死循环。单向置位，无复位路径（dpu 无快恢）。
