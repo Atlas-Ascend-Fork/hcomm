@@ -210,7 +210,7 @@ FindSuperPodLayer(const RankTableInfo& rankTable, const hccl::TopoInfo& topoInfo
 HcclResult RewriteSuperPodNetInstId(RankTableInfo& rankTable, u32 physicalSuperPodLayer);
 
 // 建图前查找物理超节点层，并按逻辑ID改写该层实例ID。
-HcclResult ApplyLogicSuperPodId(RankTableInfo& rankTable, const std::string& topoPath);
+HcclResult SetLogicSuperPodId(RankTableInfo& rankTable, const std::string& topoPath);
 
 std::shared_ptr<NetInstance> GetOrCreateNetInstance(
     u32 netLayer, const string& netInstId, NetType type, Level2Id2NetInst& netInsts, RankGraph* rankGraph);
