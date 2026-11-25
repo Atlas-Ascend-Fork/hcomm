@@ -20,7 +20,7 @@ This sample supports the following products, with single-server *N*-device netwo
 
 ## Sample Introduction
 
-You can click [here](https://gitcode.com/cann/hccl/tree/master/examples/04_custom_ops_p2p) to obtain the complete sample code. This sample uses HCCL communication operator development APIs to implement the Send and Receive operators based on the AI CPU communication engine. The main implementation process is as follows:
+You can click [here](https://gitcode.com/cann/hccl/tree/9.3.0-beta.2/examples/04_custom_ops_p2p) to obtain the complete sample code. This sample uses HCCL communication operator development APIs to implement the Send and Receive operators based on the AI CPU communication engine. The main implementation process is as follows:
 
 - **Query topology information of the communicator**: Call the topology query APIs **HcclGetRankId\(\)** and **HcclGetRankSize\(\)** to obtain the **rank_id** operated by the current thread and the number of ranks in the communicator.
 - **Create thread resources**: Call the resource management API **HcclThreadAcquire\(\)** to allocate communication thread resources.

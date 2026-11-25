@@ -18,7 +18,7 @@
 
 ## 样例介绍
 
-开发者可以点击[样例链接](https://gitcode.com/cann/hccl/tree/master/examples/04_custom_ops_p2p)获取完整样例代码，该样例使用HCCL通信算子开发接口实现了基于AI CPU通信引擎的Send和Receive算子，主要实现流程如下所示：
+开发者可以点击[样例链接](https://gitcode.com/cann/hccl/tree/9.3.0-beta.2/examples/04_custom_ops_p2p)获取完整样例代码，该样例使用HCCL通信算子开发接口实现了基于AI CPU通信引擎的Send和Receive算子，主要实现流程如下所示：
 
 - **查询通信域的拓扑信息**：调用拓扑信息查询接口HcclGetRankId\(\)和HcclGetRankSize\(\)获取当前线程操作的rank_id和通信域的rank数量。
 - **创建Thread资源**：调用资源管理接口HcclThreadAcquire\(\)分配通信线程资源。

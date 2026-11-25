@@ -6,7 +6,7 @@ After developing a communication operator, you need to deploy it to the operatin
 
 ## Understanding the Custom Operator Build and Packaging Project
 
-The HCCL code repository provides a custom operator build and packaging project. Developers can refer to the [custom AllGather communication operator example](https://gitcode.com/cann/hccl/tree/master/examples/05_custom_ops_allgather/ccu) for development. The directory structure is as follows:
+The HCCL code repository provides a custom operator build and packaging project. Developers can refer to the [custom AllGather communication operator example](https://gitcode.com/cann/hccl/tree/9.3.0-beta.2/examples/05_custom_ops_allgather/ccu) for development. The directory structure is as follows:
 
 ```text
 ├── build.sh                                # HCCL repository root build project entry
