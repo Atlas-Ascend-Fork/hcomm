@@ -40,6 +40,7 @@ uint64_t g_cur_server_key = 0;
 namespace sim::runtime {
 thread_local uint64_t g_cur_device_key = 0;
 thread_local uint64_t g_cur_comm_key = 0;
+thread_local uint32_t g_dpuThreadSlot = 0;
 
 namespace {
     constexpr uint32_t kCommunicatorWaitIntervalMs = 100;

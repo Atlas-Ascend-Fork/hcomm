@@ -27,6 +27,11 @@ void CleanupCommPoolMappings();
 
 int HandlePipeCmdGetWqePtr(uint8_t* payload, uint32_t payloadLen);
 int HandlePipeCmdFreeWqePtr(uint8_t* payload, uint32_t payloadLen);
+
+int HandlePipeCmdRegisterHalHost(uint8_t* payload, uint32_t payloadLen);
+
+int HandlePipeCmdUnregisterHalHost(uint8_t* payload, uint32_t payloadLen);
+
 } // namespace sim
 
 #endif

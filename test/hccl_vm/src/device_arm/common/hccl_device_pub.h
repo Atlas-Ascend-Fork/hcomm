@@ -120,6 +120,14 @@ uint32_t GetLastQuerySqId();
 
 void SetDpuStreamId(uint32_t deviceId, uint64_t streamId);
 
+/// DPU 共享内存 notify 地址解析: 命中已登记区域返回 shmIdx 与区内偏移,
+/// 区域由 host 侧 halHostRegister/halHostUnregister 经管道命令登记/注销。
+bool TryResolveShmNotifyAddr(uint64_t addr, uint32_t& outShmIdx, uint64_t& outOffset);
+
+/// shm 区域登记/注销/解析三接口内部互斥, 可多线程调用
+void RegisterHalHostRegion(uint64_t srcPtr, uint64_t size, uint32_t index);
+uint32_t UnregisterHalHostRegion(uint64_t srcPtr);
+
 #ifdef __cplusplus
 }
 #endif

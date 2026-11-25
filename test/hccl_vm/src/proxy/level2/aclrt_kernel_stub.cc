@@ -55,6 +55,7 @@
 #include "hccl_proxy_common.h"
 #include "sim_sub_process_manager.h"
 #include "sim_dpu_kernel_lib_mgr.h"
+#include "sim_capacity_limits.h"
 #include "device_spec/device_spec_types.h"
 #include "resource_limit_manager.h"
 

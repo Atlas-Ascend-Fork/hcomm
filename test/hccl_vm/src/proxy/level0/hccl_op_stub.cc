@@ -83,7 +83,10 @@ private:
 
 static HcclResult SetupCommunicator(HcclComm comm, uint64_t deviceKey, uint32_t& curRank, uint32_t& rankSize)
 {
-    if (comm == nullptr || deviceKey == 0) {
+    // deviceKey==0 不在此处直接拒绝：南向(level2)存在未执行过 aclrtSetDevice 的调用线程
+    // （如协商 comm worker），由下方 level2 分支按 comm 归属惰性自愈后再校验；
+    // 自愈仍无法补出有效值时，由后续 member 校验沿用原报错路径。
+    if (comm == nullptr) {
         HCCL_VM_ERROR("SetupCommunicator requires a valid comm and current device");
         return HcclResult::HCCL_E_PARA;
     }
@@ -106,6 +109,17 @@ static HcclResult SetupCommunicator(HcclComm comm, uint64_t deviceKey, uint32_t&
         if (!SimFindHcclCommMember(comm, &communicatorId)) {
             HCCL_VM_ERROR("level2 HcclComm={:p} has no communicator binding", comm);
             return HcclResult::HCCL_E_INTERNAL;
+        }
+        // 南向自愈：未设过 device 的线程（协商 comm worker 等）按 comm 归属补 deviceKey。
+        // 仅在为 0 时补、不覆盖已有值；comm 自身绑定行是归属的权威来源。
+        if (deviceKey == 0) {
+            const auto healMember = sim::runtime::Db::GetById<sim::runtime::Communicator>(communicatorId);
+            if (healMember.ok()) {
+                deviceKey = healMember.value->device_id;
+                sim::runtime::g_cur_device_key = deviceKey;
+                HCCL_VM_INFO(
+                    "SetupCommunicator self-heal deviceKey={:d} from communicatorId={:d}", deviceKey, communicatorId);
+            }
         }
     }
 

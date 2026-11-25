@@ -11,11 +11,14 @@
 // 日志染色: 模块 tag (须在 include sim_log.h 之前)
 #define HCCL_VM_MODULE "HAL_STUB"
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <ctime>
 #include <iostream>
+#include <mutex>
+#include <unordered_map>
 #include <unistd.h>
 #include <vector>
 
@@ -25,8 +28,13 @@
 #include "hccl_proxy_common.h"
 #include "sim_log.h"
 #include "sim_common_defs.h"
+#include "sim_capacity_limits.h"
+#include "store_sim_store_pub.h"
+#include "store_sim_run_mode.h"
 #include "store_sim_device_memory_manager.h"
 #include "runtime_state/db_sim_runner_common.h"
+#include "sim_aicpu_pipe_msg.h"
+#include "sim_sub_process_manager.h"
 
 extern uint64_t g_cur_server_key;
 #include "runtime_state/db_sim_runner_ops.h"
@@ -300,10 +308,21 @@ void drvFlushCache(uint64_t base, uint32_t len)
 
 drvError_t drvDeviceGetPhyIdByIndex(uint32_t devIndex, uint32_t* phyId)
 {
-    auto ret = sim::runtime::Db::GetOneByPred<sim::runtime::Device>(
-        HcclSim::Storage::Eq(&sim::runtime::Device::logic_id, devIndex));
+    if (g_cur_server_key == 0) {
+        uint64_t serverKey = sim::runtime::GetCurServerId();
+        if (serverKey == 0) {
+            HCCL_VM_ERROR("GetCurServerId failed");
+            return DRV_ERROR_NO_DEVICE;
+        }
+    }
+
+    // logic_id仅为server内通信域序号, 跨server重复; GetOneByPred按id升序取首条,
+    // 不带server_id过滤时多server场景会命中其他server的设备行(如server1进程串到server0)
+    auto ret = sim::runtime::Db::GetOneByPred<sim::runtime::Device>(HcclSim::Storage::And(
+        HcclSim::Storage::Eq(&sim::runtime::Device::server_id, g_cur_server_key),
+        HcclSim::Storage::Eq(&sim::runtime::Device::logic_id, devIndex)));
     if (!ret.ok()) {
-        HCCL_VM_ERROR("cannot find device by devIndex id {}.", devIndex);
+        HCCL_VM_ERROR("cannot find device by devIndex id {}, serverKey: {}.", devIndex, g_cur_server_key);
         return DRV_ERROR_NO_DEVICE;
     }
     *phyId = (uint32_t)ret->physical_id;
@@ -816,6 +835,57 @@ DVresult drvMemAllocProgram(void** pp, size_t bytesize)
     return DRV_ERROR_NONE;
 }
 
+struct HalHostRegEntry {
+    uint64_t srcPtr;  // 设备虚拟地址
+    uint64_t hostPtr; // host 侧映射地址（同一 shm 的 host 视图，halHostRegister 时 *dst_ptr）
+    uint64_t size;    // 内存大小
+    uint32_t index;   // 全局序号（addrIdx）
+};
+
+static std::mutex g_halRegMtx;
+static std::vector<HalHostRegEntry> g_halHostRegTable;
+
+// 分配最小空闲 shmIdx（容量合同 5bit）: 顺序递增在 erase 后会复用存活区域
+// 已持有的 idx, 导致不同 shm 区域编码出相同 notifyTaskId。表满返回 false。
+// shmIdx=0 为三段式 notifyTaskId 的"非 shm notify"判别值，保留不分配，从 1 起分配。
+static bool AllocShmIdxLocked(uint32_t& outIdx)
+{
+    std::array<bool, HcclSim::HCCL_VM_SHM_IDX_MASK + 1> used{};
+    for (const auto& entry : g_halHostRegTable) {
+        if (entry.index < used.size()) {
+            used[entry.index] = true;
+        }
+    }
+    for (uint32_t i = 1; i < used.size(); ++i) {
+        if (!used[i]) {
+            outIdx = i;
+            return true;
+        }
+    }
+    HCCL_VM_WARN(
+        "shm idx exhausted (usable={}, idx0 reserved), registered regions={}", HcclSim::HCCL_VM_SHM_IDX_MASK,
+        g_halHostRegTable.size());
+    return false;
+}
+
+bool TryResolveHostShmIdx(uint64_t addr, uint32_t& outShmIdx)
+{
+    std::lock_guard<std::mutex> lock(g_halRegMtx);
+    for (const auto& entry : g_halHostRegTable) {
+        // 同一 shm 的两个视图：srcPtr 为 device 侧映射（dev 编址，如 0x4000...），
+        // hostPtr 为 host 侧映射（host 编址，如 0x7839...）。DPU 线程侧 notify 传入的是
+        // host 指针（CpuThread::notifyAddr_ = HostPtr(DPU_NOTIFY_TAG)），必须在 host 区间
+        // 命中才能解出 shmIdx，与 device 侧 WRITE_VALUE SQE 的 writeAddr（dev 指针）解析同源。
+        const bool inDevRange = addr >= entry.srcPtr && addr < entry.srcPtr + entry.size;
+        const bool inHostRange = addr >= entry.hostPtr && addr < entry.hostPtr + entry.size;
+        if (inDevRange || inHostRange) {
+            outShmIdx = entry.index;
+            return true;
+        }
+    }
+    return false;
+}
+
 drvError_t halHostRegister(void* src_ptr, UINT64 size, UINT32 flag, UINT32 devid, void** dst_ptr)
 {
     if (src_ptr == nullptr || dst_ptr == nullptr) {
@@ -859,6 +929,57 @@ drvError_t halHostRegister(void* src_ptr, UINT64 size, UINT32 flag, UINT32 devid
         "halHostRegister stub: src_ptr={:p} -> hostPtr={:p}, name={}, size={:d}", (void*)src_ptr, *dst_ptr, phyMem.name,
         size);
 
+    // 仅 DEV_SVM_MAP_HOST（DPU 共享内存 device→host 映射）需要记录到 g_halHostRegTable，
+    if (flag == DEV_SVM_MAP_HOST) {
+        uint32_t idx = 0;
+        uint64_t hostPtrVal = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(*dst_ptr));
+        RegisterHalHostPayload payload{};
+        uint8_t rspCmd = 0;
+        RspRegisterHalHostPayload rspPayload{};
+        uint32_t rspLen = 0;
+        // 表更新与 device 登记同临界区完成(与 halHostUnregister 对称), 防止多线程下
+        // REGISTER/UNREGISTER 消息倒挂产生陈旧条目; 失败即回滚, 两表不发散。
+        {
+            std::lock_guard<std::mutex> lock(g_halRegMtx);
+            if (!AllocShmIdxLocked(idx)) {
+                HCCL_VM_ERROR(
+                    "halHostRegister: shm idx exhausted (max={}), srcPtr={:#x}", HcclSim::HCCL_VM_SHM_IDX_MASK, devPtr);
+                return DRV_ERROR_INNER_ERR;
+            }
+            g_halHostRegTable.push_back({devPtr, hostPtrVal, size, idx});
+            payload = RegisterHalHostPayload{devPtr, size, idx, static_cast<uint32_t>(deviceKey)};
+
+            bool registered = false;
+            if (sim::GetAicpuProcMgr(deviceKey).Request(
+                    PIPE_CMD_REGISTER_HAL_HOST, &payload, sizeof(payload), rspCmd, &rspPayload, sizeof(rspPayload),
+                    rspLen)
+                != 0) {
+                HCCL_VM_ERROR(
+                    "halHostRegister: Request PIPE_CMD_REGISTER_HAL_HOST failed, index={:d}, srcPtr={:#x}", idx,
+                    devPtr);
+            } else if (rspCmd != PIPE_RSP_REGISTER_HAL_HOST) {
+                HCCL_VM_ERROR(
+                    "halHostRegister: unexpected response cmd: 0x{:02x}, index={:d}, srcPtr={:#x}", rspCmd, idx,
+                    devPtr);
+            } else if (rspPayload.status != 0) {
+                HCCL_VM_ERROR(
+                    "halHostRegister: device returned error status: {}, index={:d}, srcPtr={:#x}", rspPayload.status,
+                    idx, devPtr);
+            } else {
+                registered = true;
+                HCCL_VM_INFO("halHostRegister: device acknowledged registration, index={:d}", idx);
+            }
+            if (!registered) {
+                g_halHostRegTable.pop_back();
+                sim::DeviceMemoryManager::GetInstance().ReleasePhyMem(phyMem.name, phyMem.device_id);
+                return DRV_ERROR_INNER_ERR;
+            }
+        }
+        HCCL_VM_INFO(
+            "halHostRegister: registered index={:d}, srcPtr={:#x}, hostPtr={:#x}, size={:d}", idx, devPtr, hostPtrVal,
+            size);
+    }
+
     // 记录host侧映射过的hostPtr到VirtualMemBlock表
     void* finalHostAddr = *dst_ptr;
     (void)sim::runtime::Db::Update<sim::runtime::VirtualMemBlock>(
@@ -875,6 +996,39 @@ drvError_t halHostUnregister(void* src_ptr, UINT32 devid)
     if (src_ptr == nullptr) {
         HCCL_VM_WARN("halHostUnregister: src_ptr is null");
         return DRV_ERROR_INVALID_VALUE;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(g_halRegMtx);
+        uint64_t devPtr = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(src_ptr));
+        auto it = std::remove_if(
+            g_halHostRegTable.begin(), g_halHostRegTable.end(), [devPtr](const HalHostRegEntry& entry) {
+                return entry.srcPtr == devPtr;
+            });
+        if (it != g_halHostRegTable.end()) {
+            g_halHostRegTable.erase(it, g_halHostRegTable.end());
+            HCCL_VM_INFO("halHostUnregister: removed registration for srcPtr={:#x}", devPtr);
+
+            // 与注册对称: 通知 device 侧清除对应表项(错误处理 log-only, 不影响释放流程)
+            UnregisterHalHostPayload payload{devPtr};
+            uint8_t rspCmd = 0;
+            RspUnregisterHalHostPayload rspPayload{};
+            uint32_t rspLen = 0;
+            uint64_t deviceKey = sim::runtime::GetCurrDeviceKey();
+            if (sim::GetAicpuProcMgr(deviceKey).Request(
+                    PIPE_CMD_UNREGISTER_HAL_HOST, &payload, sizeof(payload), rspCmd, &rspPayload, sizeof(rspPayload),
+                    rspLen)
+                != 0) {
+                HCCL_VM_ERROR("halHostUnregister: Request PIPE_CMD_UNREGISTER_HAL_HOST failed, srcPtr={:#x}", devPtr);
+            } else if (rspCmd != PIPE_RSP_UNREGISTER_HAL_HOST) {
+                HCCL_VM_WARN("halHostUnregister: unexpected response cmd: 0x{:02x}, srcPtr={:#x}", rspCmd, devPtr);
+            } else if (rspPayload.status != 0) {
+                HCCL_VM_ERROR(
+                    "halHostUnregister: device returned error status: {}, srcPtr={:#x}", rspPayload.status, devPtr);
+            } else {
+                HCCL_VM_INFO("halHostUnregister: device acknowledged unregistration, srcPtr={:#x}", devPtr);
+            }
+        }
     }
 
     sim::runtime::PhyMemBlock phyMem{};
@@ -1521,8 +1675,86 @@ drvError_t halResourceDisable(uint32_t devId, struct halResourceIdInputInfo* in)
     return DRV_ERROR_NONE;
 }
 
+namespace {
+    // DPU→NPU 完成信号任务化：CpuTaskPipe 消费 THREAD_NOTIFY_RECORD_TO_NPU SQE 后，经halResourceConfig(DRV_NOTIFY_ID,
+    // DRV_ID_RECORD) 通知 NPU 侧（业务 cpu_task_pipe.cc
+    // ExecuteThreadNotifyRecordToNpu）。原空桩静默吞掉该信号，导致设备流/主流上等待本槽的 NOTIFY_WAIT（如 rank0 的
+    // notifyId=8）位图永缺、runner 永久 HOLD。此处补齐任务化： 生成 NOTIFY_RECORD 落库（挂本进程 DPU 虚拟流，与 DpuSqe
+    // 任务同流），供 runner 位图供血。 notifyId 沿用业务传入槽号（in->resourceId），与 device_sqe_parse 侧 WAIT
+    // 任务的槽号同源。
+    drvError_t HandleNotifyResourceRecord(uint32_t devId, const struct halResourceIdInputInfo* in)
+    {
+        const uint32_t notifySlot = in->resourceId;
+        const uint64_t deviceKey = sim::runtime::g_cur_device_key;
+
+        // DPU 线程上的 g_cur_comm_key 由 launch
+        // 快照传递（sim_dpu_kernel_lib_mgr.cc），每线程终身等于其归属通信域（主域/协商子域各自的 CpuThread 各自
+        // launch）——非 0 时为权威值， 直接取用并在该域内按 deviceKey 解 rank；为 0（快照缺失）时回退按 deviceKey
+        // 反查Communicator 首行（一 device 多通信域时 front() 有歧义，仅作兜底，行为不劣于原实现）。
+        uint64_t commId = 0;
+        uint32_t rankId = 0;
+        if (sim::runtime::g_cur_comm_key != 0) {
+            commId = sim::runtime::g_cur_comm_key;
+            if (!sim::runtime::GetCommRankByDeviceId(commId, deviceKey, rankId)) {
+                HCCL_VM_WARN(
+                    "{}: rankId not resolved, commId={:d}, deviceKey={:d}, fallback 0", __func__, commId, deviceKey);
+            }
+        } else {
+            const auto members = sim::runtime::Db::GetByPred<sim::runtime::Communicator>(
+                HcclSim::Storage::Eq(&sim::runtime::Communicator::device_id, deviceKey));
+            if (members.ok() && members.value.has_value() && !members.value->empty()) {
+                commId = members.value->front().id;
+                rankId = members.value->front().rank_id;
+            } else {
+                HCCL_VM_WARN("{}: no communicator for deviceKey={:d}, commId/rankId fallback 0", __func__, deviceKey);
+            }
+        }
+
+        // 归属流：deviceKey 纯公式，slot 取调用线程 launch 快照 TLS（wait 与数据任务共流保程序序）
+        const uint64_t streamId = HcclSim::MakeDpuVirtualStreamId(deviceKey, sim::runtime::g_dpuThreadSlot);
+
+        HcclTaskMetaData taskMetaData{};
+        taskMetaData.taskType = HccLTaskMetaType::NOTIFY_RECORD;
+        taskMetaData.profInfo = HcclTaskProfInfo(
+            ProfTaskParamType::TASK_NOTIFY_RECORD, ProfLinkType::LINK_ONCHIP, ProfTransportType::TRANSPORT_LOCAL);
+        taskMetaData.deviceId = deviceKey;
+        taskMetaData.commId = commId;
+        taskMetaData.rankId = rankId;
+        taskMetaData.streamId = streamId;
+        taskMetaData.taskSrc = TASK_SRC_DPU;
+        taskMetaData.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(static_cast<uint32_t>(deviceKey), notifySlot);
+        taskMetaData.taskData.notify.notifyCount = 0;
+        if (sim::IsEstimateMode()) {
+            taskMetaData.taskData.notify.srcDeviceId = rankId;
+            taskMetaData.taskData.notify.dstDeviceId = rankId;
+        } else {
+            taskMetaData.taskData.notify.srcDeviceId = static_cast<uint32_t>(deviceKey);
+            taskMetaData.taskData.notify.dstDeviceId = static_cast<uint32_t>(deviceKey);
+        }
+
+        uint32_t taskIndex = 0u;
+        const auto insertRet = InsertTaskToCollection(&taskMetaData, &taskIndex);
+        if (insertRet != HcclSim::HcclVmResult::HCCL_SIM_SUCCESS) {
+            HCCL_VM_ERROR(
+                "{}: InsertTaskToCollection failed, ret={:d}, notifySlot={:d}", __func__, static_cast<int>(insertRet),
+                notifySlot);
+            return DRV_ERROR_INNER_ERR;
+        }
+
+        HCCL_VM_INFO(
+            "{}: notify record task inserted, devId={:d}, deviceKey={:d}, notifySlot={:d}, notifyTaskId={:#x}, "
+            "commId={:d}, rankId={:d}, streamId={:d}, taskIndex={:d}",
+            __func__, devId, deviceKey, notifySlot, taskMetaData.taskData.notify.notifyId, commId, rankId, streamId,
+            taskIndex);
+        return DRV_ERROR_NONE;
+    }
+} // namespace
+
 drvError_t halResourceConfig(uint32_t devId, struct halResourceIdInputInfo* in, struct halResourceConfigInfo* para)
 {
+    if (in != nullptr && in->type == DRV_NOTIFY_ID && para != nullptr && para->prop == DRV_ID_RECORD) {
+        return HandleNotifyResourceRecord(devId, in);
+    }
     HCCL_VM_WARN("is empty.");
     return DRV_ERROR_NONE;
 }

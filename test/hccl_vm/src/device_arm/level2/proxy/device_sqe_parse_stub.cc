@@ -371,10 +371,10 @@ void ParseDavidNotifySqeWithIdentity(uint32_t streamId, void* sqeBuf, bool isPos
         isPost ? ProfTaskParamType::TASK_NOTIFY_RECORD : ProfTaskParamType::TASK_NOTIFY_WAIT, ProfLinkType::LINK_ONCHIP,
         ProfTransportType::TRANSPORT_LOCAL); // 本端 notify
     const uint32_t deviceNotifyId = static_cast<uint32_t>(sqe->notifyId);
-    const uint64_t notifyTaskId = HcclSim::MakeNotifyTaskId(identity.rankId, deviceNotifyId);
+    const uint64_t notifyTaskId = HcclSim::MakeNotifyTaskId(identity.deviceId, deviceNotifyId);
     if (!HcclSim::IsValidNotifyTaskId(notifyTaskId)) {
         HCCL_VM_ERROR(
-            "invalid rank-scoped notify SQE: rank={:d}, deviceNotifyId={:d}", identity.rankId, deviceNotifyId);
+            "invalid rank-scoped notify SQE: deviceId={:d}, deviceNotifyId={:d}", identity.deviceId, deviceNotifyId);
         return;
     }
     taskMeta.taskData.notify.notifyId = notifyTaskId;
@@ -387,15 +387,16 @@ namespace {
 // A5 上 WRITE_VALUE(type8) 仅用于 P2P(PCIe) 通道的跨芯片 notify record:
 // P2PTransportLiteImpl::BuildNotifyRecordTask → RtsqA5::P2PWriteValue → BuildA5SqeP2pWriteValue,
 // 往对端 notify 写地址写立即数 1(NOTIFY_RECORD_WRITE_VALUE), awsize 固定 32bit, DFX 上下文 LINK_PCIE+SDMA。
-// writeAddr 由 rtGetNotifyAddress 桩下发, 是 rank 作用域的 notifyTaskId(ownerRank<<17|deviceNotifyId),
-// 与对端 NOTIFY_WAIT 任务的 notifyId 同源, 故可直接透传用于 checker 的 record/wait 配对。
+// writeAddr 由 rtGetNotifyAddress 桩下发, 是 device 作用域的 notifyTaskId
+// ([deviceKey<<22]|[shmIdx<<17]|deviceNotifyId), 与对端 NOTIFY_WAIT 任务的 notifyId 同源, 故可直接
+// 透传用于 checker 的 record/wait 配对。
 constexpr uint32_t kNotifyRecordWriteValue = 1;
 
-bool ResolveWriteValueNotify(const Rt91095StarsWriteValueSqe* sqe, uint32_t streamId, uint64_t& notifyTaskId)
+bool ResolveWriteValueNotify(
+    const Rt91095StarsWriteValueSqe* sqe, uint32_t streamId, uint32_t deviceKey, uint64_t& notifyTaskId)
 {
     if (sqe->awsize != RT_91095_STARS_WRITE_VALUE_SIZE_TYPE_32BIT
         || sqe->writeValuePart[0] != kNotifyRecordWriteValue) {
-        // 其余场景(如 RDMA doorbell: 64bit 写网卡 DB 地址)暂不支持, 遇到再分析
         HCCL_VM_ERROR(
             "unsupported WRITE_VALUE SQE, only P2P notify record(awsize=32bit, value=1) is supported: "
             "awsize={:d}, writeValue={:d}, subType={:d}, va={:d}, streamId={:d}",
@@ -403,9 +404,25 @@ bool ResolveWriteValueNotify(const Rt91095StarsWriteValueSqe* sqe, uint32_t stre
             streamId);
         return false;
     }
-    notifyTaskId = GetFull64BitAddr(sqe->writeAddrLow, sqe->writeAddrHigh);
+
+    uint64_t writeAddr = GetFull64BitAddr(sqe->writeAddrLow, sqe->writeAddrHigh);
+
+    uint32_t shmIdx = 0;
+    uint64_t offset = 0;
+    if (TryResolveShmNotifyAddr(writeAddr, shmIdx, offset)) {
+        notifyTaskId = HcclSim::MakeNotifyTaskId(deviceKey, static_cast<uint32_t>(offset), shmIdx);
+        HCCL_VM_INFO(
+            "WRITE_VALUE from shm: writeAddr={:#x}, shmIdx={}, offset={}, deviceKey={}, notifyTaskId={:#x}, "
+            "streamId={:d}",
+            writeAddr, shmIdx, offset, deviceKey, notifyTaskId, streamId);
+    } else {
+        notifyTaskId = writeAddr;
+    }
+
     if (!HcclSim::IsValidNotifyTaskId(notifyTaskId)) {
-        HCCL_VM_ERROR("invalid WRITE_VALUE notify addr: 0x{:x}, streamId={:d}", notifyTaskId, streamId);
+        HCCL_VM_ERROR(
+            "invalid WRITE_VALUE notify: writeAddr={:#x}, notifyTaskId={:#x}, streamId={:d}", writeAddr, notifyTaskId,
+            streamId);
         return false;
     }
     return true;
@@ -424,45 +441,57 @@ void FillWriteValueNotifyTask(HcclTaskMetaData& taskMeta, uint32_t streamId, uin
 } // namespace
 
 // 评估模式: deviceId字段承载通信域rankId; 对端device不查表(Communicator无对端行), 仅记rank
+// （file-static 定义在下方，此处前置声明供本函数解 deviceKey→通信域 rank）
+static bool GetCommRankCached(uint64_t commId, uint64_t deviceId, uint32_t& rankId);
+
 void ParseDavidWriteValueSqeEstimate(uint32_t streamId, void* sqeBuf, const TaskIdentity& identity)
 {
     Rt91095StarsWriteValueSqe* sqe = reinterpret_cast<Rt91095StarsWriteValueSqe*>(sqeBuf);
     uint64_t notifyTaskId = 0;
-    if (!ResolveWriteValueNotify(sqe, streamId, notifyTaskId)) {
+    if (!ResolveWriteValueNotify(sqe, streamId, identity.deviceId, notifyTaskId)) {
         return;
+    }
+
+    // 按内嵌 deviceKey 反解通信域 rankId，保持评估模式"deviceId 字段承载 comm rankId"的填充语义
+    const uint32_t rmtDeviceKey = HcclSim::GetNotifyTaskDeviceKey(notifyTaskId);
+    uint32_t rmtRankForEstimate = UINT32_MAX;
+    if (!GetCommRankCached(identity.commId, rmtDeviceKey, rmtRankForEstimate)) {
+        HCCL_VM_WARN(
+            "estimate WRITE_VALUE cannot resolve comm rank, commId={:d}, rmtDeviceKey={:d}, streamId={:d}",
+            identity.commId, rmtDeviceKey, streamId);
     }
 
     HcclTaskMetaData taskMeta;
     SetTaskIdentity(taskMeta, identity);
     FillWriteValueNotifyTask(taskMeta, streamId, notifyTaskId);
-    SetRemoteNotifyEndpointsEstimate(taskMeta, identity, UINT32_MAX, HcclSim::GetNotifyTaskRankId(notifyTaskId));
+    SetRemoteNotifyEndpointsEstimate(taskMeta, identity, UINT32_MAX, rmtRankForEstimate);
     PrintTaskMetaData(taskMeta);
     InsertTaskToCollectionDev(&taskMeta);
 }
 
-// 非评估模式: writeAddr自带对端rankId, 反查对端deviceId后按跨芯片notify record落任务
+// 非评估模式: writeAddr自带对端deviceKey(Device表主键), 按主键直查对端设备后落跨芯片notify record
 void ParseDavidWriteValueSqeWithIdentity(uint32_t streamId, void* sqeBuf, const TaskIdentity& identity)
 {
     Rt91095StarsWriteValueSqe* sqe = reinterpret_cast<Rt91095StarsWriteValueSqe*>(sqeBuf);
     uint64_t notifyTaskId = 0;
-    if (!ResolveWriteValueNotify(sqe, streamId, notifyTaskId)) {
+    if (!ResolveWriteValueNotify(sqe, streamId, identity.deviceId, notifyTaskId)) {
         return;
     }
 
-    const uint32_t rmtRankId = HcclSim::GetNotifyTaskRankId(notifyTaskId);
-    sim::runtime::Device rmtDevice{};
-    if (sim::runtime::GetDeviceByCommRank(identity.commId, rmtRankId, rmtDevice) != ACL_SUCCESS) {
+    // 按内嵌 deviceKey 直查对端设备，不再经通信域 rank 反查（多通信域下 rank 口径不一致会落空）
+    const uint32_t rmtDeviceKey = HcclSim::GetNotifyTaskDeviceKey(notifyTaskId);
+    const auto rmtDeviceRes = sim::runtime::Db::GetById<sim::runtime::Device>(rmtDeviceKey);
+    if (!rmtDeviceRes.ok()) {
         HCCL_VM_ERROR(
-            "skip WRITE_VALUE SQE because remote device resolution failed, commId={:d}, rmtRankId={:d}, "
-            "streamId={:d}",
-            identity.commId, rmtRankId, streamId);
+            "skip WRITE_VALUE SQE because remote device resolution failed, rmtDeviceKey={:d}, streamId={:d}",
+            rmtDeviceKey, streamId);
         return;
     }
 
     HcclTaskMetaData taskMeta;
     SetTaskIdentity(taskMeta, identity);
     FillWriteValueNotifyTask(taskMeta, streamId, notifyTaskId);
-    SetRemoteNotifyEndpoints(taskMeta, static_cast<uint32_t>(rmtDevice.id));
+    SetRemoteNotifyEndpoints(taskMeta, static_cast<uint32_t>(rmtDeviceRes->id));
     PrintTaskMetaData(taskMeta);
     InsertTaskToCollectionDev(&taskMeta);
 }
@@ -702,13 +731,6 @@ void ParseDavidUBReadWriteSqeWithIdentity(
             "skip UDMA SQE because remote device resolution failed, streamId={}, jettyId={}", streamId, jettyId);
         return;
     }
-    uint32_t rmtRankId = 0;
-    if (!GetCommRankCached(identity.commId, rmtDeviceId, rmtRankId)) {
-        HCCL_VM_ERROR(
-            "failed to resolve remote rank: deviceId={}, commId={}, streamId={}, jettyId={}", rmtDeviceId,
-            identity.commId, streamId, jettyId);
-        return;
-    }
     // case1:UbConnLite::InlineWrite 写Notify
     if (ubWqe->comm.inlineEn == 1) {
         uint64_t notifyAddr = GetFull64BitAddr(ubWqe->comm.rmtAddrLow, ubWqe->comm.rmtAddrHigh);
@@ -716,7 +738,7 @@ void ParseDavidUBReadWriteSqeWithIdentity(
         taskMeta.profInfo = HcclTaskProfInfo(
             ProfTaskParamType::TASK_UB_INLINE_WRITE, ProfLinkType::LINK_UB,
             ProfTransportType::TRANSPORT_UB); // hcomm UbTransportLite: UB+UB
-        const uint64_t notifyTaskId = HcclSim::MakeNotifyTaskId(rmtRankId, notifyAddr);
+        const uint64_t notifyTaskId = HcclSim::MakeNotifyTaskId(rmtDeviceId, notifyAddr);
         taskMeta.taskData.notify.notifyId = notifyTaskId;
         SetRemoteNotifyEndpoints(taskMeta, rmtDeviceId);
         PrintTaskMetaData(taskMeta);
@@ -858,13 +880,6 @@ void ParseDavidUBWriteWithNotifySqeWithIdentity(
             streamId, jettyId);
         return;
     }
-    uint32_t rmtRankId = 0;
-    if (!GetCommRankCached(identity.commId, rmtDeviceId, rmtRankId)) {
-        HCCL_VM_ERROR(
-            "failed to resolve remote rank: deviceId={}, commId={}, streamId={}, jettyId={}", rmtDeviceId,
-            identity.commId, streamId, jettyId);
-        return;
-    }
     // 写部分: 数据段 src=当前设备映射、dst=远端设备映射，各按 (映射设备, 映射地址) 一次定位
     auto dstResolution
         = ResolveTaskAddress(GetFull64BitAddr(ubWqe->comm.rmtAddrLow, ubWqe->comm.rmtAddrHigh), rmtDeviceId);
@@ -900,7 +915,7 @@ void ParseDavidUBWriteWithNotifySqeWithIdentity(
     wn.dstDeviceId = dstDeviceId;
     wn.dstOffset = dstOffset;
     wn.len = length;
-    wn.notifyId = HcclSim::MakeNotifyTaskId(rmtRankId, static_cast<uint32_t>(notifyAddr));
+    wn.notifyId = HcclSim::MakeNotifyTaskId(rmtDeviceId, static_cast<uint32_t>(notifyAddr));
     if (ubWqe->comm.udfFlag == 1) { // Reduce操作标识
         wn.isReduce = 1;
         taskMeta.profInfo = HcclTaskProfInfo(

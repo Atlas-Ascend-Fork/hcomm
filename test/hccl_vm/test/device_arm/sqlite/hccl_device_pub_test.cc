@@ -757,3 +757,110 @@ TEST_F(HcclDevicePubTest, ResolveTaskAddress_BackendErrorPropagates)
     // 恢复会话供 TearDown 清理
     ASSERT_TRUE(runnerdb_test::ResetTestSession(kTestDbPath, kTestDbPath));
 }
+
+// ==================== shm notify 区域登记/注销/解析 Tests ====================
+// 锁定语义: 注册幂等(同 srcPtr 先删后插)、注销连删、区间含头不含尾; 各用例自清理。
+
+TEST_F(HcclDevicePubTest, ShmNotifyRegisterResolveAndUnregister)
+{
+    constexpr uint64_t kBase = 0x600000000ULL;
+    RegisterHalHostRegion(kBase, 0x1000, 3);
+
+    uint32_t shmIdx = 0;
+    uint64_t offset = 0;
+    EXPECT_TRUE(TryResolveShmNotifyAddr(kBase + 0x123, shmIdx, offset));
+    EXPECT_EQ(shmIdx, 3U);
+    EXPECT_EQ(offset, 0x123U);
+
+    // 区间含头不含尾
+    EXPECT_TRUE(TryResolveShmNotifyAddr(kBase, shmIdx, offset));
+    EXPECT_EQ(offset, 0U);
+    EXPECT_FALSE(TryResolveShmNotifyAddr(kBase + 0x1000, shmIdx, offset));
+    EXPECT_FALSE(TryResolveShmNotifyAddr(kBase - 1, shmIdx, offset));
+
+    ASSERT_EQ(UnregisterHalHostRegion(kBase), 1U);
+    EXPECT_FALSE(TryResolveShmNotifyAddr(kBase + 0x123, shmIdx, offset));
+}
+
+TEST_F(HcclDevicePubTest, ShmNotifyRegisterIsIdempotentOnSameSrcPtr)
+{
+    // 同 srcPtr 重复注册: 旧条目被覆盖, 先命中恒为最新 shmIdx/size, 无陈旧残留
+    constexpr uint64_t kBase = 0x610000000ULL;
+    RegisterHalHostRegion(kBase, 0x1000, 0);
+    RegisterHalHostRegion(kBase, 0x800, 5);
+
+    uint32_t shmIdx = 0;
+    uint64_t offset = 0;
+    EXPECT_TRUE(TryResolveShmNotifyAddr(kBase + 0x100, shmIdx, offset));
+    EXPECT_EQ(shmIdx, 5U);
+    EXPECT_EQ(offset, 0x100U);
+    EXPECT_FALSE(TryResolveShmNotifyAddr(kBase + 0x800, shmIdx, offset));
+
+    ASSERT_EQ(UnregisterHalHostRegion(kBase), 1U);
+    EXPECT_FALSE(TryResolveShmNotifyAddr(kBase + 0x100, shmIdx, offset));
+}
+
+TEST_F(HcclDevicePubTest, ShmNotifyMultipleDisjointRegionsResolveIndependently)
+{
+    constexpr uint64_t kBaseA = 0x620000000ULL;
+    constexpr uint64_t kBaseB = 0x630000000ULL;
+    RegisterHalHostRegion(kBaseA, 0x1000, 1);
+    RegisterHalHostRegion(kBaseB, 0x1000, 2);
+
+    uint32_t shmIdx = 0;
+    uint64_t offset = 0;
+    EXPECT_TRUE(TryResolveShmNotifyAddr(kBaseB + 0x10, shmIdx, offset));
+    EXPECT_EQ(shmIdx, 2U);
+    EXPECT_TRUE(TryResolveShmNotifyAddr(kBaseA + 0x10, shmIdx, offset));
+    EXPECT_EQ(shmIdx, 1U);
+
+    // 注销 A 不影响 B
+    ASSERT_EQ(UnregisterHalHostRegion(kBaseA), 1U);
+    EXPECT_FALSE(TryResolveShmNotifyAddr(kBaseA + 0x10, shmIdx, offset));
+    EXPECT_TRUE(TryResolveShmNotifyAddr(kBaseB + 0x10, shmIdx, offset));
+    ASSERT_EQ(UnregisterHalHostRegion(kBaseB), 1U);
+}
+
+TEST_F(HcclDevicePubTest, ShmNotifyUnregisterUnknownPtrRemovesNothing)
+{
+    EXPECT_EQ(UnregisterHalHostRegion(0x640000000ULL), 0U);
+}
+
+TEST_F(HcclDevicePubTest, ShmNotifyConcurrentAccessIsThreadSafe)
+{
+    // 并发压测: 登记线程持续注册/注销, 解析线程并发查找, 常驻区域恒命中且值不变
+    constexpr uint64_t kChurnBase = 0x700000000ULL;
+    constexpr uint64_t kStableBase = 0x710000000ULL;
+    constexpr uint32_t kIters = 2000;
+    RegisterHalHostRegion(kStableBase, 0x1000, 7);
+
+    std::atomic<uint32_t> missCnt{0};
+    std::atomic<uint32_t> badCnt{0};
+    std::vector<std::thread> workers;
+    workers.emplace_back([]() {
+        for (uint32_t i = 0; i < kIters; i++) {
+            RegisterHalHostRegion(kChurnBase, 0x1000, i & 1U);
+            UnregisterHalHostRegion(kChurnBase);
+        }
+    });
+    for (int t = 0; t < 2; t++) {
+        workers.emplace_back([&]() {
+            for (uint32_t i = 0; i < kIters; i++) {
+                uint32_t shmIdx = 0;
+                uint64_t offset = 0;
+                if (!TryResolveShmNotifyAddr(kStableBase + 0x100, shmIdx, offset)) {
+                    missCnt.fetch_add(1);
+                } else if (shmIdx != 7U || offset != 0x100U) {
+                    badCnt.fetch_add(1);
+                }
+            }
+        });
+    }
+    for (auto& worker : workers) {
+        worker.join();
+    }
+    EXPECT_EQ(missCnt.load(), 0U);
+    EXPECT_EQ(badCnt.load(), 0U);
+    UnregisterHalHostRegion(kChurnBase);
+    UnregisterHalHostRegion(kStableBase);
+}

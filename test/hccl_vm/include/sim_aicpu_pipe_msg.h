@@ -26,6 +26,8 @@ constexpr uint8_t PIPE_CMD_SET_DEV_ID = 0x03;
 constexpr uint8_t PIPE_CMD_FREE_DEV_PTR = 0x04;
 constexpr uint8_t PIPE_CMD_GET_WQE_PTR = 0x05;
 constexpr uint8_t PIPE_CMD_FREE_WQE_PTR = 0x06;
+constexpr uint8_t PIPE_CMD_REGISTER_HAL_HOST = 0x07;
+constexpr uint8_t PIPE_CMD_UNREGISTER_HAL_HOST = 0x08;
 
 constexpr uint8_t PIPE_RSP_SHUTDOWN_ACK = 0x80;
 constexpr uint8_t PIPE_RSP_EXEC_KERNEL = 0x81;
@@ -34,6 +36,8 @@ constexpr uint8_t PIPE_RSP_SET_DEV_ID = 0x83;
 constexpr uint8_t PIPE_RSP_FREE_DEV_PTR = 0x84;
 constexpr uint8_t PIPE_RSP_GET_WQE_PTR = 0x85;
 constexpr uint8_t PIPE_RSP_FREE_WQE_PTR = 0x86;
+constexpr uint8_t PIPE_RSP_REGISTER_HAL_HOST = 0x87;
+constexpr uint8_t PIPE_RSP_UNREGISTER_HAL_HOST = 0x88;
 
 constexpr uint8_t PIPE_RSP_READY = 0xA5;
 
@@ -84,6 +88,26 @@ typedef struct {
 typedef struct {
     uint64_t ptr;
 } ReqDevPtrPayload;
+
+typedef struct {
+    uint64_t srcPtr;
+    uint64_t size;
+    uint32_t index;
+    uint32_t deviceId;
+} RegisterHalHostPayload;
+
+typedef struct {
+    int32_t status;
+} RspRegisterHalHostPayload;
+
+// 按 srcPtr 精确匹配连删（与 host 侧注销语义对称）
+typedef struct {
+    uint64_t srcPtr;
+} UnregisterHalHostPayload;
+
+typedef struct {
+    int32_t status;
+} RspUnregisterHalHostPayload;
 
 #pragma pack(pop)
 

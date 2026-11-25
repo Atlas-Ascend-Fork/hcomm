@@ -402,7 +402,8 @@ int32_t HcommThreadNotifyRecordOnThread(ThreadHandle thread, ThreadHandle dstThr
     taskMetaData.streamId = streamId;
 
     // notifyId = 目标线程真实 Notify id；notifyCount = 目标线程上的 notify 槽位索引
-    const uint64_t notifyTaskId = HcclSim::MakeNotifyTaskId(curRank, notifyIdVal);
+    const uint32_t deviceKey = static_cast<uint32_t>(sim::runtime::GetCurrDeviceKey());
+    const uint64_t notifyTaskId = HcclSim::MakeNotifyTaskId(deviceKey, notifyIdVal);
     taskMetaData.taskData.notify.notifyId = notifyTaskId;
     taskMetaData.taskData.notify.notifyCount = static_cast<uint8_t>(dstNotifyIdx);
     taskMetaData.taskData.notify.srcDeviceId = curRank; // 发送方：本节点
@@ -472,7 +473,8 @@ int32_t HcommThreadNotifyWaitOnThread(ThreadHandle thread, uint32_t notifyIdx, u
     taskMetaData.streamId = streamId;
 
     // notifyId = 本线程真实 Notify id；notifyCount = 本线程上的 notify 槽位索引
-    const uint64_t notifyTaskId = HcclSim::MakeNotifyTaskId(curRank, notifyIdVal);
+    const uint32_t deviceKey = static_cast<uint32_t>(sim::runtime::GetCurrDeviceKey());
+    const uint64_t notifyTaskId = HcclSim::MakeNotifyTaskId(deviceKey, notifyIdVal);
     taskMetaData.taskData.notify.notifyId = notifyTaskId;
     taskMetaData.taskData.notify.notifyCount = static_cast<uint8_t>(notifyIdx);
     taskMetaData.taskData.notify.srcDeviceId = curRank; // 期望的发送方（同节点匹配）

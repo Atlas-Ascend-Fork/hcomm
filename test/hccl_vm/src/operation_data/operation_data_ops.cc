@@ -484,6 +484,21 @@ int QueryOpMemInfoByOpDetailId(uint32_t opDetailId, OpMemInfoTab& out)
     return 0;
 }
 
+int QueryAllCounterOpMemInfos(std::vector<OpMemInfoTab>& out)
+{
+    auto found = HcclSim::Storage::Select<OpMemInfoTab>(
+        HcclSim::Storage::And(
+            HcclSim::Storage::Gt(&OpMemInfoTab::counterAddr, uint64_t{0}),
+            HcclSim::Storage::Gt(&OpMemInfoTab::counterSize, uint64_t{0})),
+        HcclSim::Storage::OrderBy(&OpMemInfoTab::id, HcclSim::Storage::SortDirection::ASC));
+    if (!found.ok()) {
+        HCCL_VM_ERROR("query counter opMemInfos failed");
+        return -1;
+    }
+    out = *found.value;
+    return 0;
+}
+
 int UpdateOpExpansionMode(uint8_t mode)
 {
     auto updated = HcclSim::Storage::Update<OpDetailTab>(
@@ -1174,6 +1189,35 @@ int InsertOpTask(OpTaskTab& rec, bool isDevice)
                 rec.opDetailId = owner->id;
             }
         }
+    }
+
+    // DPU 虚拟流归属自愈：DPU 线程消费滞后跨过算子边界时 CurrOpDetailId 槽位失真
+    // （归 0 成孤儿或被下一算子覆盖错域），以 blob 内 commId 为权威身份修正归属。
+    if (rec.streamId >= DPU_VIRTUAL_STREAM_BASE && rec.optaskMeta.size() >= sizeof(uint64_t) + 4) {
+        const uint64_t blobCommId
+            = *reinterpret_cast<const uint64_t*>(rec.optaskMeta.data() + 4); // taskType(1)+profInfo(3)
+        uint32_t resolvedOpId = rec.opDetailId;
+        if (blobCommId != 0) {
+            bool needFix = rec.opDetailId == 0;
+            if (!needFix && resolvedOpId != 0) {
+                auto slotOp = HcclSim::Storage::SelectOne<OpDetailTab>(
+                    HcclSim::Storage::Eq(&OpDetailTab::id, resolvedOpId),
+                    HcclSim::Storage::Fields(&OpDetailTab::id, &OpDetailTab::commId));
+                needFix = slotOp.ok() && slotOp.value.has_value() && slotOp.value->commId != blobCommId;
+            }
+            if (needFix) {
+                auto match = HcclSim::Storage::SelectOne<OpDetailTab>(
+                    HcclSim::Storage::And(
+                        HcclSim::Storage::Eq(&OpDetailTab::commId, blobCommId),
+                        HcclSim::Storage::Eq(&OpDetailTab::deviceId, rec.deviceId)),
+                    HcclSim::Storage::Fields(&OpDetailTab::id),
+                    HcclSim::Storage::OrderBy(&OpDetailTab::id, HcclSim::Storage::SortDirection::DESC));
+                if (match.ok() && match.value.has_value()) {
+                    resolvedOpId = match.value->id;
+                }
+            }
+        }
+        rec.opDetailId = resolvedOpId;
     }
 
     // 动态 scope 表：按进程身份解析物理表（opTask_P_<pid>），首次访问时惰性建表。

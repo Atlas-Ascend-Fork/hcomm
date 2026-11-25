@@ -18,6 +18,8 @@
 #include "sim_log.h"
 #include "sim_common_defs.h"
 #include "sim_common_api.h"
+#include "sim_capacity_limits.h"
+#include "runtime_state/db_sim_runner_common.h"
 
 namespace sim {
 
@@ -97,8 +99,28 @@ void DpuKernelLibManager::Launch(const std::string& kernelName, DpuKernelFunc fn
         "Launching DPU kernel {} in new thread, hostArgs={:p} (argsValue=0x{:x}, argsSize={})", kernelName, hostArgs,
         reinterpret_cast<uintptr_t>(argsCopy.data()), argsSize);
 
-    std::thread([fn, kernelName, argsCopy = std::move(argsCopy)]() {
-        HCCL_VM_INFO("DPU kernel thread started: {}", kernelName);
+    // launch 快照传递 g_cur_comm_key 与虚拟流上下文到 DPU 线程：
+    // commKey 终身绑定归属通信域；deviceKey+slot 由 H2 桩计算虚拟流 id（slot 按设备孵化次序递增，
+    // 同 taskPipe 重复 launch 会分配新 slot——非幂等，旧流终止新流起号，属已接受取舍）。
+    const uint64_t commKeySnapshot = sim::runtime::g_cur_comm_key;
+    const uint64_t deviceKeySnapshot = sim::runtime::g_cur_device_key;
+    uint32_t slotSnapshot = 0;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        slotSnapshot = m_dpuThreadSlots[deviceKeySnapshot]++;
+    }
+    if (slotSnapshot >= DPU_VIRTUAL_STREAM_MAX_THREADS) {
+        HCCL_VM_WARN(
+            "DPU threads on deviceKey={} exceed {}, virtual stream slots wrap in-block", deviceKeySnapshot,
+            DPU_VIRTUAL_STREAM_MAX_THREADS);
+    }
+    std::thread([fn, kernelName, argsCopy = std::move(argsCopy), commKeySnapshot, deviceKeySnapshot, slotSnapshot]() {
+        sim::runtime::g_cur_comm_key = commKeySnapshot;
+        sim::runtime::g_cur_device_key = deviceKeySnapshot;
+        sim::runtime::g_dpuThreadSlot = slotSnapshot;
+        HCCL_VM_INFO(
+            "DPU kernel thread started: {}, commKey={}, deviceKey={}, slot={}", kernelName, commKeySnapshot,
+            deviceKeySnapshot, slotSnapshot);
         uint32_t result = fn(reinterpret_cast<uint64_t>(argsCopy.data()));
         HCCL_VM_INFO("DPU kernel thread finished: {} result={}", kernelName, result);
     }).detach();

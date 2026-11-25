@@ -186,15 +186,6 @@ aclError aclrtCreateNotify(aclrtNotify* notify, uint64_t flag)
         HCCL_VM_ERROR("current device not found for notify");
         return ACL_ERROR_INVALID_PARAM;
     }
-    uint32_t rankId = currentDevice.value->logic_id;
-    uint64_t serverTmp = 0;
-    // ★ 不对 rank 设规模上界（原 GetMaxRanks 检查已删除）；改为校验取值链路本身：
-    // GetRankIdByMPI 失败或返回 0xFFFF 哨兵（MPI 未提供 rank）都属非法，必须显式报错，
-    // 否则非法 rank 会写进 Notify.device_notify_seq，后续 record/wait 静默错配。
-    if (!sim::runtime::GetRankIdByMPI(rankId, serverTmp) || rankId == 0xFFFF) {
-        HCCL_VM_ERROR("invalid rank for notify allocation: {:d}", rankId);
-        return ACL_ERROR_INVALID_PARAM;
-    }
 
     uint32_t deviceNotifyId = 0;
     if (!g_deviceNotifyIds.Allocate(deviceNotifyId)) {
@@ -212,7 +203,7 @@ aclError aclrtCreateNotify(aclrtNotify* notify, uint64_t flag)
     sim::runtime::Notify tmp{};
     tmp.create_ctx_id = currCtxId;
     tmp.device_id = currCtx.value->device_id;
-    tmp.device_notify_seq = HcclSim::MakeNotifyTaskId(rankId, deviceNotifyId);
+    tmp.device_notify_seq = HcclSim::MakeNotifyTaskId(currentDevice.value->id, deviceNotifyId);
     tmp.value = 0;
     tmp.id = 0;
     auto inserted = sim::runtime::Db::Add<sim::runtime::Notify>(tmp);
@@ -473,11 +464,11 @@ rtError_t rtGetNotifyAddress(rtNotify_t notify, uint64_t* const notifyAddres)
     if (!GetNotifyTaskId(notify, notifyTaskId)) {
         return ACL_ERROR_INVALID_PARAM;
     }
-    // 返回rank作用域的notify标识(rankId<<17|deviceNotifyId)充当"对端写地址": 该值经hcomm
-    // IpcRemoteNotify.addr → P2PTransportLiteImpl::Post → WRITE_VALUE SQE的writeAddr下发到device侧,
-    // 而device级notifyId由各进程从0顺序分配、跨rank必然重号, 只有带上owner的rankId才能被还原
-    // (真实环境此处为全局唯一VA, 语义等价)。仅IPC/P2P远端notify走本接口, UB notify地址由
-    // rtGetDevResAddress提供, 不受影响。
+    // 返回device作用域的notify标识([deviceKey<<22]|[shmIdx<<17]|deviceNotifyId)充当"对端写地址":
+    // 该值经hcomm IpcRemoteNotify.addr → P2PTransportLiteImpl::Post → WRITE_VALUE SQE的writeAddr下发到
+    // device侧, 而device级notifyId由各进程从0顺序分配、跨rank必然重号, 只有带上owner的deviceKey
+    // (Device表主键, 全局唯一, 多通信域不重复)才能被还原(真实环境此处为全局唯一VA, 语义等价)。
+    // 仅IPC/P2P远端notify走本接口, UB notify地址由rtGetDevResAddress提供, 不受影响。
     *notifyAddres = notifyTaskId;
     return RT_ERROR_NONE;
 }

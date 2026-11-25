@@ -139,5 +139,10 @@ HcclVmResult InsertTaskToCollection(HcclTaskMetaData* task, uint32_t* index)
         HCCL_VM_ERROR("错误：插入任务到数据库失败 - {}", ret);
         return HcclVmResult::HCCL_SIM_SHM_FAIL;
     }
+
+    // DpuSqe 任务落库终态日志（thread/channel/copy 各路径的汇入点），用于归属/身份问题定位。
+    HCCL_VM_DEBUG(
+        "DPUTASK insert: taskType={}, streamId={}, deviceId={}, commId={}, rankId={}, taskIndex={}",
+        opTaskInfo.taskType, task->streamId, task->deviceId, task->commId, task->rankId, *index);
     return HcclVmResult::HCCL_SIM_SUCCESS;
 }

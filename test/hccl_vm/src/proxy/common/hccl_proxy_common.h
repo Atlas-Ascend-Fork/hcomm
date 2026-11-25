@@ -127,4 +127,10 @@ bool IsAICPUExpMode();
 // 查询真实 HcclComm 在当前进程中绑定的本地 Communicator 表行 id.
 extern "C" bool SimFindHcclCommMember(HcclComm comm, uint64_t* communicatorId);
 extern "C" bool SimFindHcclCommHandle(uint64_t communicatorId, HcclComm* comm);
+
+extern "C" bool TryResolveHostShmIdx(uint64_t addr, uint32_t& outShmIdx);
+
+// DPU 任务通信域信息填充（roce ibv 桩与 hcomm 线程类桩共用）:
+struct HcclTaskMetaData;
+void FillTaskCommInfo(HcclTaskMetaData& task, uint32_t deviceId);
 #endif

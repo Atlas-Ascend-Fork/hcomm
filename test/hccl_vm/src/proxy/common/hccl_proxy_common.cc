@@ -14,8 +14,10 @@
 #include <cstdint>
 #include "hccl_proxy_common.h"
 #include "sim_log.h"
+#include "sim_common_defs.h"
 #include "storage/table_access.h"
 #include "runtime_state/db_sim_runner_ops.h"
+#include "runtime_state/db_sim_runner_common.h"
 #include <fstream>
 #include <nlohmann_json/json.hpp>
 
@@ -206,3 +208,25 @@ bool IsAICPUExpMode()
 }
 
 } // namespace sim
+
+// 优先取线程上下文 g_cur_comm_key 填充 commId 并解析 rankId;
+// 未设置(如 worker 线程为 0)时, 回退按 deviceId 取首个 Communicator 成员行补齐.
+void FillTaskCommInfo(HcclTaskMetaData& task, uint32_t deviceId)
+{
+    task.commId = sim::runtime::g_cur_comm_key;
+    if (task.commId != 0) {
+        if (!sim::runtime::GetCommRankByDeviceId(task.commId, deviceId, task.rankId)) {
+            HCCL_VM_ERROR("dpu task cannot resolve rankId, commId={}, deviceId={}", task.commId, deviceId);
+        }
+        return;
+    }
+
+    auto members = sim::runtime::Db::GetByPred<sim::runtime::Communicator>(
+        HcclSim::Storage::Eq(&sim::runtime::Communicator::device_id, deviceId));
+    if (!members.ok() || !members.value.has_value() || members->empty()) {
+        HCCL_VM_ERROR("dpu task has no communicator, deviceId={}", deviceId);
+        return;
+    }
+    task.commId = members->front().id;
+    task.rankId = members->front().rank_id;
+}

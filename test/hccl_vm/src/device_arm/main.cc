@@ -95,6 +95,12 @@ int main(int argc, char* argv[])
             case PIPE_CMD_FREE_WQE_PTR:
                 sim::HandlePipeCmdFreeWqePtr(payload, payloadLen);
                 break;
+            case PIPE_CMD_REGISTER_HAL_HOST:
+                sim::HandlePipeCmdRegisterHalHost(payload, payloadLen);
+                break;
+            case PIPE_CMD_UNREGISTER_HAL_HOST:
+                sim::HandlePipeCmdUnregisterHalHost(payload, payloadLen);
+                break;
             default:
                 HCCL_VM_ERROR("[device] Unknown command: 0x{:02x}", cmd);
                 break;

@@ -41,6 +41,8 @@ namespace sim::runtime {
 extern thread_local uint64_t g_cur_device_key;
 // 当前线程正在执行算子的本地 Communicator 表行 id; 它不是 HcclComm 句柄, 也不是整个通信域共用的 id.
 extern thread_local uint64_t g_cur_comm_key;
+// 本设备 DPU 线程的虚拟流槽位号：Launch 孵化时分配并快照传递（与 g_cur_comm_key 同机制）
+extern thread_local uint32_t g_dpuThreadSlot;
 
 // 通信域叶子节点信息: 由TopoMetaConfig表项指向的topo_meta配置解析生成, 按rankId分配顺序排列。
 // 叶子节点 = server形态的server / POD形态的board(每board一个独立host节点, 对应一行Server表记录)

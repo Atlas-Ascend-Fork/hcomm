@@ -36,6 +36,30 @@ constexpr uint32_t HCCL_VM_MAX_CHANNEL_JETTIES = 1024;
 // 与 hccl::GetEnvUbConfig().GetUbMultiChannelNum() 的默认口径一致。
 constexpr uint32_t HCCL_VM_UB_MULTI_CHANNEL_NUM_DEFAULT = 1;
 
+constexpr uint32_t HCCL_VM_DEVICE_NOTIFY_ID_BITS = 17;
+constexpr uint32_t HCCL_VM_DEVICE_NOTIFY_ID_CAPACITY = 1U << HCCL_VM_DEVICE_NOTIFY_ID_BITS;
+constexpr uint32_t HCCL_VM_DEVICE_NOTIFY_ID_MASK = HCCL_VM_DEVICE_NOTIFY_ID_CAPACITY - 1;
+constexpr uint64_t HCCL_VM_INVALID_NOTIFY_TASK_ID = UINT64_MAX;
+
+// 三段式编码位布局：[42bit deviceId(Device表主键)][5bit shmIdx][17bit notifyIdx]，无 tag 位。
+// deviceId 取 Device 表主键（全局唯一）：多通信域下 rankId 在各域内独立编号必然重复，
+// 不得作为编码分量（checker 的 UpdateNotifyPeerDevices/跨卡配对按 id 全值聚合，撞号即错配）。
+// shmIdx==0 为"非 shm notify"（原二元组语义）；1~31 为 hostDpu shm 槽位。
+// 低 17 位与二元组编码对齐，存放 notifyIdx。
+constexpr uint32_t HCCL_VM_SHM_IDX_BITS = 5;
+constexpr uint32_t HCCL_VM_SHM_IDX_MASK = (1U << HCCL_VM_SHM_IDX_BITS) - 1;
+constexpr uint32_t HCCL_VM_SHM_IDX_SHIFT = HCCL_VM_DEVICE_NOTIFY_ID_BITS;
+constexpr uint64_t HCCL_VM_NOTIFY_DEVICE_KEY_BITS = 64 - HCCL_VM_DEVICE_NOTIFY_ID_BITS - HCCL_VM_SHM_IDX_BITS;
+// deviceId 上界取 MASK-1：deviceId=全1+shmIdx=31+notifyId=0x1FFFF 恰为 UINT64_MAX 哨兵，须避开
+constexpr uint64_t HCCL_VM_NOTIFY_DEVICE_KEY_MASK = (1ULL << HCCL_VM_NOTIFY_DEVICE_KEY_BITS) - 1;
+constexpr uint64_t HCCL_VM_NOTIFY_DEVICE_KEY_MAX = HCCL_VM_NOTIFY_DEVICE_KEY_MASK - 1;
+
+// DPU 虚拟流（不入 Stream 表）：ID = BASE + deviceId*BLOCK + slot，即 (deviceId, 10000 起的流号)。
+// deviceId 全局唯一 → id 全局唯一（消费侧按裸 streamId 分组即可）；块式乘法而非移位拼接：
+// checker StreamId=uint32 且按值 resize 向量，移位式随 deviceId 增大爆炸（jetty 教训，Db 主键无界）。
+constexpr uint64_t DPU_VIRTUAL_STREAM_BASE = 10000;
+constexpr uint32_t DPU_VIRTUAL_STREAM_MAX_THREADS = 32; // 每设备槽位段大小
+
 // 解析 HCCL_UB_MULTI_CHANNEL_NUM（一个 channel 上并行的 jetty 数）。
 // 未设置/空串/非十进制/带多余字符/0/溢出 uint32 一律视为非法：out 置默认值并返回
 // false，是否告警由调用方决定（本头不引入日志依赖）。
@@ -120,23 +144,23 @@ inline uint32_t GetConnectTimeoutMs()
     return timeoutMs < HCCL_VM_CONNECT_TIMEOUT_DEFAULT_MS ? HCCL_VM_CONNECT_TIMEOUT_DEFAULT_MS : timeoutMs;
 }
 
-constexpr uint32_t HCCL_VM_DEVICE_NOTIFY_ID_BITS = 17;
-constexpr uint32_t HCCL_VM_DEVICE_NOTIFY_ID_CAPACITY = 1U << HCCL_VM_DEVICE_NOTIFY_ID_BITS;
-constexpr uint32_t HCCL_VM_DEVICE_NOTIFY_ID_MASK = HCCL_VM_DEVICE_NOTIFY_ID_CAPACITY - 1;
-constexpr uint64_t HCCL_VM_INVALID_NOTIFY_TASK_ID = UINT64_MAX;
-// rank 段的位宽合同：id 布局为 [rank(47bit) | deviceNotifyId(17bit)]，而
-// GetNotifyTaskRankId 以 uint32 返回 rank，故 rank 段实际可用上限 = uint32 的表达能力。
-// ★ 这是**编码位宽**约束（rank 必须能无损还原），不是集群规模上限；它同时把事件级 id
-//   （高位 tag 0xD，见 MakeNotifyEventTaskId）排除在 task id 空间之外。
-constexpr uint64_t HCCL_VM_NOTIFY_TASK_RANK_MAX = UINT32_MAX;
-
-// rankId 为 uint32，天然满足 HCCL_VM_NOTIFY_TASK_RANK_MAX，故此处只校验 notifyId 段。
-inline uint64_t MakeNotifyTaskId(uint32_t rankId, uint32_t deviceNotifyId)
+// 形参取 64 位宽：值域仍按下方位段合同校验；宽入参避免调用方 64 位值被隐式收窄截断
+inline uint64_t MakeNotifyTaskId(uint64_t deviceId, uint64_t deviceNotifyId, uint32_t shmIdx = 0)
 {
-    if (deviceNotifyId >= HCCL_VM_DEVICE_NOTIFY_ID_CAPACITY) {
+    if (deviceNotifyId >= HCCL_VM_DEVICE_NOTIFY_ID_CAPACITY || shmIdx > HCCL_VM_SHM_IDX_MASK
+        || deviceId > HCCL_VM_NOTIFY_DEVICE_KEY_MAX) {
         return HCCL_VM_INVALID_NOTIFY_TASK_ID;
     }
-    return (static_cast<uint64_t>(rankId) << HCCL_VM_DEVICE_NOTIFY_ID_BITS) | deviceNotifyId;
+    uint64_t encoded = (deviceId << (HCCL_VM_SHM_IDX_SHIFT + HCCL_VM_SHM_IDX_BITS));
+    encoded |= (static_cast<uint64_t>(shmIdx) << HCCL_VM_SHM_IDX_SHIFT);
+    encoded |= (deviceNotifyId & HCCL_VM_DEVICE_NOTIFY_ID_MASK);
+    return encoded;
+}
+
+constexpr uint64_t MakeDpuVirtualStreamId(uint64_t deviceId, uint32_t slot)
+{
+    const uint32_t clampedSlot = slot % DPU_VIRTUAL_STREAM_MAX_THREADS;
+    return DPU_VIRTUAL_STREAM_BASE + deviceId * DPU_VIRTUAL_STREAM_MAX_THREADS + clampedSlot;
 }
 
 constexpr uint32_t GetDeviceNotifyId(uint64_t notifyTaskId)
@@ -144,15 +168,20 @@ constexpr uint32_t GetDeviceNotifyId(uint64_t notifyTaskId)
     return static_cast<uint32_t>(notifyTaskId) & HCCL_VM_DEVICE_NOTIFY_ID_MASK;
 }
 
-inline bool IsValidNotifyTaskId(uint64_t notifyTaskId)
+constexpr uint32_t GetShmIdx(uint64_t notifyTaskId)
 {
-    return notifyTaskId != HCCL_VM_INVALID_NOTIFY_TASK_ID
-           && (notifyTaskId >> HCCL_VM_DEVICE_NOTIFY_ID_BITS) <= HCCL_VM_NOTIFY_TASK_RANK_MAX;
+    return static_cast<uint32_t>((notifyTaskId >> HCCL_VM_SHM_IDX_SHIFT) & HCCL_VM_SHM_IDX_MASK);
 }
 
-constexpr uint32_t GetNotifyTaskRankId(uint64_t notifyTaskId)
+// shmIdx 判别式（三段式无 tag 位）：0 = 非 shm notify（原二元组语义），非 0 = hostDpu shm 槽位
+constexpr bool IsShmNotifyTaskId(uint64_t notifyTaskId) { return GetShmIdx(notifyTaskId) != 0; }
+
+inline bool IsValidNotifyTaskId(uint64_t notifyTaskId) { return notifyTaskId != HCCL_VM_INVALID_NOTIFY_TASK_ID; }
+
+// 解出编码中的 Device 表主键（全局唯一）；消费方按 Device 主键直查，不再依赖通信域 rank 口径
+constexpr uint32_t GetNotifyTaskDeviceKey(uint64_t notifyTaskId)
 {
-    return static_cast<uint32_t>(notifyTaskId >> HCCL_VM_DEVICE_NOTIFY_ID_BITS);
+    return static_cast<uint32_t>(notifyTaskId >> (HCCL_VM_SHM_IDX_SHIFT + HCCL_VM_SHM_IDX_BITS));
 }
 
 // 事件级 notify 任务 id：按方向 (srcRank, dstRank) 的第 k 次 notify 事件编码。

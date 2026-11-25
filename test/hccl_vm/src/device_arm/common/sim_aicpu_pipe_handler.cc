@@ -10,8 +10,10 @@
 
 #include "sim_aicpu_pipe_handler.h"
 #include "sim_aicpu_pipe_msg.h"
+#include <algorithm>
 #include <unistd.h>
 #include <string>
+#include <vector>
 #include <map>
 #include <dlfcn.h>
 #include "sim_log.h"
@@ -28,7 +30,6 @@
 namespace sim {
 
 namespace {
-    // Pipe 命令由 device 主线程串行处理。按分配名保留独立 VA，后备物理内存仍共享池。
     std::map<std::string, void*> g_commPoolMappings;
 } // namespace
 
@@ -258,6 +259,50 @@ int HandlePipeCmdFreeWqePtr(uint8_t* payload, uint32_t payloadLen)
     HCCL_VM_INFO("[device] free wqe buffer :{:p}", ptr);
 
     DeviceSendMsg(PIPE_RSP_FREE_WQE_PTR, &donePayload, sizeof(donePayload));
+    return 0;
+}
+
+int HandlePipeCmdRegisterHalHost(uint8_t* payload, uint32_t payloadLen)
+{
+    if (payloadLen < sizeof(RegisterHalHostPayload)) {
+        HCCL_VM_ERROR(
+            "[device] REGISTER_HAL_HOST payload too small: {} < {}", payloadLen, sizeof(RegisterHalHostPayload));
+        RspRegisterHalHostPayload donePayload{};
+        donePayload.status = -1;
+        DeviceSendMsg(PIPE_RSP_REGISTER_HAL_HOST, &donePayload, sizeof(donePayload));
+        return -1;
+    }
+
+    RegisterHalHostPayload* req = reinterpret_cast<RegisterHalHostPayload*>(payload);
+    HCCL_VM_INFO(
+        "[device] RegisterHalHost: srcPtr={:#x}, size={:d}, index={:d}, deviceId={:d}", req->srcPtr, req->size,
+        req->index, req->deviceId);
+    RegisterHalHostRegion(req->srcPtr, req->size, req->index);
+
+    RspRegisterHalHostPayload donePayload{};
+    donePayload.status = 0;
+    DeviceSendMsg(PIPE_RSP_REGISTER_HAL_HOST, &donePayload, sizeof(donePayload));
+    return 0;
+}
+
+int HandlePipeCmdUnregisterHalHost(uint8_t* payload, uint32_t payloadLen)
+{
+    if (payloadLen < sizeof(UnregisterHalHostPayload)) {
+        HCCL_VM_ERROR(
+            "[device] UNREGISTER_HAL_HOST payload too small: {} < {}", payloadLen, sizeof(UnregisterHalHostPayload));
+        RspUnregisterHalHostPayload donePayload{};
+        donePayload.status = -1;
+        DeviceSendMsg(PIPE_RSP_UNREGISTER_HAL_HOST, &donePayload, sizeof(donePayload));
+        return -1;
+    }
+
+    UnregisterHalHostPayload* req = reinterpret_cast<UnregisterHalHostPayload*>(payload);
+    const uint32_t removed = UnregisterHalHostRegion(req->srcPtr);
+    HCCL_VM_INFO("[device] UnregisterHalHost: srcPtr={:#x}, removed={:d}", req->srcPtr, removed);
+
+    RspUnregisterHalHostPayload donePayload{};
+    donePayload.status = 0;
+    DeviceSendMsg(PIPE_RSP_UNREGISTER_HAL_HOST, &donePayload, sizeof(donePayload));
     return 0;
 }
 

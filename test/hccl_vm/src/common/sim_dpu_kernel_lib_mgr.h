@@ -44,6 +44,8 @@ private:
     std::mutex m_mutex;
     std::map<std::string, void*> m_soHandles;           // soName -> dlopen handle
     std::map<std::string, DpuKernelFunc> m_symbolCache; // kernelName -> fn
+    // 每设备 DPU 线程孵化计数(虚拟流块内 slot)：launch 主线程分配，快照传递给孵化线程
+    std::map<uint64_t, uint32_t> m_dpuThreadSlots;
 };
 
 } // namespace sim

@@ -328,7 +328,7 @@ uint64_t ResolveRecordNotifyId(
 }
 
 /**
- * @brief 生成 notify 任务 id（统一使用 rank 维度槽位编码）。
+ * @brief 生成 notify 任务 id（统一使用 device 维度槽位编码）。
  *
  * 跨 rank（src != dst）任务的 notifyId 会在 NormalizeLevel1Task 中被方向事件编码
  * （MakeNotifyEventTaskId）统一覆盖，本函数只需提供本地配对用的稳定槽位 id。
@@ -336,13 +336,13 @@ uint64_t ResolveRecordNotifyId(
  * 侧的方向事件编码并存，导致同一逻辑 notify 两侧 id 空间不一致、Checker 误报死锁，
  * 故移除该分支。
  *
- * @param rankIdForEncode 输入：MakeNotifyTaskId 的 rank 分量。
+ * @param deviceKeyForEncode 输入：MakeNotifyTaskId 的 device 分量（Device 表主键）。
  * @param notifyIdVal     输入：槽位对应的 Notify 表行 id。
  * @return 用于任务元数据的 notify id。
  */
-uint64_t MakeDpuAwareNotifyTaskId(uint32_t rankIdForEncode, uint64_t notifyIdVal)
+uint64_t MakeDpuAwareNotifyTaskId(uint32_t deviceKeyForEncode, uint64_t notifyIdVal)
 {
-    return HcclSim::MakeNotifyTaskId(rankIdForEncode, notifyIdVal);
+    return HcclSim::MakeNotifyTaskId(deviceKeyForEncode, notifyIdVal);
 }
 
 } // namespace
@@ -686,8 +686,8 @@ int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread, ChannelHandle chan
 
     // notifyId = 通道真实 Notify id；notifyCount = 远端的 notify 槽位索引（目标节点的接收位）
     // srcRankId = 本端（发送方），dstRankId = 远端（接收方）
-    // notifyId 以“发起 record 的卡(curRank)”作 rank 分量，与南向 identity.rankId 口径一致。
-    const uint64_t notifyTaskId = MakeDpuAwareNotifyTaskId(curRank, notifyIdVal);
+    const uint64_t notifyTaskId
+        = MakeDpuAwareNotifyTaskId(static_cast<uint32_t>(sim::runtime::GetCurrDeviceKey()), notifyIdVal);
     taskMetaData.taskData.notify.notifyId = notifyTaskId;
     taskMetaData.taskData.notify.notifyCount = static_cast<uint8_t>(remoteNotifyIdx);
     taskMetaData.taskData.notify.srcDeviceId = curRank;
@@ -798,10 +798,11 @@ int32_t HcommWriteWithNotifyOnThread(
     notifyTask.rankId = curRank;
     notifyTask.streamId = streamId;
 
-    notifyTask.taskData.notify.notifyId = MakeDpuAwareNotifyTaskId(curRank, notifyIdVal); // 通道真实 Notify id
-    notifyTask.taskData.notify.notifyCount = static_cast<uint8_t>(remoteNotifyIdx);       // 通知计数值（索引）
-    notifyTask.taskData.notify.srcDeviceId = curRank;                                     // 发送方：本地
-    notifyTask.taskData.notify.dstDeviceId = remoteRankId;                                // 接收方：远端
+    notifyTask.taskData.notify.notifyId = MakeDpuAwareNotifyTaskId(
+        static_cast<uint32_t>(sim::runtime::GetCurrDeviceKey()), notifyIdVal);      // 通道真实 Notify id
+    notifyTask.taskData.notify.notifyCount = static_cast<uint8_t>(remoteNotifyIdx); // 通知计数值（索引）
+    notifyTask.taskData.notify.srcDeviceId = curRank;                               // 发送方：本地
+    notifyTask.taskData.notify.dstDeviceId = remoteRankId;                          // 接收方：远端
 
     uint32_t notifyTaskIndex = 0u;
     insertRet = InsertLevel1Task(&notifyTask, &notifyTaskIndex);
@@ -922,10 +923,11 @@ int32_t HcommWriteReduceWithNotifyOnThread(
     notifyTask.rankId = curRank;
     notifyTask.streamId = streamId;
 
-    notifyTask.taskData.notify.notifyId = MakeDpuAwareNotifyTaskId(curRank, notifyIdVal); // 通道真实 Notify id
-    notifyTask.taskData.notify.notifyCount = static_cast<uint8_t>(remoteNotifyIdx);       // 通知计数值（索引）
-    notifyTask.taskData.notify.srcDeviceId = curRank;                                     // 发送方：本地
-    notifyTask.taskData.notify.dstDeviceId = remoteRankId;                                // 接收方：远端
+    notifyTask.taskData.notify.notifyId = MakeDpuAwareNotifyTaskId(
+        static_cast<uint32_t>(sim::runtime::GetCurrDeviceKey()), notifyIdVal);      // 通道真实 Notify id
+    notifyTask.taskData.notify.notifyCount = static_cast<uint8_t>(remoteNotifyIdx); // 通知计数值（索引）
+    notifyTask.taskData.notify.srcDeviceId = curRank;                               // 发送方：本地
+    notifyTask.taskData.notify.dstDeviceId = remoteRankId;                          // 接收方：远端
 
     uint32_t notifyTaskIndex = 0u;
     insertRet = InsertLevel1Task(&notifyTask, &notifyTaskIndex);
@@ -1096,8 +1098,22 @@ HcommChannelNotifyWaitOnThread(ThreadHandle thread, ChannelHandle channel, uint3
 
     // notifyId = 通道真实 Notify id；notifyCount = 本端 notify 槽位索引（被 record 的目标位）
     // srcRankId = 远端（信号发送方），dstRankId = 本端（等待方）
-    // notifyId 以“发起 record 的卡(remoteRankId)”作 rank 分量，与 record 侧配对。
-    const uint64_t notifyTaskId = MakeDpuAwareNotifyTaskId(remoteRankId, notifyIdVal);
+    // 编码分量取 record 发起方 deviceKey：优先 Notify 行 device_id，查不到按 commId+remoteRankId 反查兜底
+    uint32_t ownerDeviceKey = static_cast<uint32_t>(sim::runtime::GetCurrDeviceKey());
+    const auto notifyRow = sim::runtime::Db::GetById<sim::runtime::Notify>(notifyIdVal);
+    if (notifyRow.ok()) {
+        ownerDeviceKey = static_cast<uint32_t>(notifyRow->device_id);
+    } else {
+        sim::runtime::Device rmtDevice{};
+        if (sim::runtime::GetDeviceByCommRank(commId, remoteRankId, rmtDevice) == ACL_SUCCESS) {
+            ownerDeviceKey = static_cast<uint32_t>(rmtDevice.id);
+        } else {
+            HCCL_VM_WARN(
+                "{}: owner device fallback failed, notifyIdVal={:d}, commId={:d}, remoteRankId={:d}", __func__,
+                notifyIdVal, commId, remoteRankId);
+        }
+    }
+    const uint64_t notifyTaskId = MakeDpuAwareNotifyTaskId(ownerDeviceKey, notifyIdVal);
     taskMetaData.taskData.notify.notifyId = notifyTaskId;
     taskMetaData.taskData.notify.notifyCount = static_cast<uint8_t>(localNotifyIdx);
     taskMetaData.taskData.notify.srcDeviceId = remoteRankId;

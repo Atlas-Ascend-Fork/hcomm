@@ -743,6 +743,53 @@ void SetDpuStreamId(uint32_t deviceId, uint64_t streamId)
     }
 }
 
+namespace {
+    // host 侧 halHostRegister 经管道登记的 shm 区域(与 host 侧 g_halHostRegTable 对称),
+    // 写为管道命令线程, 读为 SQE 解析路径, 线程身份无合同保证, 互斥保护。
+    struct HalHostRegion {
+        uint64_t srcPtr;
+        uint64_t size;
+        uint32_t index;
+    };
+    std::mutex g_halHostRegionsMtx;
+    std::vector<HalHostRegion> g_halHostRegions;
+} // namespace
+
+void RegisterHalHostRegion(uint64_t srcPtr, uint64_t size, uint32_t index)
+{
+    std::lock_guard<std::mutex> lock(g_halHostRegionsMtx);
+    // 幂等注册: 先清同 srcPtr 旧条目, 防止陈旧条目先命中返回过期 shmIdx
+    auto it = std::remove_if(g_halHostRegions.begin(), g_halHostRegions.end(), [srcPtr](const HalHostRegion& r) {
+        return r.srcPtr == srcPtr;
+    });
+    g_halHostRegions.erase(it, g_halHostRegions.end());
+    g_halHostRegions.push_back({srcPtr, size, index});
+}
+
+uint32_t UnregisterHalHostRegion(uint64_t srcPtr)
+{
+    std::lock_guard<std::mutex> lock(g_halHostRegionsMtx);
+    auto it = std::remove_if(g_halHostRegions.begin(), g_halHostRegions.end(), [srcPtr](const HalHostRegion& r) {
+        return r.srcPtr == srcPtr;
+    });
+    const uint32_t removed = static_cast<uint32_t>(std::distance(it, g_halHostRegions.end()));
+    g_halHostRegions.erase(it, g_halHostRegions.end());
+    return removed;
+}
+
+bool TryResolveShmNotifyAddr(uint64_t addr, uint32_t& outShmIdx, uint64_t& outOffset)
+{
+    std::lock_guard<std::mutex> lock(g_halHostRegionsMtx);
+    for (const auto& region : g_halHostRegions) {
+        if (addr >= region.srcPtr && addr < region.srcPtr + region.size) {
+            outShmIdx = region.index;
+            outOffset = addr - region.srcPtr;
+            return true;
+        }
+    }
+    return false;
+}
+
 #ifdef __cplusplus
 }
 #endif

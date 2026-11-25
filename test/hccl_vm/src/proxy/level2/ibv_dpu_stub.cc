@@ -19,6 +19,7 @@
 #include <mutex>
 #include <thread>
 #include "sim_log.h"
+#include "sim_capacity_limits.h"
 #include "store_sim_store_pub.h"
 #include "store_sim_run_mode.h"
 #include "sim_common_defs.h"
@@ -53,42 +54,9 @@ static constexpr uint8_t DPU_PROTOCOL_ROCE = 2;
 
 static uint64_t GetDpuStreamIdByDeviceId(uint32_t deviceId)
 {
-    auto dpuRet = sim::runtime::Db::GetOneByPred<sim::runtime::DpuDeviceInfo>(
-        HcclSim::Storage::Eq(&sim::runtime::DpuDeviceInfo::device_id, deviceId));
-    if (dpuRet.ok()) {
-        if (dpuRet->stream_id != 0) {
-            return dpuRet->stream_id;
-        }
-    }
-
-    HCCL_VM_ERROR("cannot find streamId on dpu, deviceId={}", deviceId);
-    return 0;
-}
-
-// HCCL算子入口通过 g_cur_comm_key 设置当前通信域; DPU stub 生成的任务在此上下文内
-// 同步执行, 故可复用该 thread_local 值填充 commId, 并据此解析 rankId, 使 checker
-// 能识别任务的通信域与身份 (见 task_meta_translator_v3.cc MakeTaskPosition).
-// 但 ibv_post_send/ibv_poll_cq 可能在 HCCL 的 HostCpuRoceChannel worker 线程上被
-// 调用, 该线程未继承算子入口设置的 g_cur_comm_key (仍为 0). 此时回退到按 deviceId
-// 从 Communicator 表查找该设备所属的通信域成员行, 获取其 id (即 commId) 和 rankId.
-static void FillTaskCommInfo(HcclTaskMetaData& task, uint32_t deviceId)
-{
-    task.commId = sim::runtime::g_cur_comm_key;
-    if (task.commId != 0) {
-        if (!sim::runtime::GetCommRankByDeviceId(task.commId, deviceId, task.rankId)) {
-            HCCL_VM_ERROR("dpu task cannot resolve rankId, commId={}, deviceId={}", task.commId, deviceId);
-        }
-        return;
-    }
-
-    auto members = sim::runtime::Db::GetByPred<sim::runtime::Communicator>(
-        HcclSim::Storage::Eq(&sim::runtime::Communicator::device_id, deviceId));
-    if (!members.ok() || !members.value.has_value() || members->empty()) {
-        HCCL_VM_ERROR("dpu task has no communicator, deviceId={}", deviceId);
-        return;
-    }
-    task.commId = members->front().id;
-    task.rankId = members->front().rank_id;
+    // 归属流随调用线程：slot 取 launch 快照 TLS（每条 DPU 线程各自持有，wait 与数据任务共流保程序序）；
+    // 非 DPU 线程 TLS 默认 0；deviceId 取 QP 侧权威值
+    return HcclSim::MakeDpuVirtualStreamId(deviceId, sim::runtime::g_dpuThreadSlot);
 }
 
 static std::atomic<uint32_t> s_notifySeq{1};

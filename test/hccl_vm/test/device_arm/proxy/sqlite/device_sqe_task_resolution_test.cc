@@ -482,7 +482,9 @@ TEST_F(DeviceSqeTaskResolutionTest, UdmaInlineNotifySkipsAddressResolution)
     const auto& task = tasks[0];
     ExpectIdentity(task);
     EXPECT_EQ(task.taskType, HccLTaskMetaType::NOTIFY_RECORD);
-    EXPECT_EQ(task.taskData.notify.notifyId, HcclSim::MakeNotifyTaskId(rmtRank, static_cast<uint32_t>(kNotifyAddr)));
+    EXPECT_EQ(
+        task.taskData.notify.notifyId,
+        HcclSim::MakeNotifyTaskId(static_cast<uint32_t>(rmtDevId), static_cast<uint32_t>(kNotifyAddr)));
     EXPECT_EQ(task.taskData.notify.srcDeviceId, static_cast<uint32_t>(localDevId));
     EXPECT_EQ(task.taskData.notify.dstDeviceId, static_cast<uint32_t>(rmtDevId));
 }
@@ -528,7 +530,9 @@ TEST_F(DeviceSqeTaskResolutionTest, WriteWithNotifyEmitsDataTaskThenNotifyTask)
     const auto& notify = tasks[1];
     ExpectIdentity(notify);
     EXPECT_EQ(notify.taskType, HccLTaskMetaType::NOTIFY_RECORD);
-    EXPECT_EQ(notify.taskData.notify.notifyId, HcclSim::MakeNotifyTaskId(rmtRank, static_cast<uint32_t>(kNotifyAddr)));
+    EXPECT_EQ(
+        notify.taskData.notify.notifyId,
+        HcclSim::MakeNotifyTaskId(static_cast<uint32_t>(rmtDevId), static_cast<uint32_t>(kNotifyAddr)));
     EXPECT_EQ(notify.taskData.notify.srcDeviceId, static_cast<uint32_t>(localDevId));
     EXPECT_EQ(notify.taskData.notify.dstDeviceId, static_cast<uint32_t>(rmtDevId));
     EXPECT_EQ(0, std::memcmp(notify.rmEid, sqeEidBytes, HcclSim::URMA_EID_LEN));

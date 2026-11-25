@@ -24,7 +24,11 @@
 #include "hccl_proxy_common.h"
 #include "sim_log.h"
 #include "store_sim_run_mode.h"
+#include "runtime_state/db_sim_runner_common.h"
 #include "ibv_dpu_stub.h"
+#include "sim_common_defs.h"
+#include "store_sim_store_pub.h"
+#include "sim_capacity_limits.h"
 
 namespace {
 // HcclDfxOpInfoCompat 布局复刻 (hccl 仓 hccl_res_dl.h / CANN hccl_diag.h,
@@ -277,6 +281,69 @@ HcclResult HcclChannelAcquire(
         }
     }
     return ret;
+}
+
+// H2 thread notify wait 桩：业务 cpu_notify_wait_hook.h 声明的劫持锚点（PR 6577），符号名+形参即 ABI。
+// 不跑真身（阻塞 shm 轮询），直接落任务；destroyFlag 为销毁让位标志，桩不消费。
+extern "C" HcclResult HcommCpuThreadNotifyWaitHook(
+    uint8_t* notifyBase, uint32_t notifyNum, uint32_t notifyIdx, uint32_t timeOut, const std::atomic<bool>* destroyFlag,
+    uint32_t deviceId, uint64_t threadHandle)
+{
+    HCCL_VM_INFO(
+        "{}: notifyBase={:p}, notifyNum={:d}, notifyIdx={:d}, timeOut={:d}, deviceId={:d}, threadHandle={:x}", __func__,
+        static_cast<const void*>(notifyBase), notifyNum, notifyIdx, timeOut, deviceId, threadHandle);
+
+    // Communicator.device_id 存 Db 设备键（本线程经 launch 快照/kernel 入口置位）;业务传入的 deviceId 是逻辑
+    // id，直接查表必然落空。
+    uint32_t commDeviceId = deviceId;
+    if (sim::runtime::g_cur_device_key != 0) {
+        commDeviceId = static_cast<uint32_t>(sim::runtime::g_cur_device_key);
+    }
+
+    HcclTaskMetaData taskMetaData{};
+    taskMetaData.taskType = HccLTaskMetaType::NOTIFY_WAIT;
+    taskMetaData.deviceId = commDeviceId;
+    FillTaskCommInfo(taskMetaData, commDeviceId);
+    // 本线程 DPU 虚拟流：deviceKey+slot 均来自 launch 快照 TLS
+    taskMetaData.streamId
+        = HcclSim::MakeDpuVirtualStreamId(sim::runtime::g_cur_device_key, sim::runtime::g_dpuThreadSlot);
+
+    // 编码分量取 deviceKey（deviceId）；shmIdx=0 即"非 shm notify"
+    uint32_t shmIdx = 0;
+    uint64_t notifyTaskId = 0;
+    if (TryResolveHostShmIdx(reinterpret_cast<uint64_t>(notifyBase), shmIdx)) {
+        notifyTaskId = HcclSim::MakeNotifyTaskId(taskMetaData.deviceId, notifyIdx, shmIdx);
+        HCCL_VM_INFO(
+            "{}: shm notify, deviceKey={}, notifyIdx={}, shmIdx={}, notifyTaskId={:#x}", __func__,
+            taskMetaData.deviceId, notifyIdx, shmIdx, notifyTaskId);
+    } else {
+        notifyTaskId = HcclSim::MakeNotifyTaskId(taskMetaData.deviceId, notifyIdx);
+        HCCL_VM_INFO(
+            "{}: device notify, deviceKey={}, notifyIdx={}, notifyTaskId={:#x}", __func__, taskMetaData.deviceId,
+            notifyIdx, notifyTaskId);
+    }
+    taskMetaData.taskData.notify.notifyId = notifyTaskId;
+    taskMetaData.taskData.notify.notifyCount = static_cast<uint8_t>(notifyIdx);
+    if (sim::IsEstimateMode()) {
+        taskMetaData.taskData.notify.srcDeviceId = taskMetaData.rankId;
+        taskMetaData.taskData.notify.dstDeviceId = taskMetaData.rankId;
+    } else {
+        taskMetaData.taskData.notify.srcDeviceId = commDeviceId;
+        taskMetaData.taskData.notify.dstDeviceId = commDeviceId;
+    }
+
+    uint32_t taskIndex = 0u;
+    auto insertRet = InsertTaskToCollection(&taskMetaData, &taskIndex);
+    if (insertRet != HcclSim::HcclVmResult::HCCL_SIM_SUCCESS) {
+        HCCL_VM_ERROR("{}: InsertTaskToCollection failed, ret={:d}", __func__, static_cast<int>(insertRet));
+        return HCCL_E_INTERNAL;
+    }
+
+    HCCL_VM_INFO(
+        "{} success, deviceId={:d}, threadHandle={:x}, notifyIdx={:d}, streamId={:d}, taskIndex={:d}", __func__,
+        deviceId, threadHandle, notifyIdx, taskMetaData.streamId, taskIndex);
+
+    return HCCL_SUCCESS;
 }
 
 #ifdef __cplusplus

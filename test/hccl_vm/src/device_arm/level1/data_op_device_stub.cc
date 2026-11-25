@@ -408,10 +408,16 @@ HcclTaskMetaData MakeNotifyTask(
     taskMeta.jettyId = UNKNOWN_JETTY_ID;
     taskMeta.taskData.notify.srcDeviceId = srcRankId;
     taskMeta.taskData.notify.dstDeviceId = dstRankId;
+    // 编码分量取 Notify 行归属设备（record/wait 两侧同源，配对天然一致），查不到行回退本设备
+    uint32_t ownerDeviceKey = GetCurDeviceKey();
+    const auto notifyRow = sim::runtime::Db::GetById<sim::runtime::Notify>(notifyId);
+    if (notifyRow.ok()) {
+        ownerDeviceKey = static_cast<uint32_t>(notifyRow->device_id);
+    }
     if (taskType == HccLTaskMetaType::NOTIFY_RECORD) {
-        taskMeta.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(srcRankId, notifyId);
+        taskMeta.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(ownerDeviceKey, static_cast<uint32_t>(notifyId));
     } else if (taskType == HccLTaskMetaType::NOTIFY_WAIT) {
-        taskMeta.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(srcRankId, notifyId);
+        taskMeta.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(ownerDeviceKey, static_cast<uint32_t>(notifyId));
     }
     return taskMeta;
 }
@@ -1231,7 +1237,7 @@ int32_t HcommThreadNotifyRecordOnThread(ThreadHandle thread, ThreadHandle dstThr
     taskMetaData.rankId = curRank;
     taskMetaData.streamId = srcThread.streamId;
 
-    taskMetaData.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(curRank, notifyIdVal);
+    taskMetaData.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(GetCurDeviceKey(), notifyIdVal);
     taskMetaData.taskData.notify.notifyCount = static_cast<uint8_t>(dstNotifyIdx);
     taskMetaData.taskData.notify.srcDeviceId = curRank;
     taskMetaData.taskData.notify.dstDeviceId = curRank;
@@ -1314,7 +1320,7 @@ int32_t HcommThreadNotifyWaitOnThread(ThreadHandle thread, uint32_t notifyIdx, u
     taskMetaData.rankId = curRank;
     taskMetaData.streamId = threadRes.streamId;
 
-    taskMetaData.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(curRank, notifyIdVal);
+    taskMetaData.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(GetCurDeviceKey(), notifyIdVal);
     taskMetaData.taskData.notify.notifyCount = static_cast<uint8_t>(notifyIdx);
     taskMetaData.taskData.notify.srcDeviceId = curRank;
     taskMetaData.taskData.notify.dstDeviceId = curRank;
@@ -1464,8 +1470,7 @@ int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread, ChannelHandle chan
     taskMetaData.rankId = curRank;
     taskMetaData.streamId = threadRes.streamId;
 
-    // notifyId 以“发起 record 的卡(curRank)”作 rank 分量，与南向 identity.rankId 口径一致。
-    taskMetaData.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(curRank, notifyIdVal);
+    taskMetaData.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(GetCurDeviceKey(), notifyIdVal);
     taskMetaData.taskData.notify.notifyCount = static_cast<uint8_t>(remoteNotifyIdx);
     taskMetaData.taskData.notify.srcDeviceId = curRank;
     taskMetaData.taskData.notify.dstDeviceId = remoteRankId;
@@ -1575,8 +1580,10 @@ HcommChannelNotifyWaitOnThreadWithDefaultTimeout(ThreadHandle thread, ChannelHan
     taskMetaData.rankId = curRank;
     taskMetaData.streamId = threadRes.streamId;
 
-    // notifyId 以“发起 record 的卡(remoteRankId)”作 rank 分量，与 record 侧配对。
-    taskMetaData.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(remoteRankId, notifyIdVal);
+    // 编码分量取 record 发起方 deviceKey（Notify 行 device_id，与 record 侧同源）
+    const auto notifyRow = sim::runtime::Db::GetById<sim::runtime::Notify>(notifyIdVal);
+    const uint32_t ownerDeviceKey = notifyRow.ok() ? static_cast<uint32_t>(notifyRow->device_id) : GetCurDeviceKey();
+    taskMetaData.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(ownerDeviceKey, notifyIdVal);
     taskMetaData.taskData.notify.notifyCount = static_cast<uint8_t>(localNotifyIdx);
     taskMetaData.taskData.notify.srcDeviceId = remoteRankId;
     taskMetaData.taskData.notify.dstDeviceId = curRank;
