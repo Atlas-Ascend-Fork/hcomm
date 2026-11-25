@@ -286,7 +286,7 @@ HcclResult AlltoAllVDirectFullMesh::UpdateCurrRankSendInfo(
         CHK_PRT_RET(
             step != 0,
             HCCL_ERROR(
-                "[AlltoAllVDirectFullMesh][UpdateCurrRankRecvInfo] needAlltoallvCache_[%u] step[%u]",
+                "[AlltoAllVDirectFullMesh][UpdateCurrRankSendInfo] needAlltoallvCache_[%u] step[%u]",
                 needAlltoallvCache_, step),
             HCCL_E_INTERNAL);
 

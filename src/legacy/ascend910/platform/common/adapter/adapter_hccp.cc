@@ -3424,7 +3424,7 @@ HcclResult hrtRaPingGetResults(void* pingHandle, struct PingTargetResult target[
         return HCCL_E_NOT_SUPPORT;
     }
     s32 ret = DlRaFunction::GetInstance().dlRaPingGetResults(pingHandle, target, num);
-    CHK_PRT_RET(ret == ROCE_EAGAIN, HCCL_WARNING("Rping get results busy, try again"), HCCL_E_AGAIN);
+    CHK_PRT_RET(ret == ROCE_EAGAIN, HCCL_WARNING("Rping get results busy, try again, ret is [%d]", ret), HCCL_E_AGAIN);
     CHK_PRT_RET(ret != 0, HCCL_ERROR("Rping get results failed, ret is [%d]", ret), HCCL_E_NOT_SUPPORT);
     return HCCL_SUCCESS;
 }

@@ -304,9 +304,9 @@ HcclResult hrtHalGetDeviceInfo(uint32_t devId, int32_t moduleType, int32_t infoT
     CHK_PRT_RET(
         ret == DRV_ERROR_NOT_SUPPORT,
         HCCL_WARNING(
-            "hrtHalGetDeviceInfo not support, "
+            "errNo[0x%016llx] hrtHalGetDeviceInfo not support, "
             "return[%d].",
-            ret),
+            HCCL_ERROR_CODE(HCCL_E_NOT_SUPPORT), ret),
         HCCL_E_NOT_SUPPORT);
     CHK_PRT_RET(
         ret != DRV_ERROR_NONE,

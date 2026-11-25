@@ -729,7 +729,7 @@ ZeroCopyMemoryAgent::ActivateCommMemory(void* virPtr, size_t size, size_t offset
     CHK_PRT_RET(
         ret != ACL_SUCCESS,
         HCCL_ERROR(
-            "[ZeroCopyMemoryAgent][ActivateCommMemory] aclrtMemSetPidToShareableHandle shareableHandl[%llu]"
+            "[ZeroCopyMemoryAgent][ActivateCommMemory] aclrtMemSetPidToShareableHandle shareableHandle[%llu]"
             " failed, ret[%d]",
             shareableHandle, ret),
         HCCL_E_RUNTIME);
@@ -1073,9 +1073,9 @@ HcclResult ZeroCopyMemoryAgent::ParseBarrierCloseAck(u8*& exchangeDataPtr, u32& 
 
     receivedBarrierCloseAck_.insert(devicePhyId);
     HCCL_RUN_INFO(
-        "[ZeroCopyMemoryAgent][ParseBarrierCloseAck] [%s] recv dev[%u] barrier close ack, so we stop this socket's "
-        "recv",
-        identifier_.c_str(), devicePhyId);
+        "[ZeroCopyMemoryAgent][ParseBarrierCloseAck] [%s] recv dev[%u] barrier close ack tgid[%u], so we stop this "
+        "socket's recv",
+        identifier_.c_str(), devicePhyId, tgid);
     return HCCL_SUCCESS;
 }
 

@@ -527,7 +527,7 @@ HcclResult HcclCommunicatorAttrs::SetRankInfoList(const RankTable_t& rankTable)
             rankInfo.deviceType = GetRankInfoDevType(orgRankInfo);
             CHK_RET(CheckDeviceType(rankInfo.deviceType));
 
-            if (rankInfo.deviceType != DevType::DEV_TYPE_910B || rankInfo.deviceType != DevType::DEV_TYPE_910_93) {
+            if (rankInfo.deviceType != DevType::DEV_TYPE_910B && rankInfo.deviceType != DevType::DEV_TYPE_910_93) {
                 // 910B、910_93形态不做devicePhyId最大值的判断
                 CHK_RET(CheckDevPhyId(orgRankInfo.deviceInfo.devicePhyId));
             }

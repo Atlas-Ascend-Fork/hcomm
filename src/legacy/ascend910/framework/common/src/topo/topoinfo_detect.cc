@@ -1071,7 +1071,7 @@ HcclResult TopoInfoDetect::PreemptDeviceNicPort(
     CHK_PRT_RET(
         ret != HCCL_SUCCESS,
         HCCL_ERROR(
-            "[TopoInfoDetect][PreemptDeviceNicPort] devPhyId[%u], devLogicId[%u], device ip[%s], "
+            "[TopoInfoDetect][PreemptDeviceNicPort] devPhyId[%u], devLogicId[%d], device ip[%s], "
             "try to preempt port on device nic fail.",
             devPhyId, devLogicId, devIp.GetReadableAddress()),
         ret);
@@ -1118,7 +1118,7 @@ HcclResult TopoInfoDetect::PreemptDeviceVnicPort(HcclBasicRankInfo& localRankInf
     CHK_PRT_RET(
         ret != HCCL_SUCCESS,
         HCCL_ERROR(
-            "[TopoInfoDetect][PreemptDeviceVnicPort] devPhyId[%u], devLogicId[%u], vnicIp[%s], "
+            "[TopoInfoDetect][PreemptDeviceVnicPort] devPhyId[%u], devLogicId[%d], vnicIp[%s], "
             "try to preempt port on vnic fail.",
             devPhyId, devLogicId, vnicIp.GetReadableAddress()),
         ret);
@@ -1152,7 +1152,7 @@ HcclResult TopoInfoDetect::PreemptBackupDeviceNicPort(
     CHK_PRT_RET(
         ret != HCCL_SUCCESS,
         HCCL_ERROR(
-            "[TopoInfoDetect][PreemptBackupDeviceNicPort] devPhyId[%u], devLogicId[%u], device ip[%s], "
+            "[TopoInfoDetect][PreemptBackupDeviceNicPort] devPhyId[%u], devLogicId[%d], device ip[%s], "
             "backup device ip[%s], try to preempt port on device nic fail.",
             devPhyId, devLogicId, devIp.GetReadableAddress(), backupDevIp.GetReadableAddress()),
         ret);

@@ -34,6 +34,7 @@ HcclDispatcherAicpuInit(HcclDispatcher* dispatcher, const u32 devPhyId, uint32_t
     DispatcherPub* pDispatcher = nullptr;
     if (type == DispatcherType::DISPATCHER_AICPU) {
         pDispatcher = new (std::nothrow) DispatcherAiCpu(devPhyId);
+        CHK_PTR_NULL(pDispatcher);
         pDispatcher->SetHcclQos(hcclQos);
         pDispatcher->SetMpamid(0);
         HCCL_INFO("HcclDispatcherAicpuInit hcclQos = %u", pDispatcher->GetHcclQos());
@@ -41,7 +42,6 @@ HcclDispatcherAicpuInit(HcclDispatcher* dispatcher, const u32 devPhyId, uint32_t
         HCCL_ERROR("[HcclCommAicpu][HcclDispatcherInit] Not support the dispatcher type[%d]", type);
         return HCCL_E_NOT_SUPPORT;
     }
-    CHK_PTR_NULL(pDispatcher);
     HcclResult ret = pDispatcher->Init();
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR("[HcclCommAicpu][HcclDispatcherInit] Dispatcher init failed, type[%d]", type);

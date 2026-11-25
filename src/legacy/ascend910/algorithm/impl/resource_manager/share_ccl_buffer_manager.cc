@@ -67,7 +67,7 @@ HcclResult ShareCCLbufferMgr::RecordShareCCLbuffer(const std::string& bufferName
     } else {
         memIter->second.refCount++;
         HCCL_INFO(
-            "[ShareCCLbufferMgr][RecordShareCCLbuffer]: buffername=%s, refCount=%d", bufferName.c_str(),
+            "[ShareCCLbufferMgr][RecordShareCCLbuffer]: buffername=%s, refCount=%llu", bufferName.c_str(),
             memIter->second.refCount);
     }
     return HCCL_SUCCESS;
@@ -89,11 +89,17 @@ HcclResult ShareCCLbufferMgr::CreateShareCCLbuffer(const std::string& bufferName
     }
     if (shareBufferSize_ != bufferSize) {
         HCCL_WARNING(
-            "[ShareCCLbufferMgr][CreateShareCCLbuffer]: share ccLBuffer size [%d], expect buffsize [%d]",
+            "[ShareCCLbufferMgr][CreateShareCCLbuffer]: share cclBuffer size [%llu], expect bufferSize [%llu]",
             shareBufferSize_, bufferSize);
     }
 
     auto memIter = memRecord_.find(bufferName);
+    if (memIter == memRecord_.end()) {
+        HCCL_ERROR(
+            "[ShareCCLbufferMgr][CreateShareCCLbuffer] Cannot find the corresponding record of memory[%s].",
+            bufferName.c_str());
+        return HCCL_E_PARA;
+    }
     // 申请inCCL,outCCL buffer
     if (memIter->second.cclBuffer.ptr() == nullptr) {
         CHK_RET(CreateDevMem(bufferSize, memIter->second.cclBuffer));
@@ -120,13 +126,13 @@ HcclResult ShareCCLbufferMgr::FreeShareCCLbuffer(const std::string& bufferName)
             bufferName.c_str());
         return HCCL_E_PARA;
     }
-    int refCnt = --(it->second.refCount);
+    u64 refCnt = --(it->second.refCount);
     if (refCnt == 0) {
         HCCL_INFO("[ShareCCLbufferMgr][FreeShareCCLbuffer]: free share cclbuffername=%s", bufferName.c_str());
         memRecord_.erase(it);
         streamIdMap_.erase(bufferName);
     }
-    HCCL_INFO("[ShareCCLbufferMgr][FreeShareCCLbuffer]: buffername=%s, refCount=%d", bufferName.c_str(), refCnt);
+    HCCL_INFO("[ShareCCLbufferMgr][FreeShareCCLbuffer]: buffername=%s, refCount=%llu", bufferName.c_str(), refCnt);
     return HCCL_SUCCESS;
 }
 
