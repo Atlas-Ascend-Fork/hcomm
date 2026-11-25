@@ -43,7 +43,6 @@ public:
     GetByAddr(u32 devPhyId, const LinkProtoType& localProtocolType, IpAddress& localIp, PortDeploymentType type);
     RdmaHandle Get(u32 devPhyId, const PortData& localPort, LinkProtocol linkProtocol);
     RdmaHandle GetByIp(u32 devPhyId, const IpAddress& localIp); // only support ccu create loop channel
-    HcclResult ProbeAndCacheRdmaHandle(u32 devPhyId, const IpAddress& ip, bool& linkDown);
     JfcHandle GetJfcHandle(RdmaHandle rdmaHandle, CqCreateInfo& cqInfo, HrtUbJfcMode jfcMode);
     JfcHandle GetJfcHandleAndCqInfo(RdmaHandle rdmaHandle, CqCreateInfo& cqInfo, HrtUbJfcMode jfcMode);
     std::pair<uint32_t, uint32_t> GetDieAndFuncId(RdmaHandle rdmaHandle);
@@ -83,9 +82,6 @@ private:
 
     std::unordered_set<RdmaHandle> activeHandles_;
 
-    // key: devPhyId, value: linkdown 的 ip 集合，避免重复探测
-    std::unordered_map<u32, std::unordered_set<IpAddress>> linkDownIps_;
-
     RdmaHandleManager();
 
     bool FindCachedJfcHandle(RdmaHandle rdmaHandle, HrtUbJfcMode jfcMode, JfcHandle& handle, CqCreateInfo& cqInfo);
@@ -100,8 +96,6 @@ private:
     void CleanupUbHandleEntry(RdmaHandle handle);
     void CleanupAuxiliaryMaps(RdmaHandle handle);
     void CleanupSingleHandle(const HandleInfo& info);
-
-    bool IsLinkDown(u32 devPhyId, const IpAddress& ip);
 };
 
 } // namespace Hccl

@@ -36,22 +36,25 @@ HcclResult FlushManager::initFlushHandle(IpAddress ip, u32 devPhyId)
         }
     }
 
-    // 探测网口状态并缓存 rdmaHandle，避免后续 FlushHandle::Init 经 GetByAddr 重复打开 RDMA 设备。
-    // linkdown 时无需建立 Flush 资源，返回成功跳过后续流程；
-    // 其他错误直接返回失败；成功则继续 FlushHandle::Init（GetByAddr 命中缓存，不再二次 init）。
-    bool linkDown = false;
-    HcclResult probeRet = RdmaHandleManager::GetInstance().ProbeAndCacheRdmaHandle(devPhyId, ip, linkDown);
-    if (probeRet != HCCL_SUCCESS) {
-        HCCL_ERROR(
-            "[%s]Probe and cache rdma handle failed, ip[%s], devPhyId[%u], ret[%d].", __func__, ip.GetIpStr().c_str(),
-            devPhyId, probeRet);
-        return probeRet;
-    }
-    if (linkDown) {
+    // 网口 down（HCCP_ELINKDOWN）时无需建立 Flush 资源，
+    // 打印 WARNING 并返回成功，避免网口故障阻断上层通信域初始化。
+    RaInterface raInterface{devPhyId, ip};
+    RdmaHandle probeRdmaHandle = nullptr;
+    const s32 probeRet = HrtRaRdmaInit(HrtNetworkMode::PEER, raInterface, probeRdmaHandle);
+    if (probeRet == HCCP_ELINKDOWN) {
         HCCL_WARNING(
-            "[%s]Network port is down, skip flush handle init, ip[%s], devPhyId[%u].", __func__, ip.GetIpStr().c_str(),
-            devPhyId);
+            "[initFlushHandle]Network port is down, skip flush handle init, ip[%s], devPhyId[%u].",
+            ip.GetIpStr().c_str(), devPhyId);
         return HCCL_SUCCESS;
+    }
+    if (probeRdmaHandle != nullptr) {
+        // 仅用于探测网口可用性，探测完成后立即释放，避免句柄泄漏
+        HrtRaRdmaDeInit(probeRdmaHandle, HrtNetworkMode::PEER);
+    }
+    if (probeRet != 0) {
+        HCCL_WARNING(
+            "[initFlushHandle]Probe network port state unsuccessfully, ip[%s], devPhyId[%u], ret[%d].",
+            ip.GetIpStr().c_str(), devPhyId, probeRet);
     }
 
     // 建 QP/MR 耗时，放锁外，不把通信域初始化串进 Flush 关键路径
