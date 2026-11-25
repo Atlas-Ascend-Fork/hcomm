@@ -70,6 +70,6 @@ int main()
     }
     std::printf("[%s] post-DeInit terminal-state assertions passed\n", "exit_reset_deinit");
 
-    // 退出期 ~BaseCommMgr 因 isDeInited_ 跳过动作链
+    // 退出期BaseCommMgr改为Leaky Singleton，不会进行析构，由OS回收。
     return 0;
 }

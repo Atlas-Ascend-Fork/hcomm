@@ -37,6 +37,7 @@ CcuInstance::~CcuInstance()
     // 主动释放资源保证时序，不得随意调整顺序
     // 用 Init 缓存的管理器指针：析构期不得经全局访问器重入半析构的资源树
     // 树亡判定：退出期静态析构触发时缓存指针（含回落 reserve 静态实例）可能悬垂，跳过归还仅清本地账（R10）
+    // BaseCommMgr 改为 Leaky Singleton 后此标志恒 false，恒走 else（正常归还），是预期行为。
     if (hcomm::IsResourceTreeTeardownFinished()) {
         HCCL_WARNING(
             "[CcuInstance][%s] resource tree teardown finished, skip kernel/var-event release, userDevId[%d].",

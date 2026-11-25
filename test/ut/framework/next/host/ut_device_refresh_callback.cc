@@ -32,8 +32,8 @@
  *     hccl_utest_test_next_resource 的首个测试单元（src_to_test_list 中紧跟 main.cc），
  *     保证首个用例执行时标志位仍为 false，从而覆盖"注册失败"与"首次注册成功"分支；
  *     若执行顺序被调整，首个用例会自动退化为幂等路径验证并跳过严格断言。
- *   - 进程退出兜底（~BaseCommMgr → DeInit）在进程退出时触发注销，无法在用例内直接构造，
- *     由每次 UT 进程退出时隐式执行。
+ *   - BaseCommMgr 改 Leaky Singleton 后退出期不走析构兜底，DeInit 需显式调用；
+ *     refresh 回调注销经 DeInit step[8] 执行，无法在用例内直接构造，由显式 DeInit 用例覆盖。
  */
 
 #include <iostream>

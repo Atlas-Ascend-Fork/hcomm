@@ -38,7 +38,7 @@ base_comm/
 - 创建：进程级节点随 `BaseCommMgr` 首次 `GetInstance()` 构造期一次建齐（R6）；
   设备子树按 devPhyId 首访懒建，经窄访问器返回引用（R7/R9）。
 - 销毁：显式 `DeInit(ExitProfile)` 走 9 步动作链（R4，exit_path ST 可观测校验）；
-  析构只释放内存，`~BaseCommMgr` 兜底重放 DeInit 链。
+  BaseCommMgr 为 Leaky Singleton 不再析构，进程退出兜底不再重放 DeInit 链，资源由 OS 回收。
 
 ## 数据描述
 
@@ -69,7 +69,7 @@ base_comm/
 - 构造期禁止重入窄访问器（死锁红线，R2）；
 - 业务代码只准走窄访问器，禁止直接写树访问链、禁止新增文件级全局（R1/R7）；
 - `EXIT_PROFILE_RESET` 下跳过一切触设备动作，endpoint/channel 表残留的设备侧归还
-  由析构链兜底、不保证归还（已知限制见 R5）；
+  不再发生（BaseCommMgr 为 Leaky Singleton，不析构），资源由 OS 回收（已知限制见 R5）；
 - 越界回落语义为基线兼容行为，三种口径并存（R9），新增访问器须先登记口径；
 - 收编单例入树或改调用点前，必须反向排查其析构链是否触树（R10）。
 
@@ -151,6 +151,8 @@ base_comm 内不得再新增 Meyers 单例 / 函数级 static 对象 / 文件级
     host 侧 listen socket 表；
 - 树亡标志（base_comm_mgr.cc 函数级 static 原子，经 `hcomm::IsResourceTreeTeardownFinished()`
   查询）——平凡可析构、树死后读取安全，供锚定单例（晚于树死）析构链判活跳过触树归还（R10）。
+  BaseCommMgr 改 Leaky Singleton 后 TeardownFlagGuard 析构不执行，此标志恒 false，判活守卫
+  保留为防御性代码、恒走 else 正常归还（见 R5 末段退出期 TP 归还说明）。
 - 进程退出标志（`common/process_exit_flag.h`，base_comm 内部使用）——atexit 回调置位，回调注册于
   线程创建路径（`CreateThread`，进表线程与退出期 `FreeThreads` 对称）。经通信域使用线程时的时序链：
   建域（CollCommMgr 构造）→ 域级线程接口申请线程并注册回调（持域才能调用，建域必在前）→
@@ -185,6 +187,7 @@ C++ 成员按声明逆序析构。每个树节点内的成员声明顺序就是�
 - 声明一个成员前，先回答："谁析构时要回调/归还到我？" 被依赖者必须先声明（后死）。
 - 基础设施（锁、DeInit 标志）声明在一切使用者之前（最后死）——析构期回调链要持锁。
 - **改动任何声明顺序 = 改动析构契约，必须单独评审**，并在本 README 登记理由。
+- 经评审BaseCommMgr改为Leaky Singleton，永不析构，由OS回收。
 
 进程级契约（先死 → 后死）：
 `EndpointMgr → HandleRegistryMgrProc → 设备子树 → CommEngineBinMgrProc → NotifyMgrProc → EndpointProcMgr → Dfx/Dlsym/Config → Legacy950ResMgrProc → 锁与标志`
@@ -213,11 +216,11 @@ cacheAlias_ 解引用 cache（R7 别名规则）；EndpointMgr 其余成员间�
   退役区析构期回落须拿到存活 reserve_；reserve_ 从不 Init、子树默认析构，其析构链不重入
   FindOrCreate，评审假设的重入路径不存在；后移反而使 retired_ 析构期回落命中已析构对象（真 UAF）。
 
-#### R4 生命周期双路径：DeInit 管动作，析构管内存
+#### R4 生命周期：DeInit 管动作，资源由 OS 回收
 
 - `DeInit(ExitProfile)`：显式动作路径（停线程、清表、归还设备资源），按契约顺序执行，**幂等**
   （树根用原子 exchange 保证首次生效；节点级 DeInit 自带幂等）。
-- 析构函数：只回收内存，不写动作逻辑；动作逻辑的兜底由 `~BaseCommMgr` 先走一遍 DeInit 链承担。
+- 析构函数：BaseCommMgr 为 Leaky Singleton 不再析构，资源由 OS 回收。
 - DeInit 完成后设备子树从现役表摘入退役区：动作链执行期间树必须完整可解析（析构链回调要走访问器）。
 - DeInit 与并发首访：DeInit 起始即置拒建闸（`MarkDeinited`），慢路径持锁复查、拒建回落 reserve；
   动作链遍历走锁内快照（`SnapshotActive`），与并发插入互斥。
@@ -237,24 +240,26 @@ cacheAlias_ 解引用 cache（R7 别名规则）；EndpointMgr 其余成员间�
   8. step[8/9] 基础设施与设备状态回调——纯 host 动作，两 profile 相同（channel 表清理已随第 3 步完成）；
      refresh 回调按名注销并复位标志（复位是退出语义，允许重新注册；
      reset 回调与 ACL 按名配对、随进程退出失效，不注销）；
-  9. step[9/9] 摘表移交退役区最后做——动作链期间正式表必须可解析（析构链回调经窄访问器）。
+   9. step[9/9] 摘表移交退役区最后做——动作链期间正式表必须可解析（析构链回调经窄访问器）。
 
 #### R5 双 profile 语义（exit_profile.h）
 
-- `EXIT_PROFILE_GRACEFUL`（默认）：完整动作链，含触碰设备的动作；进程退出兜底固定走它。
+- `EXIT_PROFILE_GRACEFUL`（默认）：完整动作链，含触碰设备的动作；进程退出不再兜底。
 - `EXIT_PROFILE_RESET`：设备可能已不可用，跳过一切触碰设备的动作，仅 host 侧清理；
   只由显式调用触发，动作顺序与 graceful 同序（不做的动作显式跳过、不重排）。
 - 新增"动作"时必须回答它属于哪个 profile：触设备的动作 RESET 下必须跳过。
 - 命名辨析：`OnDeviceResetPre` 设备热复位回调是按设备的局部清理，不触发整树 DeInit，不对接本 profile。
-- 已知限制：RESET 跳过 endpoint 表与 channel 表的设备侧归还；此后进程退出若句柄表仍有残留，
-  成员析构仍会触设备（`~BaseCommMgr` 打 WARNING 暴露）。RESET 下引擎族（HDC/CCU 实例）收尾同样
-  跳过（节点打 WARNING），但析构不被抑制：`~CcuInstanceMgr` 仍会清实例表、触发
-  `~CcuInstance` 的设备归还链——RESET"跳过触设备"的承诺在析构期被穿透。当前 RESET
-  无生产调用方（仅 exit_path ST 显式触发），登记为已知限制；接入真实调用方前须先落地
-  析构抑制（置标志使析构故意泄漏设备侧资源，host 内存随进程退出回收）。
-  RESET 下进程级网络资源同样不在动作链清理：`EndpointProcMgr` 的 netDevCtx/serverSocket
-  表与各设备 `NetDevProc` 的 `GlobalNetDevMgr` 均推迟到析构，且 `~GlobalNetDevMgr` 会调
-  `HcclNetDeInit` 触设备——RESET「跳过触设备」的承诺在该路径同样被析构期穿透。
+- 已知限制：RESET 跳过 endpoint 表与 channel 表的设备侧归还；BaseCommMgr 永不析构，
+  RESET 残留的设备侧资源不再归还，随进程退出由 OS 回收。
+- 未入树锚定单例（如 `CcuComponent`，函数级 static、退出必析构）：BaseCommMgr 改 Leaky Singleton
+  后树亡标志恒 false，`~CcuComponent` 析构走 else 正常归还 TP（`ReleaseTpAttr`/`ReleaseTpInfo`
+  触设备）。分三种情形：
+  - 不调 DeInit（当前生产现状）：退出期析构时树存活、设备可用，正常归还安全。
+  - GRACEFUL：step[5] 已清 TP maps，退出期析构归还为幂等 no-op。
+  - RESET（已知限制）：step[5] 跳过、TP maps 未清空，退出期析构仍归还 TP——此时设备可能不可用，
+    为已知限制；目前无生产代码调用，待 RESET 退出机制落地后解决。
+- 析构告警不再触发：`~BaseCommMgr` 为 Leaky Singleton 永不执行，其 `HasLeftover`/`lastDeinitWasReset_`
+  告警链整体不可达（防御性保留）；RESET 残留的设备侧资源无析构期告警暴露，仅由 OS 回收。
 
 #### R6 构造期建齐，getter 不留无锁懒建
 
@@ -343,6 +348,8 @@ BaseCommResPerDev 值成员）。
 锚定单例（晚于树死）的析构链触树点，处置 2 的缓存模式不适用（缓存目标随树先死、
 缓存指针同样悬垂）：必须经 `hcomm::IsResourceTreeTeardownFinished()` 判活守卫，
 标志置位后跳过归还、仅清本地账（首个实例：CcuComponent::ReleaseAllTpInfos）。
+BaseCommMgr 改 Leaky Singleton 后 TeardownFlagGuard 析构不执行，此标志恒 false，
+判活守卫保留为防御性代码、恒走 else 正常归还（详见 R5 末段）。
 
 #### R11 公共资源归公共节点，引擎子树只是使用方
 

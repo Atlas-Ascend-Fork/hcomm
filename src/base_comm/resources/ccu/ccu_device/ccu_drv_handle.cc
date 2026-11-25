@@ -145,6 +145,7 @@ CcuResult CcuDrvHandle::Deinit()
     HCCL_RUN_INFO("[CcuDrvHandle] start to deinit ccu driver, userDevId[%d].", userDevId_);
     // 用 Init 缓存的管理器指针：析构期不得经全局访问器重入半析构的资源树（README R10 处置 2）
     // 树亡判定：缓存指针随树死亡后可能悬垂，跳过归还仅清本地账（与 CcuInstance 析构同口径）
+    // BaseCommMgr 改为 Leaky Singleton 后此标志恒 false，恒走 else（正常 Deinit），是预期行为。
     if (ccuKernelMgr_ != nullptr) {
         if (hcomm::IsResourceTreeTeardownFinished()) {
             HCCL_WARNING(

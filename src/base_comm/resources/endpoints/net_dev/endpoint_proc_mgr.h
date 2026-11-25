@@ -46,7 +46,7 @@ private:
 
 class EndpointProcMgr {
 public:
-    // 当前无动作（no-op）：还网卡上下文/关 listen socket 等设备动作由析构链兜底
+    // 当前无动作（no-op）：还网卡上下文/关 listen socket 等设备动作不再由析构链兜底（Leaky Singleton），资源由 OS 回收
     void DeInit(ExitProfile profile = ExitProfile::EXIT_PROFILE_GRACEFUL)
     {
         (void)profile;

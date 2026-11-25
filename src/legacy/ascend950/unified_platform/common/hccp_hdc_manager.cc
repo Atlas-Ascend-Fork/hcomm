@@ -18,8 +18,11 @@ namespace Hccl {
 
 HccpHdcManager& HccpHdcManager::GetInstance()
 {
-    static HccpHdcManager hccpHdcManager;
-    return hccpHdcManager;
+    // Leaky Singleton: 故意不释放，规避 Static Destruction Order Fiasco，
+    // hixl全局对象析构访问 BaseCommMgr 时会调ra相关接口，而HccpHdcManager析构时会销毁Ra资源，
+    // 导致ra接口不可用，因此需确保Ra资源尚未Deinit
+    static HccpHdcManager* hccpHdcManager = new HccpHdcManager();
+    return *hccpHdcManager;
 }
 
 void HccpHdcManager::Init(u32 deviceLogicId)

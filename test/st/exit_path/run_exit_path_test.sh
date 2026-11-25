@@ -58,6 +58,35 @@ if grep -qE 'AddressSanitizer|use-after-free|LeakSanitizer' "${LOG_FILE}"; then
     exit 1
 fi
 
+# exit_without_cleanup 专项：验证 Leaky Singleton 在静态析构期仍可服务（PR 核心场景覆盖）
+# 回归信号：非泄漏式单例时 ~BaseCommMgr() 先于 g_lateDestructCaller 析构，触发 DeInit 打 step 标记；
+# Leaky Singleton 永不析构，无 step 标记。此检查反向断言 step 标记不出现——出现即说明单例被回退为非泄漏式
+if [[ "${TEST_NAME}" == "exit_without_cleanup" ]]; then
+    # 析构期回调标记：验证 g_lateDestructCaller 的析构确实执行了（证明回调路径被覆盖）
+    if ! grep -qF 'LateDestructCaller dtor' "${LOG_FILE}"; then
+        echo "[run_exit_path_test] FAILED: ${TEST_NAME} late-destruct callback marker not found in output" >&2
+        rm -f "${LOG_FILE}"
+        exit 1
+    fi
+    echo "[run_exit_path_test] late-destruct callback marker verified"
+    # DeInit step 标记反向断言：Leaky Singleton 不析构，不应出现 step[N/9] 标记
+    # 若出现则说明单例被回退为非泄漏式（~BaseCommMgr -> DeInit 被触发）
+    if grep -qE 'step\[[0-9]+/9\]' "${LOG_FILE}"; then
+        echo "[run_exit_path_test] FAILED: ${TEST_NAME} DeInit step marker found (singleton was destructed, not leaky)" >&2
+        rm -f "${LOG_FILE}"
+        exit 1
+    fi
+    echo "[run_exit_path_test] no DeInit step markers (leaky singleton confirmed)"
+    # already deinited 反向断言：Leaky Singleton 存活，析构期访问不应回落 reserve 打 WARNING
+    # 若出现说明单例被回退为非泄漏式（~BaseCommMgr 先析构触发 DeInit 置拒建闸，析构期访问回落 reserve）
+    if grep -qF 'already deinited' "${LOG_FILE}"; then
+        echo "[run_exit_path_test] FAILED: ${TEST_NAME} 'already deinited' WARNING found (singleton was destructed, not leaky)" >&2
+        rm -f "${LOG_FILE}"
+        exit 1
+    fi
+    echo "[run_exit_path_test] no 'already deinited' warnings (leaky singleton alive at destructor)"
+fi
+
 # DeInit 动作顺序校验（仅显式 DeInit 用例）：step[1/9]~step[9/9] 标记须按序出现（R4 契约）
 if [[ "${TEST_NAME}" == "exit_graceful_deinit" || "${TEST_NAME}" == "exit_reset_deinit" ]]; then
     mapfile -t STEPS < <(grep -oE 'step\[[0-9]+/9\]' "${LOG_FILE}")

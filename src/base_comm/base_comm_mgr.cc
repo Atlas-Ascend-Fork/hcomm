@@ -37,8 +37,10 @@ namespace hcomm {
 
 BaseCommMgr& BaseCommMgr::GetInstance()
 {
-    static BaseCommMgr instance;
-    return instance;
+    // Leaky Singleton: 故意不释放，规避 Static Destruction Order Fiasco，
+    // 确保hixl全局对象析构访问 BaseCommMgr 时单例仍有效
+    static BaseCommMgr* instance = new BaseCommMgr();
+    return *instance;
 }
 
 namespace {
@@ -49,6 +51,8 @@ namespace {
     }
 } // namespace
 
+// BaseCommMgr 改为 Leaky Singleton 后永不析构，TeardownFlagGuard 析构不执行，
+// 此标志恒为 false。IsResourceTreeTeardownFinished() 的调用方恒走 else（正常归还/正常 Deinit），是预期行为。
 bool IsResourceTreeTeardownFinished() { return TeardownFlag().load(std::memory_order_acquire); }
 
 BaseCommMgr::TeardownFlagGuard::~TeardownFlagGuard() { TeardownFlag().store(true, std::memory_order_release); }
@@ -57,6 +61,7 @@ BaseCommMgr::BaseCommMgr() = default;
 
 BaseCommMgr::~BaseCommMgr()
 {
+    // Leaky Singleton 永不析构，本函数整体不可达，保留为防御性兜底（若单例回退为非泄漏式则生效）。
     // 兜底：未显式 DeInit 时走同一动作链（幂等）
     if (!isDeInited_) {
         (void)DeInit(ExitProfile::EXIT_PROFILE_GRACEFUL);
