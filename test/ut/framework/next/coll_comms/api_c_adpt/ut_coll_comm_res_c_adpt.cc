@@ -697,6 +697,18 @@ TEST_F(ProcessHcclChannelDescTest, Ut_ProcessHcclChannelDesc_When_Hccs_DoesNotCo
     EXPECT_EQ(out.ubMemAttr.pathMode, 0xFFu);
 }
 
+TEST_F(ProcessHcclChannelDescTest, Ut_ProcessHcclChannelDesc_When_ReservedProtocol_Expect_E_PARA)
+{
+    HcclChannelDesc in{};
+    HcclChannelDesc out{};
+    ASSERT_EQ(HcclChannelDescInit(&in, 1), HCCL_SUCCESS);
+    ASSERT_EQ(HcclChannelDescInit(&out, 1), HCCL_SUCCESS);
+    in.channelProtocol = COMM_PROTOCOL_RESERVED;
+
+    ret = ProcessHcclChannelDesc(in, out, nullptr);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+}
+
 // CheckCcuChannelProtocol 不依赖 hcclComm/设备，使用轻量 fixture 独立运行
 class CheckCcuChannelProtocolTest : public testing::Test {
 protected:
@@ -1148,6 +1160,39 @@ TEST_F(HcclChannelDescTest, Ut_HcclChannelAcquireWithConfig_When_SharedJettyChan
     ret = HcclChannelAcquireWithConfig(
         comm, CommEngine::COMM_ENGINE_AIV, channelDesc.data(), 1, config, channels.data());
     EXPECT_EQ(ret, HCCL_E_PARA);
+
+    HcclChannelConfigDestroy(config);
+}
+
+TEST_F(HcclChannelDescTest, Ut_HcclChannelAcquireWithConfig_When_SharedJettyNonUbProtocol_Expect_NotSupport)
+{
+    HcclChannelConfig config = nullptr;
+    ASSERT_EQ(HcclChannelConfigCreate(&config), HCCL_SUCCESS);
+    ASSERT_EQ(HcclChannelConfigSetInt(config, HCCL_CHANNEL_CONFIG_TYPE_IS_SHARED_QUEUE, 1), HCCL_SUCCESS);
+    ASSERT_EQ(HcclChannelConfigSetStr(config, HCCL_CHANNEL_CONFIG_TYPE_SHARED_QUEUE_TAG, "ut_sj_roce"), HCCL_SUCCESS);
+
+    std::vector<HcclChannelDesc> channelDesc(1);
+    std::vector<ChannelHandle> channels(1);
+    ASSERT_EQ(HcclChannelDescInit(channelDesc.data(), 1), HCCL_SUCCESS);
+    channelDesc[0].remoteRank = 2;
+    channelDesc[0].channelProtocol = COMM_PROTOCOL_HCCS;
+    channelDesc[0].notifyNum = 1;
+    channelDesc[0].localEndpoint.protocol = COMM_PROTOCOL_HCCS;
+    channelDesc[0].localEndpoint.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
+    channelDesc[0].localEndpoint.loc.device.devPhyId = 0U;
+    channelDesc[0].localEndpoint.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+    channelDesc[0].localEndpoint.commAddr.addr.s_addr = 0x01000001U;
+    channelDesc[0].remoteEndpoint.protocol = COMM_PROTOCOL_HCCS;
+    channelDesc[0].remoteEndpoint.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
+    channelDesc[0].remoteEndpoint.loc.device.devPhyId = 1U;
+    channelDesc[0].remoteEndpoint.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+    channelDesc[0].remoteEndpoint.commAddr.addr.s_addr = 0x02000002U;
+
+    MOCKER(&hcomm::ClusterMonitor::RegisterToClusterMonitor).stubs().will(returnValue(HCCL_SUCCESS));
+
+    ret = HcclChannelAcquireWithConfig(
+        comm, CommEngine::COMM_ENGINE_AIV, channelDesc.data(), 1, config, channels.data());
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
 
     HcclChannelConfigDestroy(config);
 }

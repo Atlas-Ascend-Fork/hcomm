@@ -163,9 +163,9 @@ HcclResult ThreadMgr::HcclThreadAcquireV2(
     std::lock_guard<std::mutex> engineToThreadMtx(engineToThreadMutex_);
     HCCL_INFO(
         "[ThreadMgr][%s] Hcom[%s] HcclThreadAcquire begin, max: engine[%s] threadNum[%u],"
-        "notifyPerThread[%u], need: threadNum[%u], threadType[%d]",
+        "notifyPerThread[%u], need: threadNum[%u], threadType[%s]",
         __func__, commId_.c_str(), GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), threadNum_,
-        notifyNumPerThread_, threadNum, static_cast<int32_t>(type));
+        notifyNumPerThread_, threadNum, GetThreadTypeStr(type));
 
     // 1. 复用池已有线程：notify 充足则直接返回
     auto it = engineToThreadsMap_.find(std::make_pair(engine, type));

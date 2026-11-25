@@ -43,7 +43,7 @@
 #include "env_config.h"
 #include "hccp_common.h"
 #include "common/dev_type_utils_pub.h"
-#include "protocol_utils.h"
+#include "common/protocol_utils_pub.h"
 
 using namespace hcomm;
 

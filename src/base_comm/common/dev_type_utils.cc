@@ -13,7 +13,7 @@
 #include <string>
 
 #include "log.h"
-#include "protocol_utils.h"
+#include "common/protocol_utils_pub.h"
 
 HcclResult CheckDevTypeSupport(
     const std::initializer_list<DevType>& supportedTypes, CommProtocol protocol, EndpointLocType locType)

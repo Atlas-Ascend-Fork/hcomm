@@ -33,6 +33,7 @@
 #include "../resource_mgr/local/my_rank/comm_engine/kernel_launch/hccl_kernel_launch_aicpu.h"
 #include "param_check_basic_v2.h"
 #include "common/comm_engine_utils_pub.h"
+#include "common/protocol_utils_pub.h"
 #include "rank_consistency_checker_v2.h"
 #include "rank_table_crc_bridge.h"
 #include "hccl_channel_config.h"
@@ -218,34 +219,6 @@ ProcessRoceChannelDesc(const HcclChannelDesc& channelDesc, HcclChannelDesc& chan
     return HCCL_SUCCESS;
 }
 
-static const char* ProtocolToString(const CommProtocol proto)
-{
-    switch (proto) {
-        case COMM_PROTOCOL_HCCS:
-            return "COMM_PROTOCOL_HCCS";
-        case COMM_PROTOCOL_PCIE:
-            return "COMM_PROTOCOL_PCIE";
-        case COMM_PROTOCOL_SIO:
-            return "COMM_PROTOCOL_SIO";
-        case COMM_PROTOCOL_UB_CTP:
-            return "COMM_PROTOCOL_UB_CTP";
-        case COMM_PROTOCOL_UB_MEM:
-            return "COMM_PROTOCOL_UB_MEM";
-        case COMM_PROTOCOL_ROCE:
-            return "COMM_PROTOCOL_ROCE";
-        case COMM_PROTOCOL_UBC_TP:
-            return "COMM_PROTOCOL_UBC_TP";
-        case COMM_PROTOCOL_UBOE:
-            return "COMM_PROTOCOL_UBOE";
-        case COMM_PROTOCOL_UB_RTP:
-            return "COMM_PROTOCOL_UB_RTP";
-        case COMM_PROTOCOL_HCCS_ONLY:
-            return "COMM_PROTOCOL_HCCS_ONLY";
-        default:
-            return "UNKNOWN_PROTOCOL";
-    }
-}
-
 HcclResult ProcessUbChannelDesc(
     const HcclChannelDesc& channelDesc, const HcclChannelDesc& channelDescFinal, const hccl::hcclComm* hcclComm)
 {
@@ -298,7 +271,7 @@ ProcessHcclChannelDesc(const HcclChannelDesc& channelDesc, HcclChannelDesc& chan
         default: {
             HCCL_ERROR(
                 "[%s] Unsupported protocol[%s] found in HcclChannelDesc.", __func__,
-                ProtocolToString(channelDesc.channelProtocol));
+                GetEnumToString(GetCommProtocolStrMap(), channelDesc.channelProtocol).c_str());
             return HCCL_E_PARA;
         }
     }
@@ -772,8 +745,8 @@ HcclResult CheckCcuChannelProtocol(
         const CommProtocol protocol = channelDesc.channelProtocol;
         if (protocol != COMM_PROTOCOL_UB_CTP && protocol != COMM_PROTOCOL_UBC_TP) {
             HCCL_ERROR(
-                "[%s] CCU engine not support protocol[%s], group[%s].", __func__, ProtocolToString(protocol),
-                commTag.c_str());
+                "[%s] CCU engine not support protocol[%s], group[%s].", __func__,
+                GetEnumToString(GetCommProtocolStrMap(), protocol).c_str(), commTag.c_str());
             return HCCL_E_NOT_SUPPORT;
         }
     }
@@ -1094,7 +1067,8 @@ static HcclResult ValidateSharedQueueDescs(const std::vector<HcclChannelDesc>& c
             HCCL_ERROR(
                 "[%s] IS_SHARED_QUEUE only supports UB protocols (UB_CTP/UBC_TP/UB_RTP), "
                 "channelDesc[%u] protocol[%s(%d)].",
-                __func__, i, ProtocolToString(channelDescs[i].channelProtocol), channelDescs[i].channelProtocol);
+                __func__, i, GetEnumToString(GetCommProtocolStrMap(), channelDescs[i].channelProtocol).c_str(),
+                channelDescs[i].channelProtocol);
             return HCCL_E_NOT_SUPPORT;
         }
     }

@@ -8,8 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef PROTOCOL_UTILS_H
-#define PROTOCOL_UTILS_H
+#ifndef HCOMM_PROTOCOL_UTILS_PUB_H
+#define HCOMM_PROTOCOL_UTILS_PUB_H
 
 #include <string>
 #include <unordered_map>

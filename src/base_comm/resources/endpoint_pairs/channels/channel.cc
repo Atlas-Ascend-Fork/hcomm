@@ -25,7 +25,7 @@
 #include "exception_handler.h"
 #include "./aicpu/aicpu_ts_urma_channel.h"
 #include "common/comm_engine_utils_pub.h"
-#include "protocol_utils.h"
+#include "common/protocol_utils_pub.h"
 
 #include "./aicpu/aicpu_ts_p2p_channel.h"
 #include "./aicpu/aicpu_ts_uboe_channel.h"

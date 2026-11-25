@@ -16,6 +16,7 @@
 
 #include "exception_handler.h"
 #include "common/mem_type_convert_pub.h"
+#include "common/protocol_utils_pub.h"
 
 #include "config_log.h"
 #include "config_plf_log_v2.h"

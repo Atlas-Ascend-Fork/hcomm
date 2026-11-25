@@ -468,10 +468,12 @@ public:
 
 class ScopedChannelAdptStubEndpoint {
 public:
-    explicit ScopedChannelAdptStubEndpoint(EndpointLocType locType = ENDPOINT_LOC_TYPE_DEVICE)
+    explicit ScopedChannelAdptStubEndpoint(
+        EndpointLocType locType = ENDPOINT_LOC_TYPE_DEVICE, CommProtocol protocol = COMM_PROTOCOL_HCCS)
     {
         EndpointDesc desc{};
         desc.loc.locType = locType;
+        desc.protocol = protocol;
         auto ep = std::make_unique<ChannelAdptStubEndpoint>(desc);
         handle_ = reinterpret_cast<EndpointHandle>(ep.get());
         GetEndpointHandleMgr().Add(handle_, std::move(ep));
@@ -810,11 +812,37 @@ TEST_F(HcommCAdptTest, ut_HcommChannelCreate_AICPU_When_CreateLoopMocked_PreAllo
 
 TEST_F(HcommCAdptTest, ut_HcommChannelCreate_When_Ccu_Expect_Success)
 {
-    ScopedChannelAdptStubEndpoint stubEndpoint;
+    ScopedChannelAdptStubEndpoint stubEndpoint(ENDPOINT_LOC_TYPE_DEVICE, COMM_PROTOCOL_UB_CTP);
     EndpointHandle endpointHandle = stubEndpoint.Get();
     HcommChannelDesc channelDesc{};
     (void)HcommChannelDescInit(&channelDesc, 1);
     channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_UB_CTP;
+    ChannelHandle channels[1] = {0};
+    MOCKER(ChannelProcess::CreateChannelsLoop).stubs().will(returnValue(HCCL_SUCCESS));
+    HcommResult ret = HcommChannelCreate(endpointHandle, COMM_ENGINE_CCU, &channelDesc, 1, channels);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
+TEST_F(HcommCAdptTest, ut_HcommChannelCreate_When_CcuRemoteRoce_Expect_NotSupport)
+{
+    ScopedChannelAdptStubEndpoint stubEndpoint(ENDPOINT_LOC_TYPE_DEVICE, COMM_PROTOCOL_UB_CTP);
+    EndpointHandle endpointHandle = stubEndpoint.Get();
+    HcommChannelDesc channelDesc{};
+    (void)HcommChannelDescInit(&channelDesc, 1);
+    channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
+    ChannelHandle channels[1] = {0};
+    MOCKER(ChannelProcess::CreateChannelsLoop).expects(never());
+    HcommResult ret = HcommChannelCreate(endpointHandle, COMM_ENGINE_CCU, &channelDesc, 1, channels);
+    EXPECT_EQ(ret, HCOMM_E_NOT_SUPPORT);
+}
+
+TEST_F(HcommCAdptTest, ut_HcommChannelCreate_When_CcuRemoteUbcTp_Expect_Success)
+{
+    ScopedChannelAdptStubEndpoint stubEndpoint(ENDPOINT_LOC_TYPE_DEVICE, COMM_PROTOCOL_UBC_TP);
+    EndpointHandle endpointHandle = stubEndpoint.Get();
+    HcommChannelDesc channelDesc{};
+    (void)HcommChannelDescInit(&channelDesc, 1);
+    channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_UBC_TP;
     ChannelHandle channels[1] = {0};
     MOCKER(ChannelProcess::CreateChannelsLoop).stubs().will(returnValue(HCCL_SUCCESS));
     HcommResult ret = HcommChannelCreate(endpointHandle, COMM_ENGINE_CCU, &channelDesc, 1, channels);

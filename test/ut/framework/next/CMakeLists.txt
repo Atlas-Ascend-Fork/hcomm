@@ -20,6 +20,7 @@ set(src_to_test_list
     ut_HcomInitCollComm.cc
     comms/aiv/ut_AivUbMemTransport_API_test.cc
     comms/common/ut_orion_adpt_utils.cc
+    comms/common/ut_protocol_utils_test.cc
     comms/common/ut_tp_mgr.cc
     comms/common/ut_base_comm_node_accessors.cc
     comms/common/ut_config_mgr.cc

@@ -1086,6 +1086,51 @@ TEST_F(MyRankTest, St_BatchCreateChannels_Multi_Times_When_fallback_Expect_Retur
     EXPECT_EQ(endpointPair2->channelHandles_[COMM_ENGINE_CCU].size(), 1);
 }
 
+TEST_F(MyRankTest, Ut_BatchCreateChannels_When_CreateChannelTimeout_Expect_TimeoutRet)
+{
+    uint32_t devPort = 60001;
+    MOCKER_CPP(&Hccl::IRankGraph::GetDevicePort)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&devPort))
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER(HcommEndpointStartListen).stubs().with(mockcpp::any()).will(returnValue(static_cast<int>(HCCL_SUCCESS)));
+    MOCKER(HcommChannelDestroy)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any())
+        .will(returnValue(static_cast<int>(HCCL_SUCCESS)));
+    MockerFuncs();
+
+    HcclMem cclBuffer;
+    CreateCclBuffer(cclBuffer);
+    EXPECT_EQ(myRank->Init(cclBuffer, 1, 2), HCCL_SUCCESS);
+
+    EndpointDesc localEp;
+    CreateEndpointDesc(localEp, COMM_PROTOCOL_UB_CTP, "1.0.0.0");
+    EndpointDesc rmtEp;
+    CreateEndpointDesc(rmtEp, COMM_PROTOCOL_UB_CTP, "2.0.0.0");
+
+    HcclChannelDesc channelDesc{};
+    channelDesc.channelProtocol = COMM_PROTOCOL_UB_CTP;
+    channelDesc.remoteRank = 1;
+    channelDesc.notifyNum = 2;
+    channelDesc.localEndpoint = localEp;
+    channelDesc.remoteEndpoint = rmtEp;
+
+    MOCKER(HcommChannelCreate).stubs().will(returnValue(static_cast<int>(HCCL_E_TIMEOUT)));
+    MOCKER(hcomm::ChannelProcess::ResolveUserHandleToHost).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(hcomm::ChannelProcess::ResolveHostHandleToDevice).stubs().will(returnValue(HCCL_SUCCESS));
+
+    std::vector<HcommChannelDesc> hcommDesc(1);
+    std::vector<ChannelHandle> hostChannelHandles(1);
+    std::vector<ChannelHandle> deviceChannelHandles(1);
+    std::vector<std::vector<MemHandle>> allHandles(1);
+    EXPECT_EQ(
+        myRank->BatchCreateChannels(
+            COMM_ENGINE_CCU, &channelDesc, 1, hcommDesc, hostChannelHandles.data(), deviceChannelHandles.data(),
+            allHandles),
+        HCCL_E_TIMEOUT);
+}
+
 TEST_F(MyRankTest, Ut_When_ChannelGetHcclBuffer_NoBuffer_Expect_HCCL_E_INTERNAL)
 {
     MOCKER(hcomm::ChannelProcess::ChannelGetRemoteMems).stubs().will(returnValue(HCCL_SUCCESS));

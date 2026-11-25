@@ -25,6 +25,7 @@
 #include "comm_engine/ccu/ccu_device_pub.h"
 #include "config_log.h"
 #include "common/comm_engine_utils_pub.h"
+#include "common/protocol_utils_pub.h"
 #include "hcom_common.h"
 #include "op_base.h"
 #include "ccu_res.h"
@@ -85,22 +86,6 @@ HcommChannelDesc ChannelDescHccl2Hcomm(const HcclChannelDesc& hcclDesc, const hc
 }
 
 /* 公共模块函数返回值定义，跟业务层同步 */
-const std::unordered_map<CommProtocol, std::string> HCOM_COMM_PROTOCOL_STR_MAP
-    = {{COMM_PROTOCOL_RESERVED, "RESERVED"}, {COMM_PROTOCOL_HCCS, "HCCS"},     {COMM_PROTOCOL_ROCE, "ROCE"},
-       {COMM_PROTOCOL_PCIE, "PCIE"},         {COMM_PROTOCOL_SIO, "SIO"},       {COMM_PROTOCOL_UB_CTP, "UB_CTP"},
-       {COMM_PROTOCOL_UBC_TP, "UBC_TP"},     {COMM_PROTOCOL_UB_MEM, "UB_MEM"}, {COMM_PROTOCOL_UBOE, "UBOE"},
-       {COMM_PROTOCOL_UB_RTP, "UB_RTP"}};
-
-inline std::string GetCommProtocolEnumStr(CommProtocol protocol)
-{
-    auto iter = HCOM_COMM_PROTOCOL_STR_MAP.find(protocol);
-    if (iter == HCOM_COMM_PROTOCOL_STR_MAP.end()) {
-        return "CommProtocol(" + std::to_string(protocol) + ")";
-    } else {
-        return iter->second;
-    }
-}
-
 inline const char* GetTlsTypeStr(EndpointLocType localType)
 {
     return localType == ENDPOINT_LOC_TYPE_HOST ? "HostDpu" : "Device";
@@ -996,7 +981,7 @@ HcclResult MyRank::BatchCreateChannels(
                 "[%s] failed to create channel, channelIndex[%u], localRank[%u], remoteRank[%u], protocol[%s], "
                 "tlsType[%s], tlsStatus[%s], ret[%d]",
                 __func__, i, localRank, remoteRank,
-                MyRankUtils::GetCommProtocolEnumStr(localEndpointDesc.protocol).c_str(),
+                GetEnumToString(GetCommProtocolStrMap(), localEndpointDesc.protocol).c_str(),
                 MyRankUtils::GetTlsTypeStr(localEndpointDesc.loc.locType), MyRankUtils::GetTlsStatusStr(tlsStatus),
                 ret);
         }
@@ -1598,7 +1583,7 @@ HcclResult MyRank::ConfigSqDepthByExpansionMode(CommEngine engine, HcommChannelD
             HCCL_WARNING(
                 "[%s] configured sqDepth[%u] is not supported when engine[%s] protocol[%s].", __func__,
                 configuredSqDepth, GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(),
-                MyRankUtils::GetCommProtocolEnumStr(remoteProtocol).c_str());
+                GetEnumToString(GetCommProtocolStrMap(), remoteProtocol).c_str());
         }
     }
     if (configuredScqDepth != HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET) {
@@ -1608,7 +1593,7 @@ HcclResult MyRank::ConfigSqDepthByExpansionMode(CommEngine engine, HcommChannelD
             HCCL_WARNING(
                 "[%s] configured scqDepth[%u] is not supported when engine[%s] protocol[%s].", __func__,
                 configuredScqDepth, GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(),
-                MyRankUtils::GetCommProtocolEnumStr(remoteProtocol).c_str());
+                GetEnumToString(GetCommProtocolStrMap(), remoteProtocol).c_str());
         }
     }
     if (isAivUrma) {
@@ -1645,7 +1630,7 @@ void MyRank::LogChannelCreationInfo(
                 "create channel info:channel handle[%s] comm tag[%s] protocol[%s]"
                 " local rank[%u] local dev phyid[%u] remote rank[%u] remote dev phyid[%u] engine[%s]",
                 std::to_string(hostChannelHandleList[i]).c_str(), commTag.c_str(),
-                MyRankUtils::GetCommProtocolEnumStr(channelDescs[i].localEndpoint.protocol).c_str(), rankId_,
+                GetEnumToString(GetCommProtocolStrMap(), channelDescs[i].localEndpoint.protocol).c_str(), rankId_,
                 channelDescs[i].localEndpoint.loc.device.devPhyId, remoteRank,
                 channelDescs[i].remoteEndpoint.loc.device.devPhyId,
                 GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str());
@@ -1655,7 +1640,7 @@ void MyRank::LogChannelCreationInfo(
                 "create channel info:channel handle[%s] comm tag[%s] protocol[%s]"
                 " local rank[%u] remote rank[%u] engine[%s]",
                 std::to_string(hostChannelHandleList[i]).c_str(), commTag.c_str(),
-                MyRankUtils::GetCommProtocolEnumStr(channelDescs[i].localEndpoint.protocol).c_str(), rankId_,
+                GetEnumToString(GetCommProtocolStrMap(), channelDescs[i].localEndpoint.protocol).c_str(), rankId_,
                 remoteRank, GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str());
         }
     }
