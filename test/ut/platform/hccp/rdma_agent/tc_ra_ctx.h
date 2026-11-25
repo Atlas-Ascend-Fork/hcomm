@@ -58,6 +58,7 @@ void TcRaHdcAsyncRecvPkt();
 void TcHdcAsyncRecvPkt();
 void TcRaHdcPoolCreate();
 void TcRaAsyncHandlePkt();
+void TcRaAsyncPthread();
 void TcRaHdcAsyncHandleSocketListenStart();
 void TcRaHdcAsyncHandleQpImport();
 void TcRaPeerCtxInit();

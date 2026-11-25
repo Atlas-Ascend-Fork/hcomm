@@ -60,6 +60,8 @@ extern int RaRsGetIpByEid(char* inBuf, char* outBuf, int* outLen, int* opResult,
 extern int RaRsCtxGetAuxInfo(char* inBuf, char* outBuf, int* outLen, int* opResult, int rcvBufLen);
 extern void HdcAsyncHandleRecvBroken(struct HdcAsyncInfo* asyncInfo);
 extern int RaAsyncHandlePkt(int handle, void* recvBuf, int len);
+extern void* RaAsyncPthread(void* arg);
+extern struct RaHdcInitPara gHdcAsyncInitPara;
 
 int RaHdcProcessMsgStub(unsigned int opcode, unsigned int phyId, char* data, unsigned int dataSize)
 {
@@ -741,6 +743,25 @@ void TcRaAsyncHandlePkt()
     mocker(pthread_mutex_unlock, 10, 0);
     RaAsyncHandlePkt(1, NULL, 0);
     mocker_clean();
+}
+
+void TcRaAsyncPthread()
+{
+    mocker_clean();
+    RaHwAsyncInit(0, 0);
+    gHdcAsyncInitPara.connectStatus = HDC_CONNECTED;
+    gHdcAsyncInitPara.threadStatus = THREAD_RUNNING;
+
+    mocker(pthread_detach, 1, 0);
+    mocker(RaHdcAsyncRecvPkt, 1, -1);
+    mocker(RaHdcCloseSession, 1, 0);
+    mocker(pthread_mutex_lock, 10, 0);
+    mocker(pthread_mutex_unlock, 10, 0);
+    RaAsyncPthread(NULL);
+    EXPECT_INT_EQ(gHdcAsyncInitPara.threadStatus, THREAD_HALT);
+    mocker_clean();
+
+    RaHwAsyncDeinit();
 }
 
 void TcRaHdcAsyncHandleSocketListenStart()
