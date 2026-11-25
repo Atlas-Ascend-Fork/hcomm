@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstdint>
 #include "hccl_types.h"
+#include "hcomm_res_defs.h"
 #include "dpu_sync_layout.h"
 
 namespace hccl {
@@ -67,6 +68,7 @@ public:
         notifyAddr_ = notifyAddr;
     }
     void SetDevId(uint32_t devId) { devId_ = devId; }
+    void SetThreadHandle(ThreadHandle threadHandle) { threadHandle_ = threadHandle; }
     // 回执里带出的 stream id，供异常面按流定位；取自所属 CpuThread 的 rtStream
     void SetDfxStreamId(uint32_t streamId) { dfxStreamId_ = streamId; }
 
@@ -99,7 +101,6 @@ private:
     DpuCqe* CqeAt(uint32_t slot) const { return reinterpret_cast<DpuCqe*>(layout_.cqElem + slot * layout_.elemSize); }
     // 游标与标志位由另一侧写：与 CpuDeviceSqSubmitter 的 LoadU32/StoreU32 同口径用 acquire/release 定序，
     // 值不会被缓存进寄存器，也免去 memcpy_s 的逐次参数校验
-    static uint8_t ReadU8(const uint8_t* src);
     static void WriteU8(uint8_t* dst, uint8_t value);
     static uint32_t ReadU32(const uint32_t* src);
     static void WriteU32(uint32_t* dst, uint32_t value);
@@ -108,6 +109,7 @@ private:
     uint32_t notifyNum_{0};
     uint8_t* notifyAddr_{nullptr};
     uint32_t devId_{0};
+    ThreadHandle threadHandle_{0};
     uint32_t dfxStreamId_{DPU_DFX_STREAM_ID_INVALID};
     bool inited_{false};
     std::atomic<bool> destroyFlag_{false}; // host 写 true 请退出，kernel 写回 false 表示已退出

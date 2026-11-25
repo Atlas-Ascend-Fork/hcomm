@@ -278,7 +278,7 @@ extern "C" __attribute__((weak)) __attribute__((visibility("default"))) int32_t 
     HcclAicpuLocalReduce;
 ```
 
-This prevents it from being hidden by `local: *;`. (Note: `ccl_dpu.map` belongs to the host-side `ccl_dpu` library, and that library uses `-Bsymbolic`; it does not contain the instruction engine and is not the owner of this seam.)
+This prevents it from being hidden by `local: *;`. (Note: `ccl_dpu.map` belongs to the host-side `ccl_dpu` library; it does not contain the instruction engine and is not the owner of this seam. That library keeps `-Bsymbolic` only in non-Release builds; in Release builds it is removed so that simulator stubs can interpose.)
 
 ### 5.3 CheckerL2 device_arm-Side Strong Symbol Hijacking (design, not deployed)
 

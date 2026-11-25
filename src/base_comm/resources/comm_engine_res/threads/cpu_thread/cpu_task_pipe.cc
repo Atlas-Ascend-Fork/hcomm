@@ -191,39 +191,58 @@ HcclResult CpuTaskPipe::ExecuteByOpKind(const DpuSqe& sqe)
     }
 }
 
-HcclResult CpuTaskPipe::ExecuteThreadNotifyWait(const DpuThreadNotifyWaitInfo& info)
+/**
+ * @brief 模拟器 LD_PRELOAD 桩（libhccl_proxy_level2）的劫持锚点：被劫持的是 libccl_dpu.so 内部对
+ *        本符号的调用，ccl_dpu.map 独占导出；刻意不登记 hcomm.map、不进 include/ 对外头，非公共 API。
+ * @note 符号名与形参类型/顺序即跨 so ABI，不得增删重排；Release 不挂 -Wl,-Bsymbolic 才可被桩抢占；
+ *       与调用点同文件，noinline/noclone 防止内联与 IPA 克隆重定向绕开 PLT，属性属劫持契约不得移除；
+ *       deviceId 与 threadHandle（CpuThread 对象地址，host 形态句柄）仅供桩识别线程，真身不消费。
+ */
+extern "C" __attribute__((visibility("default"), noinline, noclone)) HcclResult HcommCpuThreadNotifyWaitHook(
+    uint8_t* notifyBase, uint32_t notifyNum, uint32_t notifyIdx, uint32_t timeOut, const std::atomic<bool>* destroyFlag,
+    uint32_t, ThreadHandle)
 {
-    if (notifyAddr_ == nullptr) {
+    if (notifyBase == nullptr) {
         HCCL_ERROR("[CpuTaskPipe][%s] notify shmem is not set", __func__);
-        return HCCL_E_INTERNAL;
-    }
-
-    if (info.notifyIdx >= notifyNum_) {
-        HCCL_ERROR("[CpuTaskPipe][%s] notifyIdx[%u] out of range, capacity[%u]", __func__, info.notifyIdx, notifyNum_);
         return HCCL_E_PARA;
     }
-    uint8_t* const notifyAddr = notifyAddr_ + info.notifyIdx;
+
+    if (destroyFlag == nullptr) {
+        HCCL_ERROR("[CpuTaskPipe][%s] destroyFlag is null", __func__);
+        return HCCL_E_PARA;
+    }
+
+    if (notifyIdx >= notifyNum) {
+        HCCL_ERROR("[CpuTaskPipe][%s] notifyIdx[%u] out of range, capacity[%u]", __func__, notifyIdx, notifyNum);
+        return HCCL_E_PARA;
+    }
+    uint8_t* const notifyAddr = notifyBase + notifyIdx;
     const auto timeStart = std::chrono::steady_clock::now();
     while (true) {
-        if (ReadU8(notifyAddr) == 1U) {
-            WriteU8(notifyAddr, 0U);
+        if (__atomic_load_n(notifyAddr, __ATOMIC_ACQUIRE) == 1U) {
+            __atomic_store_n(notifyAddr, 0U, __ATOMIC_RELEASE);
             return HCCL_SUCCESS;
         }
-        if (destroyFlag_.load(std::memory_order_acquire)) {
+        if (destroyFlag->load(std::memory_order_acquire)) {
             HCCL_RUN_INFO(
-                "[CpuTaskPipe][%s] recv destroy request during notify wait, notifyIdx[%u]", __func__, info.notifyIdx);
+                "[CpuTaskPipe][%s] recv destroy request during notify wait, notifyIdx[%u]", __func__, notifyIdx);
             return HCCL_SUCCESS;
         }
         std::this_thread::sleep_for(std::chrono::microseconds(DPU_QUEUE_WAIT_INTERVAL_US));
 
         const auto elapsed
             = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeStart);
-        if (elapsed >= std::chrono::seconds(info.timeOut)) {
-            HCCL_ERROR(
-                "[CpuTaskPipe][%s] timeout, notifyIdx[%u], timeout[%u]s", __func__, info.notifyIdx, info.timeOut);
+        if (elapsed >= std::chrono::seconds(timeOut)) {
+            HCCL_ERROR("[CpuTaskPipe][%s] timeout, notifyIdx[%u], timeout[%u]s", __func__, notifyIdx, timeOut);
             return HCCL_E_TIMEOUT;
         }
     }
+}
+
+HcclResult CpuTaskPipe::ExecuteThreadNotifyWait(const DpuThreadNotifyWaitInfo& info)
+{
+    return HcommCpuThreadNotifyWaitHook(
+        notifyAddr_, notifyNum_, info.notifyIdx, info.timeOut, &destroyFlag_, devId_, threadHandle_);
 }
 
 HcclResult CpuTaskPipe::ExecuteThreadNotifyRecordToDpu(const DpuThreadNotifyRecordToDpuInfo& info)
@@ -338,8 +357,6 @@ HcclResult CpuTaskPipe::ExecuteLocalCopy(const DpuLocalCopyInfo& info)
     }
     return HCCL_SUCCESS;
 }
-
-uint8_t CpuTaskPipe::ReadU8(const uint8_t* src) { return __atomic_load_n(src, __ATOMIC_ACQUIRE); }
 
 void CpuTaskPipe::WriteU8(uint8_t* dst, uint8_t value) { __atomic_store_n(dst, value, __ATOMIC_RELEASE); }
 

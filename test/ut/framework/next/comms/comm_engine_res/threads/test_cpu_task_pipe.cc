@@ -652,7 +652,7 @@ TEST_F(TestCpuTaskPipe, Ut_TaskPipe_Run_When_ThreadNotifyWaitTimeout_Expect_Time
     EXPECT_EQ(6u, cqe.streamId); // dfxStreamId_ 随回执带出，镜像队列按它认领
 }
 
-TEST_F(TestCpuTaskPipe, Ut_TaskPipe_Run_When_ThreadNotifyWaitNoShmem_Expect_InternalCqe)
+TEST_F(TestCpuTaskPipe, Ut_TaskPipe_Run_When_ThreadNotifyWaitNoShmem_Expect_ParaCqe)
 {
     FakeDputag mem;
     CpuTaskPipe pipe;
@@ -681,11 +681,11 @@ TEST_F(TestCpuTaskPipe, Ut_TaskPipe_Run_When_ThreadNotifyWaitNoShmem_Expect_Inte
     }));
     runner.join();
 
-    EXPECT_EQ(static_cast<int32_t>(HCCL_E_INTERNAL), runRet.load());
+    EXPECT_EQ(static_cast<int32_t>(HCCL_E_PARA), runRet.load());
     EXPECT_EQ(0u, pipe.SqMeta()->ci);
     EXPECT_EQ(1u, pipe.CqMeta()->pi);
     const DpuCqe cqe = mem.PeekCqElem(0);
-    EXPECT_EQ(static_cast<int32_t>(HCCL_E_INTERNAL), cqe.hcclErrCode);
+    EXPECT_EQ(static_cast<int32_t>(HCCL_E_PARA), cqe.hcclErrCode);
     EXPECT_EQ(9u, cqe.taskId);
 }
 

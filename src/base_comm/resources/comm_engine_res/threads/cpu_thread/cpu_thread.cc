@@ -196,6 +196,7 @@ HcclResult CpuThread::CreateCpuTaskPipe()
     CHK_RET(dpuTaskPipe_->Init(queueLayout_));
     dpuTaskPipe_->SetNotifyInfo(notifyNum_, notifyAddr_);
     dpuTaskPipe_->SetDevId(args_.devId);
+    dpuTaskPipe_->SetThreadHandle(reinterpret_cast<ThreadHandle>(this));
     return HCCL_SUCCESS;
 }
 

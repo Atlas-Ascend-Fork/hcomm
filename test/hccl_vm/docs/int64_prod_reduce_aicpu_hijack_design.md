@@ -278,7 +278,7 @@ extern "C" __attribute__((weak)) __attribute__((visibility("default"))) int32_t 
     HcclAicpuLocalReduce;
 ```
 
-使其不被 `local: *;` 隐藏。（注：`ccl_dpu.map` 是 host 侧 `ccl_dpu` 库、且该库用了 `-Bsymbolic`，不含指令引擎，非本接缝所属。）
+使其不被 `local: *;` 隐藏。（注：`ccl_dpu.map` 是 host 侧 `ccl_dpu` 库，不含指令引擎，非本接缝所属；该库 `-Bsymbolic` 仅非 Release 构建保留，Release 已移除以放行模拟器桩劫持。）
 
 ### 5.3 CheckerL2 device_arm 侧强符号劫持（设计，未落地）
 

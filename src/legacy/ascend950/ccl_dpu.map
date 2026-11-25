@@ -11,6 +11,7 @@
 # ccl_dpu 导出符号白名单
 {
 global:
+    HcommCpuThreadNotifyWaitHook;
     RunDpuRpcSrvLaunch;
     RunDpuRpcSrvLaunchNew;
     SetDpuExecTimeout;

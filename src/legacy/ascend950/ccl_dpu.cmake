@@ -39,7 +39,6 @@ target_compile_options(ccl_dpu PRIVATE
 
 # 链接选项
 target_link_options(ccl_dpu PRIVATE
-    -Wl,-Bsymbolic
     # 本库编入了宿主侧 cpu adpt 与任务管道，它们引用的宿主符号由 AICPU 进程内的库族在加载期解析，
     # 链接期无法闭环，故不启用 --no-undefined
     -Wl,--exclude-libs,ALL
@@ -156,6 +155,8 @@ target_include_directories(ccl_dpu PRIVATE
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_link_options(ccl_dpu PRIVATE "-Wl,--version-script=${CMAKE_CURRENT_LIST_DIR}/ccl_dpu.map")
     set_property(TARGET ccl_dpu APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/ccl_dpu.map")
+else()
+    target_link_options(ccl_dpu PRIVATE -Wl,-Bsymbolic)
 endif()
 
 # 指定 ccl_dpu 构建完成后安装到指定的目标位置
