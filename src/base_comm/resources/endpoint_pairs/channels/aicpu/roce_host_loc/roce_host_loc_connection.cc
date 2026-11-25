@@ -403,8 +403,9 @@ HcclResult RoceHostLocConnection::BuildSqContext(SqContext* context)
     context->contextInfo.roceSq.tailAddr = ReinterpretAs<uint64_t>(SqCiMem_.ptr());
     context->contextInfo.roceSq.sl = qpInfo_.serviceLevel;
     context->contextInfo.roceSq.dbHwVa = ReinterpretAs<uint64_t>(ndaQpInfo_.sqInfo.dbHwVa.iovBase);
+    // PCIe模式(DEFAULT)和UBNIC模式(INDEP_UB)均填入软DB地址, 供上层按需选择使用
+    context->contextInfo.roceSq.dbSwVa = ReinterpretAs<uint64_t>(ndaQpInfo_.sqInfo.dbrPiVa.iovBase);
     if (dmaMode_ == QBUF_DMA_MODE_INDEP_UB) {
-        context->contextInfo.roceSq.dbSwVa = ReinterpretAs<uint64_t>(ndaQpInfo_.sqInfo.dbrPiVa.iovBase);
         uint8_t mtuShift = static_cast<uint8_t>(localQpAttr.pathMtu - 1);
         uint8_t dbCos = static_cast<uint8_t>(localQpAttr.vendorPrivInfo & 0xFF);
         context->contextInfo.roceSq.dbVendorSpecified
@@ -444,13 +445,13 @@ HcclResult RoceHostLocConnection::BuildCqContext(CqContext* context)
     context->contextInfo.roceCq.cqDepth = ndaCqInfo_.cqInfo.qBuf.entryCnt;
     context->contextInfo.roceCq.headAddr = ReinterpretAs<uint64_t>(CqPiMem_.ptr());
     context->contextInfo.roceCq.tailAddr = ReinterpretAs<uint64_t>(CqCiMem_.ptr());
-    // PCIe模式(DEFAULT): 仅使用硬DB; UBNIC模式(INDEP_UB): 仅使用软DB
+    // PCIe模式(DEFAULT): 硬/软DB均填入, 供上层按需选择; UBNIC模式(INDEP_UB): 仅使用软DB
+    context->contextInfo.roceCq.dbSwVa = ReinterpretAs<uint64_t>(ndaCqInfo_.cqInfo.dbrCiVa.iovBase);
     if (dmaMode_ == QBUF_DMA_MODE_DEFAULT) {
         context->contextInfo.roceCq.cqn = ndaCqInfo_.resv[0]; // 云脉网卡NDA直驱，协商ndaCqInfo_.resv[0]字段为CQN
         context->contextInfo.roceCq.dbHwVa = ReinterpretAs<uint64_t>(ndaCqInfo_.cqInfo.dbHwVa.iovBase);
     } else {
         context->contextInfo.roceCq.cqn = DEFAULT_CQN;
-        context->contextInfo.roceCq.dbSwVa = ReinterpretAs<uint64_t>(ndaCqInfo_.cqInfo.dbrCiVa.iovBase);
     }
 
     HCCL_INFO(
