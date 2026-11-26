@@ -9,6 +9,7 @@
  */
 
 #include "gtest/gtest.h"
+#include <cstdlib>
 #include <mockcpp/mockcpp.hpp>
 #include "workflow_pub.h"
 #include "topoinfo_struct.h"
@@ -18,8 +19,10 @@
 #include "acl/acl.h"
 #include "hccl_comm.h"
 #include "hccl_inner.h"
+#include "hccl_alg.h"
 #include "hccl_impl.h"
 #include "config.h"
+#include "externalinput.h"
 #include "hccl_communicator.h"
 #include "hccl_communicator_attrs.h"
 #include "network_manager_pub.h"
@@ -36,6 +39,34 @@
 
 using namespace hccl;
 using namespace std;
+
+TEST(HcclAlgTest, Ut_InitExternalEnable_PropagatesInterHccsDisableToTopoMatcher)
+{
+    constexpr char ENV_NAME[] = "HCCL_INTER_HCCS_DISABLE";
+    const char* envValue = std::getenv(ENV_NAME);
+    const bool hadEnvValue = envValue != nullptr;
+    const std::string originalEnvValue = hadEnvValue ? envValue : "";
+    const bool originalConfig = GetExternalInputInterHccsDisable();
+
+    CCLBufferManager bufferManager;
+    HcclAlg alg(bufferManager, nullptr, nullptr);
+    HcclExternalEnable externalEnable;
+    HcclTopoInfo topoInfo;
+    HcclAlgoInfo algoInfo;
+    std::vector<std::vector<std::vector<u32>>> serverAndSuperPodRanks;
+    for (bool disabled : {true, false}) {
+        EXPECT_EQ(setenv(ENV_NAME, disabled ? "TRUE" : "FALSE", 1), 0);
+        EXPECT_EQ(ParseInterLinkType(), HCCL_SUCCESS);
+        EXPECT_EQ(alg.InitExternalEnable(externalEnable), HCCL_SUCCESS);
+        TopoMatcher matcher({}, {}, topoInfo, algoInfo, externalEnable, serverAndSuperPodRanks);
+        EXPECT_EQ(matcher.GetExternalInputInterHccsDisable(), static_cast<u32>(disabled));
+    }
+
+    EXPECT_EQ(setenv(ENV_NAME, originalConfig ? "TRUE" : "FALSE", 1), 0);
+    EXPECT_EQ(ParseInterLinkType(), HCCL_SUCCESS);
+    EXPECT_EQ(hadEnvValue ? setenv(ENV_NAME, originalEnvValue.c_str(), 1) : unsetenv(ENV_NAME), 0);
+}
+
 class HcclImplTest : public testing::Test {
 protected:
     static void SetUpTestCase()
