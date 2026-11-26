@@ -819,6 +819,7 @@ HcclResult HostCpuRoceChannel::PostRdmaOpAllQps(
     // 分配不到数据的 QP 仍需下发空 WR。
     const uint64_t chunkSizePerQp
         = std::max(static_cast<uint64_t>(channelDesc_.roceAttr.qpThreshold), DivCeil(len, qpInfos.size()));
+    const uint64_t usedQpNum = (chunkSizePerQp == 0ULL) ? 0ULL : DivCeil(len, chunkSizePerQp);
     // 循环i轮开始前已经发送的数据长度
     uint64_t offset = 0;
     for (uint32_t i = 0; i < qpInfos.size(); ++i) {
@@ -832,8 +833,10 @@ HcclResult HostCpuRoceChannel::PostRdmaOpAllQps(
     }
     fenceFlag_ = false;
     HCCL_INFO(
-        "[%s::%s] SUCCESS. localAddr[%p], remoteAddr[%p], len[0x%llx], qpNum[%zu].", channelClassName_, caller,
-        localAddr, remoteAddr, len, qpInfos.size());
+        "[%s::%s] SUCCESS. localAddr[%p], remoteAddr[%p], len[0x%llx], qpNum[%zu], chunkSizePerQp[0x%llx], "
+        "usedQpNum[%llu].",
+        channelClassName_, caller, localAddr, remoteAddr, len, qpInfos.size(),
+        static_cast<unsigned long long>(chunkSizePerQp), static_cast<unsigned long long>(usedQpNum));
     return HCCL_SUCCESS;
 }
 
