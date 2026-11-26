@@ -22,6 +22,10 @@
 #undef protected
 #include "socket_handle_manager.h"
 #include "dev_ub_connection.h"
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <thread>
 using namespace hcomm;
 
 namespace {
@@ -177,6 +181,65 @@ TEST_F(AicpuTsUrmaChannelTest, Ut_Resume_When_ResetLocalNotifiesFailed_Expect_Re
     MOCKER_CPP_VIRTUAL(ch, &AicpuTsUrmaChannel::BuildBuffer, HcclResult(AicpuTsUrmaChannel::*)()).expects(never());
 
     EXPECT_EQ(ch.Resume(), HCCL_E_INTERNAL);
+}
+
+HcclResult StubAicpuChannelEntityResourcesBuild(
+    AicpuChannelEntityResources*, const std::vector<char>&, CommEngine, CommProtocol, ChannelHandle, ChannelHandle& out)
+{
+    out = static_cast<ChannelHandle>(0x1234U);
+    return HCCL_SUCCESS;
+}
+
+TEST_F(AicpuTsUrmaChannelTest, Ut_BuildDeviceEntity_When_Concurrent_Expect_BuildOnceAndShareHandle)
+{
+    HcommChannelDesc desc{};
+    EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
+    AicpuTsUrmaChannel ch(ep, desc, COMM_ENGINE_RESERVED);
+
+    constexpr ChannelHandle compatHandle = 0x1111U;
+    MOCKER_CPP(&AicpuTsUrmaChannel::H2DResPack, HcclResult(AicpuTsUrmaChannel::*)(std::vector<char>&))
+        .expects(exactly(1))
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&AicpuChannelEntityResources::Build)
+        .expects(exactly(1))
+        .will(invoke(StubAicpuChannelEntityResourcesBuild));
+
+    // mockcpp 全局 mock 状态非线程安全，子线程不得触发被 mock 的函数：
+    // 先单线程完成首次构建并缓存实体，再并发调用验证缓存命中的一致性。
+    ChannelHandle firstHandle = 0;
+    ASSERT_EQ(ch.BuildDeviceEntity(compatHandle, firstHandle), HCCL_SUCCESS);
+
+    constexpr uint32_t threadNum = 8U;
+    std::array<ChannelHandle, threadNum> handles{};
+    std::array<HcclResult, threadNum> results{};
+    results.fill(HCCL_E_INTERNAL);
+    std::atomic<uint32_t> readyCount{0};
+    std::atomic<bool> startFlag{false};
+    std::vector<std::thread> threads;
+    threads.reserve(threadNum);
+    for (uint32_t i = 0; i < threadNum; ++i) {
+        threads.emplace_back([&ch, &handles, &results, &readyCount, &startFlag, i]() {
+            ++readyCount;
+            while (!startFlag.load()) {
+                std::this_thread::yield();
+            }
+            results[i] = ch.BuildDeviceEntity(0x1234U, handles[i]);
+        });
+    }
+    while (readyCount.load() != threadNum) {
+        std::this_thread::yield();
+    }
+    startFlag.store(true);
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    for (uint32_t i = 0; i < threadNum; ++i) {
+        EXPECT_EQ(results[i], HCCL_SUCCESS);
+        EXPECT_EQ(handles[i], handles[0]);
+        EXPECT_EQ(handles[i], static_cast<ChannelHandle>(0x1234U));
+    }
+    EXPECT_EQ(ch.deviceEntityHandle_, firstHandle);
 }
 
 TEST_F(AicpuTsUrmaChannelTest, UT_ParseInputParam_When_ExchangeAllMemsFalse_Expect_FillCommonRes)

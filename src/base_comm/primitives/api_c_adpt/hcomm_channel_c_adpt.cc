@@ -662,17 +662,6 @@ static HcommResult BuildAicpuTsUrmaDeviceEntity(ChannelHandle channelHandle, uin
     }
 
     auto* urmaChannel = static_cast<AicpuTsUrmaChannel*>(channel);
-    ChannelHandle currentUserHandle = 0;
-    ChannelHandle originalDeviceHandle = 0;
-    if (ChannelProcess::ResolveHostHandleToDevice(hostHandle, currentUserHandle) == HCCL_SUCCESS
-        && ChannelProcess::ResolveHostHandleToOriginalDevice(hostHandle, originalDeviceHandle) == HCCL_SUCCESS
-        && currentUserHandle != 0 && originalDeviceHandle != 0 && currentUserHandle != originalDeviceHandle
-        && (channelHandle == currentUserHandle || channelHandle == originalDeviceHandle)) {
-        // 已发布过 entity 时复用当前公开句柄，避免重复分配实体。
-        *entityHandle = currentUserHandle;
-        return HCCL_SUCCESS;
-    }
-
     ChannelHandle deviceHandle = channelHandle;
     CHK_RET(ChannelProcess::ResolveHostHandleToOriginalDevice(hostHandle, deviceHandle));
     CHK_PRT_RET(deviceHandle == 0, HCCL_ERROR("[%s] device channel handle is null.", __func__), HCCL_E_INTERNAL);

@@ -171,12 +171,10 @@ HcclResult AicpuTsChannelEntity::LaunchKernel(
         HCCL_INFO("[AicpuTsChannelEntity::%s] all channels already ready, skip kernel launch.", __func__);
         return HCCL_SUCCESS;
     }
-    // 序列化 + kernel launch
     std::vector<ChannelHandle> devHandles(subHostHandles.size());
     CHK_RET(ChannelProcess::LaunchChannelKernel(
         devHandles.data(), subHostHandles.data(), subDescs.data(), subHostHandles.size(), binHandle));
 
-    // In ctx mode, read deviceChannel back from each ctx and refresh the host-to-device mapping.
     if (!subChannels.empty()) {
         auto* firstEntity = subChannels[0]->GetChannelEntity();
         if (firstEntity != nullptr && firstEntity->GetCtxPtr() != nullptr) {
@@ -202,7 +200,7 @@ HcclResult AicpuTsChannelEntity::LaunchKernel(
                     HCCL_E_INTERNAL);
                 devHandles[i] = ReinterpretAs<ChannelHandle>(ctx.deviceChannel);
             }
-            CHK_RET(ChannelProcess::FillChannelD2HMap(
+            CHK_RET(ChannelProcess::RegisterOriginalChannelHandle(
                 devHandles.data(), subHostHandles.data(), static_cast<uint32_t>(subHostHandles.size())));
         }
     }

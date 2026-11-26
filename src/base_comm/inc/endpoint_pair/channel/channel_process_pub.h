@@ -92,6 +92,9 @@ public:
         const std::string& commTag, aclrtBinHandle binHandle);
     static HcclResult
     RegisterChannelD2HMap(ChannelHandle* deviceChannelHandles, ChannelHandle* hostChannelHandles, uint32_t listNum);
+    // 登记 host 句柄对应的原始 device 句柄。
+    static HcclResult RegisterOriginalChannelHandle(
+        const ChannelHandle* deviceChannelHandles, const ChannelHandle* hostChannelHandles, uint32_t listNum);
     static HcclResult RegisterChannelHandleAlias(ChannelHandle publicHandle, ChannelHandle hostHandle);
     static HcclResult FillChannelD2HMap(
         const ChannelHandle* deviceChannelHandles, const ChannelHandle* hostChannelHandles, uint32_t listNum);
