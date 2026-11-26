@@ -12,7 +12,7 @@
 #include "hcomm/hcomm_res_expt.h"
 #include "hcomm_c_adpt.h"
 #include "comm_engine/thread/thread_pub.h"
-#include "common/result_defs_pub.h"
+#include "hcomm_res_defs.h"
 #include "cpu_thread.h" // CpuThread：断言 CPU + THREAD_TYPE_CPU 分派命中该类型
 #include "local_notify_impl.h"
 #include "comm_engine/aicpu_launch_manager_pub.h"

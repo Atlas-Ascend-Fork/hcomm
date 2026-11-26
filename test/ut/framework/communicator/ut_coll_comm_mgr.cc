@@ -11,7 +11,7 @@
 #include "hccl_api_base_test.h"
 #include "coll_comm_mgr.h"
 #include "hcomm_c_adpt.h"
-#include "common/result_defs_pub.h"
+#include "hcomm_res_defs.h"
 #include "hcom_common.h"
 #include "llt_dca_stub.h"
 

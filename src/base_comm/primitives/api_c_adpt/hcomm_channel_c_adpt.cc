@@ -18,7 +18,6 @@
 #include "orion_adpt_utils.h"
 #include "hcomm_c_adpt_common.h"
 #include "hcomm_res.h"
-#include "common/result_defs_pub.h"
 #include "hcomm_res_defs.h"
 #include "hcomm_channel.h"
 #include "log.h"

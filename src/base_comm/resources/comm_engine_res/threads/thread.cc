@@ -22,7 +22,6 @@
 #include "cpu_thread.h"
 #endif
 #include "comm_engine/thread/device/device_thread_pub.h"
-#include "common/result_defs_pub.h"
 #include "hcomm_res_defs.h"
 #include "exception_handler.h"
 #include <mutex>
