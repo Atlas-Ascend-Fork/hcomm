@@ -142,8 +142,7 @@ private:
     DfxLinkType linkType_{DfxLinkType::UB};
     bool fence_{false};
     bool taskExceptionEnable_{true};
-    u64 devEpMemTablePtr_{0}; // endpoint 活账本表（DevEpMemTable）device 地址；Init
-                              // 经扩展区头校验后解析，0=无表（值语义）；V1 构造路径不走 Init 恒 0
+    u64 devEpMemTablePtr_{0};
 
     inline u8 GetUbLinkTypeVal() const
     {

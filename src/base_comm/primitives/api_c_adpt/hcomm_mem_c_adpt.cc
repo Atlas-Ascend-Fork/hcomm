@@ -57,8 +57,6 @@ HcommMemReg(EndpointHandle endpointHandle, const char* memTag, const CommMem* me
         (void)mgr->UnregisterMemory(*memHandle);
         return static_cast<HcommResult>(recordRet);
     }
-    // device 侧活账本表追加（仅 UB 家族 override，非 UB 走基类 no-op 默认——行为不变）。
-    // 失败回滚（注册+归属记账）：保证 HcommMemReg 返回成功 ⇔ 已建通道立即可用该内存
     HcclResult tableRet = endpoint->OnLocalMemRegistered(*memHandle);
     if (tableRet != HCCL_SUCCESS) {
         HCCL_ERROR(
@@ -82,21 +80,14 @@ HcommResult HcommMemUnreg(EndpointHandle endpointHandle, HcommMemHandle memHandl
     // 先摘本实例归属账：handle 空指针/非本实例注册时在此拒绝（硬件未动），避免跨实例注销导致
     // 两份账本静默发散——摘账只比对指针身份不解引用，前置提取仅作用于摘账命中的在册句柄
     CHK_RET(endpoint->RemoveLocalMemHandle(memHandle));
-    // 注销前置取 (addr,size,tokenId,tokenValue) 纯值四元组：末引用注销会析构 buffer 对象，此后
-    // 整条表同步链路只传纯值、不再触碰 memHandle。经 mgr 基类虚接口提取（锁内 + shared_ptr
-    // 保活，摘账命中保证必命中）；非 UB 家族 mgr 默认返回 false（其 endpoint 钩子为 no-op），
-    // 0 值透传
     uint64_t memAddr = 0;
     uint64_t memSize = 0;
     uint32_t memTokenId = 0;
     uint32_t memTokenValue = 0;
+    // 需在UnregisterMemory前提取memAddr/size等信息，否则memHandle失效后返回均为0
     (void)mgr->GetMemRange(memHandle, memAddr, memSize, memTokenId, memTokenValue);
     CHK_RET(static_cast<HcclResult>(mgr->UnregisterMemory(memHandle)));
-    // 表条目移除（ref-- 归零删，与 host 账本严格同步；非 UB 走基类 no-op 默认）。
-    // 注销主流程（账本+硬件）已成功且不可逆，表同步失败不回滚、返回失败并 ERROR 级打印
-    // 残留表项（触发条件为 kernel launch 级失败，罕见）。残留条目保留至 endpoint 销毁，token
-    // 随同键重注册刷新（info 覆盖），活注册期间查表正确；最终注销后残留死 token 属误用路径
-    // 的延迟报错窗口——ref 漂移不随重注册归零，无自愈，勿按"会自愈"理解
+    // 此处device表下kernel注销内存条目失败时，不再重复下kernel来注销整个device内存表，防止产生其他问题
     HcclResult tableRet = endpoint->OnLocalMemUnregistered(memAddr, memSize);
     if (tableRet != HCCL_SUCCESS) {
         HCCL_ERROR(

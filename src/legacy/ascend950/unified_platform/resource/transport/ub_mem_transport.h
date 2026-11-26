@@ -72,7 +72,7 @@ public:
 private:
     RdmaHandle rdmaHandle;
 
-    u64 devEpMemTablePtr_{0}; // endpoint 活账本表（DevEpMemTable）device 地址，构造注入；0=无表（值语义）
+    u64 devEpMemTablePtr_{0};
 
     LocCntNotifyRes locCntNotifyRes;
 

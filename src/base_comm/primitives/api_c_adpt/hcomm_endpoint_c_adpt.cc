@@ -200,8 +200,6 @@ HcclResult CreateBuiltinEndpoint(const EndpointDesc* endpoint, EndpointHandle* e
 
     // 内置 endpoint 不再调 SetNicEndpointCtx（内存操作经 GetLocalRegMemMgr()/GetRemoteRegMemMgr() 路径）
 
-    // move 前保存 rdmaHandle 与基类裸指针（endpoint 注册后 endpointPtr 被转移，不可再解引用；
-    // rawEndpoint 在 Add 后仍有效——对象存活于句柄表，地址不随所有权转移变化）
     void* rdmaHandle = endpointPtr->GetRdmaHandle();
     const EndpointHandle handle = static_cast<EndpointHandle>(endpointPtr.get());
     Endpoint* rawEndpoint = endpointPtr.get();
@@ -211,14 +209,7 @@ HcclResult CreateBuiltinEndpoint(const EndpointDesc* endpoint, EndpointHandle* e
     *endpointHandle = handle;
     CHK_RET(RegisterDeviceEndpointMonitorIfNeeded(endpoint, handle));
 
-    // UB 家族 override 内下发 init kernel + D2H 读回表地址（非 UB 走基类 no-op 默认=无表语义）。
-    // 置于最后一个可失败步骤：此前所有失败路径（Add 异常 / monitor 失败）均无表可泄，
-    // 彻底消除"表已建而创建失败"的 device 侧残留（检视整改）。
-    // 设备上下文由入口 RefreshEndpointContext 保证（Add / monitor 均为纯 host 记账，不切 ctx）；
-    // 窗口期（Add 后至 init 完成前）外部调用方不可达句柄、monitor 不触表，
-    // 且 ReleaseDevEpMemTable 的 0 值守卫保证理论并发销毁亦安全。
-    // 失败 → epMgr.Remove 回滚发布（~Endpoint 析构链自动摘除 monitor 注册）；
-    // *endpointHandle 已写入的句柄值随错误返回失效（与 monitor 失败路径既有模式一致）。
+    // 需置于最后一个步骤进行device内存表的初始化：此前所有失败路径才不会泄露device的内存表
     HcclResult tableRet = rawEndpoint->InitDevEpMemTable();
     if (tableRet != HCCL_SUCCESS) {
         HCCL_ERROR("[%s] init dev ep mem table failed, ret[%d], rollback publish", __func__, tableRet);
@@ -382,18 +373,13 @@ HcommResult HcommEndpointDestroy(EndpointHandle endpointHandle)
         jettyRet);
     if (endpoint != nullptr) {
         CHK_RET(RefreshEndpointContext(endpoint->GetEndpointDesc()));
-        // 有表 endpoint：数据面查表入口持有 device 表指针（uniqueIdV2 下发），必须先销尽名下
-        // channel 再删表，否则存活 channel 的 BuildLocRmaBufferLite 将读/写已释放堆（UB，
-        // magic 哨兵仅概率拦截）。用户残留的普通 channel 在此收编强制销毁（先例：
-        // EndpointPair::~EndpointPair 残链兜底销毁）；共享 jetty channel 跨 endpoint 复用、
-        // 不可收编，已由前置 CheckEndpointDestroy 拒绝——此处快照只含普通 channel。
+        // 防止device内存表指针被残留channel引用，在endpoint销毁时须先将channel销毁完再删除device内存表防UAF
         if (endpoint->GetDevEpMemTablePtr() != 0) {
             std::vector<ChannelHandle> leftoverChannels = ChannelProcess::GetAliveChannels(endpointHandle);
             if (!leftoverChannels.empty()) {
                 HCCL_WARNING(
                     "[%s] endpointHandle[0x%llx] has [%zu] leftover channel(s), force destroying.", __func__,
                     endpointHandle, leftoverChannels.size());
-                // 尽力销毁：host 侧对象无论成败均无条件从全局表摘除（RemoveSingleChannel 语义）
                 HcclResult channelRet = static_cast<HcclResult>(
                     HcommChannelDestroy(leftoverChannels.data(), static_cast<uint32_t>(leftoverChannels.size())));
                 if (channelRet != HCCL_SUCCESS) {
@@ -402,8 +388,6 @@ HcommResult HcommEndpointDestroy(EndpointHandle endpointHandle)
             }
         }
         endpoint->ReleaseEndpointMonitor(endpointHandle);
-        // delete device 侧活账本表（仅 UB 家族 override，非 UB 走基类 no-op 默认）。无条件释放：
-        // 名下 channel 已在前方收编销尽，launch 失败仅告警不阻塞销毁（残留由 AICPU 进程退出回收）。
         HcclResult tableRet = endpoint->ReleaseDevEpMemTable();
         if (tableRet != HCCL_SUCCESS) {
             HCCL_WARNING("[%s] release dev ep mem table failed, ret[%d]", __func__, tableRet);
