@@ -166,27 +166,40 @@ HcclResult AlltoallvContinuousPipeline::Prepare(
 
 HcclResult AlltoallvContinuousPipeline::SplitBuffer(const bool enablePingPong)
 {
+    // 块数与寻址必须用同一个乒乓开关，这里统一以形参为准
+    enablePingPong_ = enablePingPong;
+
     // 单个counts数组的大小
     const u64 singleRankCountsInfoSize = sizeof(u64) * userRankSize_;
     // 全局counts的大小
     const u64 globalCountsInfoSize = singleRankCountsInfoSize * userRankSize_;
 
-    const u64 bufferSize = inBuffer_.size();
-    u32 blockNum = userRankSize_;
+    // 选择复用组数与布局模式：只看拓扑。M 不超过 LAYOUT_LEGACY_MAX_INTER_RANK_SIZE 时块数不减少，走旧布局
+    reuseGroupNum_ = SLOT_REUSE_NUM;
+    layoutMode_
+        = (interRankSize_ > LAYOUT_LEGACY_MAX_INTER_RANK_SIZE) ? LayoutMode::SLOT_INDEX : LayoutMode::RANK_INDEX;
 
-    if (enablePingPong) {
-        // 乒乓模式两倍分块
-        blockNum = userRankSize_ * PINGPONG_MEM_NUM;
-        HCCL_INFO("[AlltoallvContinuousPipeline][SplitBuffer] Use ping-pong mode.");
-    }
+    // 槽位复用成立的前提是跨组并发度为 1；并发度提高后同刻存活的计数器变多，w = 3 不再够用
+    CHK_PRT_RET(
+        layoutMode_ == LayoutMode::SLOT_INDEX && rdmaConcurrentNum_ > 1,
+        HCCL_ERROR(
+            "[AlltoallvContinuousPipeline][%s]Slot layout requires rdmaConcurrentNum_[1], got[%u].", __func__,
+            rdmaConcurrentNum_),
+        HCCL_E_PARA);
+
+    // 新布局 w×I；旧布局 N，乒乓时 2N
+    const u32 blockNum = (layoutMode_ == LayoutMode::SLOT_INDEX) ?
+                             reuseGroupNum_ * intraRankSize_ :
+                             userRankSize_ * (enablePingPong ? PINGPONG_MEM_NUM : 1);
 
     CHK_PRT_RET(
         blockNum == 0, HCCL_ERROR("[AlltoallvContinuousPipeline][SplitBuffer]Unexpected blockNum[%u].", blockNum),
         HCCL_E_INTERNAL);
 
-    // 初始化用于记录buffer中每个分块当作存放了多少数据的vector
-    // 如果是pingpong模式，需要两倍的大小
-    inBufferDataSize_.resize(blockNum);
+    const u64 bufferSize = inBuffer_.size();
+
+    // 记录每个分块当前存放了多少数据的vector，长度等于块数
+    inBufferDataSize_.assign(blockNum, 0);
 
     u64 alignSize = HCCL_MIN_SLICE_ALIGN;
     const u64 minBufferSize = globalCountsInfoSize + alignSize * blockNum;
@@ -206,18 +219,32 @@ HcclResult AlltoallvContinuousPipeline::SplitBuffer(const bool enablePingPong)
                       / unitSize_; // 前面已经可以保证countsPerBlock_大于0，不再检查
     sizePerBlock_ = countsPerBlock_ * unitSize_;
 
+    // 尾界校验：countsPerBlock_ 由 inBuffer_.size() 反推，inBuffer_ 必然容纳 [数据区 + info 区]，
+    // 因此这里只需校验 outBuffer_ 是否满足同一套布局
+    const u64 infoEndOffset = sizePerBlock_ * blockNum + globalCountsInfoSize;
+    CHK_PRT_RET(
+        outBuffer_.size() < infoEndOffset,
+        HCCL_ERROR(
+            "[AlltoallvContinuousPipeline][%s]Layout out of range, need[%llu], out[%llu].", __func__, infoEndOffset,
+            outBuffer_.size()),
+        HCCL_E_MEMORY);
+
+    blockNum_ = blockNum;
+    infoOffsets_.assign(userRankSize_, 0);
+    dataBlockOffsets_.assign(blockNum_, 0);
+
     for (u32 rank = 0; rank < userRankSize_; ++rank) {
-        infoOffsets_.emplace_back(sizePerBlock_ * blockNum + singleRankCountsInfoSize * rank);
+        infoOffsets_[rank] = sizePerBlock_ * blockNum_ + singleRankCountsInfoSize * rank;
     }
 
-    for (u32 blockIdx = 0; blockIdx < blockNum; ++blockIdx) {
-        dataBlockOffsets_.emplace_back(sizePerBlock_ * blockIdx);
+    for (u32 blockIdx = 0; blockIdx < blockNum_; ++blockIdx) {
+        dataBlockOffsets_[blockIdx] = sizePerBlock_ * blockIdx;
     }
 
     HCCL_INFO(
-        "[AlltoallvContinuousPipeline][SplitBuffer] Split buffer done, alignSize[%llu], sizePerBlock[%llu], "
-        "countsPerBlock[%llu], blockNum[%u]",
-        alignSize, sizePerBlock_, countsPerBlock_, blockNum);
+        "[AlltoallvContinuousPipeline][%s] Split buffer done, layoutMode[%u], reuseGroupNum[%u], alignSize[%llu], "
+        "sizePerBlock[%llu], countsPerBlock[%llu], blockNum[%u]",
+        __func__, static_cast<u32>(layoutMode_), reuseGroupNum_, alignSize, sizePerBlock_, countsPerBlock_, blockNum_);
     return HCCL_SUCCESS;
 }
 
@@ -292,12 +319,38 @@ inline u64 AlltoallvContinuousPipeline::GetLocalRecvDisplOfRank(const u32 source
     return localRecvDispls_[sourceRank];
 }
 
-inline u64 AlltoallvContinuousPipeline::GetDataBlockOffset(const u32 rank, const u32 bufferIdx) const
+inline u64 AlltoallvContinuousPipeline::MakeGlobalStep(const u32 loopIdx, const u32 step) const
 {
-    if (enablePingPong_) {
-        return dataBlockOffsets_[(bufferIdx % PINGPONG_MEM_NUM) * userRankSize_ + rank];
+    // 先转 u64 再乘，避免长流水下 u32 溢出
+    return static_cast<u64>(loopIdx) * interRankSize_ + step;
+}
+
+inline u32 AlltoallvContinuousPipeline::ResolveBlockIndex(const u32 rank, const u32 loopIdx, const u64 globalStep) const
+{
+    if (layoutMode_ == LayoutMode::SLOT_INDEX) {
+        // 组号取全局计数器，组内位沿用 rank % I，结果必然落在 [0, blockNum_)
+        const u64 slot = (globalStep % static_cast<u64>(reuseGroupNum_)) * intraRankSize_ + (rank % intraRankSize_);
+        return static_cast<u32>(slot);
     }
-    return dataBlockOffsets_[rank];
+    if (enablePingPong_) {
+        return (loopIdx % PINGPONG_MEM_NUM) * userRankSize_ + rank;
+    }
+    return rank;
+}
+
+inline u64
+AlltoallvContinuousPipeline::ResolveBlockOffset(const u32 rank, const u32 loopIdx, const u64 globalStep) const
+{
+    return dataBlockOffsets_[ResolveBlockIndex(rank, loopIdx, globalStep)];
+}
+
+inline u32 AlltoallvContinuousPipeline::ResolveMetaIndex(const u32 rank, const u32 loopIdx, const u64 globalStep) const
+{
+    // 旧布局的在途长度仍按 rank 索引，与改造前保持一致；新布局与数据偏移同键
+    if (layoutMode_ == LayoutMode::SLOT_INDEX) {
+        return ResolveBlockIndex(rank, loopIdx, globalStep);
+    }
+    return rank;
 }
 
 u32 AlltoallvContinuousPipeline::GetLocalLoopNum() const
@@ -471,8 +524,8 @@ HcclResult AlltoallvContinuousPipeline::InterRdmaTxRx(
     return HCCL_SUCCESS;
 }
 
-HcclResult
-AlltoallvContinuousPipeline::LocalCopyFromInputToInBuffer(const u32 targetRank, Stream& stream, const u32 loopIdx)
+HcclResult AlltoallvContinuousPipeline::LocalCopyFromInputToInBuffer(
+    const u32 targetRank, Stream& stream, const u32 loopIdx, const u64 globalStep)
 {
     // 根据send displs来计算input的位置，取min(countsPerBlock_, count)个数
     const u64 copyCount = std::min(GetLocalSendCountOfRank(targetRank), countsPerBlock_);
@@ -484,7 +537,7 @@ AlltoallvContinuousPipeline::LocalCopyFromInputToInBuffer(const u32 targetRank, 
 
     // 从input拷贝到in buffer对应的分块里
     const u64 srcOffset = GetLocalSendDisplOfRank(targetRank) * unitSize_;
-    const u64 dstOffset = GetDataBlockOffset(targetRank, loopIdx);
+    const u64 dstOffset = ResolveBlockOffset(targetRank, loopIdx, globalStep);
     DeviceMem src = inputMem_.range(srcOffset, copySize);
     DeviceMem dst = inBuffer_.range(dstOffset, copySize);
 
@@ -494,7 +547,7 @@ AlltoallvContinuousPipeline::LocalCopyFromInputToInBuffer(const u32 targetRank, 
     CHK_RET(UpdateLocalSendInfo(targetRank, copyCount));
 
     // 记录in buffer中该分块存放了多少数据
-    inBufferDataSize_[targetRank] = copySize;
+    inBufferDataSize_[ResolveMetaIndex(targetRank, loopIdx, globalStep)] = copySize;
 
     HCCL_DEBUG(
         "[AlltoallvContinuousPipeline][LocalCopy][FromInputToInBuffer] done, userRank[%u], targetRank[%u], "
@@ -503,8 +556,8 @@ AlltoallvContinuousPipeline::LocalCopyFromInputToInBuffer(const u32 targetRank, 
     return HCCL_SUCCESS;
 }
 
-HcclResult
-AlltoallvContinuousPipeline::LocalCopyFromOutBufferToOutput(const u32 sourceRank, Stream& stream, const u32 loopIdx)
+HcclResult AlltoallvContinuousPipeline::LocalCopyFromOutBufferToOutput(
+    const u32 sourceRank, Stream& stream, const u32 loopIdx, const u64 globalStep)
 {
     const u64 copyCount = std::min(GetLocalRecvCountOfRank(sourceRank), countsPerBlock_);
     if (copyCount == 0) {
@@ -513,7 +566,7 @@ AlltoallvContinuousPipeline::LocalCopyFromOutBufferToOutput(const u32 sourceRank
 
     // 从out buffer对应分块拷贝到output
     const u64 copySize = copyCount * unitSize_;
-    const u64 srcOffset = GetDataBlockOffset(sourceRank, loopIdx);
+    const u64 srcOffset = ResolveBlockOffset(sourceRank, loopIdx, globalStep);
     const u64 dstOffset = GetLocalRecvDisplOfRank(sourceRank) * unitSize_;
     DeviceMem src = outBuffer_.range(srcOffset, copySize);
     DeviceMem dst = outputMem_.range(dstOffset, copySize);
@@ -553,8 +606,8 @@ HcclResult AlltoallvContinuousPipeline::LocalCopySelfDataFromInputToOutput(Strea
     return HCCL_SUCCESS;
 }
 
-HcclResult
-AlltoallvContinuousPipeline::SdmaSendFromInputToRemoteOutBuffer(const u32 targetRank, Stream& stream, const u32 loopIdx)
+HcclResult AlltoallvContinuousPipeline::SdmaSendFromInputToRemoteOutBuffer(
+    const u32 targetRank, Stream& stream, const u32 loopIdx, const u64 globalStep)
 {
     const u64 sendCount = std::min(GetLocalSendCountOfRank(targetRank), countsPerBlock_);
     if (sendCount == 0) {
@@ -564,7 +617,7 @@ AlltoallvContinuousPipeline::SdmaSendFromInputToRemoteOutBuffer(const u32 target
     // 从input发送到remote out buffer，目的位置是第[本userRank_]个分块
     const u64 sendSize = sendCount * unitSize_;
     const u64 srcOffset = GetLocalSendDisplOfRank(targetRank) * unitSize_;
-    const u64 dstOffset = GetDataBlockOffset(userRank_, loopIdx);
+    const u64 dstOffset = ResolveBlockOffset(userRank_, loopIdx, globalStep);
     DeviceMem src = inputMem_.range(srcOffset, sendSize);
 
     const LINK& link = intraLinks_[targetRank % intraRankSize_];
@@ -586,7 +639,7 @@ AlltoallvContinuousPipeline::SdmaSendFromInputToRemoteOutBuffer(const u32 target
 }
 
 HcclResult AlltoallvContinuousPipeline::SdmaReadFromRemoteOutBufferToOutput(
-    const u32 sourceRank, Stream& stream, const u32 loopIdx)
+    const u32 sourceRank, Stream& stream, const u32 loopIdx, const u64 globalStep)
 {
     // 需要recv counts信息
     CHK_PRT_RET(
@@ -602,7 +655,7 @@ HcclResult AlltoallvContinuousPipeline::SdmaReadFromRemoteOutBufferToOutput(
     // 从remote out buffer读取到output，源位置是第[sourceRank / intraRankSize_ * intraRankSize_ + intraRankId_]个分块
     const u64 readSize = readCount * unitSize_;
     const u64 srcBlockIdx = sourceRank / intraRankSize_ * intraRankSize_ + intraRankId_;
-    const u64 srcOffset = GetDataBlockOffset(srcBlockIdx, loopIdx);
+    const u64 srcOffset = ResolveBlockOffset(srcBlockIdx, loopIdx, globalStep);
     const u64 dstOffset = GetLocalRecvDisplOfRank(sourceRank) * unitSize_;
 
     const LINK& link = intraLinks_[sourceRank % intraRankSize_];
@@ -626,7 +679,7 @@ HcclResult AlltoallvContinuousPipeline::SdmaReadFromRemoteOutBufferToOutput(
 }
 
 HcclResult AlltoallvContinuousPipeline::InterSendAndReceive(
-    const u32 sendRank, const u32 recvRank, Stream& stream, const u32 loopIdx)
+    const u32 sendRank, const u32 recvRank, Stream& stream, const u32 loopIdx, const u64 globalStep)
 {
     // 计算出对端rank所在module的首rank，因为要向对端rank发送[首rank, 首rank+intraRankSize]rank的数据
     const u32 sendModuleFirstRank = sendRank / intraRankSize_ * intraRankSize_;
@@ -643,10 +696,11 @@ HcclResult AlltoallvContinuousPipeline::InterSendAndReceive(
 
     for (u32 rankOffset = 0; rankOffset < intraRankSize_; ++rankOffset) {
         const u32 targetRank = sendModuleFirstRank + rankOffset;
-        const u64 sendSrcOffset = GetDataBlockOffset(targetRank, loopIdx);
-        const u64 sendDstOffset = GetDataBlockOffset(interRankId_ * intraRankSize_ + rankOffset, loopIdx);
-        const u64 sendSize = inBufferDataSize_[targetRank];
-        inBufferDataSize_[targetRank] = 0;
+        const u64 sendSrcOffset = ResolveBlockOffset(targetRank, loopIdx, globalStep);
+        const u64 sendDstOffset = ResolveBlockOffset(interRankId_ * intraRankSize_ + rankOffset, loopIdx, globalStep);
+        const u32 sendBlockIdx = ResolveMetaIndex(targetRank, loopIdx, globalStep);
+        const u64 sendSize = inBufferDataSize_[sendBlockIdx];
+        inBufferDataSize_[sendBlockIdx] = 0;
         if (sendSize > 0) {
             sendMems.emplace_back(TxMemoryInfo{
                 UserMemType::OUTPUT_MEM, sendDstOffset, static_cast<s8*>(inBuffer_.ptr()) + sendSrcOffset, sendSize});
@@ -658,8 +712,8 @@ HcclResult AlltoallvContinuousPipeline::InterSendAndReceive(
 
         const u32 sourceRank = recvModuleFirstRank + intraRankId_;
         const u32 actualTargetRank = interRankId_ * intraRankSize_ + rankOffset;
-        const u64 recvSrcOffset = GetDataBlockOffset(actualTargetRank, loopIdx);
-        const u64 recvDstOffset = GetDataBlockOffset(recvModuleFirstRank + rankOffset, loopIdx);
+        const u64 recvSrcOffset = ResolveBlockOffset(actualTargetRank, loopIdx, globalStep);
+        const u64 recvDstOffset = ResolveBlockOffset(recvModuleFirstRank + rankOffset, loopIdx, globalStep);
         const u64 recvCount = std::min(countsPerBlock_, intraRecvCounts_[rankOffset][sourceRank]);
         const u64 recvSize = recvCount * unitSize_;
         if (recvCount > 0) {
@@ -717,8 +771,9 @@ HcclResult AlltoallvContinuousPipeline::DoLocalCopy(const u32 beginStepNum, cons
 
     for (u32 step = beginStepNum + 1; step < endStepNum + 1; ++step) {
         const u32 sendModuleId = (interRankId_ + step) % interRankSize_;
+        const u64 globalStep = MakeGlobalStep(loopIdx, step);
         for (const auto remoteRank : ranksPerModule_[sendModuleId]) {
-            CHK_RET(LocalCopyFromInputToInBuffer(remoteRank, mainStream_, loopIdx));
+            CHK_RET(LocalCopyFromInputToInBuffer(remoteRank, mainStream_, loopIdx, globalStep));
         }
     }
     HCCL_DEBUG(
@@ -740,13 +795,14 @@ AlltoallvContinuousPipeline::DoIntraDistribution(const u32 beginStepNum, const u
 
     for (u32 step = beginStepNum + 1; step < endStepNum + 1; ++step) {
         const u32 recvModuleId = (interRankId_ + interRankSize_ - step) % interRankSize_;
+        const u64 globalStep = MakeGlobalStep(loopIdx, step);
         HCCL_DEBUG("[AlltoallvContinuousPipeline][DoIntraDistribution] recvModuleId[%u]", recvModuleId);
         for (const auto remoteRank : ranksPerModule_[recvModuleId]) {
             const u32 remoteIntraRank = remoteRank % intraRankSize_;
             HCCL_DEBUG("[AlltoallvContinuousPipeline][DoIntraDistribution] remoteIntraRank[%u]", remoteIntraRank);
             if (intraRankId_ == remoteIntraRank) {
                 // 如果是同号卡，直接从out buffer拷贝到output
-                CHK_RET(LocalCopyFromOutBufferToOutput(remoteRank, mainStream_, loopIdx));
+                CHK_RET(LocalCopyFromOutBufferToOutput(remoteRank, mainStream_, loopIdx, globalStep));
             } else {
                 // 如果不是同号卡，从module内它对应的同号卡获取
                 const u32 streamIndex = GetSdmaSubStreamIdx(remoteIntraRank);
@@ -754,7 +810,7 @@ AlltoallvContinuousPipeline::DoIntraDistribution(const u32 beginStepNum, const u
                     "[AlltoallvContinuousPipeline][DoIntraDistribution] streamIndex[%u], sdmaSubStreams_.size()[%zu]",
                     streamIndex, sdmaSubStreams_.size());
                 Stream& subStream = sdmaSubStreams_[streamIndex];
-                CHK_RET(SdmaReadFromRemoteOutBufferToOutput(remoteRank, subStream, loopIdx));
+                CHK_RET(SdmaReadFromRemoteOutBufferToOutput(remoteRank, subStream, loopIdx, globalStep));
             }
         }
     }
@@ -780,7 +836,8 @@ AlltoallvContinuousPipeline::DoInterSendReceive(const u32 beginStepNum, const u3
     for (u32 step = beginStepNum + 1; step < endStepNum + 1; ++step) {
         const u32 sendRank = (userRank_ + step * intraRankSize_) % userRankSize_;
         const u32 recvRank = (userRank_ + userRankSize_ - step * intraRankSize_) % userRankSize_;
-        CHK_RET(InterSendAndReceive(sendRank, recvRank, rdmaSubStreams_[streamIdx++], loopIdx));
+        const u64 globalStep = MakeGlobalStep(loopIdx, step);
+        CHK_RET(InterSendAndReceive(sendRank, recvRank, rdmaSubStreams_[streamIdx++], loopIdx, globalStep));
     }
     HCCL_DEBUG(
         "[AlltoallvContinuousPipeline][DoInterSendReceive] done. beginStepNum[%u], endStepNum[%u], loopIdx[%u]",
@@ -790,11 +847,13 @@ AlltoallvContinuousPipeline::DoInterSendReceive(const u32 beginStepNum, const u3
 
 HcclResult AlltoallvContinuousPipeline::DoLevel0LocalCopy(const u32 loopIdx)
 {
+    // 组内直发族的数据用步号 0 的计数器
+    const u64 globalStep = MakeGlobalStep(loopIdx, 0);
     for (const auto remoteRank : ranksPerModule_[interRankId_]) {
         if (remoteRank == userRank_) {
             continue;
         }
-        CHK_RET(LocalCopyFromOutBufferToOutput(remoteRank, mainStream_, loopIdx));
+        CHK_RET(LocalCopyFromOutBufferToOutput(remoteRank, mainStream_, loopIdx, globalStep));
     }
     HCCL_DEBUG("[AlltoallvContinuousPipeline][DoLevel0LocalCopy] done, loopIdx[%u].", loopIdx);
     return HCCL_SUCCESS;
@@ -802,6 +861,8 @@ HcclResult AlltoallvContinuousPipeline::DoLevel0LocalCopy(const u32 loopIdx)
 
 HcclResult AlltoallvContinuousPipeline::DoLevel0SdmaSend(const u32 loopIdx)
 {
+    // 组内直发族的数据用步号 0 的计数器
+    const u64 globalStep = MakeGlobalStep(loopIdx, 0);
     for (const auto remoteRank : ranksPerModule_[interRankId_]) {
         if (remoteRank == userRank_) {
             continue;
@@ -809,7 +870,7 @@ HcclResult AlltoallvContinuousPipeline::DoLevel0SdmaSend(const u32 loopIdx)
         const u32 remoteIntraRank = remoteRank % intraRankSize_;
         const u32 streamIndex = GetSdmaSubStreamIdx(remoteIntraRank);
         Stream& subStream = sdmaSubStreams_[streamIndex];
-        CHK_RET(SdmaSendFromInputToRemoteOutBuffer(remoteRank, subStream, loopIdx));
+        CHK_RET(SdmaSendFromInputToRemoteOutBuffer(remoteRank, subStream, loopIdx, globalStep));
     }
 
     HCCL_DEBUG("[AlltoallvContinuousPipeline][DoLevel0SdmaSend] done, loopIdx[%u].", loopIdx);

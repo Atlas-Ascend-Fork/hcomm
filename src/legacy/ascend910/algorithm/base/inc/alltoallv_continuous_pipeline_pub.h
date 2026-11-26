@@ -17,6 +17,17 @@ namespace hccl {
 
 constexpr u32 PINGPONG_MEM_NUM = 2;
 
+// 复用组数：3 组可覆盖同刻最多相差 2 的计数器跨度；M = 2 走旧布局，不使用该值
+constexpr u32 SLOT_REUSE_NUM = 3;
+// 仍走旧布局的最大 inter rank size：M <= 该值时块数不减少，M 更大时启用槽位布局
+constexpr u32 LAYOUT_LEGACY_MAX_INTER_RANK_SIZE = 3;
+
+// 数据块的索引方式
+enum class LayoutMode : u8 {
+    RANK_INDEX = 0, // 旧布局：块按 user rank 索引
+    SLOT_INDEX = 1  // 新布局：块按 (globalStep mod w, rank % I) 索引
+};
+
 struct TaskState {
     u32 stepNum{0};     // stepNum来分别表示当前做到哪一步
     u32 stepNumNext{0}; // next表示每种task在这一轮要做到哪一步，步长是RDMA并发度
@@ -46,7 +57,7 @@ private:
     HcclResult
     PrepareTopoInfo(const u32 userRank, const SubCommInfo& level0CommInfo, const SubCommInfo& level1CommInfo);
 
-    // 对buffer进行切分，in和out buffer都分为数据区域和信息区域，数据区域和信息区域里再分成user rank size块
+    // 对buffer进行切分，in和out buffer都分为数据区域和信息区域，数据区域和信息区域里再分成块
     HcclResult SplitBuffer(const bool enablePingPong);
 
     // 将从流资源划分为RDMA并发流和SDMA并发流，对Notify资源也进行相应的划分
@@ -55,24 +66,29 @@ private:
         const std::vector<std::shared_ptr<LocalNotify>>& signalSubToMain);
 
     // 将一块准备要发送到remoteRank的数据从input拷贝到in buffer对应分块里，拷贝size为MIN(剩余要发送的size，ccl分块大小)
-    HcclResult LocalCopyFromInputToInBuffer(const u32 targetRank, Stream& stream, const u32 loopIdx);
+    HcclResult
+    LocalCopyFromInputToInBuffer(const u32 targetRank, Stream& stream, const u32 loopIdx, const u64 globalStep);
 
     // 将一块来自remoteRank的数据从out buffer对应分块里拷贝到output，拷贝size为MIN(剩余要接收的size，ccl分块大小)
-    HcclResult LocalCopyFromOutBufferToOutput(const u32 sourceRank, Stream& stream, const u32 loopIdx);
+    HcclResult
+    LocalCopyFromOutBufferToOutput(const u32 sourceRank, Stream& stream, const u32 loopIdx, const u64 globalStep);
 
     // 将自己发送到自己的那块数据，从input拷贝到output对应位置，拷贝size为完整数据大小
     HcclResult LocalCopySelfDataFromInputToOutput(Stream& stream);
 
     // 将一块要通过SDMA发送给机内另一个rank的数据，从本端input发送到对端的out
     // buffer对应分块里，拷贝size为MIN(剩余要发送的size，ccl分块大小)
-    HcclResult SdmaSendFromInputToRemoteOutBuffer(const u32 targetRank, Stream& stream, const u32 loopIdx);
+    HcclResult
+    SdmaSendFromInputToRemoteOutBuffer(const u32 targetRank, Stream& stream, const u32 loopIdx, const u64 globalStep);
 
     // 通过SDMA从机内另一个rank的out
     // buffer对应分块读取自己接收的数据，放到本端output，拷贝size为MIN(剩余要接收的size，ccl分块大小)
-    HcclResult SdmaReadFromRemoteOutBufferToOutput(const u32 sourceRank, Stream& stream, const u32 loopIdx);
+    HcclResult
+    SdmaReadFromRemoteOutBufferToOutput(const u32 sourceRank, Stream& stream, const u32 loopIdx, const u64 globalStep);
 
     // 跨module，向sendRank发送数据，从recvRank接收数据，数据从in buffer到out buffer
-    HcclResult InterSendAndReceive(const u32 sendRank, const u32 recvRank, Stream& stream, const u32 loopIdx);
+    HcclResult InterSendAndReceive(
+        const u32 sendRank, const u32 recvRank, Stream& stream, const u32 loopIdx, const u64 globalStep);
 
     // 处理发送给跨module rank数据的本地拷贝，根据起始stepNum和步长计算具体要处理哪些rank的数据
     HcclResult DoLocalCopy(const u32 beginStepNum, const u32 endStepNum, const u32 loopIdx);
@@ -133,8 +149,17 @@ private:
     inline u64 GetLocalRecvCountOfRank(const u32 sourceRank) const;
     inline u64 GetLocalRecvDisplOfRank(const u32 sourceRank) const;
 
-    // 获取每个rank对应的内存分块偏移值，bufferIdx为0或1表示启用乒乓时的两组内存
-    inline u64 GetDataBlockOffset(const u32 rank, const u32 bufferIdx) const;
+    // 全局计数器：轮号 × M + 步号，先转 u64 再乘避免 u32 溢出
+    inline u64 MakeGlobalStep(const u32 loopIdx, const u32 step) const;
+
+    // 数据块下标：返回 dataBlockOffsets_ 的索引；inBufferDataSize_ 请走 ResolveMetaIndex
+    inline u32 ResolveBlockIndex(const u32 rank, const u32 loopIdx, const u64 globalStep) const;
+
+    // 数据块偏移：旧布局按 rank 取，新布局按 (globalStep mod w, rank % I) 取
+    inline u64 ResolveBlockOffset(const u32 rank, const u32 loopIdx, const u64 globalStep) const;
+
+    // 在途长度元数据下标：旧布局按 rank 索引（与改造前一致），新布局与数据偏移同键
+    inline u32 ResolveMetaIndex(const u32 rank, const u32 loopIdx, const u64 globalStep) const;
 
     // 刷新某个rank的send info，counts-[count]，displ+[count]
     HcclResult UpdateLocalSendInfo(const u32 targetRank, const u64 count);
@@ -179,12 +204,16 @@ private:
 
     u32 unitSize_{0}; // 数据类型对应的字节数
 
-    u64 sizePerBlock_{0};               // buffer中每个数据分块的大小，一共有user rank size块
-    u64 countsPerBlock_{0};             // buffer中每个数据分块的count数
-    std::vector<u64> dataBlockOffsets_; // 每个数据分块的首地址，数组长度为user rank size，索引是user rank
-    std::vector<u64> infoOffsets_; // counts或flag分块的首地址，数组长度为user rank size，索引是user rank
+    LayoutMode layoutMode_{LayoutMode::RANK_INDEX}; // 当前启用的数据块索引方式
+    u32 reuseGroupNum_{0};                          // 复用组数 w
+    u32 blockNum_{0}; // 数据块数 K，新布局为 w×I，旧布局为 N（乒乓时 2N）
 
-    std::vector<u64> inBufferDataSize_; // 记录在in buffer里每个分块目前存放的数据大小
+    u64 sizePerBlock_{0};               // buffer中每个数据分块的大小，一共 blockNum_ 块
+    u64 countsPerBlock_{0};             // buffer中每个数据分块的count数
+    std::vector<u64> dataBlockOffsets_; // 每个数据分块的首地址，长度 blockNum_
+    std::vector<u64> infoOffsets_;      // counts或flag分块的首地址，长度 userRankSize_，索引是 user rank
+
+    std::vector<u64> inBufferDataSize_; // 每个分块当前存放的数据大小；新布局与 dataBlockOffsets_ 同键
 
     bool needCollectInfo_{false}; // 是否需要先收集其他module的counts信息
     const SendRecvInfo* localSendRecvInfoPtr_ = nullptr;
