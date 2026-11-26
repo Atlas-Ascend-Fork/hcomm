@@ -16,6 +16,7 @@
 #include <string>
 #include <algorithm>
 #include <new>
+#include "env_logic_superpod_config.h"
 #include "invalid_params_exception.h"
 #include "exception_util.h"
 #include "adapter_error_manager_pub.h"
@@ -261,7 +262,7 @@ RankTableInfo::RankTableInfo(Hccl::BinaryStream& binaryStream)
         size_t groupIdSize = 0;
         binaryStream >> rankId >> groupIdSize;
         CHK_PRT_THROW(
-            groupIdSize > MAX_LEN_OF_LOGIC_SUPERPOD_ID
+            groupIdSize > hccl::MAX_LEN_OF_LOGIC_SUPERPOD_ID
                 || groupIdSize > static_cast<size_t>(binaryStream.GetRemainingSize()),
             HCCL_ERROR("[%s] logic group[%zu] has invalid ID length[%zu].", __func__, i, groupIdSize),
             InvalidParamsException, "logic group ID length invalid");

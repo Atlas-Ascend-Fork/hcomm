@@ -10,7 +10,6 @@
 
 #include "env_logic_superpod_config.h"
 #include "log.h"
-#include "rank_table_info.h"
 
 namespace hccl {
 
@@ -22,7 +21,7 @@ EnvLogicSuperPodConfig::EnvLogicSuperPodConfig()
               return value == "EmptyString" ? std::string{} : value;
           },
           [](const std::string& value) {
-              return value.size() <= Hccl::MAX_LEN_OF_LOGIC_SUPERPOD_ID;
+              return value.size() <= MAX_LEN_OF_LOGIC_SUPERPOD_ID;
           })
 {}
 
@@ -42,7 +41,7 @@ HcclResult EnvLogicSuperPodConfig::Parse()
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR(
             "[Parse][LogicSuperPodId]Invalid HCCL_LOGIC_SUPERPOD_ID env len, len is bigger than [%u].",
-            Hccl::MAX_LEN_OF_LOGIC_SUPERPOD_ID);
+            MAX_LEN_OF_LOGIC_SUPERPOD_ID);
         return ret;
     }
     const auto& logicId = logicSuperPodId_.Get();

@@ -94,6 +94,12 @@ private:
     std::shared_ptr<NetInstance> CreateNetInstance(const RankLevelInfo& levelInfo);
 };
 
+struct NetInstIdUpdate {
+    std::string* netInstId;
+    const std::string* logicSuperPodId;
+    std::string newNetInstId;
+};
+
 std::map<PlaneId, FabricId> GetFabricsFromAddrInfo(const std::vector<hccl::AddressInfo>& rankAddrs);
 std::vector<std::shared_ptr<PhyTopo::Link>> GetPeer2NetPhyLinks(u32 netLayer, LocalId localId);
 // 建链上下文：与物理边/peer数据分离，避免自由函数参数膨胀

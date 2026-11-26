@@ -25,8 +25,7 @@
 #include "rank_table_source.h"
 #include "port.h"
 namespace Hccl {
-constexpr unsigned int MAX_RANKCOUNT = 262144;    // 2^18, 约 26 万卡
-constexpr u32 MAX_LEN_OF_LOGIC_SUPERPOD_ID = 128; // 逻辑超节点ID的最大字节数。
+constexpr unsigned int MAX_RANKCOUNT = 262144; // 2^18, 约 26 万卡
 constexpr u32 UNDEFIEND_LOCAL_ID = UINT_MAX;
 class RankTableInfo {
 public:

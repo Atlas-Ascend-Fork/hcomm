@@ -16,6 +16,8 @@
 
 namespace hccl {
 
+constexpr u32 MAX_LEN_OF_LOGIC_SUPERPOD_ID = 128; // 逻辑超节点ID的最大字节数。
+
 // 进程共享配置首次Parse成功后缓存（包括空值），失败不缓存。
 class EnvLogicSuperPodConfig {
 public:

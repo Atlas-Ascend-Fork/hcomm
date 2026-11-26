@@ -64,12 +64,11 @@ namespace {
     bool RankHasInterSuperPodPort(
         const hccl::NewRankInfo& rankInfo, u32 layer, const InterSuperPodPortsByLocalId& portsByLocalId)
     {
-        // 按设备localId查找跨超端口，避免不同设备的同名端口误匹配。
         const auto localPorts = portsByLocalId.find(rankInfo.localId);
         if (localPorts == portsByLocalId.end()) {
             return false;
         }
-        // 找到当前rank在指定层的配置；未配置该层则不匹配。
+
         const auto level = std::find_if(
             rankInfo.rankLevelInfos.begin(), rankInfo.rankLevelInfos.end(), [layer](const RankLevelInfo& info) {
                 return info.netLayer == layer;
@@ -77,7 +76,7 @@ namespace {
         if (level == rankInfo.rankLevelInfos.end()) {
             return false;
         }
-        // RankTable JSON解析和二进制反序列化都会从rank_addr_list构建portAddrMap，这里直接遍历其端口key。
+
         for (const auto& portAddr : level->portAddrMap) {
             if (localPorts->second.count(portAddr.first) != 0) {
                 return true;
@@ -86,15 +85,9 @@ namespace {
         return false;
     }
 
-    struct NetInstIdUpdate {
-        std::string* netInstId;
-        const std::string* logicId;
-        std::string newNetInstId;
-    };
-
-    // 只收集待更新项，全部校验通过前不修改原表。
+    // 收集目标层追加逻辑ID后的新实例ID并检查长度。
     HcclResult CollectNetInstIdUpdates(
-        RankTableInfo& rankTable, u32 physicalSuperPodLayer, std::vector<NetInstIdUpdate>& netInstIdUpdates)
+        RankTableInfo& rankTable, u32 physicalSuperPodLayer, std::vector<NetInstIdUpdate>& netInstIdUpdateList)
     {
         for (auto& rankInfo : rankTable.ranks) {
             if (rankInfo.logicSuperPodId.empty()) {
@@ -113,7 +106,7 @@ namespace {
                         "[%s] build logical netInstId failed, netLayer[%u] rankId[%u] ret[%d]", __func__,
                         physicalSuperPodLayer, rankInfo.rankId, ret),
                     ret);
-                netInstIdUpdates.push_back({&level.netInstId, &rankInfo.logicSuperPodId, std::move(newNetInstId)});
+                netInstIdUpdateList.push_back({&level.netInstId, &rankInfo.logicSuperPodId, std::move(newNetInstId)});
             }
         }
         return HCCL_SUCCESS;
@@ -122,19 +115,19 @@ namespace {
 
 HcclResult FindSuperPodLayer(const RankTableInfo& rankTable, const hccl::TopoInfo& topoInfo, u32& physicalSuperPodLayer)
 {
-    std::set<u32> registeredLayers; // 全表已注册层，set升序即实际层序
+    std::set<u32> registeredLayers;
     for (const auto& rankInfo : rankTable.ranks) {
         for (const auto& level : rankInfo.rankLevelInfos) {
             registeredLayers.insert(level.netLayer);
         }
     }
     if (registeredLayers.empty()) {
-        // 全表无已注册层：外层分别告警后跳过
-        HCCL_DEBUG("[%s] no net layer registered in rank table", __func__);
+        // 所有rank都没有网络层配置，无法查找物理超节点层。
+        HCCL_RUN_INFO("[%s] no net layer registered in rank table", __func__);
         return HCCL_E_NOT_FOUND;
     }
 
-    // 记录前一个已注册的网络层，MAX_NET_LAYER表示尚无前一层。
+    // 保存上一次遍历的层号，初始值MAX_NET_LAYER表示还没遍历任何层。
     u32 previousRegisteredLayer = MAX_NET_LAYER;
     for (u32 layer : registeredLayers) {
         const auto portsByLocalId = CollectInterSuperPodPorts(topoInfo, layer);
@@ -151,17 +144,17 @@ HcclResult FindSuperPodLayer(const RankTableInfo& rankTable, const hccl::TopoInf
         }
         if (hasInterSuperPodPort) {
             if (previousRegisteredLayer == MAX_NET_LAYER) {
-                // 最低已注册层即命中，其下没有网络层：按不支持返回，由外层告警跳过
-                HCCL_DEBUG("[%s] inter layer[%u] is the lowest layer, no layer below it", __func__, layer);
+                // 最底层就是跨超网络，没有更低的层可作为物理超节点层。
+                HCCL_RUN_INFO("[%s] inter layer[%u] is the lowest layer, no layer below it", __func__, layer);
                 return HCCL_E_NOT_SUPPORT;
             }
             physicalSuperPodLayer = previousRegisteredLayer;
             HCCL_INFO("[%s] inter layer[%u], physical superpod layer[%u]", __func__, layer, physicalSuperPodLayer);
             return HCCL_SUCCESS; // 首个命中即终止
         }
-        previousRegisteredLayer = layer; // 记录当前层，供下一轮使用；没有命中跨超端口的层也保留。
+        previousRegisteredLayer = layer;
     }
-    // 未找到跨超层时，前一个已注册层就是遍历到的最高层。
+    // 没有找到跨超网络，使用最高的网络层作为物理超节点层。
     physicalSuperPodLayer = previousRegisteredLayer;
     HCCL_INFO("[%s] no inter layer found, take highest layer[%u]", __func__, physicalSuperPodLayer);
     return HCCL_SUCCESS;
@@ -177,35 +170,36 @@ HcclResult RewriteSuperPodNetInstId(RankTableInfo& rankTable, u32 physicalSuperP
         }
     }
     if (!hasLogicId) {
-        return HCCL_SUCCESS; // 空配置：保持原表
+        return HCCL_SUCCESS;
     }
 
-    std::vector<NetInstIdUpdate> netInstIdUpdates;
-    CHK_RET(CollectNetInstIdUpdates(rankTable, physicalSuperPodLayer, netInstIdUpdates));
+    std::vector<NetInstIdUpdate> netInstIdUpdateList;
+    CHK_RET(CollectNetInstIdUpdates(rankTable, physicalSuperPodLayer, netInstIdUpdateList));
 
     std::set<std::pair<std::string, std::string>> loggedNetInstIds;
     // 统一写入已校验的新ID。
-    for (auto& update : netInstIdUpdates) {
+    for (auto& update : netInstIdUpdateList) {
         const std::string originNetInstId = std::move(*update.netInstId);
         *update.netInstId = std::move(update.newNetInstId);
         if (loggedNetInstIds.emplace(originNetInstId, *update.netInstId).second) {
             HCCL_INFO(
                 "[%s] netLayer[%u] originNetInstId[%s] newNetInstId[%s] logicSuperPodId[%s]", __func__,
-                physicalSuperPodLayer, originNetInstId.c_str(), update.netInstId->c_str(), update.logicId->c_str());
+                physicalSuperPodLayer, originNetInstId.c_str(), update.netInstId->c_str(),
+                update.logicSuperPodId->c_str());
         }
     }
     for (auto& rankInfo : rankTable.ranks) {
-        // 未配置的rank也登记空ID，避免与已配置组查询时绕过跨组限制。
+        // 未配置逻辑ID的rank也记录为空，确保它与已配置rank之间不会返回超内链路。
         rankTable.logicSuperPodGroupIds[rankInfo.rankId] = rankInfo.logicSuperPodId;
-        // 清空已消费的配置，恢复重建不二次追加。
+        // 清空已使用的逻辑ID，避免恢复建图时给实例ID重复加后缀。
         rankInfo.logicSuperPodId.clear();
     }
     rankTable.logicSuperPodSplitLayer = physicalSuperPodLayer;
     return HCCL_SUCCESS;
 }
 
-// 建图前查找物理超节点层，并按逻辑ID改写该层实例ID。
-HcclResult ApplyLogicSuperPodId(RankTableInfo& rankTable, const std::string& topoPath)
+// 找到物理超节点层，并在该层实例ID后追加逻辑ID。
+HcclResult SetLogicSuperPodId(RankTableInfo& rankTable, const std::string& topoPath)
 {
     bool hasLogicId = false;
     for (const auto& rankInfo : rankTable.ranks) {
@@ -215,7 +209,7 @@ HcclResult ApplyLogicSuperPodId(RankTableInfo& rankTable, const std::string& top
         }
     }
     if (!hasLogicId) {
-        return HCCL_SUCCESS; // 全部未配置：跳过，不触topo解析
+        return HCCL_SUCCESS;
     }
 
     CHK_RET(hccl::PhyTopoBuilder::GetInstance().Build(topoPath));
@@ -228,12 +222,12 @@ HcclResult ApplyLogicSuperPodId(RankTableInfo& rankTable, const std::string& top
     u32 physicalSuperPodLayer = MAX_NET_LAYER;
     HcclResult ret = FindSuperPodLayer(rankTable, *topoInfo, physicalSuperPodLayer);
     if (ret == HCCL_E_NOT_SUPPORT) {
-        // 首个跨超协议层是最低层、其下没有网络层：告警跳过
+        // 最底层就是跨超网络，无法确定物理超节点层，保留原表。
         HCCL_WARNING("[%s] inter layer is the lowest layer, keep original table and skip rewrite", __func__);
-        return HCCL_SUCCESS; // 外层告警跳过：不改表按原表建图
+        return HCCL_SUCCESS;
     }
     if (ret == HCCL_E_NOT_FOUND) {
-        // 全表无已注册层：单独告警跳过，坏表由后续建图以各自错误报出
+        // 所有rank都没有网络层配置，保留原表。
         HCCL_WARNING("[%s] no net layer registered in table, keep original table and skip rewrite", __func__);
         return HCCL_SUCCESS;
     }
@@ -338,31 +332,39 @@ namespace {
             result, netLayerExpression);
     }
 
+    std::unique_ptr<RankGraph> BuildRankGraphWithLogicSuperPodId(
+        RankGraphBuilder& rankGraphBuilder, const RankTableInfo& rankTable, const std::string& topoPath, RankId myRank,
+        HcclResult& logicRet)
+    {
+        RankTableInfo inputTable = rankTable;
+        logicRet = SetLogicSuperPodId(inputTable, topoPath);
+        if (logicRet != HCCL_SUCCESS) {
+            return nullptr;
+        }
+        return rankGraphBuilder.Build(inputTable, topoPath, myRank);
+    }
+
     HcclResult BuildFromRankTableImpl(
         const RankTableInfo& rankTable, const std::string& topoPath, RankId myRank, const char* netLayerExpression,
         RankGraphBuildResult& result)
     {
-        // 逻辑超节点：表汇聚后、Build之前集中查层并改写全表目标层实例ID，改写后的表一次建图。
-        // 拆分层号随RankTable保存，在FillBuildResult中设置图的拆分标记，让GetPaths过滤跨组的超内链路。
+        bool needsLogicSuperPodRewrite = false;
+        if (rankTable.GetSource() == RankTableSource::ROOTINFO) {
+            for (const auto& rankInfo : rankTable.ranks) {
+                if (!rankInfo.logicSuperPodId.empty()) {
+                    needsLogicSuperPodRewrite = true;
+                    break;
+                }
+            }
+        }
         HcclResult logicRet = HCCL_SUCCESS;
         HcclResult ret = RunBuild(
             __func__,
-            [&](RankGraphBuilder& rankGraphBuilder) -> std::unique_ptr<RankGraph> {
-                const bool needsRewrite
-                    = rankTable.GetSource() == RankTableSource::ROOTINFO
-                      && std::any_of(
-                          rankTable.ranks.begin(), rankTable.ranks.end(), [](const hccl::NewRankInfo& rankInfo) {
-                              return !rankInfo.logicSuperPodId.empty();
-                          });
-                if (!needsRewrite) {
-                    return rankGraphBuilder.Build(rankTable, topoPath, myRank);
+            [&](RankGraphBuilder& rankGraphBuilder) {
+                if (needsLogicSuperPodRewrite) {
+                    return BuildRankGraphWithLogicSuperPodId(rankGraphBuilder, rankTable, topoPath, myRank, logicRet);
                 }
-                RankTableInfo inputTable = rankTable;
-                logicRet = ApplyLogicSuperPodId(inputTable, topoPath);
-                if (logicRet != HCCL_SUCCESS) {
-                    return nullptr;
-                }
-                return rankGraphBuilder.Build(inputTable, topoPath, myRank);
+                return rankGraphBuilder.Build(rankTable, topoPath, myRank);
             },
             result, netLayerExpression);
         return (logicRet != HCCL_SUCCESS) ? logicRet : ret;

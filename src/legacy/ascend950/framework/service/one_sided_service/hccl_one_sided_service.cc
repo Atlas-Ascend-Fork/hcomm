@@ -63,7 +63,7 @@ HcclResult HcclOneSidedService::GetLinkData(RankId remoteRankId, LinkData& linkD
         const auto paths = comm_->GetRankGraph()->GetPaths(0, comm_->GetMyRank(), remoteRankId);
         if (paths.empty()) {
             HCCL_WARNING(
-                "[HcclOneSidedService][GetLinkData] no available L0 path, localRank[%u] remoteRank[%u]",
+                "[HcclOneSidedService][GetLinkData] no available L0 path, localRank[%d] remoteRank[%u]",
                 comm_->GetMyRank(), remoteRankId);
             return HCCL_E_NOT_SUPPORT;
         }

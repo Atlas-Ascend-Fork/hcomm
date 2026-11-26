@@ -1677,10 +1677,14 @@ hccl::TopoInfo MakeSuperpodTopo(bool withInterRoce = true)
     return test::MakeTopoInfo({0, 1, 2, 3}, edges);
 }
 
-// 把TopoInfo写成真实topo.json文件（编排用例供PhyTopoBuilder::Build解析）
-std::string ProtocolToStr(LinkProtocol proto)
+// 把TopoInfo写成真实topo.json文件
+const char* ProtocolToStr(LinkProtocol proto)
 {
     switch (proto) {
+        case LinkProtocol::UB_CTP:
+            return "UB_CTP";
+        case LinkProtocol::UB_TP:
+            return "UB_TP";
         case LinkProtocol::ROCE:
             return "ROCE";
         case LinkProtocol::UB_RTP:
@@ -1688,7 +1692,7 @@ std::string ProtocolToStr(LinkProtocol proto)
         case LinkProtocol::UBOE:
             return "UBOE";
         default:
-            return "UB_CTP";
+            return nullptr;
     }
 }
 
@@ -1716,7 +1720,9 @@ void WriteTopoFile(const std::string& path, const hccl::TopoInfo& topo)
             }
             nlohmann::json protocols = nlohmann::json::array();
             for (const auto& proto : edge.protocols) {
-                protocols.push_back(ProtocolToStr(proto));
+                const char* protocolName = ProtocolToStr(proto);
+                ASSERT_NE(nullptr, protocolName) << "Unsupported link protocol: " << static_cast<int>(proto);
+                protocols.push_back(protocolName);
             }
             edgeJson["protocols"] = protocols;
             edgeList.push_back(edgeJson);
@@ -1762,7 +1768,7 @@ protected:
     }
 };
 
-class ApplyLogicSuperPodIdTest : public testing::Test {
+class SetLogicSuperPodIdTest : public testing::Test {
 protected:
     static void SetUpTestCase() {}
     static void TearDownTestCase() {}
@@ -1786,11 +1792,37 @@ protected:
     std::string topoPath_;
 };
 
-TEST_F(ApplyLogicSuperPodIdTest, Ut_LogicSuperPod_When_NonRootInfo_Expect_NoRewrite)
+TEST_F(SetLogicSuperPodIdTest, Ut_WriteTopoFile_When_UbTpProtocol_Expect_ProtocolPreserved)
+{
+    auto topo = MakeSuperpodTopo();
+    for (auto& edge : topo.edges.at(INTER_LAYER)) {
+        edge.protocols = {LinkProtocol::UB_TP};
+    }
+    ASSERT_NO_FATAL_FAILURE(WriteTopoFile(topoPath_, topo));
+
+    hccl::TopoInfo restored;
+    ASSERT_EQ(hccl::ParseTopoInfoFile(topoPath_, restored), HCCL_SUCCESS);
+    ASSERT_EQ(restored.edges.size(), topo.edges.size());
+    for (const auto& layerEdges : topo.edges) {
+        const auto restoredLayer = restored.edges.find(layerEdges.first);
+        ASSERT_NE(restoredLayer, restored.edges.end());
+        ASSERT_EQ(restoredLayer->second.size(), layerEdges.second.size());
+        for (size_t i = 0; i < layerEdges.second.size(); ++i) {
+            EXPECT_EQ(restoredLayer->second[i].protocols, layerEdges.second[i].protocols);
+        }
+    }
+}
+
+TEST_F(SetLogicSuperPodIdTest, Ut_ProtocolToStr_When_UnsupportedProtocol_Expect_Nullptr)
+{
+    EXPECT_EQ(nullptr, ProtocolToStr(LinkProtocol::INVALID));
+}
+
+TEST_F(SetLogicSuperPodIdTest, Ut_LogicSuperPod_When_NonRootInfo_Expect_NoRewrite)
 {
     auto table = MakeSuperpodTable({{RANK_0, "A"}, {RANK_1, "A"}, {RANK_2, "B"}, {RANK_3, "B"}});
     table.SetSource(RankTableSource::RANKTABLE);
-    WriteTopoFile(topoPath_, MakeSuperpodTopo());
+    ASSERT_NO_FATAL_FAILURE(WriteTopoFile(topoPath_, MakeSuperpodTopo()));
     const auto* bridge = GetRankGraphBuilderBridge();
     ASSERT_NE(bridge, nullptr);
     RankGraphBuildResult built;
@@ -1810,11 +1842,11 @@ TEST_F(ApplyLogicSuperPodIdTest, Ut_LogicSuperPod_When_NonRootInfo_Expect_NoRewr
     }
 }
 
-TEST_F(ApplyLogicSuperPodIdTest, Ut_LogicSuperPod_When_RootInfoWithoutLogicId_Expect_OriginalGrouping)
+TEST_F(SetLogicSuperPodIdTest, Ut_LogicSuperPod_When_RootInfoWithoutLogicId_Expect_OriginalGrouping)
 {
     auto table = MakeSuperpodTable();
     table.SetSource(RankTableSource::ROOTINFO);
-    WriteTopoFile(topoPath_, MakeSuperpodTopo());
+    ASSERT_NO_FATAL_FAILURE(WriteTopoFile(topoPath_, MakeSuperpodTopo()));
     const auto* bridge = GetRankGraphBuilderBridge();
     ASSERT_NE(bridge, nullptr);
     RankGraphBuildResult built;
@@ -1833,11 +1865,11 @@ TEST_F(ApplyLogicSuperPodIdTest, Ut_LogicSuperPod_When_RootInfoWithoutLogicId_Ex
     }
 }
 
-TEST_F(ApplyLogicSuperPodIdTest, Ut_LogicSuperPod_When_RecoveredFromSnapshot_Expect_SharedLowerLayerStillBlocked)
+TEST_F(SetLogicSuperPodIdTest, Ut_LogicSuperPod_When_RecoveredFromSnapshot_Expect_SharedLowerLayerStillBlocked)
 {
     auto table = MakeSuperpodTable({{RANK_0, "A"}, {RANK_1, "A"}, {RANK_2, "B"}, {RANK_3, "B"}});
     table.SetSource(RankTableSource::ROOTINFO);
-    WriteTopoFile(topoPath_, MakeSuperpodTopo(false));
+    ASSERT_NO_FATAL_FAILURE(WriteTopoFile(topoPath_, MakeSuperpodTopo(false)));
     const auto* bridge = GetRankGraphBuilderBridge();
     ASSERT_NE(bridge, nullptr);
     RankGraphBuildResult built;
@@ -1867,11 +1899,11 @@ TEST_F(ApplyLogicSuperPodIdTest, Ut_LogicSuperPod_When_RecoveredFromSnapshot_Exp
     EXPECT_EQ(recovered.rankTableInfo.ranks[0].rankLevelInfos[2].netInstId, "cluster_A");
 }
 
-TEST_F(ApplyLogicSuperPodIdTest, Ut_LogicSuperPod_When_SubgraphRanksReordered_Expect_SharedLowerLayerStillBlocked)
+TEST_F(SetLogicSuperPodIdTest, Ut_LogicSuperPod_When_SubgraphRanksReordered_Expect_SharedLowerLayerStillBlocked)
 {
     auto table = MakeSuperpodTable({{RANK_0, "A"}, {RANK_1, "A"}, {RANK_2, "B"}, {RANK_3, "B"}});
     table.SetSource(RankTableSource::ROOTINFO);
-    WriteTopoFile(topoPath_, MakeSuperpodTopo(false));
+    ASSERT_NO_FATAL_FAILURE(WriteTopoFile(topoPath_, MakeSuperpodTopo(false)));
     const auto* bridge = GetRankGraphBuilderBridge();
     ASSERT_NE(bridge, nullptr);
     RankGraphBuildResult built;
@@ -1886,11 +1918,11 @@ TEST_F(ApplyLogicSuperPodIdTest, Ut_LogicSuperPod_When_SubgraphRanksReordered_Ex
     EXPECT_FALSE(child->GetPaths(TARGET_LAYER, RANK_2, RANK_3).empty());
 }
 
-TEST_F(ApplyLogicSuperPodIdTest, Ut_LogicSuperPod_When_ServerUnconfigured_Expect_DefaultGroupBoundaryPreserved)
+TEST_F(SetLogicSuperPodIdTest, Ut_LogicSuperPod_When_ServerUnconfigured_Expect_DefaultGroupBoundaryPreserved)
 {
     auto table = MakeSuperpodTable({{RANK_0, "A"}, {RANK_1, "A"}});
     table.SetSource(RankTableSource::ROOTINFO);
-    WriteTopoFile(topoPath_, MakeSuperpodTopo(false));
+    ASSERT_NO_FATAL_FAILURE(WriteTopoFile(topoPath_, MakeSuperpodTopo(false)));
     const auto* bridge = GetRankGraphBuilderBridge();
     ASSERT_NE(bridge, nullptr);
 
@@ -1928,7 +1960,7 @@ TEST_F(ApplyLogicSuperPodIdTest, Ut_LogicSuperPod_When_ServerUnconfigured_Expect
     EXPECT_FALSE(recovered.rankGraph->GetPaths(TARGET_LAYER, RANK_2, RANK_3).empty());
 }
 
-TEST_F(ApplyLogicSuperPodIdTest, Ut_LogicSuperPod_When_ServerMissingSplitLayer_Expect_SharedLowerLayerBlocked)
+TEST_F(SetLogicSuperPodIdTest, Ut_LogicSuperPod_When_ServerMissingSplitLayer_Expect_SharedLowerLayerBlocked)
 {
     auto table = MakeSuperpodTable({{RANK_0, "A"}, {RANK_1, "A"}, {RANK_2, "B"}, {RANK_3, "B"}});
     table.SetSource(RankTableSource::ROOTINFO);
@@ -1944,7 +1976,7 @@ TEST_F(ApplyLogicSuperPodIdTest, Ut_LogicSuperPod_When_ServerMissingSplitLayer_E
         topo.edges[interLayer].push_back(
             test::MakeEdge(interLayer, LinkType::PEER2NET, rank.localId, {"3/0"}, 0, {}, LinkProtocol::ROCE));
     }
-    WriteTopoFile(topoPath_, topo);
+    ASSERT_NO_FATAL_FAILURE(WriteTopoFile(topoPath_, topo));
     const auto* bridge = GetRankGraphBuilderBridge();
     ASSERT_NE(bridge, nullptr);
 
@@ -2292,13 +2324,13 @@ TEST_F(TableRewriteBuildTest, Ut_RecoverBuild_When_FindSucceeded_Expect_BoundWri
 }
 
 // 已配置但topo文件不可读时，返回错误且不改写原表
-TEST_F(ApplyLogicSuperPodIdTest, Ut_Apply_When_TopoFileMissing_Expect_ErrorPropagated)
+TEST_F(SetLogicSuperPodIdTest, Ut_Apply_When_TopoFileMissing_Expect_ErrorPropagated)
 {
     RankTableInfo table = MakeSuperpodTable({{RANK_0, "A"}, {RANK_1, "A"}});
     const RankTableInfo before = table;
 
     ASSERT_EQ(std::remove(topoPath_.c_str()), 0);
-    EXPECT_EQ(ApplyLogicSuperPodId(table, topoPath_), HCCL_E_PARA);
+    EXPECT_EQ(SetLogicSuperPodId(table, topoPath_), HCCL_E_PARA);
     EXPECT_EQ(table.ranks[0].rankLevelInfos[1].netInstId, before.ranks[0].rankLevelInfos[1].netInstId);
     EXPECT_FALSE(table.ranks[0].logicSuperPodId.empty()); // 未消费
     EXPECT_EQ(table.logicSuperPodSplitLayer, before.logicSuperPodSplitLayer);

@@ -20,6 +20,7 @@
 #include "ip_address.h"
 
 #include "new_rank_info.h"
+#include "env_logic_superpod_config.h"
 
 using namespace Hccl;
 
@@ -197,6 +198,31 @@ TEST_F(NewRankInfoParserTest, Ut_Deserialize_When_OptionalFieldsMissing_Expect_S
     EXPECT_EQ(hccl::ParseJsonString(BuildRankInfoJson(false).dump(), actualRankInfo), HCCL_SUCCESS);
     ExpectRankInfoEqual(BuildExpectedRankInfo(false), actualRankInfo);
     ExpectTlsStatusBinaryRoundTrip(actualRankInfo);
+}
+
+TEST_F(NewRankInfoParserTest, Ut_BinaryDeserialize_When_LogicSuperPodIdAtBoundary_Expect_RoundTrip)
+{
+    const size_t lengths[] = {0, hccl::MAX_LEN_OF_LOGIC_SUPERPOD_ID};
+    for (size_t length : lengths) {
+        SCOPED_TRACE(length);
+        auto rankInfo = BuildExpectedRankInfo(false);
+        rankInfo.logicSuperPodId.assign(length, 'A');
+        BinaryStream stream;
+        ASSERT_EQ(rankInfo.GetBinStream(true, stream), HCCL_SUCCESS);
+        const u32 marker = 0x12345678;
+        stream << marker;
+        std::vector<char> bytes;
+        stream.Dump(bytes);
+        const std::vector<char>& received = bytes;
+        BinaryStream input(received);
+
+        hccl::NewRankInfo restored(input);
+        EXPECT_EQ(restored.logicSuperPodId, rankInfo.logicSuperPodId);
+        u32 next = 0;
+        input >> next;
+        EXPECT_EQ(next, marker);
+        EXPECT_EQ(input.GetRemainingSize(), 0);
+    }
 }
 
 TEST_F(NewRankInfoParserTest, Ut_Deserialize_When_InvalidLoaclId_Expect_Exception)
