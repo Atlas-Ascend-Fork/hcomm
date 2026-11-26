@@ -52,7 +52,7 @@ class RemoteIpcRmaBuffer : public RemoteRmaBuffer {
 public:
     RemoteIpcRmaBuffer();
 
-    explicit RemoteIpcRmaBuffer(const Serializable& rmtDto, uint8_t pathMode = 0);
+    explicit RemoteIpcRmaBuffer(const Serializable& rmtDto, uint8_t pathMode = 0, u64 localServerId = 0);
 
     RemoteIpcRmaBuffer(const Serializable& rmtDto, const std::string tag, uint8_t pathMode = 0);
 
@@ -77,6 +77,8 @@ private:
     void* ipcPtr{};
     u32 remotePid{0};
     u32 myPid{0};
+    u64 remoteServerId{0}; // 对端 server 标识
+    u64 myServerId{0};     // 本端 server 标识
     bool isOpened;
 };
 

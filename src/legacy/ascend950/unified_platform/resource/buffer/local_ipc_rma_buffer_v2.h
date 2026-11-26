@@ -18,10 +18,10 @@ namespace Hccl {
 
 class LocalIpcRmaBuffer : public LocalRmaBuffer {
 public:
-    explicit LocalIpcRmaBuffer(std::shared_ptr<Buffer> buf);
+    explicit LocalIpcRmaBuffer(std::shared_ptr<Buffer> buf, u64 serverId = 0);
 
     // 别名构造函数：共享父buffer的IPC资源，不创建新的IPC内存名
-    LocalIpcRmaBuffer(std::shared_ptr<Buffer> buf, const LocalIpcRmaBuffer& parent);
+    LocalIpcRmaBuffer(std::shared_ptr<Buffer> buf, const LocalIpcRmaBuffer& parent, u64 serverId = 0);
 
     ~LocalIpcRmaBuffer() override;
 
@@ -38,11 +38,16 @@ public:
 
     void* GetIpcPtr() const { return ipcPtr; }
 
+    u64 GetServerId() const { return serverId; }
+
 protected:
     char name[RTS_IPC_MEM_NAME_LEN];
     void* ipcPtr{nullptr};
     u64 ipcOffset{0};
     u64 ipcSize{0};
+
+private:
+    u64 serverId{0}; // 本端 server 标识
 };
 
 } // namespace Hccl

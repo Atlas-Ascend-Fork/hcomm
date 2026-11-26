@@ -12,6 +12,7 @@
 #include "endpoint.h"
 #include "hcomm_c_adpt.h"
 #include "base_comm_node_accessors.h"
+#include "ub_mem_endpoint.h"
 
 namespace hcomm {
 
@@ -57,8 +58,12 @@ HcclResult AivUbMemChannel::BuildNotify()
 HcclResult AivUbMemChannel::BuildBuffer()
 {
     CHK_RET(Channel::BuildBuffer());
+    auto* ubMemEndpoint = dynamic_cast<UbMemEndpoint*>(local_.epPtr);
+    CHK_PTR_NULL(ubMemEndpoint);
+    u64 localServerId = ubMemEndpoint->GetServerId();
     EXCEPTION_CATCH(
-        transport_ = std::make_unique<AivUbMemTransport>(local_.commonRes.bufferVec, local_.socket, channelDesc_),
+        transport_
+        = std::make_unique<AivUbMemTransport>(local_.commonRes.bufferVec, local_.socket, channelDesc_, localServerId),
         return HCCL_E_PTR);
     CHK_PTR_NULL(transport_);
     CHK_RET(transport_->Init());
