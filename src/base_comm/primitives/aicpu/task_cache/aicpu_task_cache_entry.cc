@@ -22,9 +22,6 @@
 #include "common/device/aicpu_indop_env_pub.h"
 #include "exception_util.h"
 #include "log.h"
-#include "rma_buffer_lite.h"
-#include "buffer.h"
-#include "rmt_rma_buf_slice_lite.h"
 #include "sqe_v82.h"
 
 using Hccl::GetPlfDebugConfigValue;
@@ -318,13 +315,6 @@ HcclResult AicpuTaskCacheEntry::AddWqeArray(
     launchOrder_.emplace_back(TaskArrayType::kTaskArrayTypeWqe);
     entryBytes_ += sizeof(TaskArrayType);
 
-    // 初始化token info
-    if (tokenInfosMap_.find(ubTransportLiteImplPtr) == tokenInfosMap_.end()) {
-        const uint64_t addrCnt = cachedBaseAddrs_.size();
-        tokenInfosMap_.emplace(ubTransportLiteImplPtr, vector<TokenInfo>(addrCnt));
-        entryBytes_ += (sizeof(UbTransportLiteImplHandle) + addrCnt * sizeof(TokenInfo));
-    }
-
     HCCL_INFO(
         "[AicpuTaskCacheEntry][AddWqeArray] add %uth wqe array with wqeCount[%u] dbSqeTmpInfo[%u, %d, %u] streamId[%u]",
         wqeTaskArrayInfos_.size() - 1, wqeCount, dbSqeTmpInfo.wqeArrayIdx, dbSqeTmpInfo.isReportTask,
@@ -365,7 +355,7 @@ HcclResult AicpuTaskCacheEntry::SubmitCacheEntry()
     }
 
     CHK_RET(SubmitSqeAddrRefreshInfo_());
-    CHK_RET(SubmitWqeAddrRefreshInfoAndTokenInfo_());
+    CHK_RET(SubmitWqeAddrRefreshInfo_());
     if (isVOp_) {
         CHK_RET(SubmitVNotifyRefreshInfo_());
     }
@@ -603,24 +593,13 @@ HcclResult AicpuTaskCacheEntry::UpdateVOpMode_(
     return HCCL_SUCCESS;
 }
 
-inline HcclResult AicpuTaskCacheEntry::SubmitWqeAddrRefreshInfoAndTokenInfo_()
+inline HcclResult AicpuTaskCacheEntry::SubmitWqeAddrRefreshInfo_()
 {
-    // 更新每段WQE数组的AddrRefreshInfo, 并更新token info
+    // 更新每段WQE数组的AddrRefreshInfo，token沿用录制值。
     for (size_t arrayIdx = 0; arrayIdx < wqeTaskArrayInfos_.size(); arrayIdx++) {
-        // 获取token info
         WqeTaskArrayInfo& wqeTaskArrayInfo = wqeTaskArrayInfos_[arrayIdx];
         UbTransportLiteImpl* ubTransportLiteImplPtr
             = wqeTaskArrayInfo.ubTransportLiteImplPtr; // 注意: AddWqeArray时已校验非空
-        std::unordered_map<UbTransportLiteImplHandle, vector<TokenInfo>>::iterator iter
-            = tokenInfosMap_.find(ubTransportLiteImplPtr);
-
-        CHK_PRT_RET(
-            iter == tokenInfosMap_.end(),
-            HCCL_ERROR(
-                "[AicpuTaskCacheEntry][SubmitCacheEntry] ubTransportLiteImplPtr[%p] not found in tokenInfosMap_",
-                ubTransportLiteImplPtr),
-            HCCL_E_INTERNAL);
-        vector<TokenInfo>& tokenInfos = iter->second;
 
         uint32_t remoteRankId = UINT32_MAX;
         if (isVOp_ || hasRemoteMem_) {
@@ -640,13 +619,13 @@ inline HcclResult AicpuTaskCacheEntry::SubmitWqeAddrRefreshInfoAndTokenInfo_()
             }
         }
 
-        // 更新AddrRefreshInfo和token info
+        // 更新AddrRefreshInfo
         const uint32_t wqeCount = wqeTaskArrayInfo.wqeTaskArray.size();
         vector<WqeTask>& wqeTasks = wqeTaskArrayInfo.wqeTaskArray;
         for (size_t wqeIdx = 0; wqeIdx < wqeCount; wqeIdx++) {
-            CHK_RET(UpdateWqeAddrRefreshInfoAndTokenInfo_(
+            CHK_RET(UpdateWqeAddrRefreshInfo_(
                 wqeTasks[wqeIdx], wqeTaskArrayInfo.locAddrRefreshInfoArray[wqeIdx],
-                wqeTaskArrayInfo.rmtAddrRefreshInfoArray[wqeIdx], tokenInfos, remoteRankId));
+                wqeTaskArrayInfo.rmtAddrRefreshInfoArray[wqeIdx], remoteRankId));
 
             if (isVOp_) {
                 // 记录通道对端 rank，供后续刷新索引本端的 counts/displs；不修改 WQE 内容。
@@ -657,14 +636,11 @@ inline HcclResult AicpuTaskCacheEntry::SubmitWqeAddrRefreshInfoAndTokenInfo_()
             // 打印WQE AddrRefreshInfo
             HCCL_INFO(
                 "[AicpuTaskCacheEntry][SubmitCacheEntry] wqeTaskArrayInfos_[%u][%u]: "
-                "locAddrRefreshInfo[needRefresh-%d memIdx-%u] needLocTokenIdFlag[%d] "
-                "rmtAddrRefreshInfo[needRefresh-%d memIdx-%u] needRmtTokenIdAndValueFlag[%d]",
+                "locAddrRefreshInfo[needRefresh-%d memIdx-%u] rmtAddrRefreshInfo[needRefresh-%d memIdx-%u]",
                 arrayIdx, wqeIdx, wqeTaskArrayInfo.locAddrRefreshInfoArray[wqeIdx].needRefresh,
                 wqeTaskArrayInfo.locAddrRefreshInfoArray[wqeIdx].memIdx,
-                tokenInfos[wqeTaskArrayInfo.locAddrRefreshInfoArray[wqeIdx].memIdx].needLocTokenIdFlag,
                 wqeTaskArrayInfo.rmtAddrRefreshInfoArray[wqeIdx].needRefresh,
-                wqeTaskArrayInfo.rmtAddrRefreshInfoArray[wqeIdx].memIdx,
-                tokenInfos[wqeTaskArrayInfo.rmtAddrRefreshInfoArray[wqeIdx].memIdx].needRmtTokenIdAndValueFlag);
+                wqeTaskArrayInfo.rmtAddrRefreshInfoArray[wqeIdx].memIdx);
         }
     }
     return HCCL_SUCCESS;
@@ -805,11 +781,6 @@ HcclResult AicpuTaskCacheEntry::RefreshAndLaunch(
     // 溢出时阻塞等待空间释放, 等待超时返回HCCL_E_INTERNAL
     CHK_RET(CheckWqeOverflow_());
 
-    // V 类暂沿用录制时的 token；非 V 类保持原有的按新地址刷新 token 行为。
-    if (!isVOp_) {
-        CHK_RET(RefreshTokenInfos_(baseAddrs, memSizes, count));
-    }
-
     const bool enableTaskException = hcomm::GetTaskExceptionEnable();
     const bool l1State = Hccl::DfxProfilingHandlerLite::GetInstance().GetProfL1State();
     const bool needTaskParam = (l1State || enableTaskException);
@@ -820,7 +791,7 @@ HcclResult AicpuTaskCacheEntry::RefreshAndLaunch(
     CHK_RET(LaunchTasksByOrder_(baseAddrs, memSizes, count, needTaskParam, vOpInfo));
 
     if (UNLIKELY(HcclCheckLogLevel(HCCL_LOG_INFO))) {
-        CHK_RET(PrintRefreshResult_(baseAddrs, memSizes, count));
+        CHK_RET(PrintRefreshResult_());
     }
 
     return HCCL_SUCCESS;
@@ -987,70 +958,8 @@ inline HcclResult AicpuTaskCacheEntry::LaunchTasksByOrder_(
     return HCCL_SUCCESS;
 }
 
-inline HcclResult
-AicpuTaskCacheEntry::RefreshTokenInfos_(const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count)
+inline HcclResult AicpuTaskCacheEntry::PrintRefreshResult_()
 {
-    // 按需统一获取新传入内存地址的token信息用于WQE刷新, 避免重复构造Buffer
-    for (std::unordered_map<UbTransportLiteImplHandle, vector<TokenInfo>>::iterator iter = tokenInfosMap_.begin();
-         iter != tokenInfosMap_.end(); iter++) {
-        vector<TokenInfo>& tokenInfos = iter->second;
-        CHK_PRT_RET(
-            tokenInfos.size() != count,
-            HCCL_ERROR(
-                "[AicpuTaskCacheEntry][RefreshAndLaunch] tokenInfos.size[%u] != count[%u]", tokenInfos.size(), count),
-            HCCL_E_INTERNAL);
-
-        // 注意: AddWqeArray时已校验非空, 无需重复校验
-        UbTransportLiteImpl* ubTransportLitePtr = ReinterpretAs<UbTransportLiteImpl*>(iter->first);
-        for (uint32_t memIdx = 0; memIdx < count; memIdx++) {
-            const uint64_t baseAddr = baseAddrs[memIdx];
-            const uint64_t memSize = memSizes[memIdx];
-            TokenInfo& tokenInfo = tokenInfos[memIdx];
-
-            if (tokenInfo.needLocTokenIdFlag) {
-                // 参考hccl_api_data_aicpu_ts.cc (例如HcommWriteOnThread), 获取新loc token id
-                // 注意: 无需通过ubTransportLitePtr->GetRmaBufSlicelite(locRmaBuf)构造Hccl::RmaBufSliceLite
-                // locRmaBufSlicelite,
-                //     再调用locRmaBufSlicelite.GetTokenId()获取token id (一定与Hccl::RmaBufferLite locRmaBuf的token
-                //     id相同)
-                Hccl::RmaBufferLite locRmaBuf;
-                CHK_RET(
-                    ubTransportLitePtr->BuildLocRmaBufferLite(ReinterpretAs<uintptr_t>(baseAddr), memSize, locRmaBuf));
-                tokenInfo.locTokenId = locRmaBuf.GetTokenId();
-            }
-
-            if (tokenInfo.needRmtTokenIdAndValueFlag) {
-                // 参考hccl_api_data_aicpu_ts.cc (例如HcommRead/Write/WriteReduce/WriteWithNotifyOnThread), 获取新rmt
-                // token id/value 注意: Hccl::Buffer本身不含token id/value,
-                // 必须通过调用ubTransportLitePtr->GetRmtRmaBufSliceLite,
-                //     构造Hccl::RmtRmaBufSliceLite, 再调用GetTokenId/Value获取token id/value
-                const Hccl::Buffer rmtBuf{ReinterpretAs<uintptr_t>(baseAddr), memSize};
-                Hccl::RmtRmaBufSliceLite rmtRmaBufSlicelite;
-                CHK_RET(ubTransportLitePtr->GetRmtRmaBufSliceLite(rmtBuf, rmtRmaBufSlicelite));
-                tokenInfo.rmtTokenId = rmtRmaBufSlicelite.GetTokenId();
-                tokenInfo.rmtTokenValue = rmtRmaBufSlicelite.GetTokenValue();
-            }
-        }
-    }
-    return HCCL_SUCCESS;
-}
-
-inline HcclResult AicpuTaskCacheEntry::PrintRefreshResult_(
-    [[maybe_unused]] const uint64_t* baseAddrs, [[maybe_unused]] const uint64_t* memSizes, const uint32_t count)
-{
-    // 打印录制时收集的 token 需求标记；非 V 回放按新地址刷新 token。
-    for (std::unordered_map<UbTransportLiteImplHandle, vector<TokenInfo>>::iterator iter = tokenInfosMap_.begin();
-         iter != tokenInfosMap_.end(); iter++) {
-        UbTransportLiteImpl* ubTransportLitePtr = ReinterpretAs<UbTransportLiteImpl*>(iter->first);
-        vector<TokenInfo>& tokenInfos = iter->second;
-        for (uint32_t memIdx = 0; memIdx < count; memIdx++) {
-            TokenInfo& tokenInfo = tokenInfos[memIdx];
-            HCCL_INFO(
-                "[AicpuTaskCacheEntry][RefreshAndLaunch] tokenInfosMap_[0x%llx][%u]: "
-                "needLocTokenIdFlag[%d]; rmtTokenIdAndValueFlag[%d]",
-                ubTransportLitePtr, memIdx, tokenInfo.needLocTokenIdFlag, tokenInfo.needRmtTokenIdAndValueFlag);
-        }
-    }
     // 打印刷新的顺序
     size_t sqeArrayIdx = 0;
     size_t wqeArrayIdx = 0;
@@ -1174,9 +1083,9 @@ HcclResult AicpuTaskCacheEntry::UpdateSqeAddrRefreshInfo_(
     return HCCL_SUCCESS;
 }
 
-HcclResult AicpuTaskCacheEntry::UpdateWqeAddrRefreshInfoAndTokenInfo_(
+HcclResult AicpuTaskCacheEntry::UpdateWqeAddrRefreshInfo_(
     const WqeTask& wqeTask, AddrRefreshInfo& locAddrRefreshInfo, AddrRefreshInfo& rmtAddrRefreshInfo,
-    vector<TokenInfo>& tokenInfos, uint32_t remoteRankId) const
+    uint32_t remoteRankId) const
 {
     // 参考ub_conn_lite.cc, 提取给定WQE的AddrRefreshInfo
 
@@ -1225,29 +1134,6 @@ HcclResult AicpuTaskCacheEntry::UpdateWqeAddrRefreshInfoAndTokenInfo_(
             return HCCL_E_INTERNAL;
     }
 
-    CHK_RET(UpdateTokenFlagsByAddrRefreshInfo_(locAddrRefreshInfo, tokenInfos, true));
-    CHK_RET(UpdateTokenFlagsByAddrRefreshInfo_(rmtAddrRefreshInfo, tokenInfos, false));
-
-    return HCCL_SUCCESS;
-}
-
-inline HcclResult AicpuTaskCacheEntry::UpdateTokenFlagsByAddrRefreshInfo_(
-    const AddrRefreshInfo& addrRefreshInfo, vector<TokenInfo>& tokenInfos, bool isLoc) const
-{
-    if (!addrRefreshInfo.needRefresh) {
-        return HCCL_SUCCESS;
-    }
-    CHK_PRT_RET(
-        addrRefreshInfo.memIdx >= tokenInfos.size(),
-        HCCL_ERROR(
-            "[AicpuTaskCacheEntry][UpdateWqeAddrRefreshInfo_] %s memIdx[%u] >= tokenInfos.size[%u]",
-            isLoc ? "loc" : "rmt", addrRefreshInfo.memIdx, tokenInfos.size()),
-        HCCL_E_INTERNAL);
-    if (isLoc) {
-        tokenInfos[addrRefreshInfo.memIdx].needLocTokenIdFlag = true;
-    } else {
-        tokenInfos[addrRefreshInfo.memIdx].needRmtTokenIdAndValueFlag = true;
-    }
     return HCCL_SUCCESS;
 }
 
@@ -1587,14 +1473,6 @@ inline HcclResult AicpuTaskCacheEntry::RefreshWqeTasks_(
     vector<WqeTask>& wqeTasks = wqeTaskArrayInfo.wqeTaskArray;
     const vector<AddrRefreshInfo>& wqeLocAddrRefreshInfoArray = wqeTaskArrayInfo.locAddrRefreshInfoArray;
     const vector<AddrRefreshInfo>& wqeRmtAddrRefreshInfoArray = wqeTaskArrayInfo.rmtAddrRefreshInfoArray;
-    const vector<TokenInfo>* tokenInfos = nullptr;
-    if (!isVOp_) {
-        auto iter = tokenInfosMap_.find(wqeTaskArrayInfo.ubTransportLiteImplPtr);
-        CHK_PRT_RET(
-            iter == tokenInfosMap_.end(),
-            HCCL_ERROR("[AicpuTaskCacheEntry][RefreshWqeTasks_] transport token info missing"), HCCL_E_INTERNAL);
-        tokenInfos = &iter->second;
-    }
     const uint64_t wqeCount = wqeTasks.size();
     if (UNLIKELY(isTaskConfigDebug_)) {
         DumpWqeTasksHeader_(wqeCount, wqeTaskArrayInfo.ubConnLitePtr);
@@ -1652,7 +1530,7 @@ inline HcclResult AicpuTaskCacheEntry::RefreshWqeTasks_(
             }
         }
 
-        // V 类保留录制 token；非 V 类刷新地址和对应 token。
+        // A5 token固定：V和非V均仅刷新地址，保留录制的token id/value。
         switch (wqeCode) {
             case UdmaSqOpcode::UDMA_OPC_READ: // UdmaSqeWrite
                 // normal read
@@ -1670,28 +1548,6 @@ inline HcclResult AicpuTaskCacheEntry::RefreshWqeTasks_(
                 // ub_conn_lite.cc中未使用的WQE类型, 告警后报错
                 HCCL_ERROR("[AicpuTaskCacheEntry][%s] unexpected wqeCode[%u]", __func__, wqeCode);
                 return HCCL_E_INTERNAL;
-        }
-        if (!isVOp_) {
-            const bool inlineWrite = wqeCode == UdmaSqOpcode::UDMA_OPC_WRITE && wqeCommonPtr->inlineEn != 0;
-            if (locAddrRefreshInfo.needRefresh && !inlineWrite) {
-                uint32_t& locTokenId = wqeCode == WRITE_WITH_NOTIFY_OPCODE ?
-                                           wqeTask.wqeWriteWithNotify.localU.sge.tokenId :
-                                           wqeTask.wqeWrite.u.sge.tokenId;
-                CHK_RET(RefreshWqeLocTokenId_(locTokenId, locAddrRefreshInfo, *tokenInfos));
-            }
-            if (rmtAddrRefreshInfo.needRefresh && !inlineWrite) {
-                uint32_t tokenId = wqeCode == WRITE_WITH_NOTIFY_OPCODE ? wqeTask.wqeWriteWithNotify.comm.rmtObjId :
-                                                                         wqeTask.wqeWrite.comm.rmtObjId;
-                uint32_t& tokenValue = wqeCode == WRITE_WITH_NOTIFY_OPCODE ?
-                                           wqeTask.wqeWriteWithNotify.comm.rmtTokenValue :
-                                           wqeTask.wqeWrite.comm.rmtTokenValue;
-                CHK_RET(RefreshWqeRmtTokenIdAndValue_(tokenId, tokenValue, rmtAddrRefreshInfo, *tokenInfos));
-                if (wqeCode == WRITE_WITH_NOTIFY_OPCODE) {
-                    wqeTask.wqeWriteWithNotify.comm.rmtObjId = tokenId;
-                } else {
-                    wqeTask.wqeWrite.comm.rmtObjId = tokenId;
-                }
-            }
         }
         if (isVOp_ && locAddrRefreshInfo.needRefresh && locAddrRefreshInfo.memIdx < TASK_CACHE_LOCAL_MEM_COUNT
             && wqeCommonPtr->inlineEn == 0) {
@@ -1792,46 +1648,6 @@ inline HcclResult AicpuTaskCacheEntry::RefreshWqeWriteWithNotify_(
             wqeTask.wqeWriteWithNotify.comm.rmtAddrLow, wqeTask.wqeWriteWithNotify.comm.rmtAddrHigh, rmtAddrRefreshInfo,
             baseAddrs);
     }
-    return HCCL_SUCCESS;
-}
-
-inline HcclResult AicpuTaskCacheEntry::RefreshWqeLocTokenId_(
-    uint32_t& tokenId, const AddrRefreshInfo& addrRefreshInfo, const vector<TokenInfo>& tokenInfos) const
-{
-    // 调用方保证addrRefreshInfo.needRefresh为true
-
-    // 当前UbTransportLiteImpl在对应内存上, 一定已经提前获取了locTokenId
-    // 注意: ubTransportLitePtr已在AddWqeArray时校验非空, 这里无需再校验
-    const TokenInfo& tokenInfo = tokenInfos[addrRefreshInfo.memIdx];
-
-    CHK_PRT_RET(
-        !tokenInfo.needLocTokenIdFlag,
-        HCCL_ERROR("[AicpuTaskCacheEntry][RefreshWqeLocTokenId_] needLocTokenIdFlag is false"), HCCL_E_INTERNAL);
-
-    // 刷新loc token id
-    tokenId = tokenInfo.locTokenId;
-
-    return HCCL_SUCCESS;
-}
-
-inline HcclResult AicpuTaskCacheEntry::RefreshWqeRmtTokenIdAndValue_(
-    uint32_t& tokenId, uint32_t& tokenValue, const AddrRefreshInfo& addrRefreshInfo,
-    const vector<TokenInfo>& tokenInfos) const
-{
-    // 调用方保证addrRefreshInfo.needRefresh为true
-
-    // 当前UbTransportLiteImpl在对应内存上, 一定已经提前获取了rmtTokenId/Value
-    const TokenInfo& tokenInfo = tokenInfos[addrRefreshInfo.memIdx];
-
-    CHK_PRT_RET(
-        !tokenInfo.needRmtTokenIdAndValueFlag,
-        HCCL_ERROR("[AicpuTaskCacheEntry][RefreshWqeRmtTokenIdAndValue_] needRmtTokenIdAndValueFlag is false"),
-        HCCL_E_INTERNAL);
-
-    // 刷新remote token id/value
-    tokenId = tokenInfo.rmtTokenId;
-    tokenValue = tokenInfo.rmtTokenValue;
-
     return HCCL_SUCCESS;
 }
 
