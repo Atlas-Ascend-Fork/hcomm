@@ -49,7 +49,12 @@ HcclResult ParseTaskCacheArgs(
     const bool isVFormat = (count & TASK_CACHE_V_FORMAT_FLAG) != 0;
     const uint64_t arrayCount = count & ~TASK_CACHE_V_FORMAT_FLAG;
     hasRemoteMem = !isVFormat && arrayCount > TASK_CACHE_LOCAL_MEM_COUNT;
-    CHK_PRT_RET(arrayCount > UINT32_MAX, HCCL_ERROR("[%s] invalid array count", __func__), HCCL_E_PARA);
+    // V和图模式远端内存均先限制规模，禁止超限参数触发分配或peer数组读取。
+    constexpr uint64_t MAX_ARRAY_COUNT = TASK_CACHE_LOCAL_MEM_COUNT + uint64_t{2} * TASK_CACHE_MAX_RANK_SIZE;
+    static_assert(MAX_ARRAY_COUNT <= UINT32_MAX, "Task cache array count must fit in memCount");
+    CHK_PRT_RET(
+        arrayCount > MAX_ARRAY_COUNT,
+        HCCL_ERROR("[%s] array count[%llu] exceeds limit[%llu]", __func__, arrayCount, MAX_ARRAY_COUNT), HCCL_E_PARA);
     memCount = static_cast<uint32_t>(arrayCount);
     CHK_PRT_RET(
         hasRemoteMem && arrayCount % 2 != 0, HCCL_ERROR("[%s] invalid rank memory array count", __func__), HCCL_E_PARA);

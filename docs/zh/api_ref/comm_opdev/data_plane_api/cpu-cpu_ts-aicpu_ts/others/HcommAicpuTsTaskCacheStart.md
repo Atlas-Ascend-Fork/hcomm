@@ -39,7 +39,7 @@ HcommResult HcommAicpuTsTaskCacheStart(const char *tag, void **addrs, uint64_t *
 
 ### V格式与字节单位
 
-count的最高位为V格式标记，低63位表示实际数组长度，V格式的rankSize必须大于0。按rank顺序排列如下：
+count的最高位为V格式标记，低63位表示实际数组长度，V格式的rankSize范围为`1～262144`。该参数资源上限覆盖当前256K rank规模，四个V元数据数组合计最多8MiB；超限在读取peer元数据或分配解析数组前返回HCCL_E_PARA。调用方仍须保证实际数组长度与count一致。按rank顺序排列如下：
 
 | 数组下标 | addrs | sizes |
 | --- | --- | --- |
@@ -54,7 +54,7 @@ HCOMM不感知算子data type。调用方必须将发送侧count/displ乘以send
 
 ### 非V格式与远端内存布局
 
-count未设置最高位时为非V格式，不根据数组长度推断V格式。count为2时仅包含本端input/output；count大于2时采用图模式的远端内存布局，必须为偶数，否则返回HCCL_E_PARA。此时`rankSize = (count - 2) / 2`，数组按以下方式排列，其中`0 <= r < rankSize`，r为channel对端的rank编号：
+count未设置最高位时为非V格式，不根据数组长度推断V格式。count为2时仅包含本端input/output；count大于2时采用图模式的远端内存布局，必须为偶数，且`rankSize = (count - 2) / 2`不超过262144，否则返回HCCL_E_PARA。超限检查先于内存段读取和缓存数组分配。数组按以下方式排列，其中`0 <= r < rankSize`，r为channel对端的rank编号：
 
 | 数组下标 | addrs | sizes |
 | --- | --- | --- |
@@ -66,6 +66,8 @@ count未设置最高位时为非V格式，不根据数组长度推断V格式。c
 远端槽位按rank编号索引，不按实际访问的peer压缩排列，须覆盖录制任务使用的所有对端rank。录制WQE时通过channel查询对端rank，仅在该rank对应的两个槽位内匹配远端地址，避免不同rank使用相同虚拟地址时混淆归属。远端rank查询回调由HcommAcquireComm在该调用线程内注册，录制须在同一线程的HcommAcquireComm与HcommReleaseComm之间完成；channel到对端rank的登记由channel记录流程写入，录制前须确保channel已建链并完成记录。
 
 普通格式的零基址内存段按`[0, sizes[i])`参与地址匹配。基址为0不表示自动补上其他地址，调用方须保证任务最终访问的地址及通信资源有效。
+
+针对Ascend 950PR&950DT系列产品，token在缓存复用期间保持固定。普通格式和V格式回放均保留录制WQE中的本地token id、远端objId/token value以及通知token，不按新基址重新查询或改写token；缓存复用期间须保持通信资源及token有效。
 
 ## 返回值
 
@@ -80,6 +82,7 @@ HcommResult：接口成功返回0，其他失败。
 5. 如果AI CPU Task Cache容量已满，不会添加新的cache entry，此时算子展开仍可正常执行但不会被缓存。
 6. V格式需由调用方使用所有peer的发送和接收count均非零的预热算子录制完整任务模板，并通过准入保证每个远端peer最多一条有效channel、数据无需循环拆分、缓存复用期间通信资源保持不变。
 7. 非V格式支持input/output完全同址或部分重叠，调用方须保证算子和算法支持该布局。本端以及携带远端内存时各rank的input/output均须在回放时保持录制时的重叠布局，具体要求见[Execute约束说明](HcommAicpuTsTaskCacheExecute.md#约束说明)。
+8. 参数解析或条目初始化返回错误码时，清理本tag的未提交条目和录制上下文，允许重新Lookup后录制；已提交条目不受影响。
 
 ## 调用示例
 

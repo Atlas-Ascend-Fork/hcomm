@@ -13,6 +13,9 @@
 #include <vector>
 
 #include "gtest/gtest.h"
+#include "mockcpp/mockcpp.hpp"
+#include "common/device/aicpu_indop_env_pub.h"
+#include "dfx/device/dfx_profiling_handler_lite_pub.h"
 
 #ifndef private
 #define private public
@@ -38,6 +41,12 @@
 #include "binary_stream.h"
 #include "endpoint_pair/channel/ub_unique_id_pub.h" // UB_UNIQUE_ID_EXT_*：V2 扩展区契约（零依赖薄头）
 #include "ut_v2_unique_id_helper.h" // MakeEmptyUbV2UniqueId：三处重复构造器收敛单一定义（检视整改）
+#include "src/coll_communicator_mgr/rank_graph/rank_table_info/rank_table_info.h"
+
+// 只在UT中跨层核对规模；生产侧base_comm不反向依赖rank graph。
+static_assert(
+    Hccl::MAX_RANKCOUNT == hcomm::TASK_CACHE_MAX_RANK_SIZE,
+    "Rank graph and task cache rank limits must be updated together");
 
 using namespace hcomm;
 using Hccl::Rt91095StarsSqeHeader;
@@ -65,6 +74,13 @@ constexpr uint64_t TEST_BASE_ADDR_0 = 0x10000ULL;
 constexpr uint64_t TEST_MEM_SIZE_0 = 0x1000ULL;
 constexpr uint64_t TEST_BASE_ADDR_1 = 0x20000ULL;
 constexpr uint64_t TEST_MEM_SIZE_1 = 0x2000ULL;
+constexpr uint64_t TEST_V_FORMAT_FLAG = uint64_t{1} << 63;
+
+HcclResult GetRemoteRankZeroForTest(ChannelHandle, u32& rank)
+{
+    rank = 0;
+    return HCCL_SUCCESS;
+}
 
 std::vector<uint8_t> MakeSqeArray(Rt91095StarsSqeType sqeType)
 {
@@ -90,6 +106,11 @@ protected:
     uint64_t savedCacheBytes_ = 0;
     bool savedCacheHitRunInfoPrinted_ = false;
     bool savedCacheFullRunInfoPrinted_ = false;
+    bool savedTaskExceptionEnable_ = false;
+    bool savedProfL1State_ = false;
+    AicpuTaskCacheManager::GetChannelRemoteRankIdCallback savedRankCallback_ = nullptr;
+    std::vector<uint8_t> sqStorage_;
+    std::vector<uint8_t> wqeStorage_;
 
     void SetUp() override
     {
@@ -108,11 +129,18 @@ protected:
         savedCacheBytes_ = AicpuTaskCacheManager::aicpuTaskCache.cacheBytes_;
         savedCacheHitRunInfoPrinted_ = AicpuTaskCacheManager::aicpuTaskCache.cacheHitRunInfoPrinted_;
         savedCacheFullRunInfoPrinted_ = AicpuTaskCacheManager::aicpuTaskCache.cacheFullRunInfoPrinted_;
+        savedTaskExceptionEnable_ = GetTaskExceptionEnable();
+        savedProfL1State_ = Hccl::DfxProfilingHandlerLite::GetInstance().GetProfL1State();
+        savedRankCallback_ = AicpuTaskCacheManager::getChannelRemoteRankIdCallback_.load(std::memory_order_acquire);
         g_testDeviceType = DevType::DEV_TYPE_950;
     }
 
     void TearDown() override
     {
+        GlobalMockObject::verify();
+        SetTaskExceptionEnable(savedTaskExceptionEnable_);
+        Hccl::DfxProfilingHandlerLite::GetInstance().SetProL1On(savedProfL1State_);
+        AicpuTaskCacheManager::RegisterGetChannelRemoteRankIdCallback(savedRankCallback_);
         AicpuTaskCacheManager::aicpuTaskCache.ClearEntry("c_adpt_tag_1");
         AicpuTaskCacheManager::aicpuTaskCache.ClearEntry("c_adpt_tag_2");
         AicpuTaskCacheManager::aicpuTaskCache.ClearEntry("c_adpt_full_workflow");
@@ -147,7 +175,275 @@ protected:
         AicpuTaskCacheManager::isHit = false;
         AicpuTaskCacheManager::cacheEntryPtr = nullptr;
     }
+
+    void EnableQueueReplay()
+    {
+        SetTaskExceptionEnable(false);
+        Hccl::DfxProfilingHandlerLite::GetInstance().SetProL1On(false);
+        sqStorage_.resize(TEST_SQ_DEPTH * Hccl::AC_SQE_SIZE);
+        rtsqPtr_->sqBaseAddr_ = reinterpret_cast<uint64_t>(sqStorage_.data());
+        rtsqPtr_->sqDepth_ = TEST_SQ_DEPTH;
+        rtsqPtr_->sqHead_ = 0;
+        rtsqPtr_->sqTail_ = 0;
+        rtsqPtr_->pendingSqeCnt = 0;
+        rtsqPtr_->InitSendTrackingState();
+        // 实际执行队列拷贝和计数，仅桩住硬件head查询和doorbell。
+        MOCKER_CPP(&Hccl::RtsqBase::QuerySqHead).stubs().will(returnValue(uint32_t{0}));
+        MOCKER_CPP(&Hccl::RtsqBase::ConfigSqTail).stubs();
+        wqeStorage_.resize(TEST_SQ_DEPTH * Hccl::AC_SQE_SIZE);
+        ubConnLite_->sqVa_ = reinterpret_cast<uint64_t>(wqeStorage_.data());
+        ubConnLite_->dwqeCacheLocked_ = false;
+    }
+
+    void RecordVTemplate()
+    {
+        bool hit = true;
+        ASSERT_EQ(HcommAicpuTsTaskCacheLookup("c_adpt_full_workflow", &hit), HCCL_SUCCESS);
+        ASSERT_FALSE(hit);
+        void* addrs[] = {(void*)0x10000, (void*)0x20000, (void*)0x10020, (void*)0x20040};
+        uint64_t sizes[] = {256, 256, 16, 16};
+        ASSERT_EQ(
+            HcommAicpuTsTaskCacheStart("c_adpt_full_workflow", addrs, sizes, TEST_V_FORMAT_FLAG | 4), HCCL_SUCCESS);
+        auto sqe = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA);
+        auto* sdma = reinterpret_cast<Hccl::Rt91095StarsMemcpySqe*>(sqe.data());
+        sdma->u.strideMode0.srcAddrLow = 0x10020;
+        sdma->u.strideMode0.dstAddrLow = 0x20040;
+        sdma->u.strideMode0.lengthMove = 16;
+        ASSERT_EQ(
+            AicpuTaskCacheManager::AddSqeArray(
+                rtsqPtr_, aicpuTsThread_.get(), 1, sqe.data(), 0, g_defaultTransports.data(), g_defaultLinkTypes.data(),
+                g_defaultTransportTypes.data()),
+            HCCL_SUCCESS);
+        ASSERT_EQ(HcommAicpuTsTaskCacheEnd("c_adpt_full_workflow"), HCCL_SUCCESS);
+        ASSERT_EQ(HcommAicpuTsTaskCacheLookup("c_adpt_full_workflow", &hit), HCCL_SUCCESS);
+        ASSERT_TRUE(hit);
+    }
 };
+
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Start_VFormatAcceptsRankLimit)
+{
+    for (uint32_t rankSize : {TASK_CACHE_MAX_RANK_SIZE - 1, TASK_CACHE_MAX_RANK_SIZE}) {
+        SCOPED_TRACE(rankSize);
+        AicpuTaskCacheEntry entry;
+        AicpuTaskCacheManager::cacheTag = "v_tag";
+        SetCacheMissState(&entry);
+        std::vector<void*> addrs(2 + 2 * rankSize, (void*)0x10000);
+        std::vector<uint64_t> sizes(addrs.size(), 1);
+        addrs[1] = (void*)0x20000;
+        for (uint32_t rank = 0; rank < rankSize; ++rank) {
+            addrs[2 + rankSize + rank] = addrs[1];
+        }
+        ASSERT_EQ(
+            HcommAicpuTsTaskCacheStart("v_tag", addrs.data(), sizes.data(), TEST_V_FORMAT_FLAG | addrs.size()),
+            HCCL_SUCCESS);
+        EXPECT_EQ(entry.vOpInfo_.sendCounts.size(), rankSize);
+        EXPECT_EQ(entry.vOpInfo_.recvCounts.size(), rankSize);
+        EXPECT_EQ(entry.vOpInfo_.sdispls.back(), 0U);
+        EXPECT_EQ(entry.vOpInfo_.rdispls.back(), 0U);
+    }
+}
+
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Start_OversizedArraysRejectedBeforeReadingAndAllowRetry)
+{
+    auto& cache = AicpuTaskCacheManager::aicpuTaskCache;
+    const uint64_t bytesBefore = cache.cacheBytes_;
+    const size_t entriesBefore = cache.cacheHashMap_.size();
+    // 只提供本端两项：V和非V超限参数均须在读取远端项、分配元数据前拒绝。
+    void* addrs[] = {(void*)0x10000, (void*)0x20000};
+    uint64_t sizes[] = {256, 256};
+    for (uint64_t flag : {uint64_t{0}, TEST_V_FORMAT_FLAG}) {
+        for (uint64_t count :
+             {uint64_t{2} + 2 * (TASK_CACHE_MAX_RANK_SIZE + 1), uint64_t{UINT32_MAX} - 1, uint64_t{UINT32_MAX} + 1}) {
+            SCOPED_TRACE(flag | count);
+            bool hit = true;
+            ASSERT_EQ(HcommAicpuTsTaskCacheLookup("c_adpt_full_workflow", &hit), HCCL_SUCCESS);
+            ASSERT_FALSE(hit);
+            ASSERT_EQ(HcommAicpuTsTaskCacheStart("c_adpt_full_workflow", addrs, sizes, flag | count), HCCL_E_PARA);
+            EXPECT_TRUE(AicpuTaskCacheManager::cacheTag.empty());
+            EXPECT_FALSE(AicpuTaskCacheManager::isHit);
+            EXPECT_EQ(AicpuTaskCacheManager::cacheEntryPtr, nullptr);
+            EXPECT_EQ(cache.cacheHashMap_.size(), entriesBefore);
+            EXPECT_EQ(cache.cacheBytes_, bytesBefore);
+        }
+    }
+    bool hit = true;
+    ASSERT_EQ(HcommAicpuTsTaskCacheLookup("c_adpt_full_workflow", &hit), HCCL_SUCCESS);
+    ASSERT_FALSE(hit);
+    ASSERT_EQ(HcommAicpuTsTaskCacheStart("c_adpt_full_workflow", addrs, sizes, 2), HCCL_SUCCESS);
+    ASSERT_EQ(HcommAicpuTsTaskCacheEnd("c_adpt_full_workflow"), HCCL_SUCCESS);
+}
+
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Start_InitMemoryErrorDiscardsPendingEntryAndAllowsRetry)
+{
+    bool hit = true;
+    const uint64_t bytesBefore = AicpuTaskCacheManager::aicpuTaskCache.cacheBytes_;
+    void* addrs[] = {(void*)0x10000, (void*)0x20000, (void*)0x10020, (void*)0x20040};
+    uint64_t sizes[] = {256, 256, 16, 16};
+    ASSERT_EQ(HcommAicpuTsTaskCacheLookup("c_adpt_full_workflow", &hit), HCCL_SUCCESS);
+    ASSERT_FALSE(hit);
+    // 验证初始化返回错误码时的清理，不通过mockcpp注入C++分配异常。
+    MOCKER_CPP(&AicpuTaskCacheEntry::InitCacheEntry).stubs().will(returnValue(HCCL_E_MEMORY));
+    const auto ret = HcommAicpuTsTaskCacheStart("c_adpt_full_workflow", addrs, sizes, TEST_V_FORMAT_FLAG | 4);
+    GlobalMockObject::verify();
+    EXPECT_EQ(ret, HCCL_E_MEMORY);
+    EXPECT_TRUE(AicpuTaskCacheManager::cacheTag.empty());
+    EXPECT_FALSE(AicpuTaskCacheManager::isHit);
+    EXPECT_EQ(AicpuTaskCacheManager::cacheEntryPtr, nullptr);
+    EXPECT_EQ(AicpuTaskCacheManager::aicpuTaskCache.cacheHashMap_.count("c_adpt_full_workflow"), 0U);
+    EXPECT_EQ(AicpuTaskCacheManager::aicpuTaskCache.cacheBytes_, bytesBefore);
+    ASSERT_NO_FATAL_FAILURE(RecordVTemplate());
+}
+
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Execute_VParseFailuresPreserveHitAndAllowReplay)
+{
+    EnableQueueReplay();
+    ASSERT_NO_FATAL_FAILURE(RecordVTemplate());
+    auto* entry = AicpuTaskCacheManager::cacheEntryPtr;
+    ASSERT_NE(entry, nullptr);
+    auto& cache = AicpuTaskCacheManager::aicpuTaskCache;
+    const auto bytesBefore = cache.cacheBytes_;
+    const auto entriesBefore = cache.cacheHashMap_.size();
+    const auto entryBytesBefore = entry->GetEntryBytes();
+    const auto oldBases = entry->cachedBaseAddrs_;
+    const auto oldSizes = entry->cachedMemSizes_;
+    const auto oldVInfo = entry->vOpInfo_;
+    const std::vector<uint8_t> templateSqe(
+        entry->sqeArrayInfos_[0].sqeArray, entry->sqeArrayInfos_[0].sqeArray + Hccl::AC_SQE_SIZE);
+    const auto tailBefore = rtsqPtr_->GetTail();
+    const auto pendingBefore = rtsqPtr_->GetPendingSqeCnt();
+    const auto piBefore = ubConnLite_->pi;
+    void* addrs[] = {(void*)0x30000, (void*)0x40000, (void*)0x30020, (void*)0x40040};
+    uint64_t sizes[] = {256, 256, 16, 16};
+    const auto expectPreserved = [&]() {
+        EXPECT_EQ(AicpuTaskCacheManager::cacheTag, "c_adpt_full_workflow");
+        EXPECT_TRUE(AicpuTaskCacheManager::isHit);
+        EXPECT_EQ(AicpuTaskCacheManager::cacheEntryPtr, entry);
+        EXPECT_EQ(cache.cacheBytes_, bytesBefore);
+        EXPECT_EQ(cache.cacheHashMap_.size(), entriesBefore);
+        EXPECT_EQ(entry->GetEntryBytes(), entryBytesBefore);
+        EXPECT_EQ(entry->cachedBaseAddrs_, oldBases);
+        EXPECT_EQ(entry->cachedMemSizes_, oldSizes);
+        EXPECT_EQ(entry->vOpInfo_.sendCounts, oldVInfo.sendCounts);
+        EXPECT_EQ(entry->vOpInfo_.recvCounts, oldVInfo.recvCounts);
+        EXPECT_EQ(entry->vOpInfo_.sdispls, oldVInfo.sdispls);
+        EXPECT_EQ(entry->vOpInfo_.rdispls, oldVInfo.rdispls);
+        EXPECT_EQ(std::memcmp(entry->sqeArrayInfos_[0].sqeArray, templateSqe.data(), templateSqe.size()), 0);
+        EXPECT_EQ(rtsqPtr_->GetTail(), tailBefore);
+        EXPECT_EQ(rtsqPtr_->GetPendingSqeCnt(), pendingBefore);
+        EXPECT_EQ(ubConnLite_->pi, piBefore);
+    };
+    for (uint64_t count : {uint64_t{5}, uint64_t{2} + 2 * (TASK_CACHE_MAX_RANK_SIZE + 1)}) {
+        EXPECT_EQ(
+            HcommAicpuTsTaskCacheExecute("c_adpt_full_workflow", addrs, sizes, TEST_V_FORMAT_FLAG | count),
+            HCCL_E_PARA);
+        expectPreserved();
+    }
+    for (uint64_t badAddr : {uint64_t{0x2ffff}, uint64_t{0x300ff}, uint64_t{UINT64_MAX - 1}}) {
+        addrs[2] = reinterpret_cast<void*>(badAddr);
+        EXPECT_EQ(
+            HcommAicpuTsTaskCacheExecute("c_adpt_full_workflow", addrs, sizes, TEST_V_FORMAT_FLAG | 4), HCCL_E_PARA);
+        expectPreserved();
+    }
+    addrs[2] = (void*)0x30020;
+    ASSERT_EQ(HcommAicpuTsTaskCacheExecute("c_adpt_full_workflow", addrs, sizes, TEST_V_FORMAT_FLAG | 4), HCCL_SUCCESS);
+    EXPECT_EQ(rtsqPtr_->GetTail(), tailBefore + 1);
+    const auto* launched = reinterpret_cast<const Hccl::Rt91095StarsMemcpySqe*>(sqStorage_.data());
+    EXPECT_EQ(launched->u.strideMode0.srcAddrLow, 0x30020U);
+    EXPECT_EQ(launched->u.strideMode0.dstAddrLow, 0x40040U);
+    EXPECT_EQ(launched->u.strideMode0.lengthMove, 16U);
+    EXPECT_TRUE(AicpuTaskCacheManager::cacheTag.empty());
+    EXPECT_FALSE(AicpuTaskCacheManager::isHit);
+    EXPECT_EQ(AicpuTaskCacheManager::cacheEntryPtr, nullptr);
+    EXPECT_EQ(cache.cacheBytes_, bytesBefore);
+}
+
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Workflow_NonVRemoteRangesReplayZeroBasesWithRecordedTokens)
+{
+    EnableQueueReplay();
+    AicpuTaskCacheManager::RegisterGetChannelRemoteRankIdCallback(GetRemoteRankZeroForTest);
+    const char* tag = "c_adpt_full_workflow";
+    bool hit = true;
+    ASSERT_EQ(HcommAicpuTsTaskCacheLookup(tag, &hit), HCCL_SUCCESS);
+    ASSERT_FALSE(hit);
+    // 本端和远端input均从零基址录制，但两者属于不同地址空间。
+    void* addrs[] = {nullptr, (void*)0x20000, nullptr, (void*)0x40000};
+    uint64_t sizes[] = {256, 256, 256, 256};
+    ASSERT_EQ(HcommAicpuTsTaskCacheStart(tag, addrs, sizes, 4), HCCL_SUCCESS);
+    std::vector<Hccl::WqeTask> tasks;
+    for (uint32_t i = 0; i < 2; ++i) {
+        Hccl::UdmaSqeWrite wqe{};
+        wqe.comm.opcode = i == 0 ? Hccl::UdmaSqOpcode::UDMA_OPC_READ : Hccl::UdmaSqOpcode::UDMA_OPC_WRITE;
+        wqe.comm.sgeNum = 1;
+        wqe.u.sge.dataAddrLow = 0x20;
+        wqe.u.sge.length = 16;
+        wqe.u.sge.tokenId = 17 + i;
+        wqe.comm.rmtAddrLow = 0x40;
+        wqe.comm.rmtObjId = 23 + i;
+        wqe.comm.rmtTokenValue = 29 + i;
+        tasks.emplace_back(wqe);
+    }
+    Hccl::DbSqeProfInfo prof{};
+    ASSERT_EQ(
+        AicpuTaskCacheManager::AddWqeArray(ubConnLite_.get(), ubTransport_.get(), tasks, 0, 0, false, prof),
+        HCCL_SUCCESS);
+    auto sqes = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_UBDMA);
+    auto sdmaSqe = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA);
+    auto* sdma = reinterpret_cast<Hccl::Rt91095StarsMemcpySqe*>(sdmaSqe.data());
+    sdma->u.strideMode0.srcAddrLow = 0x20;
+    sdma->u.strideMode0.dstAddrLow = 0x20040;
+    sdma->u.strideMode0.lengthMove = 16;
+    sqes.insert(sqes.end(), sdmaSqe.begin(), sdmaSqe.end());
+    ASSERT_EQ(
+        AicpuTaskCacheManager::AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 2, sqes.data(), 0, g_defaultTransports.data(), g_defaultLinkTypes.data(),
+            g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
+    ASSERT_EQ(HcommAicpuTsTaskCacheEnd(tag), HCCL_SUCCESS);
+    const auto bytesBefore = AicpuTaskCacheManager::aicpuTaskCache.cacheBytes_;
+    AicpuTaskCacheEntry* recorded = nullptr;
+    ASSERT_EQ(AicpuTaskCacheManager::aicpuTaskCache.FindEntry(tag, &recorded), HCCL_SUCCESS);
+    ASSERT_NE(recorded, nullptr);
+
+    const uint64_t replayBases[][4]
+        = {{0x30000, 0x40000, 0x50000, 0x60000},
+           {0, 0x20000, 0, 0x40000},
+           {0x100030000ULL, 0x100040000ULL, 0x200050000ULL, 0x200060000ULL}};
+    for (const auto& bases : replayBases) {
+        ASSERT_EQ(HcommAicpuTsTaskCacheLookup(tag, &hit), HCCL_SUCCESS);
+        ASSERT_TRUE(hit);
+        ASSERT_EQ(AicpuTaskCacheManager::cacheEntryPtr, recorded);
+        for (uint32_t i = 0; i < 4; ++i) {
+            addrs[i] = reinterpret_cast<void*>(bases[i]);
+        }
+        const auto piBefore = ubConnLite_->pi;
+        const auto tailBefore = rtsqPtr_->GetTail();
+        ASSERT_EQ(HcommAicpuTsTaskCacheExecute(tag, addrs, sizes, 4), HCCL_SUCCESS);
+        EXPECT_EQ(ubConnLite_->pi, piBefore + 2);
+        EXPECT_EQ(rtsqPtr_->GetTail(), tailBefore + 2);
+        for (uint32_t i = 0; i < tasks.size(); ++i) {
+            const auto* launched
+                = reinterpret_cast<const Hccl::UdmaSqeWrite*>(wqeStorage_.data() + (piBefore + i) * Hccl::AC_SQE_SIZE);
+            const uint64_t loc = (uint64_t{launched->u.sge.dataAddrHigh} << 32) | launched->u.sge.dataAddrLow;
+            const uint64_t rmt = (uint64_t{launched->comm.rmtAddrHigh} << 32) | launched->comm.rmtAddrLow;
+            EXPECT_EQ(loc, bases[0] + 0x20);
+            EXPECT_EQ(rmt, bases[2] + 0x40);
+            EXPECT_EQ(launched->u.sge.tokenId, 17 + i);
+            EXPECT_EQ(launched->comm.rmtObjId, 23 + i);
+            EXPECT_EQ(launched->comm.rmtTokenValue, 29 + i);
+        }
+        const auto* launched = reinterpret_cast<const Hccl::Rt91095StarsMemcpySqe*>(
+            sqStorage_.data() + (tailBefore + 1) * Hccl::AC_SQE_SIZE);
+        const uint64_t src = (uint64_t{launched->u.strideMode0.srcAddrHigh} << 32) | launched->u.strideMode0.srcAddrLow;
+        const uint64_t dst = (uint64_t{launched->u.strideMode0.dstAddrHigh} << 32) | launched->u.strideMode0.dstAddrLow;
+        EXPECT_EQ(src, bases[0] + 0x20);
+        EXPECT_EQ(dst, bases[1] + 0x40);
+        EXPECT_TRUE(AicpuTaskCacheManager::cacheTag.empty());
+        EXPECT_FALSE(AicpuTaskCacheManager::isHit);
+        EXPECT_EQ(AicpuTaskCacheManager::cacheEntryPtr, nullptr);
+        EXPECT_EQ(AicpuTaskCacheManager::aicpuTaskCache.cacheBytes_, bytesBefore);
+    }
+    EXPECT_EQ(recorded->cachedBaseAddrs_, (std::vector<uint64_t>{0, 0x20000, 0, 0x40000}));
+}
 
 TEST_F(HcommAicpuTsTaskCacheCAdptTest, Start_VFormatDecodesByteArrays)
 {

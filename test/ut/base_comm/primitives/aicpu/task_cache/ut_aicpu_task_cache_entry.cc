@@ -978,7 +978,6 @@ TEST_F(AicpuTaskCacheEntryTest, AddWqeArray_Success)
     EXPECT_EQ(entry.wqeTaskArrayInfos_.size(), 1U);
     EXPECT_EQ(entry.launchOrder_.size(), 1U);
     EXPECT_EQ(entry.launchOrder_[0], TaskArrayType::kTaskArrayTypeWqe);
-    EXPECT_EQ(entry.tokenInfosMap_.size(), 1U);
 }
 
 TEST_F(AicpuTaskCacheEntryTest, AddWqeArray_Success_WithReportTask)
@@ -1490,24 +1489,26 @@ TEST_F(AicpuTaskCacheEntryTest, SubmitCacheEntry_Success_BothSqeWqe)
     EXPECT_EQ(entry.launchOrder_[1], TaskArrayType::kTaskArrayTypeSqe);
 }
 
-TEST_F(AicpuTaskCacheEntryTest, SubmitCacheEntry_Success_TokenInfoFlagSet)
+TEST_F(AicpuTaskCacheEntryTest, SubmitCacheEntry_PreservesRecordedTokens)
 {
     hcomm::AicpuTaskCacheEntry entry;
     ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
     uint64_t locAddr = TEST_BASE_ADDR_0 + 0x10;
     uint64_t rmtAddr = TEST_BASE_ADDR_1 + 0x20;
     std::vector<Hccl::WqeTask> wqeTasks = {MakeWqeTaskRead(locAddr, rmtAddr)};
+    wqeTasks[0].wqeWrite.u.sge.tokenId = 17;
+    wqeTasks[0].wqeWrite.comm.rmtObjId = 23;
+    wqeTasks[0].wqeWrite.comm.rmtTokenValue = 29;
     ASSERT_EQ(
         entry.AddWqeArray(ubConnLite_.get(), ubTransport_.get(), wqeTasks, 0, 0, false, MakeDbSqeProfInfo(false)),
         HCCL_SUCCESS);
     AddUbdmaSqeToClearTmpMap(entry);
     ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
 
-    auto& tokenInfos = entry.tokenInfosMap_.begin()->second;
-    EXPECT_TRUE(tokenInfos[0].needLocTokenIdFlag);
-
-    // 注意: WQE remote addr不再检查本地地址, 因此needRmtTokenIdAndValueFlag预期为false
-    EXPECT_FALSE(tokenInfos[1].needRmtTokenIdAndValueFlag);
+    const auto& recorded = entry.wqeTaskArrayInfos_[0].wqeTaskArray[0].wqeWrite;
+    EXPECT_EQ(recorded.u.sge.tokenId, 17U);
+    EXPECT_EQ(recorded.comm.rmtObjId, 23U);
+    EXPECT_EQ(recorded.comm.rmtTokenValue, 29U);
 }
 
 TEST_F(AicpuTaskCacheEntryTest, SubmitCacheEntry_GraphWqeResolvesRankSlotsAndDbSqeReusesRank)
@@ -1520,6 +1521,9 @@ TEST_F(AicpuTaskCacheEntryTest, SubmitCacheEntry_GraphWqeResolvesRankSlotsAndDbS
     ASSERT_EQ(entry.InitCacheEntry(bases, sizes, 6, {}, true), HCCL_SUCCESS);
 
     auto task = MakeWqeTaskRead(0x1020, 0x4080); // rmt地址同时落在rank0/rank1的output虚拟区间
+    task.wqeWrite.u.sge.tokenId = 97;
+    task.wqeWrite.comm.rmtObjId = 101;
+    task.wqeWrite.comm.rmtTokenValue = 103;
     auto profiling = MakeDbSqeProfInfo(true);
     profiling.taskParamType = TaskParamType::TASK_UB;
     profiling.locAddr = 0x1010;
@@ -1538,12 +1542,6 @@ TEST_F(AicpuTaskCacheEntryTest, SubmitCacheEntry_GraphWqeResolvesRankSlotsAndDbS
     EXPECT_TRUE(group.rmtAddrRefreshInfoArray[0].needRefresh);
     EXPECT_EQ(group.rmtAddrRefreshInfoArray[0].memIdx, 5U); // 命中rank1的output槽位而非rank0的idx3
     EXPECT_EQ(group.rmtAddrRefreshInfoArray[0].offset, 0x80U);
-    // token标志仅标记rank1槽位
-    auto& tokens = entry.tokenInfosMap_.at(ubTransport_.get());
-    EXPECT_TRUE(tokens[0].needLocTokenIdFlag);
-    EXPECT_FALSE(tokens[2].needRmtTokenIdAndValueFlag);
-    EXPECT_FALSE(tokens[3].needRmtTokenIdAndValueFlag);
-    EXPECT_TRUE(tokens[5].needRmtTokenIdAndValueFlag);
     // DbSqe profiling的刷新信息复用同一rank槽位
     auto& prof = entry.dbSqeLocInfoMap_.at(group.dbSqeLocation);
     EXPECT_TRUE(prof.locAddrRefreshInfo.needRefresh);
@@ -1552,10 +1550,7 @@ TEST_F(AicpuTaskCacheEntryTest, SubmitCacheEntry_GraphWqeResolvesRankSlotsAndDbS
     EXPECT_EQ(prof.rmtAddrRefreshInfo.memIdx, 5U);
     EXPECT_EQ(prof.rmtAddrRefreshInfo.offset, 0x10U);
 
-    // 回放: 地址与token按新基址刷新到rank1槽位
-    tokens[0].locTokenId = 97;
-    tokens[5].rmtTokenId = 101;
-    tokens[5].rmtTokenValue = 103;
+    // 回放: 地址按rank1槽位刷新，A5 token沿用录制值。
     const uint64_t next[] = {0x1100, 0x2200, 0x3300, 0x4400, 0x5500, 0x600000000ULL};
     ASSERT_EQ(entry.RefreshWqeTasks_(group, next, sizes, 6), HCCL_SUCCESS);
     const auto& wqeWrite = group.wqeTaskArray[0].wqeWrite;
@@ -1725,7 +1720,7 @@ TEST_F(AicpuTaskCacheEntryTest, InplaceSqeRefresh_DoesNotAccumulateOffsets)
     }
 }
 
-TEST_F(AicpuTaskCacheEntryTest, InplaceWqeRefresh_PreservesFirstMatchAndRefreshesTokens)
+TEST_F(AicpuTaskCacheEntryTest, InplaceWqeRefresh_PreservesFirstMatchAndRecordedTokens)
 {
     for (const uint32_t opcode :
          {static_cast<uint32_t>(UdmaSqOpcode::UDMA_OPC_READ), static_cast<uint32_t>(UdmaSqOpcode::UDMA_OPC_WRITE),
@@ -1744,8 +1739,14 @@ TEST_F(AicpuTaskCacheEntryTest, InplaceWqeRefresh_PreservesFirstMatchAndRefreshe
                                  MakeWqeTaskWrite(loc, rmt, false);
         if (withNotify) {
             task.wqeWriteWithNotify.localU.sge.length = 0x20;
+            task.wqeWriteWithNotify.localU.sge.tokenId = 97;
+            task.wqeWriteWithNotify.comm.rmtObjId = 101;
+            task.wqeWriteWithNotify.comm.rmtTokenValue = 103;
         } else {
             task.wqeWrite.u.sge.length = 0x20;
+            task.wqeWrite.u.sge.tokenId = 97;
+            task.wqeWrite.comm.rmtObjId = 101;
+            task.wqeWrite.comm.rmtTokenValue = 103;
         }
         ASSERT_EQ(
             entry.AddWqeArray(ubConnLite_.get(), ubTransport_.get(), {task}, 0, 0, false, MakeDbSqeProfInfo(false)),
@@ -1755,15 +1756,6 @@ TEST_F(AicpuTaskCacheEntryTest, InplaceWqeRefresh_PreservesFirstMatchAndRefreshe
         auto& array = entry.wqeTaskArrayInfos_[0];
         EXPECT_EQ(array.locAddrRefreshInfoArray[0].memIdx, 0U);
         EXPECT_EQ(array.rmtAddrRefreshInfoArray[0].memIdx, 2U);
-        auto& tokens = entry.tokenInfosMap_.at(ubTransport_.get());
-        EXPECT_TRUE(tokens[0].needLocTokenIdFlag);
-        EXPECT_FALSE(tokens[1].needLocTokenIdFlag);
-        EXPECT_TRUE(tokens[2].needRmtTokenIdAndValueFlag);
-        EXPECT_FALSE(tokens[3].needRmtTokenIdAndValueFlag);
-        // 模拟按新range查询得到的token，验证回填使用与地址一致的memIdx。
-        tokens[0].locTokenId = 97;
-        tokens[2].rmtTokenId = 101;
-        tokens[2].rmtTokenValue = 103;
         for (const uint64_t base : {0x50000ULL, 0x100060000ULL}) {
             const uint64_t current[] = {base, base + 0x80, base + 0x20000, base + 0x20080};
             ASSERT_EQ(entry.RefreshWqeTasks_(array, current, sizes, 4), HCCL_SUCCESS);
@@ -2024,6 +2016,59 @@ TEST_F(AicpuTaskCacheEntryTest, NonVZeroBaseMatchesLocalAndRemoteRanges)
     }
 }
 
+TEST_F(AicpuTaskCacheEntryTest, RefreshAndLaunch_ZeroBaseOverlapKeepsAliasAndRejectsIndependentMoves)
+{
+    AicpuTaskCacheEntry entry;
+    const uint64_t bases[] = {0, 0x80};
+    const uint64_t sizes[] = {0x100, 0x100};
+    ASSERT_EQ(entry.InitCacheEntry(bases, sizes, 2), HCCL_SUCCESS);
+    auto sqe = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA, 0xc0, 0x100, 0x10);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqe.data(), 0, g_defaultTransports.data(), g_defaultLinkTypes.data(),
+            g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
+    ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+    const uint64_t invalid[][2] = {{0x1000, 0x2000}, {0, 0}, {0x80, 0}};
+    for (const auto& current : invalid) {
+        EXPECT_EQ(entry.RefreshAndLaunch(current, sizes, 2), HCCL_E_PARA);
+        EXPECT_EQ(std::memcmp(entry.sqeArrayInfos_[0].sqeArray, sqe.data(), sqe.size()), 0);
+    }
+    const uint64_t kept[] = {0x1000, 0x1080};
+    ASSERT_EQ(entry.ValidateOverlap_(kept, sizes), HCCL_SUCCESS);
+    ASSERT_EQ(entry.RefreshSqeTasks_(entry.sqeArrayInfos_[0], kept), HCCL_SUCCESS);
+    const auto* refreshed = reinterpret_cast<const Rt91095StarsMemcpySqe*>(entry.sqeArrayInfos_[0].sqeArray);
+    EXPECT_EQ(refreshed->u.strideMode0.srcAddrLow, 0x10c0U);
+    EXPECT_EQ(refreshed->u.strideMode0.dstAddrLow, 0x1100U);
+    ASSERT_EQ(entry.RefreshSqeTasks_(entry.sqeArrayInfos_[0], bases), HCCL_SUCCESS);
+    EXPECT_EQ(refreshed->u.strideMode0.srcAddrLow, 0xc0U);
+    EXPECT_EQ(refreshed->u.strideMode0.dstAddrLow, 0x100U);
+}
+
+TEST_F(AicpuTaskCacheEntryTest, ZeroBaseInputOutputAliasCannotReplayAsIndependentBuffers)
+{
+    AicpuTaskCacheEntry entry;
+    const uint64_t bases[] = {0, 0};
+    const uint64_t sizes[] = {0x100, 0x100};
+    ASSERT_EQ(entry.InitCacheEntry(bases, sizes, 2), HCCL_SUCCESS);
+    auto sqe = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA, 0x20, 0x40, 0x10);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqe.data(), 0, g_defaultTransports.data(), g_defaultLinkTypes.data(),
+            g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
+    ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+    const uint64_t independent[] = {0x1000, 0x2000};
+    EXPECT_EQ(entry.RefreshAndLaunch(independent, sizes, 2), HCCL_E_PARA);
+    EXPECT_EQ(std::memcmp(entry.sqeArrayInfos_[0].sqeArray, sqe.data(), sqe.size()), 0);
+    const uint64_t alias[] = {0x1000, 0x1000};
+    ASSERT_EQ(entry.ValidateOverlap_(alias, sizes), HCCL_SUCCESS);
+    ASSERT_EQ(entry.RefreshSqeTasks_(entry.sqeArrayInfos_[0], alias), HCCL_SUCCESS);
+    const auto* refreshed = reinterpret_cast<const Rt91095StarsMemcpySqe*>(entry.sqeArrayInfos_[0].sqeArray);
+    EXPECT_EQ(refreshed->u.strideMode0.srcAddrLow, 0x1020U);
+    EXPECT_EQ(refreshed->u.strideMode0.dstAddrLow, 0x1040U);
+}
+
 TEST_F(AicpuTaskCacheEntryTest, RefreshAndLaunch_Success_SqeAndWqe)
 {
     hcomm::AicpuTaskCacheEntry entry;
@@ -2051,8 +2096,6 @@ TEST_F(AicpuTaskCacheEntryTest, RefreshAndLaunch_Success_SqeAndWqe)
         HCCL_SUCCESS);
 
     ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
-    auto& tokenInfos = entry.tokenInfosMap_.begin()->second;
-    tokenInfos[0].locTokenId = 99; // 模拟按新地址获取的 token。
 
     // 验证SubmitCacheEntry后AddrRefreshInfo已正确设置
     EXPECT_TRUE(entry.wqeTaskArrayInfos_[0].locAddrRefreshInfoArray[0].needRefresh);
@@ -2087,7 +2130,7 @@ TEST_F(AicpuTaskCacheEntryTest, RefreshAndLaunch_Success_SqeAndWqe)
         entry.wqeTaskArrayInfos_[0].wqeTaskArray[0].wqeWrite.u.sge.dataAddrLow);
     EXPECT_EQ(newLocAddr, 0x50000ULL + 0x10);
     const auto& refreshedWqe = entry.wqeTaskArrayInfos_[0].wqeTaskArray[0].wqeWrite;
-    EXPECT_EQ(refreshedWqe.u.sge.tokenId, 99U);
+    EXPECT_EQ(refreshedWqe.u.sge.tokenId, 17U);
     EXPECT_EQ(refreshedWqe.comm.rmtObjId, 23U);
     EXPECT_EQ(refreshedWqe.comm.rmtTokenValue, 29U);
     // 注意: WQE remote addr不再检查本地地址, 因此地址不需要刷新, 仍然为初始值
@@ -2097,10 +2140,7 @@ TEST_F(AicpuTaskCacheEntryTest, RefreshAndLaunch_Success_SqeAndWqe)
         entry.wqeTaskArrayInfos_[0].wqeTaskArray[0].wqeWrite.comm.rmtAddrLow);
     EXPECT_EQ(newRmtAddr, TEST_BASE_ADDR_1 + 0x20);
 
-    // 非 V 路径使用更新后的 token；硬件回放在 ST 中验证。
-    EXPECT_TRUE(tokenInfos[0].needLocTokenIdFlag);
-    // 注意: WQE remote addr不再检查本地地址, 因此needRmtTokenIdAndValueFlag预期为false
-    EXPECT_FALSE(tokenInfos[1].needRmtTokenIdAndValueFlag);
+    // 非V和V均保留录制token；硬件回放在ST中验证。
 }
 
 // RefreshDbSqe_须透传RecordDbSendSlot错误码: 修复前TRY_CATCH_RETURN会吞掉非抛出型错误码视同成功,
