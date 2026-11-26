@@ -63,6 +63,14 @@ TEST_F(UtAicpuTsHcommReadReduceOnThread, Ut_HcommReadReduceOnThread_When_DataTyp
     EXPECT_EQ(res, HCCL_E_PARA);
 }
 
+TEST_F(UtAicpuTsHcommReadReduceOnThread, Ut_HcommReadReduceOnThread_When_ReduceOp_IsInvalid_Expect_ReturnIsHCCL_E_PARA)
+{
+    VerifyMocksAndRestubDevType();
+    reduceOp = HCOMM_REDUCE_RESERVED;
+    res = HcommReadReduceOnThread(thread, devHandle, dst, src, count, dataType, reduceOp);
+    EXPECT_EQ(res, HCCL_E_PARA);
+}
+
 TEST_F(
     UtAicpuTsHcommReadReduceOnThread,
     Ut_HcommReadReduceOnThread_When_BuildLocRmaBufferLite_Fail_Expect_ReturnIsHCCL_E_INTERNAL)
