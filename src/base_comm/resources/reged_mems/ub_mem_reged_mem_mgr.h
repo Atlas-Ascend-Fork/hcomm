@@ -28,7 +28,7 @@ public:
     using LocalIpcRmaBufferMgr
         = hcomm::RmaBufferMgr<hccl::BufferKey<uintptr_t, u64>, std::shared_ptr<Hccl::LocalIpcRmaBuffer>>;
 
-    UbMemRegedMemMgr();
+    explicit UbMemRegedMemMgr(u64 serverId);
     ~UbMemRegedMemMgr() override = default;
 
     HcclResult RegisterMemory(const HcommMem* mem, const char* memTag, void** memHandle) override;
@@ -43,6 +43,7 @@ private:
     std::vector<RegedBufferEntry<Hccl::LocalIpcRmaBuffer>> allRegisteredBuffers_;
     // 注册记录（按注册顺序），供 GetAllMemHandles 枚举；注销时由 UnregisterMemoryImpl 同步移除
     std::vector<std::shared_ptr<Hccl::LocalIpcRmaBuffer>> handlesRecords_;
+    u64 serverId_{0}; // 本端 server 标识（构造入参，注册时注入每个 buffer）
 };
 } // namespace hcomm
 

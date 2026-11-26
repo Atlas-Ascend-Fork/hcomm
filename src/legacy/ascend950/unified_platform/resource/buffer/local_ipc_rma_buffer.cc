@@ -17,7 +17,7 @@
 
 namespace Hccl {
 
-LocalIpcRmaBuffer::LocalIpcRmaBuffer(std::shared_ptr<Buffer> buf) : LocalRmaBuffer(buf, RmaType::IPC)
+LocalIpcRmaBuffer::LocalIpcRmaBuffer(std::shared_ptr<Buffer> buf, u64 serverId) : LocalRmaBuffer(buf, RmaType::IPC)
 {
     CHK_RET_THROW(
         InternalException, "[LocalIpcRmaBuffer] HrtDevMemAlignWithPage failed",
@@ -25,15 +25,17 @@ LocalIpcRmaBuffer::LocalIpcRmaBuffer(std::shared_ptr<Buffer> buf) : LocalRmaBuff
     CHK_RET_THROW(
         InternalException, "[LocalIpcRmaBuffer] HrtIpcSetMemoryName failed",
         HrtIpcSetMemoryName(ipcPtr, name, ipcSize, RTS_IPC_MEM_NAME_LEN));
+    this->serverId = serverId;
 }
 
-LocalIpcRmaBuffer::LocalIpcRmaBuffer(std::shared_ptr<Buffer> buf, const LocalIpcRmaBuffer& parent)
+LocalIpcRmaBuffer::LocalIpcRmaBuffer(std::shared_ptr<Buffer> buf, const LocalIpcRmaBuffer& parent, u64 serverId)
     : LocalRmaBuffer(buf, RmaType::IPC, true)
 {
     (void)memcpy_s(name, RTS_IPC_MEM_NAME_LEN, parent.name, RTS_IPC_MEM_NAME_LEN);
     ipcPtr = parent.ipcPtr;
     ipcOffset = parent.ipcOffset;
     ipcSize = parent.ipcSize;
+    this->serverId = serverId;
     HCCL_INFO(
         "[LocalIpcRmaBuffer] alias constructor, parent name[%s] ipcPtr[%p] ipcOffset[%llu] ipcSize[%llu] buf=%s", name,
         ipcPtr, static_cast<unsigned long long>(ipcOffset), static_cast<unsigned long long>(ipcSize),
@@ -67,6 +69,7 @@ std::unique_ptr<Serializable> LocalIpcRmaBuffer::GetExchangeDto()
         buf->GetAddr(), buf->GetSize(), ipcOffset, static_cast<u32>(tgid), buf->GetMemInfo().c_str(),
         buf->GetMemType());
     (void)memcpy_s(dto->name, RTS_IPC_MEM_NAME_LEN, name, RTS_IPC_MEM_NAME_LEN);
+    dto->serverId = serverId;
     return std::unique_ptr<Serializable>(dto.release());
 }
 

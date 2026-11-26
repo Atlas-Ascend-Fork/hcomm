@@ -327,6 +327,7 @@ global:
         "Hccl::HrtGetDeviceType(Hccl::DevType&)";
         "Hccl::HrtGetHostIf(unsigned int)";
         "Hccl::HrtGetMainboardId(unsigned int, Hccl::HcclMainboardId&)";
+        "Hccl::HrtGetServerId(unsigned int, unsigned long long&)";
         "Hccl::HrtGetQpNum(void*)";
         "Hccl::HrtGetStreamId(void*, int&)";
         "Hccl::HrtHalGetDeviceInfo(unsigned int, int, int, long&)";
@@ -387,8 +388,8 @@ global:
         "Hccl::IpcLocalNotify::IpcLocalNotify(bool)";
         "Hccl::LinkData::GetUniqueId() const";
         "Hccl::LinkData::UpdateIpAddrWithPCIE()";
-        "Hccl::LocalIpcRmaBuffer::LocalIpcRmaBuffer(std::shared_ptr<Hccl::Buffer>)";
-        "Hccl::LocalIpcRmaBuffer::LocalIpcRmaBuffer(std::shared_ptr<Hccl::Buffer>, Hccl::LocalIpcRmaBuffer const&)";
+        "Hccl::LocalIpcRmaBuffer::LocalIpcRmaBuffer(std::shared_ptr<Hccl::Buffer>, unsigned long long)";
+        "Hccl::LocalIpcRmaBuffer::LocalIpcRmaBuffer(std::shared_ptr<Hccl::Buffer>, Hccl::LocalIpcRmaBuffer const&, unsigned long long)";
         "Hccl::LocalRdmaRmaBuffer::LocalRdmaRmaBuffer(std::shared_ptr<Hccl::Buffer>, void*)";
         "Hccl::LocalRdmaRmaBuffer::LocalRdmaRmaBuffer(std::shared_ptr<Hccl::Buffer>, void*, unsigned int, unsigned int, void*)";
         "Hccl::LocalUbRmaBuffer::GetTokenId() const";
@@ -443,7 +444,7 @@ global:
         "Hccl::RegisterRankGraphBuilderBridge(Hccl::RankGraphBuilderBridge const&, unsigned int, unsigned int)";
         "Hccl::RegisterRootInfoDetectBridge(Hccl::RootInfoDetectBridge const&, unsigned int, unsigned int)";
         "Hccl::ReleaseUbConnectionTp(int, Hccl::IpAddress const&, Hccl::IpAddress const&, Hccl::TpProtocol, Hccl::TpInfo&, unsigned int)";
-        "Hccl::RemoteIpcRmaBuffer::RemoteIpcRmaBuffer(Hccl::Serializable const&, unsigned char)";
+        "Hccl::RemoteIpcRmaBuffer::RemoteIpcRmaBuffer(Hccl::Serializable const&, unsigned char, unsigned long long)";
         "Hccl::RemoteRdmaRmaBuffer::RemoteRdmaRmaBuffer(void*, Hccl::Serializable const&)";
         "Hccl::RemoteUbRmaBuffer::Describe() const";
         "Hccl::RemoteUbRmaBuffer::RemoteUbRmaBuffer(unsigned long, unsigned long long, unsigned int, unsigned int, HcclMemType, std::string const&)";

@@ -213,9 +213,10 @@ TEST_F(UbMemoryTransportMgrTest, ST_whenInput_param_should_create_remoteIpcRmaBu
 
     u64 offset{0};
     u32 pid{0};
+    u64 serverId{0}; // 与 RemoteIpcRmaBuffer 默认 localServerId（0）一致，保持同进程捷径分支语义
     char_t name[RTS_IPC_MEM_NAME_LEN]{0};
     BinaryStream binaryStream;
-    binaryStream << devBuf->GetAddr() << devBuf->GetSize() << offset << pid << name;
+    binaryStream << devBuf->GetAddr() << devBuf->GetSize() << offset << pid << serverId << name;
     ExchangeIpcBufferDto dto;
     dto.Deserialize(binaryStream);
     MOCKER(HrtDeviceGetBareTgid)
