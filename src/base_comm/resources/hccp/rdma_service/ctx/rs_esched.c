@@ -70,7 +70,7 @@ STATIC void RsEschedCleanAllResource(struct rs_cb *rscb)
     RS_LIST_GET_HEAD_ENTRY(devCbCurr, devCbNext, &rscb->udevList, list, struct RsUbDevCb);
     for (; (&devCbCurr->list) != &rscb->udevList;
          devCbCurr = devCbNext, devCbNext = list_entry(devCbNext->list.next, struct RsUbDevCb, list)) {
-        hccp_info_rma("logicId[%u] devIndex[%u] start clean", rscb->logicId, devCbCurr->index);
+        hccp_info_rma("logicId[%u] devIndex[0x%x] start clean", rscb->logicId, devCbCurr->index);
         RsUbFreeJettyCbList(devCbCurr, &devCbCurr->jettyList, &devCbCurr->rjettyList);
     }
 

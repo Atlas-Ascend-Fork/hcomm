@@ -371,7 +371,7 @@ int RaPeerCtxQpCreate(struct RaCtxHandle *ctxHandle, struct QpCreateAttr *qpAttr
     RaRsSetDevInfo(&devInfo, phyId, ctxHandle->devIndex);
     ret = RaCtxPrepareQpCreate(qpAttr, &ctxQpAttr);
     CHK_PRT_RETURN(ret != 0,
-        hccp_err("[init][ra_peer_qp]ra_ctx_prepare_qp_create failed ret[%d] phyId[%u], devIndex[%u]", ret, phyId,
+        hccp_err("[init][ra_peer_qp]ra_ctx_prepare_qp_create failed ret[%d] phyId[%u], devIndex[0x%x]", ret, phyId,
             devIndex),
         ret);
 
@@ -540,7 +540,7 @@ int RaPeerCtxGetJettyContext(struct RaCtxQpHandle *qpHandle, uint8_t context[], 
             qpHandle->devIndex),
         ret);
     CHK_PRT_RETURN(ret != 0,
-        hccp_err("[get][jettyContext]RsCtxGetJettyContext failed, ret[%d] phyId[%u], devIndex[%u]", ret, phyId,
+        hccp_err("[get][jettyContext]RsCtxGetJettyContext failed, ret[%d] phyId[%u], devIndex[0x%x]", ret, phyId,
             qpHandle->devIndex),
         ret);
 

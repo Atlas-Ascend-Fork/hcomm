@@ -82,7 +82,19 @@ void TcRaCtxLmemRegisterAsync()
     mocker_clean();
     ctxHandle.protocol = 1;
 
+    // calloc 失败分支
+    mocker(calloc, 1, NULL);
+    ret = RaCtxLmemRegisterAsync(&ctxHandle, &lmemInfo, (void**)&lmemHandle, (void**)&reqHandle);
+    EXPECT_INT_NE(ret, 0);
+    mocker_clean();
+
     mocker(RaHdcCtxLmemRegisterAsync, 10, -1);
+    ret = RaCtxLmemRegisterAsync(&ctxHandle, &lmemInfo, (void**)&lmemHandle, (void**)&reqHandle);
+    EXPECT_INT_NE(ret, 0);
+    mocker_clean();
+
+    // RaHdcCtxLmemRegisterAsync 内部 prepare register 失败分支
+    mocker(RaHdcCtxPrepareLmemRegister, 1, -1);
     ret = RaCtxLmemRegisterAsync(&ctxHandle, &lmemInfo, (void**)&lmemHandle, (void**)&reqHandle);
     EXPECT_INT_NE(ret, 0);
     mocker_clean();
@@ -134,10 +146,17 @@ void TcRaCtxQpCreateAsync()
     struct RaRequestHandle* reqHandle = NULL;
     struct RaCqHandle scqHandle = {0};
     struct RaCqHandle rcqHandle = {0};
+    int ret = 0;
 
     qpAttr.scqHandle = (void*)&scqHandle;
     qpAttr.rcqHandle = (void*)&rcqHandle;
     ctxHandle.protocol = 1;
+    mocker_clean();
+
+    // calloc 失败分支
+    mocker(calloc, 1, NULL);
+    ret = RaCtxQpCreateAsync(&ctxHandle, &qpAttr, (struct QpCreateInfo*)&qpInfo, (void**)&qpHandle, (void**)&reqHandle);
+    EXPECT_INT_NE(ret, 0);
     mocker_clean();
 
     mocker(RaHdcSendMsgAsync, 1, 0);
@@ -182,8 +201,15 @@ void TcRaCtxQpImportAsync()
     struct QpImportInfoT info = {0};
     struct RaCtxRemQpHandle* remQpHandle = NULL;
     struct RaRequestHandle* reqHandle = NULL;
+    int ret = 0;
 
     ctxHandle.protocol = 1;
+    mocker_clean();
+
+    // calloc 失败分支
+    mocker(calloc, 1, NULL);
+    ret = RaCtxQpImportAsync(&ctxHandle, &info, (void**)&remQpHandle, (void**)&reqHandle);
+    EXPECT_INT_NE(ret, 0);
     mocker_clean();
 
     mocker(RaHdcSendMsgAsync, 1, 0);

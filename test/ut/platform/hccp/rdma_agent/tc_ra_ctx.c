@@ -157,7 +157,7 @@ void TcRaGetDevBaseAttr()
 
 void TcRaCtxDeinit()
 {
-    struct RaCtxHandle* ctxHandle = malloc(sizeof(struct RaCtxHandle));
+    struct RaCtxHandle* ctxHandle = (struct RaCtxHandle*)calloc(1, sizeof(struct RaCtxHandle));
     int ret = 0;
 
     mocker_clean();
@@ -165,6 +165,14 @@ void TcRaCtxDeinit()
     mocker(RaHdcProcessMsg, 1, 0);
     ret = RaCtxDeinit(ctxHandle);
     EXPECT_INT_EQ(0, ret);
+    mocker_clean();
+
+    // deinit 失败分支
+    ctxHandle = (struct RaCtxHandle*)calloc(1, sizeof(struct RaCtxHandle));
+    ctxHandle->ctxOps = &gRaHdcCtxOps;
+    mocker(RaHdcProcessMsg, 1, -1);
+    ret = RaCtxDeinit(ctxHandle);
+    EXPECT_INT_NE(0, ret);
     mocker_clean();
 }
 
@@ -188,6 +196,28 @@ void TcRaCtxLmemRegister()
     ret = RaCtxLmemUnregister(&ctxHandle, lmemHandle);
     EXPECT_INT_EQ(0, ret);
     mocker_clean();
+
+    // 错误分支：calloc 失败 / 注册失败 / 注销失败
+    mocker(calloc, 1, NULL);
+    ret = RaCtxLmemRegister(&ctxHandle, &lmemInfo, &lmemHandle);
+    EXPECT_INT_EQ(ConverReturnCode(RDMA_OP, -ENOMEM), ret);
+
+    mocker_clean();
+    mocker(RaHdcProcessMsg, 1, -1);
+    ret = RaCtxLmemRegister(&ctxHandle, &lmemInfo, &lmemHandle);
+    EXPECT_INT_NE(0, ret);
+
+    mocker_clean();
+    mocker(RaHdcCtxPrepareLmemRegister, 1, -1);
+    ret = RaCtxLmemRegister(&ctxHandle, &lmemInfo, &lmemHandle);
+    EXPECT_INT_NE(0, ret);
+
+    mocker_clean();
+    mocker(RaHdcProcessMsg, 1, -1);
+    lmemHandle = calloc(1, sizeof(struct RaLmemHandle));
+    ret = RaCtxLmemUnregister(&ctxHandle, lmemHandle);
+    EXPECT_INT_NE(0, ret);
+    mocker_clean();
 }
 
 void TcRaCtxRmemImport()
@@ -207,6 +237,23 @@ void TcRaCtxRmemImport()
     ret = RaCtxRmemUnimport(&ctxHandle, rmemHandle);
     EXPECT_INT_EQ(0, ret);
     mocker_clean();
+
+    // 错误分支：calloc 失败 / import 失败 / unimport 失败
+    mocker(calloc, 1, NULL);
+    ret = RaCtxRmemImport(&ctxHandle, &rmemInfo, &rmemHandle);
+    EXPECT_INT_EQ(ConverReturnCode(RDMA_OP, -ENOMEM), ret);
+
+    mocker_clean();
+    mocker(RaHdcProcessMsg, 1, -1);
+    ret = RaCtxRmemImport(&ctxHandle, &rmemInfo, &rmemHandle);
+    EXPECT_INT_NE(0, ret);
+
+    mocker_clean();
+    mocker(RaHdcProcessMsg, 1, -1);
+    rmemHandle = calloc(1, sizeof(struct RaRmemHandle));
+    ret = RaCtxRmemUnimport(&ctxHandle, rmemHandle);
+    EXPECT_INT_NE(0, ret);
+    mocker_clean();
 }
 
 void TcRaCtxChanCreate()
@@ -223,6 +270,23 @@ void TcRaCtxChanCreate()
     EXPECT_INT_EQ(0, ret);
     ret = RaCtxChanDestroy(&ctxHandle, chanHandle);
     EXPECT_INT_EQ(0, ret);
+    mocker_clean();
+
+    // 错误分支：calloc 失败 / create 失败 / destroy 失败
+    mocker(calloc, 1, NULL);
+    ret = RaCtxChanCreate(&ctxHandle, &chanInfo, &chanHandle);
+    EXPECT_INT_EQ(ConverReturnCode(RDMA_OP, -ENOMEM), ret);
+
+    mocker_clean();
+    mocker(RaHdcProcessMsg, 1, -1);
+    ret = RaCtxChanCreate(&ctxHandle, &chanInfo, &chanHandle);
+    EXPECT_INT_NE(0, ret);
+
+    mocker_clean();
+    mocker(RaHdcProcessMsg, 1, -1);
+    chanHandle = calloc(1, sizeof(struct RaChanHandle));
+    ret = RaCtxChanDestroy(&ctxHandle, chanHandle);
+    EXPECT_INT_NE(0, ret);
     mocker_clean();
 }
 
@@ -260,6 +324,23 @@ void TcRaCtxCqCreate()
 
     free(cqHandle);
     mocker_clean();
+
+    // 错误分支：calloc 失败 / create 失败 / destroy 失败
+    mocker(calloc, 1, NULL);
+    ret = RaCtxCqCreate(&ctxHandle, &cqInfoT, &cqHandle);
+    EXPECT_INT_EQ(ConverReturnCode(RDMA_OP, -ENOMEM), ret);
+
+    mocker_clean();
+    mocker(RaHdcProcessMsg, 1, -1);
+    ret = RaCtxCqCreate(&ctxHandle, &cqInfoT, &cqHandle);
+    EXPECT_INT_NE(0, ret);
+
+    mocker_clean();
+    mocker(RaHdcProcessMsg, 1, -1);
+    cqHandle = calloc(1, sizeof(struct RaCqHandle));
+    ret = RaCtxCqDestroy(&ctxHandle, cqHandle);
+    EXPECT_INT_NE(0, ret);
+    mocker_clean();
 }
 
 void TcRaCtxTokenIdAlloc()
@@ -289,6 +370,23 @@ void TcRaCtxTokenIdAlloc1()
     EXPECT_INT_EQ(0, ret);
     ret = RaCtxTokenIdFree(&ctxHandle, tokenIdHandle);
     EXPECT_INT_EQ(0, ret);
+    mocker_clean();
+
+    // 错误分支：calloc 失败 / alloc 失败 / free 失败
+    mocker(calloc, 1, NULL);
+    ret = RaCtxTokenIdAlloc(&ctxHandle, &info, &tokenIdHandle);
+    EXPECT_INT_EQ(ConverReturnCode(RDMA_OP, -ENOMEM), ret);
+
+    mocker_clean();
+    mocker(RaHdcProcessMsg, 1, -1);
+    ret = RaCtxTokenIdAlloc(&ctxHandle, &info, &tokenIdHandle);
+    EXPECT_INT_NE(0, ret);
+
+    mocker_clean();
+    mocker(RaHdcProcessMsg, 1, -1);
+    tokenIdHandle = calloc(1, sizeof(struct RaTokenIdHandle));
+    ret = RaCtxTokenIdFree(&ctxHandle, tokenIdHandle);
+    EXPECT_INT_NE(0, ret);
     mocker_clean();
 }
 
@@ -370,6 +468,37 @@ void TcRaCtxQpCreate()
 
     free(qpHandle);
     mocker_clean();
+
+    // 错误分支：calloc 失败 / create 失败
+    mocker(calloc, 1, NULL);
+    ret = RaCtxQpCreate(&ctxHandle, &attr, &info, (void**)&qpHandle);
+    EXPECT_INT_EQ(ConverReturnCode(RDMA_OP, -ENOMEM), ret);
+
+    mocker_clean();
+    mocker(RaHdcProcessMsg, 1, -1);
+    ret = RaCtxQpCreate(&ctxHandle, &attr, &info, (void**)&qpHandle);
+    EXPECT_INT_NE(0, ret);
+
+    mocker_clean();
+    mocker(RaHdcCtxPrepareQpCreate, 1, -1);
+    ret = RaCtxQpCreate(&ctxHandle, &attr, &info, (void**)&qpHandle);
+    EXPECT_INT_NE(0, ret);
+
+    // destroy：-ENODEV -> warn 分支；其它 -> err 分支
+    struct RaCtxQpHandle* qpHandleErr = (struct RaCtxQpHandle*)calloc(1, sizeof(struct RaCtxQpHandle));
+    qpHandleErr->ctxHandle = &ctxHandle;
+    mocker_clean();
+    mocker(RaHdcProcessMsg, 1, -ENODEV);
+    ret = RaCtxQpDestroy(qpHandleErr);
+    EXPECT_INT_EQ(ConverReturnCode(RDMA_OP, -ENODEV), ret);
+
+    qpHandleErr = (struct RaCtxQpHandle*)calloc(1, sizeof(struct RaCtxQpHandle));
+    qpHandleErr->ctxHandle = &ctxHandle;
+    mocker_clean();
+    mocker(RaHdcProcessMsg, 1, -1);
+    ret = RaCtxQpDestroy(qpHandleErr);
+    EXPECT_INT_NE(0, ret);
+    mocker_clean();
 }
 
 void TcRaCtxQpImport()
@@ -387,6 +516,28 @@ void TcRaCtxQpImport()
     EXPECT_INT_EQ(0, ret);
     ret = RaCtxQpUnimport(&ctxHandle, remQpHandle);
     EXPECT_INT_EQ(0, ret);
+    mocker_clean();
+
+    // 错误分支：calloc 失败 / import 失败 / unimport 失败
+    mocker(calloc, 1, NULL);
+    ret = RaCtxQpImport(&ctxHandle, &qpInfo, (void**)&remQpHandle);
+    EXPECT_INT_EQ(ConverReturnCode(RDMA_OP, -ENOMEM), ret);
+
+    mocker_clean();
+    mocker(RaHdcProcessMsg, 1, -1);
+    ret = RaCtxQpImport(&ctxHandle, &qpInfo, (void**)&remQpHandle);
+    EXPECT_INT_NE(0, ret);
+
+    mocker_clean();
+    mocker(RaHdcCtxPrepareQpImport, 1, -1);
+    ret = RaCtxQpImport(&ctxHandle, &qpInfo, (void**)&remQpHandle);
+    EXPECT_INT_NE(0, ret);
+
+    mocker_clean();
+    mocker(RaHdcProcessMsg, 1, -1);
+    remQpHandle = (struct RaCtxRemQpHandle*)calloc(1, sizeof(struct RaCtxRemQpHandle));
+    ret = RaCtxQpUnimport(&ctxHandle, remQpHandle);
+    EXPECT_INT_NE(0, ret);
     mocker_clean();
 }
 
@@ -422,6 +573,11 @@ void TcRaGetTpInfoListAsync()
     EXPECT_INT_NE(0, ret);
 
     num = 1;
+    mocker(RaHdcGetTpInfoListAsync, 1, -1);
+    ret = RaGetTpInfoListAsync(&ctxHandle, &cfg, infoList, &num, (void**)&reqHandle);
+    EXPECT_INT_NE(0, ret);
+    mocker_clean();
+
     mocker(RaHdcGetTpInfoListAsync, 1, 0);
     ret = RaGetTpInfoListAsync(&ctxHandle, &cfg, infoList, &num, (void**)&reqHandle);
     EXPECT_INT_EQ(0, ret);
@@ -1031,6 +1187,11 @@ void TcRaPeerCtxQpCreate()
     mocker(RaCtxPrepareQpCreate, 1, 0);
     ret = RaPeerCtxQpCreate(&ctxHandle, &qpAttr, &qpInfo, &qpHandle);
     EXPECT_INT_EQ(ret, 0);
+    mocker_clean();
+
+    mocker(RaCtxPrepareQpCreate, 1, -1);
+    ret = RaPeerCtxQpCreate(&ctxHandle, &qpAttr, &qpInfo, &qpHandle);
+    EXPECT_INT_EQ(ret, -1);
     mocker_clean();
 
     mocker(RaCtxPrepareQpCreate, 1, 0);

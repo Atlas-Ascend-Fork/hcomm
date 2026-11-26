@@ -58,6 +58,8 @@ extern int RsSslRecvTagInHandle(struct RsAcceptInfo* acceptInfo, struct RsConnIn
 extern void RsEpollEventSslRecvTagInHandle(struct rs_cb* rsCb, struct RsAcceptInfo* acceptInfo);
 extern int RsRdev2rdevCb(unsigned int chipId, unsigned int rdevIndex, struct RsRdevCb** rdevCb);
 extern int RsCompareIpGid(struct rdev rdevInfo, union ibv_gid* gid);
+extern int
+RsInitTypicalMrCb(unsigned int phyId, struct RdmaMrRegInfo* mrRegInfo, struct RsRdevCb* devCb, struct RsMrCb* mrCb);
 extern int RsGetIbCtxAndRdevIndex(struct rdev rdevInfo, struct RsRdevCb* rdevCb, unsigned int* rdevIndex);
 extern int RsQueryGid(struct rdev rdevInfo, struct ibv_context* ibCtxTmp, uint8_t ibPort, int* gidIdx);
 extern int RsRdevCbInit(struct rdev rdevInfo, struct RsRdevCb* rdevCb, struct rs_cb* rsCb, unsigned int* rdevIndex);
@@ -6119,6 +6121,14 @@ void TcRsTypicalRegisterMr()
 
     ret = RsTypicalDeregisterMr(phyId, rdevIndex, (uint64_t)raRsMrHandle);
     EXPECT_INT_EQ(ret, 0);
+
+    // rs_init_typical_mr_cb 失败分支
+    mocker(RsInitTypicalMrCb, 2, -1);
+    ret = RsTypicalRegisterMrV1(phyId, rdevIndex, &mrRegInfo, (void**)&raRsMrHandle);
+    EXPECT_INT_NE(ret, 0);
+    ret = RsTypicalRegisterMr(phyId, rdevIndex, &mrRegInfo, (void**)&raRsMrHandle);
+    EXPECT_INT_NE(ret, 0);
+    mocker_clean();
 
     ret = RsRdevDeinit(phyId, NOTIFY, rdevIndex);
     EXPECT_INT_EQ(ret, 0);

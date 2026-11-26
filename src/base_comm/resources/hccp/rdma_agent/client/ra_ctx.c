@@ -196,7 +196,7 @@ HCCP_ATTRI_VISI_DEF int RaGetDevBaseAttr(void *ctxHandle, struct DevBaseAttr *at
     ctxHandleTmp = (struct RaCtxHandle *)ctxHandle;
     (void)memcpy_s(attr, sizeof(struct DevBaseAttr), &(ctxHandleTmp->devAttr), sizeof(struct DevBaseAttr));
 
-    hccp_info_rma("[get][dev_attr]phy_id(%u), devIndex(%u)", ctxHandleTmp->attr.phyId, ctxHandleTmp->devIndex);
+    hccp_info_rma("[get][dev_attr]phy_id(%u), devIndex(0x%x)", ctxHandleTmp->attr.phyId, ctxHandleTmp->devIndex);
     return 0;
 }
 
@@ -239,11 +239,11 @@ HCCP_ATTRI_VISI_DEF int RaCtxDeinit(void *ctxHandle)
     CHK_PRT_RETURN(ctxHandleTmp->ctxOps == NULL || ctxHandleTmp->ctxOps->raCtxDeinit == NULL,
         hccp_err("[deinit][ra_ctx]ctx_ops or ra_ctx_deinit is NULL"), ConverReturnCode(RDMA_OP, -EINVAL));
 
-    hccp_run_info("Input parameters: phy_id[%u], devIndex[%u], protocol[%d]", ctxHandleTmp->attr.phyId,
+    hccp_run_info("Input parameters: phy_id[%u], devIndex[0x%x], protocol[%d]", ctxHandleTmp->attr.phyId,
         ctxHandleTmp->devIndex, ctxHandleTmp->protocol);
     ret = ctxHandleTmp->ctxOps->raCtxDeinit(ctxHandleTmp);
     if (ret != 0) {
-        hccp_err("[deinit][ra_ctx]ctx deinit failed, ret(%d) phyId(%u) devIndex(%u)", ret, ctxHandleTmp->attr.phyId,
+        hccp_err("[deinit][ra_ctx]ctx deinit failed, ret(%d) phyId(%u) devIndex(0x%x)", ret, ctxHandleTmp->attr.phyId,
             ctxHandleTmp->devIndex);
     }
 
@@ -331,13 +331,13 @@ HCCP_ATTRI_VISI_DEF int RaCtxTokenIdAlloc(void *ctxHandle, struct HccpTokenId *i
 
     tokenIdHandleTmp = (struct RaTokenIdHandle *)calloc(1, sizeof(struct RaTokenIdHandle));
     CHK_PRT_RETURN(tokenIdHandleTmp == NULL,
-        hccp_err("[init][ra_token_id]calloc token_id_handle_tmp failed, errno(%d) phyId(%u) devIndex(%u)", errno,
+        hccp_err("[init][ra_token_id]calloc token_id_handle_tmp failed, errno(%d) phyId(%u) devIndex(0x%x)", errno,
             ctxHandleTmp->attr.phyId, ctxHandleTmp->devIndex),
         ConverReturnCode(RDMA_OP, -ENOMEM));
 
     ret = ctxHandleTmp->ctxOps->raCtxTokenIdAlloc(ctxHandleTmp, info, tokenIdHandleTmp);
     if (ret != 0) {
-        hccp_err("[init][ra_token_id]alloc failed, ret(%d) phyId(%u) devIndex(%u)", ret, ctxHandleTmp->attr.phyId,
+        hccp_err("[init][ra_token_id]alloc failed, ret(%d) phyId(%u) devIndex(0x%x)", ret, ctxHandleTmp->attr.phyId,
             ctxHandleTmp->devIndex);
         goto err;
     }
@@ -367,7 +367,7 @@ HCCP_ATTRI_VISI_DEF int RaCtxTokenIdFree(void *ctxHandle, void *tokenIdHandle)
     tokenIdHandleTmp = (struct RaTokenIdHandle *)tokenIdHandle;
     ret = ctxHandleTmp->ctxOps->raCtxTokenIdFree(ctxHandleTmp, tokenIdHandleTmp);
     if (ret != 0) {
-        hccp_err("[deinit][ra_token_id]free failed, ret(%d) phyId(%u) devIndex(%u)", ret, ctxHandleTmp->attr.phyId,
+        hccp_err("[deinit][ra_token_id]free failed, ret(%d) phyId(%u) devIndex(0x%x)", ret, ctxHandleTmp->attr.phyId,
             ctxHandleTmp->devIndex);
     }
 
@@ -391,13 +391,13 @@ HCCP_ATTRI_VISI_DEF int RaCtxLmemRegister(void *ctxHandle, struct MrRegInfoT *lm
 
     lmemHandleTmp = calloc(1, sizeof(struct RaLmemHandle));
     CHK_PRT_RETURN(lmemHandleTmp == NULL,
-        hccp_err("[init][ra_lmem]calloc lmem_handle_tmp failed, errno(%d) phyId(%u) devIndex(%u)", errno,
+        hccp_err("[init][ra_lmem]calloc lmem_handle_tmp failed, errno(%d) phyId(%u) devIndex(0x%x)", errno,
             ctxHandleTmp->attr.phyId, ctxHandleTmp->devIndex),
         ConverReturnCode(RDMA_OP, -ENOMEM));
 
     ret = ctxHandleTmp->ctxOps->raCtxLmemRegister(ctxHandleTmp, lmemInfo, lmemHandleTmp);
     if (ret != 0) {
-        hccp_err("[init][ra_lmem]register failed, ret(%d) phyId(%u) devIndex(%u)", ret, ctxHandleTmp->attr.phyId,
+        hccp_err("[init][ra_lmem]register failed, ret(%d) phyId(%u) devIndex(0x%x)", ret, ctxHandleTmp->attr.phyId,
             ctxHandleTmp->devIndex);
         goto err;
     }
@@ -427,7 +427,7 @@ HCCP_ATTRI_VISI_DEF int RaCtxLmemUnregister(void *ctxHandle, void *lmemHandle)
     lmemHandleTmp = (struct RaLmemHandle *)lmemHandle;
     ret = ctxHandleTmp->ctxOps->raCtxLmemUnregister(ctxHandleTmp, lmemHandleTmp);
     if (ret != 0) {
-        hccp_err("[deinit][ra_lmem]unregister failed, ret(%d) phyId(%u) devIndex(%u)", ret, ctxHandleTmp->attr.phyId,
+        hccp_err("[deinit][ra_lmem]unregister failed, ret(%d) phyId(%u) devIndex(0x%x)", ret, ctxHandleTmp->attr.phyId,
             ctxHandleTmp->devIndex);
     }
 
@@ -452,13 +452,13 @@ HCCP_ATTRI_VISI_DEF int RaCtxRmemImport(void *ctxHandle, struct MrImportInfoT *r
 
     rmemHandleTmp = calloc(1, sizeof(struct RaRmemHandle));
     CHK_PRT_RETURN(rmemHandleTmp == NULL,
-        hccp_err("[init][ra_rmem]calloc rmem_handle_tmp failed, errno(%d) phyId(%u) devIndex(%u)", errno,
+        hccp_err("[init][ra_rmem]calloc rmem_handle_tmp failed, errno(%d) phyId(%u) devIndex(0x%x)", errno,
             ctxHandleTmp->attr.phyId, ctxHandleTmp->devIndex),
         ConverReturnCode(RDMA_OP, -ENOMEM));
 
     ret = ctxHandleTmp->ctxOps->raCtxRmemImport(ctxHandleTmp, rmemInfo);
     if (ret != 0) {
-        hccp_err("[init][ra_lmem]import failed, ret(%d) phyId(%u) devIndex(%u)", ret, ctxHandleTmp->attr.phyId,
+        hccp_err("[init][ra_rmem]import failed, ret(%d) phyId(%u) devIndex(0x%x)", ret, ctxHandleTmp->attr.phyId,
             ctxHandleTmp->devIndex);
         goto err;
     }
@@ -490,7 +490,7 @@ HCCP_ATTRI_VISI_DEF int RaCtxRmemUnimport(void *ctxHandle, void *rmemHandle)
     rmemHandleTmp = (struct RaRmemHandle *)rmemHandle;
     ret = ctxHandleTmp->ctxOps->raCtxRmemUnimport(ctxHandleTmp, rmemHandleTmp);
     if (ret != 0) {
-        hccp_err("[deinit][ra_rmem]unimport failed, ret(%d) phyId(%u) devIndex(%u)", ret, ctxHandleTmp->attr.phyId,
+        hccp_err("[deinit][ra_rmem]unimport failed, ret(%d) phyId(%u) devIndex(0x%x)", ret, ctxHandleTmp->attr.phyId,
             ctxHandleTmp->devIndex);
     }
 
@@ -514,7 +514,7 @@ HCCP_ATTRI_VISI_DEF int RaCtxChanCreate(void *ctxHandle, struct ChanInfoT *chanI
 
     chanHandleTmp = (struct RaChanHandle *)calloc(1, sizeof(struct RaChanHandle));
     CHK_PRT_RETURN(chanHandleTmp == NULL,
-        hccp_err("[init][ra_chan]calloc chan_handle_tmp failed, errno(%d) phyId(%u) devIndex(%u)", errno,
+        hccp_err("[init][ra_chan]calloc chan_handle_tmp failed, errno(%d) phyId(%u) devIndex(0x%x)", errno,
             ctxHandleTmp->attr.phyId, ctxHandleTmp->devIndex),
         ConverReturnCode(RDMA_OP, -ENOMEM));
 
@@ -549,7 +549,7 @@ HCCP_ATTRI_VISI_DEF int RaCtxChanDestroy(void *ctxHandle, void *chanHandle)
     chanHandleTmp = (struct RaChanHandle *)chanHandle;
     ret = ctxHandleTmp->ctxOps->raCtxChanDestroy(ctxHandleTmp, chanHandleTmp);
     if (ret != 0) {
-        hccp_err("[deinit][ra_chan]destroy failed, ret(%d) phyId(%u) devIndex(%u)", ret, ctxHandleTmp->attr.phyId,
+        hccp_err("[deinit][ra_chan]destroy failed, ret(%d) phyId(%u) devIndex(0x%x)", ret, ctxHandleTmp->attr.phyId,
             ctxHandleTmp->devIndex);
     }
 
@@ -573,13 +573,13 @@ HCCP_ATTRI_VISI_DEF int RaCtxCqCreate(void *ctxHandle, struct CqInfoT *info, voi
 
     cqHandleTmp = (struct RaCqHandle *)calloc(1, sizeof(struct RaCqHandle));
     CHK_PRT_RETURN(cqHandleTmp == NULL,
-        hccp_err("[init][ra_cq]calloc cq_handle_tmp failed, errno(%d) phyId(%u) devIndex(%u)", errno,
+        hccp_err("[init][ra_cq]calloc cq_handle_tmp failed, errno(%d) phyId(%u) devIndex(0x%x)", errno,
             ctxHandleTmp->attr.phyId, ctxHandleTmp->devIndex),
         ConverReturnCode(RDMA_OP, -ENOMEM));
 
     ret = ctxHandleTmp->ctxOps->raCtxCqCreate(ctxHandleTmp, info, cqHandleTmp);
     if (ret != 0) {
-        hccp_err("[init][ra_cq]create failed, ret(%d) phyId(%u) devIndex(%u)", ret, ctxHandleTmp->attr.phyId,
+        hccp_err("[init][ra_cq]create failed, ret(%d) phyId(%u) devIndex(0x%x)", ret, ctxHandleTmp->attr.phyId,
             ctxHandleTmp->devIndex);
         goto err;
     }
@@ -609,7 +609,7 @@ HCCP_ATTRI_VISI_DEF int RaCtxCqDestroy(void *ctxHandle, void *cqHandle)
     cqHandleTmp = (struct RaCqHandle *)cqHandle;
     ret = ctxHandleTmp->ctxOps->raCtxCqDestroy(ctxHandleTmp, cqHandleTmp);
     if (ret != 0) {
-        hccp_err("[deinit][ra_cq]destroy failed, ret(%d) phyId(%u) devIndex(%u)", ret, ctxHandleTmp->attr.phyId,
+        hccp_err("[deinit][ra_cq]destroy failed, ret(%d) phyId(%u) devIndex(0x%x)", ret, ctxHandleTmp->attr.phyId,
             ctxHandleTmp->devIndex);
     }
 
@@ -634,13 +634,13 @@ HCCP_ATTRI_VISI_DEF int RaCtxQpCreate(void *ctxHandle, struct QpCreateAttr *attr
 
     qpHandleTmp = calloc(1, sizeof(struct RaCtxQpHandle));
     CHK_PRT_RETURN(qpHandleTmp == NULL,
-        hccp_err("[init][ra_qp]calloc qp_handle_tmp failed, errno(%d) phyId(%u) devIndex(%u)", errno,
+        hccp_err("[init][ra_qp]calloc qp_handle_tmp failed, errno(%d) phyId(%u) devIndex(0x%x)", errno,
             ctxHandleTmp->attr.phyId, ctxHandleTmp->devIndex),
         ConverReturnCode(RDMA_OP, -ENOMEM));
 
     ret = ctxHandleTmp->ctxOps->raCtxQpCreate(ctxHandleTmp, attr, info, qpHandleTmp);
     if (ret != 0) {
-        hccp_err("[init][ra_qp]create failed, ret(%d) phyId(%u) devIndex(%u)", ret, ctxHandleTmp->attr.phyId,
+        hccp_err("[init][ra_qp]create failed, ret(%d) phyId(%u) devIndex(0x%x)", ret, ctxHandleTmp->attr.phyId,
             ctxHandleTmp->devIndex);
         goto err;
     }
@@ -722,12 +722,12 @@ HCCP_ATTRI_VISI_DEF int RaCtxQpDestroy(void *qpHandle)
 
     ret = qpHandleTmp->ctxHandle->ctxOps->raCtxQpDestroy(qpHandleTmp);
     if (ret == -ENODEV) {
-        hccp_warn_rma("[deinit][ra_qp]destroy unsuccessful, ret(%d) phyId(%u) devIndex(%u) qp_id(%u)", ret,
+        hccp_warn_rma("[deinit][ra_qp]destroy unsuccessful, ret(%d) phyId(%u) devIndex(0x%x) qp_id(%u)", ret,
             qpHandleTmp->phyId, qpHandleTmp->devIndex, qpHandleTmp->id);
         goto out;
     }
     if (ret != 0) {
-        hccp_err("[deinit][ra_qp]destroy failed, ret(%d) phyId(%u) devIndex(%u) qp_id(%u)", ret, qpHandleTmp->phyId,
+        hccp_err("[deinit][ra_qp]destroy failed, ret(%d) phyId(%u) devIndex(0x%x) qp_id(%u)", ret, qpHandleTmp->phyId,
             qpHandleTmp->devIndex, qpHandleTmp->id);
     }
 
@@ -807,13 +807,13 @@ HCCP_ATTRI_VISI_DEF int RaCtxQpImport(void *ctxHandle, struct QpImportInfoT *qpI
 
     remQpHandleTmp = calloc(1, sizeof(struct RaCtxRemQpHandle));
     CHK_PRT_RETURN(remQpHandleTmp == NULL,
-        hccp_err("[init][ra_qp]calloc rem_qp_handle_tmp failed, errno(%d) phyId(%u) devIndex(%u)", errno,
+        hccp_err("[init][ra_qp]calloc rem_qp_handle_tmp failed, errno(%d) phyId(%u) devIndex(0x%x)", errno,
             ctxHandleTmp->attr.phyId, ctxHandleTmp->devIndex),
         ConverReturnCode(RDMA_OP, -ENOMEM));
 
     ret = ctxHandleTmp->ctxOps->raCtxQpImport(ctxHandleTmp, qpInfo, remQpHandleTmp);
     if (ret != 0) {
-        hccp_err("[init][ra_qp]import failed, ret(%d) phyId(%u) devIndex(%u)", ret, ctxHandleTmp->attr.phyId,
+        hccp_err("[init][ra_qp]import failed, ret(%d) phyId(%u) devIndex(0x%x)", ret, ctxHandleTmp->attr.phyId,
             ctxHandleTmp->devIndex);
         goto err;
     }
@@ -843,8 +843,8 @@ HCCP_ATTRI_VISI_DEF int RaCtxQpUnimport(void *ctxHandle, void *remQpHandle)
     remQpHandleTmp = (struct RaCtxRemQpHandle *)remQpHandle;
     ret = ctxHandleTmp->ctxOps->raCtxQpUnimport(remQpHandleTmp);
     if (ret != 0) {
-        hccp_err("[deinit][ra_qp]unimport failed, ret(%d) phyId(%u) devIndex(%u) qp_id(%u)", ret, remQpHandleTmp->phyId,
-            remQpHandleTmp->devIndex, remQpHandleTmp->id);
+        hccp_err("[deinit][ra_qp]unimport failed, ret(%d) phyId(%u) devIndex(0x%x) qp_id(%u)", ret,
+            remQpHandleTmp->phyId, remQpHandleTmp->devIndex, remQpHandleTmp->id);
     }
 
     free(remQpHandleTmp);
