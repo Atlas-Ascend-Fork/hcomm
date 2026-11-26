@@ -14,9 +14,9 @@
 namespace hcomm {
 
 /**
- * @brief 析构链退出 profile：GRACEFUL 完整动作链（默认）；RESET 跳过触设备动作（设备可能已
- *        不可用），仅 host 侧清理、仅显式调用触发。BaseCommMgr 改 Leaky Singleton 后退出期
- *        不再走析构兜底，DeInit 需显式调用；语义与契约见 README R5。
+ * @brief 析构链退出 profile：GRACEFUL 完整动作链（默认，进程退出兜底走它）；
+ *        RESET 跳过触设备动作（设备可能已不可用），仅 host 侧清理、仅显式调用触发。
+ *        语义与契约见 README R5。
  */
 enum class ExitProfile { EXIT_PROFILE_GRACEFUL = 0, EXIT_PROFILE_RESET };
 

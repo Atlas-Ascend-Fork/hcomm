@@ -31,8 +31,7 @@
 
 namespace hcomm {
 
-// 树亡标志查询：BaseCommMgr 为 Leaky Singleton 永不析构，TeardownFlagGuard 析构不执行，
-// 此标志恒为 false；调用方恒走 else（正常归还）。保留为防御性代码（若单例回退为非泄漏式则生效）。
+// 树亡标志查询：全树（含设备子树）析构完成后返回 true；供锚定单例（晚于树死）析构链判活（README R10）
 bool IsResourceTreeTeardownFinished();
 
 void OnDeviceResetPre(int32_t deviceId, aclrtDeviceState state, void* args);
@@ -75,14 +74,13 @@ private:
     ~BaseCommMgr();
 
     // ===== 成员声明顺序 = 析构契约反序（先声明的后死；顺序依据见 README R3）=====
-    // 最先声明 = 全树最后死：TeardownFlagGuard 析构置位树亡标志（防御性保留）。
-    // Leaky Singleton 不析构故 guard 不执行，标志恒 false，守卫恒走 else 正常归还（见 R5）。
+    // 最先声明 = 全树最后死：析构置位树亡标志
     struct TeardownFlagGuard {
         ~TeardownFlagGuard();
     };
     TeardownFlagGuard teardownFlagGuard_;
-    std::atomic<bool> isDeInited_{false}; // 析构期回调链读此标志（防御性保留；Leaky 不析构，读点不可达）
-    std::atomic<bool> lastDeinitWasReset_{false}; // RESET 析构穿透告警依据（防御性保留；Leaky 不析构，读点不可达）
+    std::atomic<bool> isDeInited_{false};         // 析构期回调链读此标志
+    std::atomic<bool> lastDeinitWasReset_{false}; // RESET 后析构穿透的告警依据
 
     // 节点均为值成员，构造/析构严格按声明序
     Legacy950ResMgrProc legacy950ResMgrProc_; // legacy950 锚定节点

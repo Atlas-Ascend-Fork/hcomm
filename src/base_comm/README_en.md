@@ -46,9 +46,8 @@ base_comm/
   `BaseCommMgr::GetInstance()` (R6); device subtrees are lazily created per devPhyId on
   first access and returned as references through narrow accessors (R7/R9).
 - Destruction: an explicit `DeInit(ExitProfile)` runs the 9-step action chain (R4,
-  observably verified by the exit_path ST); BaseCommMgr is a Leaky Singleton and no
-  longer destructs; the process-exit fallback no longer replays the DeInit chain, and
-  resources are reclaimed by the OS.
+  observably verified by the exit_path ST); destructors free memory only, and
+  `~BaseCommMgr` replays the DeInit chain as a fallback.
 
 ## Data Description
 
@@ -81,8 +80,8 @@ accessors are historical and must not be interchanged.
 - Business code must use narrow accessors only — no direct tree-access chains and no new
   file-scope globals (R1/R7);
 - Under `EXIT_PROFILE_RESET`, all device-touching actions are skipped; device-side returns
-  of leftover endpoint/channel tables no longer occur (BaseCommMgr is a Leaky Singleton,
-  not destructed), and resources are reclaimed by the OS (known limitations in R5);
+  of leftover endpoint/channel tables fall back to the destruction chain and are not
+  guaranteed (known limitations in R5);
 - Out-of-range fallbacks are baseline-compatible behavior with three coexisting semantics
   (R9); new accessors must register their semantics first;
 - Before adopting a singleton into the tree or rerouting call sites, reverse-audit whether
@@ -186,10 +185,6 @@ Exceptions (require review and registration in this README):
   `hcomm::IsResourceTreeTeardownFinished()`) — trivially destructible and safe to read
   after the tree dies; lets anchored singletons (which outlive the tree) skip
   tree-touching releases in their destructor chains (R10).
-  After converting BaseCommMgr to a Leaky Singleton, the TeardownFlagGuard destructor
-  no longer runs and the flag is always false; the guard is retained as defensive code
-  that always takes the else branch (normal release) — see R5 for the exit-time TP
-  release description.
 - Process-exit flag (`common/process_exit_flag.h`, base_comm-internal) — set by an atexit
   callback registered on the thread-creation path (`CreateThread`, symmetric with exit-time
   `FreeThreads`). Ordering chain when threads are used via a communication domain: domain
@@ -241,8 +236,6 @@ inside every tree node is the destruction-order contract:
   destruction-time callback chains take those locks.
 - **Changing any declaration order = changing the destruction contract; it requires a
   separate review** and a recorded rationale in this README.
-- After review, BaseCommMgr is converted to a Leaky Singleton; it is never destructed
-  and its resources are reclaimed by the OS.
 
 Process-level contract (dies first → dies last):
 `EndpointMgr → HandleRegistryMgrProc → device subtrees → CommEngineBinMgrProc → NotifyMgrProc → EndpointProcMgr → Dfx/Dlsym/Config → Legacy950ResMgrProc → locks and flags`
@@ -278,13 +271,13 @@ Registered (declaration-order changes, closing a review HIGH):
   re-enters FindOrCreate — the review's assumed re-entry path does not exist; moving it later would
   instead make the retired-area fallback hit a destroyed object (a real UAF).
 
-#### R4 Lifecycle: DeInit runs actions, resources reclaimed by the OS
+#### R4 Two lifecycle paths: DeInit runs actions, destructors free memory
 
 - `DeInit(ExitProfile)`: the explicit action path (stop threads, clear tables, return
   device resources), executed in contract order, **idempotent** (the root uses an atomic
   exchange so only the first call takes effect; node-level DeInit is self-idempotent).
-- Destructors: BaseCommMgr is a Leaky Singleton and no longer destructs; resources are
-  reclaimed by the OS.
+- Destructors free memory only and contain no action logic; the action fallback is
+  `~BaseCommMgr` running the DeInit chain first.
 - After DeInit completes, device subtrees move from the active table to the retired area:
   the tree must remain fully resolvable while the action chain runs (destruction-chain
   callbacks go through the accessors).
@@ -319,14 +312,14 @@ Registered (declaration-order changes, closing a review HIGH):
      is unregistered by name and the flags are reset (resetting is exit semantics and allows
      re-registration; the reset callback is paired with ACL by name, dies with the process,
      and is not unregistered);
-   9. step[9/9] Moving the table into the retired area happens last — the active table must
-      stay resolvable while the action chain runs (destruction-chain callbacks go through
-      accessors).
+  9. step[9/9] Moving the table into the retired area happens last — the active table must
+     stay resolvable while the action chain runs (destruction-chain callbacks go through
+     accessors).
 
 #### R5 Dual-profile semantics (exit_profile.h)
 
 - `EXIT_PROFILE_GRACEFUL` (default): full action chain, including device-touching
-  actions; the process-exit fallback no longer applies.
+  actions; the process-exit fallback always uses it.
 - `EXIT_PROFILE_RESET`: the device may already be unavailable; skip all device-touching
   actions, host-side cleanup only. Triggered only by explicit calls; the action order is
   the same as graceful (skipped actions are skipped explicitly, never reordered).
@@ -335,24 +328,20 @@ Registered (declaration-order changes, closing a review HIGH):
 - Naming note: the `OnDeviceResetPre` device hot-reset callback is per-device local
   cleanup; it does not DeInit the tree and is not connected to this profile.
 - Known limitation: RESET skips the device-side release of the endpoint table and the
-  channel table; BaseCommMgr never destructs, and the device-side resources left over from
-  RESET are no longer returned, reclaimed by the OS at process exit.
-- Out-of-tree anchored singletons (e.g. `CcuComponent`, a function-local static that always
-  destructs at exit): after converting BaseCommMgr to a Leaky Singleton, the tree-teardown
-  flag is always false, so `~CcuComponent` takes the else branch and releases TP normally
-  (`ReleaseTpAttr`/`ReleaseTpInfo` touch the device). Three cases:
-  - No DeInit called (current production): the tree is alive and the device is available
-    at exit time, so normal release is safe.
-  - GRACEFUL: step[5] has already cleared the TP maps, so the exit-time destructor release
-    is an idempotent no-op.
-  - RESET (known limitation): step[5] is skipped and the TP maps are non-empty, so the
-    exit-time destructor still releases TP — the device may be unavailable at this point;
-    this is a known limitation. No production code currently triggers this; to be resolved
-    when the RESET exit mechanism lands.
-- Destruction warnings no longer fire: `~BaseCommMgr` is a Leaky Singleton and never
-  runs; its `HasLeftover`/`lastDeinitWasReset_` warning chain is unreachable (retained
-  defensively); device-side resources left over from RESET get no destruction-time
-  warning and are reclaimed by the OS only.
+  channel table; if handles remain when the process later exits, member destruction still
+  touches the device (`~BaseCommMgr` emits a WARNING to expose it). Under RESET the engine
+  family (HDC/CCU instances) teardown is likewise skipped (the node logs a WARNING), but
+  destruction is not suppressed: `~CcuInstanceMgr` still clears the instance table and runs
+  the `~CcuInstance` device-release chain — the RESET "skip device-touching actions" promise
+  is pierced at destruction. RESET currently has no production caller (only the exit_path ST
+  invokes it explicitly), so this is registered as a known limitation; before wiring a real
+  caller, destructor suppression must land first (a flag that makes the destructor
+  deliberately leak the device-side resources, with host memory reclaimed at process exit).
+  Process-level network resources are likewise left out of the RESET action chain:
+  `EndpointProcMgr`'s netDevCtx/serverSocket tables and each device's `NetDevProc`
+  `GlobalNetDevMgr` are deferred to destruction, and `~GlobalNetDevMgr` calls
+  `HcclNetDeInit` (device-touching) — the RESET "skip device-touching actions"
+  promise is pierced on this path as well.
 
 #### R6 Build children at construction; no unlocked lazy init in getters
 
@@ -475,9 +464,6 @@ apply — the cached target dies with the tree first, so the cached pointer dang
 too. Tree-touching points on their destructor chains must instead be guarded by
 `hcomm::IsResourceTreeTeardownFinished()`: once the flag is set, skip the release
 and only clear local tables (first instance: CcuComponent::ReleaseAllTpInfos).
-After converting BaseCommMgr to a Leaky Singleton, the TeardownFlagGuard destructor
-no longer runs and the flag is always false; the guard is retained as defensive
-code that always takes the else branch (normal release) — see R5 for details.
 
 #### R11 Common resources belong to common nodes; engine subtrees are only users
 

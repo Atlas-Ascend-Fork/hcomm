@@ -15,8 +15,7 @@
 #因此当前随 `bash build.sh - u`（ENABLE_UT）构建并经 ctest 运行；ST / CI 接线为后续工作点。
 #
 #覆盖点（双 profile）：
-#- exit_without_cleanup ：不清理直接退出（Leaky Singleton不再析构，OS回收）；
-#  内含析构期回调 hcomm 接口的全局对象，验证 Leaky Singleton 在静态析构期仍可服务；
+#- exit_without_cleanup ：不清理直接退出（兜底析构链，T1 既有）；
 #- exit_graceful_deinit ：显式 DeInit(EXIT_PROFILE_GRACEFUL) 后退出 + 幂等验证；
 #- exit_reset_deinit    ：显式 DeInit(EXIT_PROFILE_RESET) 后退出 + 幂等验证。
 

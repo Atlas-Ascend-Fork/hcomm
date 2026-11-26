@@ -18,11 +18,8 @@ namespace Hccl {
 
 HccpPeerManager& HccpPeerManager::GetInstance()
 {
-    // Leaky Singleton: 故意不释放，规避 Static Destruction Order Fiasco，
-    // hixl全局对象析构访问 BaseCommMgr 时会调ra相关接口，而HccpPeerManager析构时会销毁Ra资源，
-    // 导致ra接口不可用，因此需确保Ra资源尚未Deinit
-    static HccpPeerManager* hccpPeerManager = new HccpPeerManager();
-    return *hccpPeerManager;
+    static HccpPeerManager hccpPeerManager;
+    return hccpPeerManager;
 }
 
 void HccpPeerManager::Init(s32 deviceLogicId)
