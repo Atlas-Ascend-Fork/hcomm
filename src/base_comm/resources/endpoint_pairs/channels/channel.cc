@@ -273,7 +273,10 @@ HcclResult Channel::BuildSocket()
         = (channelDesc_.channelName != nullptr) ? std::string(channelDesc_.channelName) : "AUTOMATIC_SOCKET_TAG";
 
     if (traits_.socketBuildMode == SocketBuildMode::LISTEN_AND_BORROW) {
-        local_.SaveSocketConfig(Hccl::SocketConfig(linkData, socketTag, true));
+        Hccl::SocketConfig socketConfig(linkData, local_.serverPort, socketTag);
+        socketConfig.noRankId = true;
+
+        local_.SaveSocketConfig(socketConfig);
     } else if (channelDesc_.role != HCOMM_SOCKET_ROLE_RESERVED) {
         local_.SaveSocketConfig(
             Hccl::SocketConfig(linkData, local_.serverPort, socketTag, channelDesc_.role == HCOMM_SOCKET_ROLE_SERVER));

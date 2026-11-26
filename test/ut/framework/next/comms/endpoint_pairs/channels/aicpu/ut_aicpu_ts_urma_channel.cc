@@ -517,10 +517,10 @@ TEST_F(AicpuTsUrmaChannelTest, Ut_StartListenAndBuildSocket_WhenRoleReserved_Exp
 
     EXPECT_EQ(ch.BuildSocket(), HCCL_SUCCESS); // 监听已就绪，BuildSocket 只做配置保存与数据 socket 借出
     ASSERT_NE(ch.local_.socketConfig, nullptr);
-    EXPECT_TRUE(ch.local_.socketConfig->noRankId);            // noRankId 三参形态：rank 不进匹配键
-    EXPECT_EQ(ch.local_.socketConfig->listeningPort, 60001U); // 三参形态端口不进 config，保持成员默认
-    EXPECT_TRUE(ch.local_.isRecvFirst);                       // client 借出 → 先收后发
-    ch.local_.socket = nullptr;                               // 防止析构归还打到真实 SocketMgr
+    EXPECT_TRUE(ch.local_.socketConfig->noRankId);               // noRankId 三参形态：rank 不进匹配键
+    EXPECT_EQ(ch.local_.socketConfig->listeningPort, desc.port); // 使用显式配置端口
+    EXPECT_TRUE(ch.local_.isRecvFirst);                          // client 借出 → 先收后发
+    ch.local_.socket = nullptr;                                  // 防止析构归还打到真实 SocketMgr
 }
 
 // ===================== BuildNotify 收敛基类后的钉住用例 =====================
