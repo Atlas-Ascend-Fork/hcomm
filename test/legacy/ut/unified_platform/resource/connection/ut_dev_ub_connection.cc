@@ -691,3 +691,70 @@ TEST_F(DevUbConnectionTest, Ut_AivEngine_Constructor_CreatesAivUrmaJfc)
     EXPECT_EQ(devUbConnection.jfcHandle, static_cast<JfcHandle>(0x0));
     GlobalMockObject::verify();
 }
+
+TEST_F(DevUbConnectionTest, Ut_AdvanceUbConnFromJettyImportWaiting_TimeoutFollowsLinkTimeoutEnv)
+{
+    // 回归：等待对端 publish 的上限取建链超时 HCCL_CONNECT_TIMEOUT（对齐 PR#5687 get/set tp attr
+    // 等建链期异步等待口径），jettyTimeOut 档位值（hw_value, 0-31）不再被误当作秒数。
+    // 边界动态取 env 实际值构造，对任意合法配置（120s~7200s）自洽。
+    RdmaHandle rdmaHandle = reinterpret_cast<void*>(0x1000000);
+    BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::UB);
+    LinkData linkData(portType, 0, 1, 0, 1);
+
+    DevUbConnection conn(rdmaHandle, linkData.GetLocalAddr(), linkData.GetRemoteAddr(), OpMode::OPBASE);
+    conn.ubConnStatus = DevUbConnection::UbConnStatus::JETTY_IMPORT_WAITING;
+    // 档位 0：旧行为被当作"0 秒"立即判超时；现档位不参与软件等待，不再立即超时
+    conn.jettyTimeOut = 0;
+    // pollCount 置 1 走退避分支，未超时路径不会触发 AcquireOrWaitSharedRemoteJetty
+    conn.importWaitingPollCount_ = 1U;
+
+    const std::chrono::seconds timeoutSec(EnvConfig::GetInstance().GetSocketConfig().GetLinkTimeOut());
+    conn.importWaitingStart_ = std::chrono::steady_clock::now();
+    EXPECT_NO_THROW(conn.AdvanceUbConnFromJettyImportWaiting());
+
+    // 等待 600ms 远小于 120s 下限，不判超时（覆盖档位 0 曾被当作 0 秒的回归点）
+    conn.importWaitingStart_ = std::chrono::steady_clock::now() - std::chrono::milliseconds(600);
+    EXPECT_NO_THROW(conn.AdvanceUbConnFromJettyImportWaiting());
+
+    // 等待时长为上限一半仍在时限内，不判超时；不贴近边界构造，
+    // 避免赋值与被测函数内部取时之间进程被抢占导致偶发假失败（精确超时边界由下方分支覆盖）
+    conn.importWaitingStart_ = std::chrono::steady_clock::now() - timeoutSec / 2;
+    EXPECT_NO_THROW(conn.AdvanceUbConnFromJettyImportWaiting());
+
+    // 超过时限判超时抛 InternalException
+    conn.importWaitingStart_ = std::chrono::steady_clock::now() - (timeoutSec + std::chrono::seconds(1));
+    EXPECT_THROW(conn.AdvanceUbConnFromJettyImportWaiting(), InternalException);
+    GlobalMockObject::verify();
+}
+
+TEST_F(DevUbConnectionTest, Ut_AdvanceUbConnFromJettyImportWaiting_GearNotAffectWaitLimit)
+{
+    // 档位 16 旧行为被当作 16 秒；现档位只传给 CreateJetty 的 errTimeout，
+    // 等待上限与档位 0 完全一致（同为建链超时口径）
+    RdmaHandle rdmaHandle = reinterpret_cast<void*>(0x1000000);
+    BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::UB);
+    LinkData linkData(portType, 0, 1, 0, 1);
+
+    DevUbConnection conn(rdmaHandle, linkData.GetLocalAddr(), linkData.GetRemoteAddr(), OpMode::OPBASE);
+    conn.ubConnStatus = DevUbConnection::UbConnStatus::JETTY_IMPORT_WAITING;
+    conn.jettyTimeOut = 16;
+    conn.importWaitingPollCount_ = 1U;
+
+    const std::chrono::seconds timeoutSec(EnvConfig::GetInstance().GetSocketConfig().GetLinkTimeOut());
+    // 保证 20s 落在判别窗口 (16s, 建链超时) 内
+    ASSERT_GT(timeoutSec.count(), 21);
+
+    // 等待 15s：旧口径（档位 16 当 16 秒）下未超时，现口径下更不会，不判超时
+    conn.importWaitingStart_ = std::chrono::steady_clock::now() - std::chrono::seconds(15);
+    EXPECT_NO_THROW(conn.AdvanceUbConnFromJettyImportWaiting());
+
+    // 等待 20s：唯一判别窗口（16s < elapsed < 建链超时），旧口径下误判超时，现口径下不判超时；
+    // 锁定"档位值不参与软件等待上限"语义，防止回退为按档位秒数计时
+    conn.importWaitingStart_ = std::chrono::steady_clock::now() - std::chrono::seconds(20);
+    EXPECT_NO_THROW(conn.AdvanceUbConnFromJettyImportWaiting());
+
+    // 超过建链超时口径判超时抛 InternalException
+    conn.importWaitingStart_ = std::chrono::steady_clock::now() - (timeoutSec + std::chrono::seconds(1));
+    EXPECT_THROW(conn.AdvanceUbConnFromJettyImportWaiting(), InternalException);
+    GlobalMockObject::verify();
+}
