@@ -164,7 +164,7 @@ int RaHdcCtxLmemRegisterAsync(struct RaCtxHandle *ctxHandle, struct MrRegInfoT *
 
     ret = RaHdcCtxPrepareLmemRegister(ctxHandle, lmemInfo, &asyncData);
     CHK_PRT_RETURN(ret != 0,
-        hccp_err("[init][ra_hdc_lmem]prepare register failed ret[%d], phyId[%u] devIndex[%u]", ret, phyId,
+        hccp_err("[init][ra_hdc_lmem]prepare register failed ret[%d], phyId[%u] devIndex[0x%x]", ret, phyId,
             ctxHandle->devIndex),
         ret);
 

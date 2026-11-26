@@ -361,6 +361,17 @@ void TcRsGetPingCb()
     ret = RsGetPingCb(&rdev, &pingCb);
     EXPECT_INT_EQ(ret, 0);
     mocker_clean();
+
+    // devIndex 不匹配分支
+    gTmpRsCb1.pingCb.devIndex = 1;
+    rdev.devIndex = 2;
+    mocker_invoke(RsGetRsCb, RsGetRsCbStub1, 1);
+    ret = RsGetPingCb(&rdev, &pingCb);
+    EXPECT_INT_EQ(ret, -ENODEV);
+    mocker_clean();
+
+    // 恢复全局桩状态，避免影响后续用例
+    gTmpRsCb1.pingCb.devIndex = 0;
 }
 
 void TcRsPingClientPostSend()

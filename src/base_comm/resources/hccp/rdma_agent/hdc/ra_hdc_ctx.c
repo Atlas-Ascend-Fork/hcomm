@@ -159,7 +159,7 @@ int RaHdcCtxDeinit(struct RaCtxHandle *ctxHandle)
     opData.txData.devIndex = ctxHandle->devIndex;
     ret = RaHdcProcessMsg(RA_RS_CTX_DEINIT, phyId, (char *)&opData, sizeof(union OpCtxDeinitData));
     CHK_PRT_RETURN(ret,
-        hccp_err("[deinit][ra_hdc_ctx]hdc message process failed ret[%d], phyId[%u] devIndex[%u]", ret, phyId,
+        hccp_err("[deinit][ra_hdc_ctx]hdc message process failed ret[%d], phyId[%u] devIndex[0x%x]", ret, phyId,
             ctxHandle->devIndex),
         ret);
 
@@ -290,7 +290,7 @@ int RaHdcCtxTokenIdAlloc(struct RaCtxHandle *ctxHandle, struct HccpTokenId *info
     ret = RaHdcProcessMsg(RA_RS_CTX_TOKEN_ID_ALLOC, phyId, (char *)&opData, sizeof(union OpTokenIdAllocData));
     CHK_PRT_RETURN(ret != 0,
         hccp_err("[init][ra_token_id]hdc message process failed ret[%d], phyId[%u] "
-                 "devIndex[%u]",
+                 "devIndex[0x%x]",
             ret, phyId, ctxHandle->devIndex),
         ret);
 
@@ -311,7 +311,7 @@ int RaHdcCtxTokenIdFree(struct RaCtxHandle *ctxHandle, struct RaTokenIdHandle *t
     ret = RaHdcProcessMsg(RA_RS_CTX_TOKEN_ID_FREE, phyId, (char *)&opData, sizeof(union OpTokenIdFreeData));
     CHK_PRT_RETURN(ret != 0,
         hccp_err("[deinit][ra_token_id]hdc message process failed ret[%d], phyId[%u] "
-                 "devIndex[%u]",
+                 "devIndex[0x%x]",
             ret, phyId, ctxHandle->devIndex),
         ret);
 
@@ -341,13 +341,13 @@ int RaHdcCtxLmemRegister(struct RaCtxHandle *ctxHandle, struct MrRegInfoT *lmemI
 
     ret = RaHdcCtxPrepareLmemRegister(ctxHandle, lmemInfo, &opData);
     CHK_PRT_RETURN(ret != 0,
-        hccp_err("[init][ra_hdc_lmem]prepare register failed ret[%d], phyId[%u] devIndex[%u]", ret, phyId,
+        hccp_err("[init][ra_hdc_lmem]prepare register failed ret[%d], phyId[%u] devIndex[0x%x]", ret, phyId,
             ctxHandle->devIndex),
         ret);
 
     ret = RaHdcProcessMsg(RA_RS_LMEM_REG, phyId, (char *)&opData, sizeof(union OpLmemRegInfoData));
     CHK_PRT_RETURN(ret,
-        hccp_err("[init][ra_hdc_lmem]hdc message process failed ret[%d], phyId[%u] devIndex[%u]", ret, phyId,
+        hccp_err("[init][ra_hdc_lmem]hdc message process failed ret[%d], phyId[%u] devIndex[0x%x]", ret, phyId,
             ctxHandle->devIndex),
         ret);
 
@@ -367,7 +367,7 @@ int RaHdcCtxLmemUnregister(struct RaCtxHandle *ctxHandle, struct RaLmemHandle *l
     opData.txData.addr = lmemHandle->addr;
     ret = RaHdcProcessMsg(RA_RS_LMEM_UNREG, phyId, (char *)&opData, sizeof(union OpLmemUnregInfoData));
     CHK_PRT_RETURN(ret,
-        hccp_err("[deinit][ra_hdc_lmem]hdc message process failed ret[%d], phyId[%u] devIndex[%u]", ret, phyId,
+        hccp_err("[deinit][ra_hdc_lmem]hdc message process failed ret[%d], phyId[%u] devIndex[0x%x]", ret, phyId,
             ctxHandle->devIndex),
         ret);
 
@@ -395,7 +395,7 @@ int RaHdcCtxRmemImport(struct RaCtxHandle *ctxHandle, struct MrImportInfoT *rmem
 
     ret = RaHdcProcessMsg(RA_RS_RMEM_IMPORT, phyId, (char *)&opData, sizeof(union OpRmemImportInfoData));
     CHK_PRT_RETURN(ret,
-        hccp_err("[init][ra_hdc_rmem]hdc message process failed ret[%d], phyId[%u] devIndex[%u]", ret, phyId,
+        hccp_err("[init][ra_hdc_rmem]hdc message process failed ret[%d], phyId[%u] devIndex[0x%x]", ret, phyId,
             ctxHandle->devIndex),
         ret);
 
@@ -414,7 +414,7 @@ int RaHdcCtxRmemUnimport(struct RaCtxHandle *ctxHandle, struct RaRmemHandle *rme
     opData.txData.addr = rmemHandle->addr;
     ret = RaHdcProcessMsg(RA_RS_RMEM_UNIMPORT, phyId, (char *)&opData, sizeof(union OpRmemUnimportInfoData));
     CHK_PRT_RETURN(ret,
-        hccp_err("[deinit][ra_hdc_rmem]hdc message process failed ret[%d], phyId[%u], devIndex[%u]", ret, phyId,
+        hccp_err("[deinit][ra_hdc_rmem]hdc message process failed ret[%d], phyId[%u], devIndex[0x%x]", ret, phyId,
             ctxHandle->devIndex),
         ret);
 
@@ -432,7 +432,7 @@ int RaHdcCtxChanCreate(struct RaCtxHandle *ctxHandle, struct ChanInfoT *chanInfo
     opData.txData.dataPlaneFlag = chanInfo->in.dataPlaneFlag;
     ret = RaHdcProcessMsg(RA_RS_CTX_CHAN_CREATE, phyId, (char *)&opData, sizeof(union OpCtxChanCreateData));
     CHK_PRT_RETURN(ret,
-        hccp_err("[init][ctx_chan]hdc message process failed ret[%d], phyId[%u], devIndex[%u]", ret, phyId,
+        hccp_err("[init][ctx_chan]hdc message process failed ret[%d], phyId[%u], devIndex[0x%x]", ret, phyId,
             ctxHandle->devIndex),
         ret);
 
@@ -453,7 +453,7 @@ int RaHdcCtxChanDestroy(struct RaCtxHandle *ctxHandle, struct RaChanHandle *chan
 
     ret = RaHdcProcessMsg(RA_RS_CTX_CHAN_DESTROY, phyId, (char *)&opData, sizeof(union OpCtxChanDestroyData));
     CHK_PRT_RETURN(ret,
-        hccp_err("[deinit][ctx_chan]hdc message process failed ret[%d], phyId[%u], devIndex[%u]", ret, phyId,
+        hccp_err("[deinit][ctx_chan]hdc message process failed ret[%d], phyId[%u], devIndex[0x%x]", ret, phyId,
             ctxHandle->devIndex),
         ret);
 
@@ -484,7 +484,7 @@ int RaHdcCtxCqCreate(struct RaCtxHandle *ctxHandle, struct CqInfoT *info, struct
 
     ret = RaHdcProcessMsg(RA_RS_CTX_CQ_CREATE, phyId, (char *)&opData, sizeof(union OpCtxCqCreateData));
     CHK_PRT_RETURN(ret,
-        hccp_err("[init][ra_cq]hdc message process failed ret[%d], phyId[%u], devIndex[%u]", ret, phyId,
+        hccp_err("[init][ra_cq]hdc message process failed ret[%d], phyId[%u], devIndex[0x%x]", ret, phyId,
             ctxHandle->devIndex),
         ret);
 
@@ -504,7 +504,7 @@ int RaHdcCtxCqDestroy(struct RaCtxHandle *ctxHandle, struct RaCqHandle *cqHandle
     opData.txData.addr = cqHandle->addr;
     ret = RaHdcProcessMsg(RA_RS_CTX_CQ_DESTROY, phyId, (char *)&opData, sizeof(union OpCtxCqDestroyData));
     CHK_PRT_RETURN(ret,
-        hccp_err("[deinit][ra_cq]hdc message process failed ret[%d], phyId[%u], devIndex[%u]", ret, phyId,
+        hccp_err("[deinit][ra_cq]hdc message process failed ret[%d], phyId[%u], devIndex[0x%x]", ret, phyId,
             ctxHandle->devIndex),
         ret);
 
@@ -545,12 +545,12 @@ int RaHdcCtxQpCreate(struct RaCtxHandle *ctxHandle, struct QpCreateAttr *qpAttr,
 
     ret = RaHdcCtxPrepareQpCreate(ctxHandle, qpAttr, &opData);
     CHK_PRT_RETURN(ret,
-        hccp_err("[init][ra_hdc_qp]prepare qp_create failed ret[%d], phyId[%u] devIndex[%u]", ret, phyId, devIndex),
+        hccp_err("[init][ra_hdc_qp]prepare qp_create failed ret[%d], phyId[%u] devIndex[0x%x]", ret, phyId, devIndex),
         ret);
 
     ret = RaHdcProcessMsg(RA_RS_CTX_QP_CREATE, phyId, (char *)&opData, sizeof(union OpCtxQpCreateData));
     CHK_PRT_RETURN(ret,
-        hccp_err("[init][ra_hdc_qp]hdc message process failed ret[%d], phyId[%u] devIndex[%u]", ret, phyId, devIndex),
+        hccp_err("[init][ra_hdc_qp]hdc message process failed ret[%d], phyId[%u] devIndex[0x%x]", ret, phyId, devIndex),
         ret);
 
     RaCtxGetQpCreateInfo(ctxHandle, qpAttr, &(opData.rxData.qpInfo), qpHandle);
@@ -571,11 +571,11 @@ int RaHdcCtxQpDestroy(struct RaCtxQpHandle *qpHandle)
 
     ret = RaHdcProcessMsg(RA_RS_CTX_QP_DESTROY, phyId, (char *)&opData, sizeof(union OpCtxQpDestroyData));
     CHK_PRT_RETURN(ret == -ENODEV,
-        hccp_warn_rma("[deinit][ra_hdc_qp]hdc message process ret[%d], phyId[%u] devIndex[%u]", ret, phyId,
+        hccp_warn_rma("[deinit][ra_hdc_qp]hdc message process ret[%d], phyId[%u] devIndex[0x%x]", ret, phyId,
             qpHandle->devIndex),
         ret);
     CHK_PRT_RETURN(ret != 0,
-        hccp_err("[deinit][ra_hdc_qp]hdc message process failed ret[%d], phyId[%u] devIndex[%u]", ret, phyId,
+        hccp_err("[deinit][ra_hdc_qp]hdc message process failed ret[%d], phyId[%u] devIndex[0x%x]", ret, phyId,
             qpHandle->devIndex),
         ret);
     return 0;
@@ -604,12 +604,12 @@ int RaHdcCtxQpImport(struct RaCtxHandle *ctxHandle, struct QpImportInfoT *qpInfo
 
     ret = RaHdcCtxPrepareQpImport(ctxHandle, qpInfo, &opData);
     CHK_PRT_RETURN(ret,
-        hccp_err("[init][ra_hdc_qp]prepare qp_import failed ret[%d], phyId[%u] devIndex[%u]", ret, phyId, devIndex),
+        hccp_err("[init][ra_hdc_qp]prepare qp_import failed ret[%d], phyId[%u] devIndex[0x%x]", ret, phyId, devIndex),
         ret);
 
     ret = RaHdcProcessMsg(RA_RS_CTX_QP_IMPORT, phyId, (char *)&opData, sizeof(union OpCtxQpImportData));
     CHK_PRT_RETURN(ret,
-        hccp_err("[init][ra_hdc_qp]hdc message process failed ret[%d], phyId[%u] devIndex[%u]", ret, phyId, devIndex),
+        hccp_err("[init][ra_hdc_qp]hdc message process failed ret[%d], phyId[%u] devIndex[0x%x]", ret, phyId, devIndex),
         ret);
 
     RaCtxGetQpImportInfo(ctxHandle, qpInfo, &(opData.rxData.info), remQpHandle);
@@ -629,7 +629,7 @@ int RaHdcCtxQpUnimport(struct RaCtxRemQpHandle *remQpHandle)
     (void)memcpy_s(opData.txData.rawRemJettyId, REM_JETTY_ID_SIZE, remQpHandle->qpKey.value, REM_JETTY_ID_SIZE);
     ret = RaHdcProcessMsg(RA_RS_CTX_QP_UNIMPORT, phyId, (char *)&opData, sizeof(union OpCtxQpUnimportData));
     CHK_PRT_RETURN(ret,
-        hccp_err("[deinit][ra_qp]hdc message process failed ret[%d], phyId[%u] devIndex[%u]", ret, phyId,
+        hccp_err("[deinit][ra_qp]hdc message process failed ret[%d], phyId[%u] devIndex[0x%x]", ret, phyId,
             remQpHandle->devIndex),
         ret);
 

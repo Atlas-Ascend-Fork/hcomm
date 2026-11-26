@@ -88,14 +88,14 @@ HCCP_ATTRI_VISI_DEF int RaCtxLmemRegisterAsync(void *ctxHandle, struct MrRegInfo
     ctxHandleTmp = (struct RaCtxHandle *)ctxHandle;
     lmemHandleTmp = calloc(1, sizeof(struct RaLmemHandle));
     CHK_PRT_RETURN(lmemHandleTmp == NULL,
-        hccp_err("[init][ra_lmem]calloc lmem_handle_tmp failed, errno(%d) phyId(%u) devIndex(%u)", errno,
+        hccp_err("[init][ra_lmem]calloc lmem_handle_tmp failed, errno(%d) phyId(%u) devIndex(0x%x)", errno,
             ctxHandleTmp->attr.phyId, ctxHandleTmp->devIndex),
         ConverReturnCode(RDMA_OP, -ENOMEM));
 
     ret = RaHdcCtxLmemRegisterAsync(ctxHandleTmp, lmemInfo, lmemHandleTmp, reqHandle);
     if (ret != 0) {
-        hccp_err("[init][ra_lmem]register_async failed, ret(%d) phyId(%u), devIndex(%u)", ret, ctxHandleTmp->attr.phyId,
-            ctxHandleTmp->devIndex);
+        hccp_err("[init][ra_lmem]register_async failed, ret(%d) phyId(%u), devIndex(0x%x)", ret,
+            ctxHandleTmp->attr.phyId, ctxHandleTmp->devIndex);
         goto err;
     }
 
@@ -122,7 +122,7 @@ HCCP_ATTRI_VISI_DEF int RaCtxLmemUnregisterAsync(void *ctxHandle, void *lmemHand
     lmemHandleTmp = (struct RaLmemHandle *)lmemHandle;
     ret = RaHdcCtxLmemUnregisterAsync(ctxHandleTmp, lmemHandleTmp, reqHandle);
     if (ret != 0) {
-        hccp_err("[deinit][ra_lmem]unregister_async failed, ret(%d) phyId(%u), devIndex(%u)", ret,
+        hccp_err("[deinit][ra_lmem]unregister_async failed, ret(%d) phyId(%u), devIndex(0x%x)", ret,
             ctxHandleTmp->attr.phyId, ctxHandleTmp->devIndex);
     }
 
@@ -145,13 +145,13 @@ HCCP_ATTRI_VISI_DEF int RaCtxQpCreateAsync(void *ctxHandle, struct QpCreateAttr 
     ctxHandleTmp = (struct RaCtxHandle *)ctxHandle;
     qpHandleTmp = calloc(1, sizeof(struct RaCtxQpHandle));
     CHK_PRT_RETURN(qpHandleTmp == NULL,
-        hccp_err("[init][ra_qp]calloc qp_handle_tmp failed, errno(%d) phyId(%u) devIndex(%u)", errno,
+        hccp_err("[init][ra_qp]calloc qp_handle_tmp failed, errno(%d) phyId(%u) devIndex(0x%x)", errno,
             ctxHandleTmp->attr.phyId, ctxHandleTmp->devIndex),
         ConverReturnCode(RDMA_OP, -ENOMEM));
 
     ret = RaHdcCtxQpCreateAsync(ctxHandleTmp, attr, info, qpHandleTmp, reqHandle);
     if (ret != 0) {
-        hccp_err("[init][ra_qp]create_async failed, ret(%d) phyId(%u), devIndex(%u)", ret, ctxHandleTmp->attr.phyId,
+        hccp_err("[init][ra_qp]create_async failed, ret(%d) phyId(%u), devIndex(0x%x)", ret, ctxHandleTmp->attr.phyId,
             ctxHandleTmp->devIndex);
         goto err;
     }
@@ -176,7 +176,7 @@ HCCP_ATTRI_VISI_DEF int RaCtxQpDestroyAsync(void *qpHandle, void **reqHandle)
     qpHandleTmp = (struct RaCtxQpHandle *)qpHandle;
     ret = RaHdcCtxQpDestroyAsync(qpHandleTmp, reqHandle);
     if (ret != 0) {
-        hccp_err("[deinit][ra_qp]destroy_async failed, ret(%d) phyId(%u), devIndex(%u) qp_id(%u)", ret,
+        hccp_err("[deinit][ra_qp]destroy_async failed, ret(%d) phyId(%u), devIndex(0x%x) qp_id(%u)", ret,
             qpHandleTmp->phyId, qpHandleTmp->devIndex, qpHandleTmp->id);
     }
 
@@ -212,7 +212,7 @@ HCCP_ATTRI_VISI_DEF int RaCtxQpDestroyBatchAsync(void *ctxHandle, void *qpHandle
     ctxHandleTmp = (struct RaCtxHandle *)ctxHandle;
     ret = RaHdcCtxQpDestroyBatchAsync(ctxHandleTmp, qpHandle, num, reqHandle);
     if (ret != 0) {
-        hccp_err("[destroy_batch][ra_qp]qp_destroy_batch_async failed, ret[%d] phyId[%u] num[%u] devIndex[%u]", ret,
+        hccp_err("[destroy_batch][ra_qp]qp_destroy_batch_async failed, ret[%d] phyId[%u] num[%u] devIndex[0x%x]", ret,
             ctxHandleTmp->attr.phyId, *num, ctxHandleTmp->devIndex);
     }
 
@@ -234,13 +234,13 @@ HCCP_ATTRI_VISI_DEF int RaCtxQpImportAsync(void *ctxHandle, struct QpImportInfoT
     ctxHandleTmp = (struct RaCtxHandle *)ctxHandle;
     remQpHandleTmp = calloc(1, sizeof(struct RaCtxRemQpHandle));
     CHK_PRT_RETURN(remQpHandleTmp == NULL,
-        hccp_err("[init][ra_qp]calloc rem_qp_handle_tmp failed, errno(%d) phyId(%u) devIndex(%u)", errno,
+        hccp_err("[init][ra_qp]calloc rem_qp_handle_tmp failed, errno(%d) phyId(%u) devIndex(0x%x)", errno,
             ctxHandleTmp->attr.phyId, ctxHandleTmp->devIndex),
         ConverReturnCode(RDMA_OP, -ENOMEM));
 
     ret = RaHdcCtxQpImportAsync(ctxHandleTmp, info, remQpHandleTmp, reqHandle);
     if (ret != 0) {
-        hccp_err("[init][ra_qp]import_async failed, ret(%d) phyId(%u), devIndex(%u)", ret, ctxHandleTmp->attr.phyId,
+        hccp_err("[init][ra_qp]import_async failed, ret(%d) phyId(%u), devIndex(0x%x)", ret, ctxHandleTmp->attr.phyId,
             ctxHandleTmp->devIndex);
         goto err;
     }
@@ -265,7 +265,7 @@ HCCP_ATTRI_VISI_DEF int RaCtxQpUnimportAsync(void *remQpHandle, void **reqHandle
     remQpHandleTmp = (struct RaCtxRemQpHandle *)remQpHandle;
     ret = RaHdcCtxQpUnimportAsync(remQpHandleTmp, reqHandle);
     if (ret != 0) {
-        hccp_err("[deinit][ra_qp]unimport_async failed, ret(%d) phyId(%u) devIndex(%u) qp_id(%u)", ret,
+        hccp_err("[deinit][ra_qp]unimport_async failed, ret(%d) phyId(%u) devIndex(0x%x) qp_id(%u)", ret,
             remQpHandleTmp->phyId, remQpHandleTmp->devIndex, remQpHandleTmp->id);
     }
 
@@ -292,7 +292,7 @@ HCCP_ATTRI_VISI_DEF int RaGetTpInfoListAsync(void *ctxHandle, struct GetTpCfg *c
     ret = RaHdcGetTpInfoListAsync(ctxHandleTmp, cfg, infoList, num, reqHandle);
     CHK_PRT_RETURN(ret != 0,
         hccp_err("[get][ra_tp_info]get_tp_info_list_async failed, ret[%d] phyId[%u], devIndex"
-                 "[%u]",
+                 "[0x%x]",
             ret, ctxHandleTmp->attr.phyId, ctxHandleTmp->devIndex),
         ConverReturnCode(RDMA_OP, ret));
 
