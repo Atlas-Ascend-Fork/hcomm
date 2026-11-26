@@ -20,13 +20,17 @@
 #include "orion_adapter_hccp.h"
 #include "rank_info_detect_service.h"
 #include "rank_info_detect_client.h"
-#include "coll_comm_config.h"
+#include "net_layer_config.h"
 #include "socket_handle_manager.h"
 #include "universal_concurrent_map.h"
 #include "adapter_error_manager_pub.h"
 #include <atomic>
 #include <climits>
+#include <cstdint>
+#include <memory>
 #include <mutex>
+#include <string>
+#include <thread>
 
 namespace Hccl {
 

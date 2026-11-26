@@ -11,12 +11,9 @@
 #ifndef COLL_COMM_CONFIG_H
 #define COLL_COMM_CONFIG_H
 
-#include <cstddef>
 #include <cstdint>
-#include <string>
 
 #include "hccl/hccl_types.h"
-#include "net_layer_config.h"
 
 namespace hccl {
 // 这里只使用引用，避免将 legacy 配置头传播到拓扑探测等调用方。

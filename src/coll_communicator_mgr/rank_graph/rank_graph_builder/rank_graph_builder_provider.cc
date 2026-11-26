@@ -360,7 +360,7 @@ namespace {
         HcclResult logicRet = HCCL_SUCCESS;
         HcclResult ret = RunBuild(
             __func__,
-            [&](RankGraphBuilder& rankGraphBuilder) {
+            [&rankTable, &topoPath, myRank, needsLogicSuperPodRewrite, &logicRet](RankGraphBuilder& rankGraphBuilder) {
                 if (needsLogicSuperPodRewrite) {
                     return BuildRankGraphWithLogicSuperPodId(rankGraphBuilder, rankTable, topoPath, myRank, logicRet);
                 }

@@ -11,13 +11,15 @@
 #ifndef HCCL_ROOT_HANDLE_V2_H
 #define HCCL_ROOT_HANDLE_V2_H
 
+#include <cstddef>
 #include <string>
+#include <vector>
 
 #include "orion_adapter_hccp.h"
 #include "ip_address.h"
 #include "binary_stream.h"
 #include "log.h"
-#include "../config_mgr/coll_comm_config.h"
+#include "../config_mgr/net_layer_config.h"
 
 namespace Hccl {
 
@@ -75,10 +77,10 @@ struct NetLayerCheckInfo {
             *this = {};
             return HCCL_SUCCESS;
         }
-        if (tail.size() < 2 * sizeof(u32)) {
+        constexpr size_t HEADER_SIZE = sizeof(MAGIC) + sizeof(VERSION);
+        if (tail.size() < HEADER_SIZE) {
             HCCL_ERROR(
-                "[NetLayerCheckInfo::Deserialize] truncated header, size[%zu], minimum[%zu]", tail.size(),
-                2 * sizeof(u32));
+                "[NetLayerCheckInfo::Deserialize] truncated header, size[%zu], minimum[%zu]", tail.size(), HEADER_SIZE);
             return HCCL_E_PARA;
         }
         BinaryStream input(tail);

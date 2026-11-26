@@ -28,7 +28,7 @@
 #include "hcom_common.h"
 #include "coll_comm_mgr.h"
 #include "coll_comm.h" // HcclDevMemAcquire 的 DPUTAG 分支：CollComm/ThreadMgr 完整类型
-#include "coll_comm_config.h"
+#include "net_layer_config.h"
 #include "rank_consistentcy_checker.h"
 #include "../common/src/topo/topoinfo_ranktable_partition.h"
 #include "mmpa_api.h"
