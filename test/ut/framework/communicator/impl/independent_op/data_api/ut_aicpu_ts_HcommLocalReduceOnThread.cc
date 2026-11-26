@@ -87,3 +87,21 @@ TEST_F(UtAicpuTsHcommLocalReduceOnThread, Ut_HcommLocalReduceOnThread_When_Count
     res = HcommLocalReduceOnThread(thread, largeDst, largeSrc, countExceeds4GB, dataType, reduceOp);
     EXPECT_EQ(res, HCCL_SUCCESS);
 }
+
+TEST_F(
+    UtAicpuTsHcommLocalReduceOnThread, Ut_HcommLocalReduceOnThread_When_DataType_IsInvalid_Expect_ReturnIsHCCL_E_PARA)
+{
+    VerifyMocksAndRestubDevType();
+    dataType = HCOMM_DATA_TYPE_RESERVED;
+    res = HcommLocalReduceOnThread(thread, dst, src, count, dataType, reduceOp);
+    EXPECT_EQ(res, HCCL_E_PARA);
+}
+
+TEST_F(
+    UtAicpuTsHcommLocalReduceOnThread, Ut_HcommLocalReduceOnThread_When_ReduceOp_IsInvalid_Expect_ReturnIsHCCL_E_PARA)
+{
+    VerifyMocksAndRestubDevType();
+    reduceOp = HCOMM_REDUCE_RESERVED;
+    res = HcommLocalReduceOnThread(thread, dst, src, count, dataType, reduceOp);
+    EXPECT_EQ(res, HCCL_E_PARA);
+}

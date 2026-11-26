@@ -108,6 +108,10 @@ int32_t HcommLocalCopyOnThread(ThreadHandle thread, void* dst, const void* src, 
     return HCCL_SUCCESS;
 }
 
+namespace {
+inline HcclResult ValidateReduceParams(HcommDataType dataType, HcommReduceOp reduceOp, bool& isGe950);
+} // namespace
+
 int32_t HcommLocalReduceOnThread(
     ThreadHandle thread, void* dst, const void* src, uint64_t count, HcommDataType dataType, HcommReduceOp reduceOp)
 {
@@ -125,19 +129,27 @@ int32_t HcommLocalReduceOnThread(
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
 
-    uint64_t len = count * SIZE_TABLE[dataType];
-
-    HcclResult ret = HCCL_SUCCESS;
-    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
+    bool isGe950 = false;
+    HcclResult ret = ValidateReduceParams(dataType, reduceOp, isGe950);
+    if (isGe950) {
+        CHK_PRT_RET(
+            ret != HCCL_SUCCESS,
+            HCCL_ERROR(
+                "[%s] FAIL at CheckDataTypeAndReduceOp. thread[0x%llx], dst[0x%llx], src[0x%llx], "
+                "count[%llu], dataType[%d], reduceOp[%d].",
+                __func__, thread, dst, src, count, dataType, reduceOp),
+            ret);
+        uint64_t len = count * SIZE_TABLE[dataType];
         EXCEPTION_CATCH(ret = threadPtr->LocalReduce(dst, src, len, dataType, reduceOp), ret = HCCL_E_INTERNAL);
     } else {
         CHK_PRT_RET(
-            (IsSupportReduce(dataType, reduceOp) == false),
+            ret != HCCL_SUCCESS,
             HCCL_ERROR(
                 "[%s] Not support reduce, "
                 "dst[0x%llx], src[0x%llx], count[%llu], dataType[%d], reduceOp[%d]",
                 __func__, dst, src, count, dataType, reduceOp),
             HCCL_E_PARA);
+        uint64_t len = count * SIZE_TABLE[dataType];
         HcclBuf srcBuf{const_cast<void*>(src), len, nullptr};
         HcclBuf dstBuf{dst, len, nullptr};
         HcclReduceInfo reduceInfo{static_cast<HcclDataType>(dataType), static_cast<HcclReduceOp>(reduceOp)};
@@ -395,6 +407,17 @@ inline HcclResult CheckDataTypeAndReduceOp(HcommDataType dataType, HcommReduceOp
     }
 
     return HCCL_SUCCESS;
+}
+
+// 校验 dataType/reduceOp 合法性并返回是否为 950 及以上代际，供各 Reduce 类接口前置校验复用。
+// isGe950 出参：true 表示 950+（走 CheckDataTypeAndReduceOp 白名单）；false 表示旧代际（走 IsSupportReduce 白名单）。
+HcclResult ValidateReduceParams(HcommDataType dataType, HcommReduceOp reduceOp, bool& isGe950)
+{
+    isGe950 = hcomm::EqualToOrGreaterThan950().value_or(false);
+    if (isGe950) {
+        return CheckDataTypeAndReduceOp(dataType, reduceOp);
+    }
+    return IsSupportReduce(dataType, reduceOp) ? HCCL_SUCCESS : HCCL_E_PARA;
 }
 
 } // namespace
@@ -707,11 +730,19 @@ int32_t HcommWriteReduceWithNotifyOnThread(
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
 
-    uint64_t len = count * SIZE_TABLE[dataType];
-
     HcclResult ret = HCCL_SUCCESS;
     if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HCCL_DEBUG("[%s] Running on A5.", __func__);
+        ret = CheckDataTypeAndReduceOp(dataType, reduceOp);
+        CHK_PRT_RET(
+            ret != HCCL_SUCCESS,
+            HCCL_ERROR(
+                "[%s] FAIL at CheckDataTypeAndReduceOp. thread[0x%llx], channel[0x%llx], dst[0x%llx], src[0x%llx], "
+                "count[%llu], dataType[%d], reduceOp[%d], remoteNotifyIdx[%u].",
+                __func__, thread, channel, dst, src, count, dataType, reduceOp, remoteNotifyIdx),
+            ret);
+        uint64_t len = count * SIZE_TABLE[dataType];
+
         auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
         CHK_PTR_NULL(transportLitePtr);
         auto* const streamLitePtr = static_cast<Hccl::StreamLite*>(threadPtr->GetStreamLitePtr());
@@ -728,14 +759,6 @@ int32_t HcommWriteReduceWithNotifyOnThread(
             ret);
         const Hccl::Buffer rmtBuf{ReinterpretAs<uintptr_t>(dst), len};
 
-        ret = CheckDataTypeAndReduceOp(dataType, reduceOp);
-        CHK_PRT_RET(
-            ret != HCCL_SUCCESS,
-            HCCL_ERROR(
-                "[%s] FAIL at CheckDataTypeAndReduceOp. thread[0x%llx], channel[0x%llx], dst[0x%llx], src[0x%llx], "
-                "count[%llu], dataType[%d], reduceOp[%d], remoteNotifyIdx[%u].",
-                __func__, thread, channel, dst, src, count, dataType, reduceOp, remoteNotifyIdx),
-            ret);
         Hccl::ReduceIn reduceIn{mapHcommDataTypeToA5.at(dataType), mapHcommReduceOpToA5.at(reduceOp)};
 
         Hccl::WithNotifyIn withNotify{Hccl::TransportNotifyType::NORMAL, remoteNotifyIdx};
@@ -830,10 +853,17 @@ int32_t HcommReadReduceOnThread(
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
 
-    uint64_t len = count * SIZE_TABLE[dataType];
-
-    HcclResult ret = HCCL_SUCCESS;
-    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
+    bool isGe950 = false;
+    HcclResult ret = ValidateReduceParams(dataType, reduceOp, isGe950);
+    if (isGe950) {
+        CHK_PRT_RET(
+            ret != HCCL_SUCCESS,
+            HCCL_ERROR(
+                "[%s] FAIL at CheckDataTypeAndReduceOp. thread[0x%llx], channel[0x%llx], dst[0x%llx], src[0x%llx], "
+                "count[%llu], dataType[%d], reduceOp[%d].",
+                __func__, thread, channel, dst, src, count, dataType, reduceOp),
+            ret);
+        uint64_t len = count * SIZE_TABLE[dataType];
         auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
         CHK_PTR_NULL(transportLitePtr);
         auto* const streamLitePtr = static_cast<Hccl::StreamLite*>(threadPtr->GetStreamLitePtr());
@@ -849,27 +879,18 @@ int32_t HcommReadReduceOnThread(
                 __func__, thread, channel, dst, src, count, dataType, reduceOp),
             ret);
         const Hccl::Buffer rmtBuf{ReinterpretAs<uintptr_t>(src), len};
-
-        ret = CheckDataTypeAndReduceOp(dataType, reduceOp);
-        CHK_PRT_RET(
-            ret != HCCL_SUCCESS,
-            HCCL_ERROR(
-                "[%s] FAIL at CheckDataTypeAndReduceOp. thread[0x%llx], channel[0x%llx], dst[0x%llx], src[0x%llx], "
-                "count[%llu], dataType[%d], reduceOp[%d].",
-                __func__, thread, channel, dst, src, count, dataType, reduceOp),
-            ret);
         Hccl::ReduceIn reduceIn{mapHcommDataTypeToA5.at(dataType), mapHcommReduceOpToA5.at(reduceOp)};
-
         EXCEPTION_CATCH(
             transportLitePtr->ReadReduce(locRmaBuf, rmtBuf, reduceIn, *streamLitePtr), ret = HCCL_E_INTERNAL);
     } else {
         CHK_PRT_RET(
-            (IsSupportReduce(dataType, reduceOp) == false),
+            ret != HCCL_SUCCESS,
             HCCL_ERROR(
                 "[%s] Not support reduce, "
                 "dst[0x%llx], src[0x%llx], count[%llu], dataType[%d], reduceOp[%d]",
                 __func__, dst, src, count, dataType, reduceOp),
             HCCL_E_PARA);
+        uint64_t len = count * SIZE_TABLE[dataType];
         HcclBuf locBuf{dst, len, nullptr};
         HcclBuf rmtBuf{const_cast<void*>(src), len, nullptr};
         HcclReduceInfo reduceInfo{static_cast<HcclDataType>(dataType), static_cast<HcclReduceOp>(reduceOp)};
