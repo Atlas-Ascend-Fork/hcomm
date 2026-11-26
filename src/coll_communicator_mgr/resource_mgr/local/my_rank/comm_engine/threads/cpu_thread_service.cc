@@ -187,7 +187,7 @@ HcclResult CpuThreadService::StopCpuKernel() const
 }
 
 HcclResult CpuThreadService::AcquireCpuTagShmem(
-    const HcclComm commV2, uint32_t devId, const uint64_t* size, void** addr, bool* newCreated)
+    const HcclComm commV2, uint32_t devId, const uint64_t* size, void** addr, bool* newCreated) const
 {
     if (size == nullptr || addr == nullptr) {
         HCCL_ERROR("[%s] size/addr is nullptr", __func__);
