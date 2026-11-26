@@ -40,12 +40,12 @@ HcclResult HcclCommDestroy(HcclComm comm)
 
 ## 约束说明
 
-- 此接口支持跨线程调用：
+- 此接口支持跨线程调用（Ascend 950PR&950DT系列产品暂不支持）：
   - 当通信域状态处于建链卡住或者未被占用状态时，支持跨线程调用此接口销毁通信域，并返回HCCL_SUCCESS。
 
-    通信域销毁成功后，正在执行的通信算子无需等待超时时间会直接报错退出，并打印ERROR级别日志，日志关键字为“Terminating operation due to external request”。
+    通信域销毁成功后，正在处于建链卡住状态的通信算子无需等待超时时间会直接报错退出，并打印ERROR级别日志，日志关键字为“Terminating operation due to external request”。
 
-  - 当通信域处于非建链卡住状态，或者其他被占用状态（例如通信域建链过程中、通信算子执行过程中等），跨线程调用此接口时会返回HCCL_E_AGAIN错误，并打印WARNING级别日志，日志关键字为“\[HcclCommDestroy\] comm is in use, please try again later”。
+  - 当通信域处于通信算子展开过程中，跨线程调用此接口时会返回HCCL_E_AGAIN错误，并打印WARNING级别日志，日志关键字为“\[HcclCommDestroy\] comm is in use, please try again later”。
 
 - 在UB Memory场景，建议先调用[HcclCommSymWinDeregister](HcclCommSymWinDeregister.md)解注册对称内存窗口，再调用本接口销毁通信域。
   如果仍有未解注册的UB Memory窗口，本接口会在销毁通信域时兜底释放其本地资源。A3和URMA场景同样不要求先解注册对称内存窗口：销毁通信域时，内部资源管理会遍历所有已注册的对称内存窗口，自动执行解注册并释放对应资源（对称虚拟地址、设备侧窗口副本等），无需用户调用解注册接口，销毁也不会因存在未解注册窗口而失败。
