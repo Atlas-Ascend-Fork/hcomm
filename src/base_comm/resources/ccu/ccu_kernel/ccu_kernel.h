@@ -51,20 +51,9 @@
 #define CCU_PROFILING
 #endif
 #include "ccu_types.h"
+#include "ccu_profiling.h"
 
 namespace hcomm {
-
-struct GroupInfo {
-    uint16_t loopParamId;
-    uint16_t parallelParamId;
-    uint16_t residualId;
-};
-
-struct GroupOpConfig {
-    uint32_t msInterleave;
-    uint32_t loopCount;
-    uint64_t memSlice;
-};
 
 // Kernel 查询信息结构体，由 CcuKernel::GetCcuKernelInfo 在锁内填充。
 // 后续新增查询字段时只需在此结构体中添加，无需新增接口。
@@ -83,9 +72,9 @@ struct CcuFuncAddr {
 class CcuKernel : public CcuRep::CcuRepContext {
 public:
     CcuKernel() = default;
-    ~CcuKernel() override;
+    ~CcuKernel() override = default;
 
-    HcclResult SetupProfilingInfo(const char* kernelFuncName);
+    HcclResult SetupProfilingInfo(const char* kernelFuncName) { return profiling_.SetupProfilingInfo(kernelFuncName); }
     HcclResult ApplyDieFromChannels();
     HcclResult ValidateAndApplyDie(uint32_t targetDieId);
 
@@ -127,18 +116,41 @@ public:
 
     HcclResult AddProfilingInfo(
         const ChannelHandle* channels, uint32_t channelNum, HcclDataType dataType, HcclDataType outputDataType,
-        HcclReduceOp opType, const std::string& opName);
+        HcclReduceOp opType, const std::string& opName)
+    {
+        return profiling_.AddProfilingInfo(channels, channelNum, dataType, outputDataType, opType, opName);
+    }
 
     HcclResult AddCcuProfiling(
-        GroupInfo groupInfo, const std::vector<ChannelHandle> channelHandle, HcclDataType dataType,
-        HcclDataType outputDataType, HcclReduceOp opType, const std::string& opName);
+        GroupInfo groupInfo, const std::vector<ChannelHandle>& channelHandle, HcclDataType dataType,
+        HcclDataType outputDataType, HcclReduceOp opType, const std::string& opName)
+    {
+        return profiling_.AddCcuProfiling(groupInfo, channelHandle, dataType, outputDataType, opType, opName);
+    }
     HcclResult AddCcuProfiling(
         const ChannelHandle* channels, uint32_t channelNum, HcclDataType dataType, HcclDataType outputDataType,
-        HcclReduceOp opType, const std::string& opName);
-    HcclResult
-    GetCcuProfilingInfo(const uint64_t* taskArgs, uint32_t argSize, std::vector<CcuProfilingInfo>& allCcuProfilingInfo);
+        HcclReduceOp opType, const std::string& opName)
+    {
+        return profiling_.AddCcuProfiling(channels, channelNum, dataType, outputDataType, opType, opName);
+    }
 
-    const std::vector<CcuProfilingInfo>& GetAllCcuProfilingInfo() { return allCcuProfilingInfos_; };
+    // 双路 profiling 收集：ccuStaticInfo 为 SQE/WaitCKE 静态部分（shared_ptr 0 拷贝共享），
+    // ccuDetailInfo 为 LoopGroup 动态部分（深拷贝）；空时为 nullptr。
+    HcclResult GetCcuProfilingInfo(
+        const uint64_t* taskArgs, uint32_t argSize, std::shared_ptr<std::vector<CcuProfilingInfo>>& ccuStaticInfo,
+        std::shared_ptr<std::vector<CcuProfilingInfo>>& ccuDetailInfo)
+    {
+        return profiling_.GetCcuProfilingInfo(taskArgs, argSize, ccuStaticInfo, ccuDetailInfo, GetInstrId());
+    }
+
+    // 按 isSaveProfilingData 开关决定是否收集（为 false 时直接返回不收集）
+    HcclResult ConstructProfilingInfo(
+        const uint64_t* taskArgs, uint32_t argNum, CcuKernelProfiling::CcuDfxResult& result, bool isSaveProfilingData)
+    {
+        return profiling_.ConstructProfilingInfo(taskArgs, argNum, result, isSaveProfilingData, GetInstrId());
+    }
+
+    const std::vector<CcuProfilingInfo>& GetAllCcuProfilingInfo() { return profiling_.GetAllCcuProfilingInfo(); }
 
     // process const values
     std::unordered_map<uint64_t, CcuRep::Variable>& GetConstValue2VarMap() { return constValue2VarMap; }
@@ -358,7 +370,7 @@ private:
     uint64_t OpenFuncBlock(const void* funcPtr);
 
     CcuResult ValidateTaskArgs(const uint64_t* taskArgs, uint32_t argsNum) const;
-    void FillTaskParam(
+    CcuResult FillTaskParam(
         CcuTaskParam& param, uint32_t index, uint32_t seqNum, const uint64_t* taskArgs, uint32_t argsNum) const;
 
     CcuResult ResolveBufRemoteLenEvent(
@@ -380,24 +392,6 @@ private:
     // 用于 LoadVar/StoreVar 等接口对“连续变量块”的前置校验。
     CcuResult CheckContinuousVariables(
         CcuVariableHandle varHandle, uint32_t num, const CcuRep::Variable& baseVar, const char* tag);
-
-    // GetCcuProfilingInfo 的子步骤：处理 sqe & waitcke 类型的 profiling 信息，结果直接 push 到 allCcuProfilingInfos_
-    // 中。
-    HcclResult CollectSqeAndWaitCkeProfilingInfo();
-    // GetCcuProfilingInfo 的子步骤：根据 LoopGroup 的 profiling 缓存构建
-    // varId -> argIndex 与 varId -> varId 两个查找表，供 LoopGroup 段查询入参使用。
-    HcclResult BuildLoopGroupVarIdMaps(
-        std::unordered_map<uint16_t, uint32_t>& varId2ArgIndexMap,
-        std::unordered_map<uint16_t, uint16_t>& varId2VarIdMap);
-    // GetCcuProfilingInfo 的子步骤：处理 LoopGroup 的 profiling 信息，结果 push 到 allCcuProfilingInfos_ 中。
-    HcclResult CollectLoopGroupProfilingInfo(
-        const uint64_t* taskArgs, uint32_t argSize, const std::unordered_map<uint16_t, uint32_t>& varId2ArgIndexMap,
-        const std::unordered_map<uint16_t, uint16_t>& varId2VarIdMap);
-    // CollectLoopGroupProfilingInfo 的单次循环体：处理下标 i 对应的 loopParam 与 parallelParam 分支。
-    HcclResult CollectSingleLoopGroupProfiling(
-        uint32_t i, size_t repSize, const uint64_t* taskArgs, uint32_t argSize,
-        const std::unordered_map<uint16_t, uint32_t>& varId2ArgIndexMap,
-        const std::unordered_map<uint16_t, uint16_t>& varId2VarIdMap);
 
     CcuRep::Variable CreateJumpTargetVar();
 
@@ -535,9 +529,6 @@ private:
     CcuRep::Address CreateAddress();
     CcuRep::LocalAddr CreateLocalAddr(const CcuRep::Variable& token);
 
-protected:
-    GroupOpConfig moConfig_{0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF};
-
 private:
     template <typename T>
     T CreateResAssist(std::array<std::vector<T>, CCU_MAX_IODIE_NUM>& resRecord);
@@ -571,8 +562,7 @@ private:
 
     CcuSharedResource exportedRes_{};
     CcuSharedResource importedRes_{};
-    std::vector<GroupInfo> groupOpSizeInfo_;
-    std::vector<CcuProfilingInfo> allCcuProfilingInfos_;
+    CcuKernelProfiling profiling_{*this};
 
     // 记录每个kernel所需常量，适用于A6场景
     std::unordered_map<uint64_t, CcuRep::Variable> constValue2VarMap;
@@ -638,8 +628,6 @@ private:
 
     std::unordered_map<CcuLoopExecutors, std::vector<CcuRep::Executor>> loopEnginePools_;
     uint32_t loopEnginePoolCounter_{0};
-
-    std::string name_{};
 };
 
 CcuResult GetChannelIdByHandle(ChannelHandle channel, uint32_t& channelId);

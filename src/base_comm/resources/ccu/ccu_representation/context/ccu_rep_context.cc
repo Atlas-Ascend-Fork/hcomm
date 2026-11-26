@@ -190,6 +190,11 @@ namespace CcuRep {
     int32_t CcuRepContext::AddProfiling(const ChannelHandle* channels, uint32_t channelNum)
     {
         CHK_PTR_NULL(channels);
+        if (channelNum > CCU_MAX_CHANNEL_NUM) {
+            HCCL_ERROR(
+                "[%s] channelNum[%u] exceeds CCU_MAX_CHANNEL_NUM[%u]", __func__, channelNum, CCU_MAX_CHANNEL_NUM);
+            return HCCL_E_PARA;
+        }
         ccuProfilingInfoCache.type = static_cast<uint8_t>(CcuProfilinType::CCU_LOOPGROUP_PROFILING);
         ccuProfilingInfoCache.name = "GroupBroadcast";
         ccuProfilingInfoCache.reduceOpType = 0xFF;   // 0xFF 无效值
@@ -214,7 +219,9 @@ namespace CcuRep {
         }
 
         lgProfilingInfo.ccuProfilingInfos.push_back(ccuProfilingInfoCache);
-        if (!allLgProfilingReps.empty()) {
+        if (allLgProfilingReps.empty()) {
+            HCCL_WARNING("[%s] allLgProfilingReps is empty, skip LoopGroup rep association", __func__);
+        } else {
             lgProfilingInfo.lgProfilingReps.push_back(allLgProfilingReps.back());
         }
         return HCCL_SUCCESS;
@@ -229,6 +236,11 @@ namespace CcuRep {
         HcclReduceOp opType = static_cast<HcclReduceOp>(hcommOpType);
 
         CHK_PTR_NULL(channels);
+        if (channelNum > CCU_MAX_CHANNEL_NUM) {
+            HCCL_ERROR(
+                "[%s] channelNum[%u] exceeds CCU_MAX_CHANNEL_NUM[%u]", __func__, channelNum, CCU_MAX_CHANNEL_NUM);
+            return HCCL_E_PARA;
+        }
         ccuProfilingInfoCache.type = static_cast<uint8_t>(CcuProfilinType::CCU_LOOPGROUP_PROFILING);
         ccuProfilingInfoCache.name = "GroupReduce";
         ccuProfilingInfoCache.reduceOpType = opType;
@@ -255,7 +267,11 @@ namespace CcuRep {
         }
 
         lgProfilingInfo.ccuProfilingInfos.push_back(ccuProfilingInfoCache);
-        lgProfilingInfo.lgProfilingReps.push_back(allLgProfilingReps.back());
+        if (allLgProfilingReps.empty()) {
+            HCCL_WARNING("[%s] allLgProfilingReps is empty, skip LoopGroup rep association", __func__);
+        } else {
+            lgProfilingInfo.lgProfilingReps.push_back(allLgProfilingReps.back());
+        }
         return HCCL_SUCCESS;
     }
 

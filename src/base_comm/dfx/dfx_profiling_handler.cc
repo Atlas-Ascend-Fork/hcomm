@@ -21,7 +21,6 @@
 #include "data_type.h"
 #include "common/cast_utils_pub.h"
 namespace Hccl {
-constexpr uint16_t CCU_TYPE = 2;
 constexpr uint32_t DPU_DEV_ID_MASK = (1U << 12);
 
 DfxProfilingHandler DfxProfilingHandler::instance_;
@@ -544,11 +543,16 @@ void DfxProfilingHandler::LogCcuGroupInfo(
         HCCL_INFO("ccuGroupInfo outputDataType is [%d]", static_cast<int>(info.outputDataType));
     }
     for (auto i = 0; i < CCU_MAX_CHANNEL_NUM; i++) {
-        if (info.channelId[i] != INVALID_VALUE_CHANNELID && info.remoteRankId[i] != INVALID_VALUE_RANKID) {
-            HCCL_INFO(
-                "[ProfilingHandler]GetCcuGroupInfo, ccuGroupInfo data is: channelId[%d] = %u, "
-                "remoteRankId[%d] = %u",
-                i, info.channelId[i], i, info.remoteRankId[i]);
+        if (info.channelId[i] != INVALID_VALUE_CHANNELID) {
+            u32 remoteRankId = (taskInfo.getRemoteRankByHandle_ != nullptr) ?
+                                   taskInfo.getRemoteRankByHandle_(info.channelHandle[i]) :
+                                   INVALID_VALUE_RANKID;
+            if (remoteRankId != INVALID_VALUE_RANKID) {
+                HCCL_INFO(
+                    "[ProfilingHandler]GetCcuGroupInfo, ccuGroupInfo data is: channelId[%d] = %u, "
+                    "remoteRankId[%d] = %u",
+                    i, info.channelId[i], i, remoteRankId);
+            }
         }
     }
 }
@@ -561,69 +565,89 @@ void DfxProfilingHandler::ReportCcuInfoLog(const TaskInfo& taskInfo) const
     if (!enableHcclL1_) {
         return;
     }
-    if (taskInfo.taskParam_.ccuDetailInfo == nullptr || taskInfo.dfxOpInfo_ == nullptr) {
+    if (taskInfo.dfxOpInfo_ == nullptr) {
         return;
     }
-    auto ccuDetailInfo = taskInfo.taskParam_.ccuDetailInfo;
-    for (const auto& info : *ccuDetailInfo) {
-        uint64_t itemId = GetProfHashId(info.name.c_str(), info.name.length());
-        uint64_t groupName = taskInfo.dfxOpInfo_->groupNameHash_;
-        u32 rankId = 0;
-        u32 ranksize = 0;
-        rankId = taskInfo.dfxOpInfo_->op_.myRank;
-        ranksize = taskInfo.dfxOpInfo_->rankSize_;
-        if (info.type == 0) {
-            LogCcuTaskInfo(info, taskInfo, itemId, groupName, rankId, ranksize);
-        } else if (info.type == 1) {
-            LogCcuWaitSignalInfo(info, taskInfo, itemId, groupName, rankId, ranksize);
-        } else if (info.type == CCU_TYPE) {
-            LogCcuGroupInfo(info, taskInfo, itemId, groupName, rankId, ranksize);
+    uint64_t groupName = taskInfo.dfxOpInfo_->groupNameHash_;
+    u32 rankId = taskInfo.dfxOpInfo_->op_.myRank;
+    u32 ranksize = taskInfo.dfxOpInfo_->rankSize_;
+    auto logFn = [&](const std::shared_ptr<std::vector<CcuProfilingInfo>>& detailInfo) {
+        if (detailInfo == nullptr) {
+            return;
         }
-    }
+        for (const auto& info : *detailInfo) {
+            uint64_t itemId = GetProfHashId(info.name.c_str(), info.name.length());
+            if (info.type == static_cast<uint8_t>(CcuProfilinType::CCU_TASK_PROFILING)) {
+                LogCcuTaskInfo(info, taskInfo, itemId, groupName, rankId, ranksize);
+            } else if (info.type == static_cast<uint8_t>(CcuProfilinType::CCU_WAITCKE_PROFILING)) {
+                LogCcuWaitSignalInfo(info, taskInfo, itemId, groupName, rankId, ranksize);
+            } else if (info.type == static_cast<uint8_t>(CcuProfilinType::CCU_LOOPGROUP_PROFILING)) {
+                LogCcuGroupInfo(info, taskInfo, itemId, groupName, rankId, ranksize);
+            }
+        }
+    };
+    logFn(taskInfo.taskParam_.ccuStaticInfo);
+    logFn(taskInfo.taskParam_.ccuDetailInfo);
 }
 
 HcclResult DfxProfilingHandler::ReportCcuInfo(const TaskInfo& taskInfo) const
 {
     ReportCcuInfoLog(taskInfo);
-    if (taskInfo.taskParam_.ccuDetailInfo == nullptr) {
-        HCCL_WARNING("[ProfilingHandler]ReportCcuInfo ccuDetailInfo is nullptr.");
+    if (!enableHcclL1_) {
+        return HCCL_SUCCESS;
+    }
+    if (taskInfo.taskParam_.ccuDetailInfo == nullptr && taskInfo.taskParam_.ccuStaticInfo == nullptr) {
+        HCCL_WARNING("[ProfilingHandler]ReportCcuInfo ccuDetailInfo and ccuStaticInfo are both nullptr.");
         return HCCL_SUCCESS;
     }
     if (taskInfo.dfxOpInfo_ == nullptr) {
         HCCL_WARNING("[ProfilingHandler]ReportCcuInfo dfxOpInfo_ is nullptr, skip ReportCcuInfo.");
         return HCCL_SUCCESS;
     }
-    auto ccuDetailInfo = taskInfo.taskParam_.ccuDetailInfo;
-    for (const auto& info : *ccuDetailInfo) {
-        if (info.type == 0 && enableHcclL1_) {
-            CHK_RET(GetCcuTaskInfo(taskInfo, info));
-        } else if (info.type == 1 && enableHcclL1_) {
-            CHK_RET(GetCcuWaitSignalInfo(taskInfo, info));
-        } else if (info.type == CCU_TYPE && enableHcclL1_) {
-            CHK_RET(GetCcuGroupInfo(taskInfo, info));
+    // 批量时间戳优化：同一批 CCU 元素属于同一 kernel launch，共享一个时间戳，N 次 dlsym 调用降为 1 次
+    uint64_t batchTimestamp = DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    uint64_t groupName = taskInfo.dfxOpInfo_->groupNameHash_;
+    u32 rankId = taskInfo.dfxOpInfo_->op_.myRank;
+    u32 ranksize = taskInfo.dfxOpInfo_->rankSize_;
+
+    auto reportFn = [&](const std::shared_ptr<std::vector<CcuProfilingInfo>>& detailInfo) -> HcclResult {
+        if (detailInfo == nullptr) {
+            return HCCL_SUCCESS;
         }
-    }
+        // itemId 由 GetCcuProfilingInfo 预填充到 CcuProfilingInfo.itemId，跨 launch 复用，不再每次调 GetProfHashId
+        for (const auto& info : *detailInfo) {
+            CcuReportCtx ctx{batchTimestamp, groupName, rankId, ranksize, info.itemId};
+            if (info.type == static_cast<uint8_t>(CcuProfilinType::CCU_TASK_PROFILING)) {
+                CHK_RET(GetCcuTaskInfo(taskInfo, info, ctx));
+            } else if (info.type == static_cast<uint8_t>(CcuProfilinType::CCU_WAITCKE_PROFILING)) {
+                CHK_RET(GetCcuWaitSignalInfo(taskInfo, info, ctx));
+            } else if (info.type == static_cast<uint8_t>(CcuProfilinType::CCU_LOOPGROUP_PROFILING)) {
+                CHK_RET(GetCcuGroupInfo(taskInfo, info, ctx));
+            }
+        }
+        return HCCL_SUCCESS;
+    };
+    CHK_RET(reportFn(taskInfo.taskParam_.ccuStaticInfo));
+    CHK_RET(reportFn(taskInfo.taskParam_.ccuDetailInfo));
     return HCCL_SUCCESS;
 }
 
-HcclResult DfxProfilingHandler::GetCcuTaskInfo(const TaskInfo& taskInfo, const CcuProfilingInfo& info) const
+HcclResult DfxProfilingHandler::GetCcuTaskInfo(
+    const TaskInfo& taskInfo, const CcuProfilingInfo& info, const CcuReportCtx& ctx) const
 {
-    uint64_t timestamp = DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
     MsprofAdditionalInfo reporterData{};
     reporterData.level = MSPROF_REPORT_HCCL_NODE_LEVEL;
     reporterData.type = MSPROF_REPORT_CCU_TASK_INFO;
     reporterData.threadId = taskInfo.taskParam_.tid;
     reporterData.dataLen = sizeof(MsprofCcuTaskInfo);
-    reporterData.timeStamp = timestamp;
+    reporterData.timeStamp = ctx.timeStamp;
     auto* ccuTaskInfo = reinterpret_cast<MsprofCcuTaskInfo*>(reporterData.data);
     ccuTaskInfo->version = 0;
     ccuTaskInfo->workFlowMode = static_cast<u32>(HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
-    ccuTaskInfo->itemId = GetProfHashId(info.name.c_str(), info.name.length());
-    uint64_t groupName = taskInfo.dfxOpInfo_->groupNameHash_;
-    ccuTaskInfo->groupName = groupName;
-    ccuTaskInfo->rankId = taskInfo.dfxOpInfo_->op_.myRank;
-    ccuTaskInfo->ranksize = taskInfo.dfxOpInfo_->rankSize_;
-
+    ccuTaskInfo->itemId = ctx.itemId;
+    ccuTaskInfo->groupName = ctx.groupName;
+    ccuTaskInfo->rankId = ctx.rankId;
+    ccuTaskInfo->ranksize = ctx.ranksize;
     ccuTaskInfo->streamId = taskInfo.streamId_;
     ccuTaskInfo->taskId = taskInfo.taskId_;
     ccuTaskInfo->dieId = info.dieId;
@@ -633,21 +657,23 @@ HcclResult DfxProfilingHandler::GetCcuTaskInfo(const TaskInfo& taskInfo, const C
     return HCCL_SUCCESS;
 }
 
-HcclResult DfxProfilingHandler::GetCcuGroupInfo(const TaskInfo& taskInfo, const CcuProfilingInfo& info) const
+// 缓冲区写入失败时记日志并返回 HCCL_SUCCESS，不中断 launch 也不上抛错误。
+// 失败时该条 profiling 数据静默丢失（ReportAdditionInfo 被跳过），不影响主流程。
+HcclResult DfxProfilingHandler::GetCcuGroupInfo(
+    const TaskInfo& taskInfo, const CcuProfilingInfo& info, const CcuReportCtx& ctx) const
 {
     MsprofAdditionalInfo reporterData{};
     reporterData.level = MSPROF_REPORT_HCCL_NODE_LEVEL;
     reporterData.type = MSPROF_REPORT_CCU_GROUP_INFO;
     reporterData.threadId = taskInfo.taskParam_.tid;
     reporterData.dataLen = sizeof(MsprofCcuGroupInfo);
-    reporterData.timeStamp = DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    reporterData.timeStamp = ctx.timeStamp;
     auto* ccuGroupInfo = reinterpret_cast<MsprofCcuGroupInfo*>(reporterData.data);
     ccuGroupInfo->version = 0;
-    ccuGroupInfo->itemId = GetProfHashId(info.name.c_str(), info.name.length());
-    uint64_t groupName = taskInfo.dfxOpInfo_->groupNameHash_;
-    ccuGroupInfo->groupName = groupName;
-    ccuGroupInfo->rankId = taskInfo.dfxOpInfo_->op_.myRank;
-    ccuGroupInfo->ranksize = taskInfo.dfxOpInfo_->rankSize_;
+    ccuGroupInfo->itemId = ctx.itemId;
+    ccuGroupInfo->groupName = ctx.groupName;
+    ccuGroupInfo->rankId = ctx.rankId;
+    ccuGroupInfo->ranksize = ctx.ranksize;
     ccuGroupInfo->workFlowMode = static_cast<u32>(HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
     ccuGroupInfo->streamId = taskInfo.streamId_;
     ccuGroupInfo->taskId = taskInfo.taskId_;
@@ -658,8 +684,29 @@ HcclResult DfxProfilingHandler::GetCcuGroupInfo(const TaskInfo& taskInfo, const 
     ccuGroupInfo->inputDataType = info.inputDataType;
     ccuGroupInfo->outputDataType = info.outputDataType;
     ccuGroupInfo->dataSize = info.dataSize;
-    std::copy(info.channelId, info.channelId + CCU_MAX_CHANNEL_NUM, ccuGroupInfo->channelId);
-    std::copy(info.remoteRankId, info.remoteRankId + CCU_MAX_CHANNEL_NUM, ccuGroupInfo->remoteRankId);
+    s32 sret
+        = memcpy_s(ccuGroupInfo->channelId, sizeof(ccuGroupInfo->channelId), info.channelId, sizeof(info.channelId));
+    if (UNLIKELY(sret != EOK)) {
+        HCCL_ERROR(
+            "[%s] memcpy_s channelId failed, ret[%d], name[%s], type[%u]", __func__, sret, info.name.c_str(),
+            static_cast<uint32_t>(info.type));
+        return HCCL_SUCCESS;
+    }
+    sret = memset_s(
+        ccuGroupInfo->remoteRankId, sizeof(ccuGroupInfo->remoteRankId), INVALID_VALUE_RANKID,
+        sizeof(ccuGroupInfo->remoteRankId));
+    if (UNLIKELY(sret != EOK)) {
+        HCCL_ERROR("[%s] memset_s remoteRankId failed, ret[%d], name[%s]", __func__, sret, info.name.c_str());
+        return HCCL_SUCCESS;
+    }
+    for (int i = 0; i < CCU_MAX_CHANNEL_NUM; ++i) {
+        if (info.channelId[i] == INVALID_VALUE_CHANNELID) {
+            break;
+        }
+        ccuGroupInfo->remoteRankId[i] = (taskInfo.getRemoteRankByHandle_ != nullptr) ?
+                                            taskInfo.getRemoteRankByHandle_(info.channelHandle[i]) :
+                                            INVALID_VALUE_RANKID;
+    }
     CHK_RET(ReportAdditionInfo(reporterData));
     return HCCL_SUCCESS;
 }
@@ -672,22 +719,23 @@ void DfxProfilingHandler::DumpCcuGroupInfo([[maybe_unused]] const MsprofCcuGroup
     // HCCL_INFOs migrated to ReportCcuInfoLog
 }
 
-HcclResult DfxProfilingHandler::GetCcuWaitSignalInfo(const TaskInfo& taskInfo, const CcuProfilingInfo& info) const
+// 缓冲区写入失败时记日志并返回 HCCL_SUCCESS，不中断 launch 也不上抛错误。
+// 失败时该条 profiling 数据静默丢失（ReportAdditionInfo 被跳过），不影响主流程。
+HcclResult DfxProfilingHandler::GetCcuWaitSignalInfo(
+    const TaskInfo& taskInfo, const CcuProfilingInfo& info, const CcuReportCtx& ctx) const
 {
-    uint64_t timestamp = DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
     MsprofAdditionalInfo reporterData{};
     reporterData.level = MSPROF_REPORT_HCCL_NODE_LEVEL;
     reporterData.type = MSPROF_REPORT_CCU_WAIT_SIGNAL_INFO;
     reporterData.threadId = taskInfo.taskParam_.tid;
     reporterData.dataLen = sizeof(MsprofCcuWaitSignalInfo);
-    reporterData.timeStamp = timestamp;
+    reporterData.timeStamp = ctx.timeStamp;
     auto* waitSignalInfo = reinterpret_cast<MsprofCcuWaitSignalInfo*>(reporterData.data);
     waitSignalInfo->version = 0;
-    waitSignalInfo->itemId = GetProfHashId(info.name.c_str(), info.name.length());
-    uint64_t groupName = taskInfo.dfxOpInfo_->groupNameHash_;
-    waitSignalInfo->groupName = groupName;
-    waitSignalInfo->rankId = taskInfo.dfxOpInfo_->op_.myRank;
-    waitSignalInfo->ranksize = taskInfo.dfxOpInfo_->rankSize_;
+    waitSignalInfo->itemId = ctx.itemId;
+    waitSignalInfo->groupName = ctx.groupName;
+    waitSignalInfo->rankId = ctx.rankId;
+    waitSignalInfo->ranksize = ctx.ranksize;
     waitSignalInfo->workFlowMode = static_cast<u32>(HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
     waitSignalInfo->streamId = taskInfo.streamId_;
     waitSignalInfo->taskId = taskInfo.taskId_;
@@ -696,8 +744,29 @@ HcclResult DfxProfilingHandler::GetCcuWaitSignalInfo(const TaskInfo& taskInfo, c
     waitSignalInfo->missionId = info.missionId;
     waitSignalInfo->ckeId = info.ckeId;
     waitSignalInfo->mask = info.mask;
-    std::copy(info.channelId, info.channelId + CCU_MAX_CHANNEL_NUM, waitSignalInfo->channelId);
-    std::copy(info.remoteRankId, info.remoteRankId + CCU_MAX_CHANNEL_NUM, waitSignalInfo->remoteRankId);
+    s32 sret = memcpy_s(
+        waitSignalInfo->channelId, sizeof(waitSignalInfo->channelId), info.channelId, sizeof(info.channelId));
+    if (UNLIKELY(sret != EOK)) {
+        HCCL_ERROR(
+            "[%s] memcpy_s channelId failed, ret[%d], name[%s], type[%u]", __func__, sret, info.name.c_str(),
+            static_cast<uint32_t>(info.type));
+        return HCCL_SUCCESS;
+    }
+    sret = memset_s(
+        waitSignalInfo->remoteRankId, sizeof(waitSignalInfo->remoteRankId), INVALID_VALUE_RANKID,
+        sizeof(waitSignalInfo->remoteRankId));
+    if (UNLIKELY(sret != EOK)) {
+        HCCL_ERROR("[%s] memset_s remoteRankId failed, ret[%d], name[%s]", __func__, sret, info.name.c_str());
+        return HCCL_SUCCESS;
+    }
+    for (int i = 0; i < CCU_MAX_CHANNEL_NUM; ++i) {
+        if (info.channelId[i] == INVALID_VALUE_CHANNELID) {
+            break;
+        }
+        waitSignalInfo->remoteRankId[i] = (taskInfo.getRemoteRankByHandle_ != nullptr) ?
+                                              taskInfo.getRemoteRankByHandle_(info.channelHandle[i]) :
+                                              INVALID_VALUE_RANKID;
+    }
     CHK_RET(ReportAdditionInfo(reporterData));
     return HCCL_SUCCESS;
 }

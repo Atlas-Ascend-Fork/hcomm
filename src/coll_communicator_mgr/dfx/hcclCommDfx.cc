@@ -85,21 +85,29 @@ void HcclCommDfx::AddTaskInfoCallbackLog(
     if (LIKELY(HcclCheckLogLevel(HCCL_LOG_INFO) == 0)) {
         return;
     }
-    for (size_t i = 0; i < taskParam.ccuDetailInfo->size(); ++i) {
-        const Hccl::CcuProfilingInfo& profInfo = (*taskParam.ccuDetailInfo)[i];
-        for (int idx = 0; idx < hcomm::CCU_MAX_CHANNEL_NUM; idx++) {
-            if (profInfo.channelId[idx] == hcomm::INVALID_VALUE_CHANNELID) {
-                break;
-            }
-            auto handleIt = handleMap.find(profInfo.channelHandle[idx]);
-            if (handleIt == handleMap.end()) {
-                continue;
-            }
-            HCCL_INFO(
-                "[%s]idx[%d]: channelId[%u], remoteRankId[%u], channelHandle[0x%llx]", __func__, idx,
-                profInfo.channelId[idx], handleIt->second, profInfo.channelHandle[idx]);
+    auto logFn = [&handleMap](const std::shared_ptr<std::vector<Hccl::CcuProfilingInfo>>& info) {
+        if (info == nullptr) {
+            return;
         }
-    }
+        const size_t detailSize = info->size();
+        for (size_t i = 0; i < detailSize; ++i) {
+            const Hccl::CcuProfilingInfo& profInfo = (*info)[i];
+            for (int idx = 0; idx < hcomm::CCU_MAX_CHANNEL_NUM; idx++) {
+                if (profInfo.channelId[idx] == hcomm::INVALID_VALUE_CHANNELID) {
+                    break;
+                }
+                auto handleIt = handleMap.find(profInfo.channelHandle[idx]);
+                if (handleIt == handleMap.end()) {
+                    continue;
+                }
+                HCCL_INFO(
+                    "[%s]idx[%d]: channelId[%u], remoteRankId[%u], channelHandle[0x%lx]", __func__, idx,
+                    profInfo.channelId[idx], handleIt->second, profInfo.channelHandle[idx]);
+            }
+        }
+    };
+    logFn(taskParam.ccuStaticInfo);
+    logFn(taskParam.ccuDetailInfo);
 }
 
 HcclResult HcclCommDfx::AddTaskInfoCallback(
@@ -112,39 +120,37 @@ HcclResult HcclCommDfx::AddTaskInfoCallback(
 
     Hccl::PrintTaskLog(streamId, taskId, taskParam, remoteRankId);
 
-    if (taskParam.taskType == Hccl::TaskParamType::TASK_CCU && taskParam.ccuDetailInfo != nullptr) {
+    if (taskParam.taskType == Hccl::TaskParamType::TASK_CCU
+        && (taskParam.ccuDetailInfo != nullptr || taskParam.ccuStaticInfo != nullptr)) {
         std::shared_lock<std::shared_mutex> rwLock(baseLock_);
         auto commIt = channelRemoteRankId_.find(commTag_);
         if (commIt == channelRemoteRankId_.end()) {
-            HCCL_ERROR("[%s] commTag:[%s] not found in CCU batch lookup", __func__, commTag_.c_str());
-            return HCCL_E_PARA;
-        }
-        const auto& handleMap = commIt->second;
-        AddTaskInfoCallbackLog(taskParam, handleMap);
-        for (size_t i = 0; i < taskParam.ccuDetailInfo->size(); ++i) {
-            Hccl::CcuProfilingInfo& profInfo = (*taskParam.ccuDetailInfo)[i];
-            for (int idx = 0; idx < hcomm::CCU_MAX_CHANNEL_NUM; idx++) {
-                if (profInfo.channelId[idx] == hcomm::INVALID_VALUE_CHANNELID) {
-                    break;
-                }
-                auto handleIt = handleMap.find(profInfo.channelHandle[idx]);
-                if (handleIt == handleMap.end()) {
-                    HCCL_ERROR(
-                        "[%s] Failed to get remote rank for channelHandle[0x%llx]", __func__,
-                        profInfo.channelHandle[idx]);
-                    return HCCL_E_PARA;
-                }
-                profInfo.remoteRankId[idx] = handleIt->second;
-            }
+            HCCL_WARNING(
+                "[%s] commTag:[%s] not found, skip remoteRankId fill for ccu profiling", __func__, commTag_.c_str());
+        } else {
+            const auto& handleMap = commIt->second;
+            AddTaskInfoCallbackLog(taskParam, handleMap);
         }
     }
+
     std::shared_ptr<Hccl::DfxOpInfo> dfxOpInfo = opInfo;
     if (dfxOpInfo == nullptr) {
         dfxOpInfo = mirrorTaskManager_->GetCurrDfxOpInfo();
     }
+
+    std::function<u32(u64)> getRemoteRankByHandle = nullptr;
+    if (taskParam.taskType == Hccl::TaskParamType::TASK_CCU) {
+        getRemoteRankByHandle = [commTag = commTag_](u64 channelHandle) -> u32 {
+            u32 rank = INVALID_VALUE_RANKID;
+            return (HcclCommDfx::GetChannelRemoteRankId(commTag, channelHandle, rank) == HCCL_SUCCESS) ?
+                       rank :
+                       INVALID_VALUE_RANKID;
+        };
+    }
+
     HcclResult ret = mirrorTaskManager_->AddTaskInfo(
         streamId, taskId, remoteRankId, taskParam, dfxOpInfo, taskParam.isMaster,
-        Hccl::DfxProfilingHandler::GetCachedTid());
+        Hccl::DfxProfilingHandler::GetCachedTid(), std::move(getRemoteRankByHandle));
     CHK_RET(ret);
     return HCCL_SUCCESS;
 }

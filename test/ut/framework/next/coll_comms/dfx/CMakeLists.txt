@@ -98,6 +98,7 @@ set(dfx_reporter_src_to_test_list
     ut_dfx_profiling_handler_host.cc
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/dfx/profiling/host/dfx_profiling_reporter.cc
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/framework/dfx/common/mirror_task_manager.cc
+    ${HCCL_CODE_ROOT}/src/legacy/ascend950/framework/dfx/common/task_info.cc
 )
 
 add_executable(hccl_utest_test_dfx_reporter ${dfx_reporter_src_to_test_list})

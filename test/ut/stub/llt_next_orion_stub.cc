@@ -1322,7 +1322,7 @@ void MirrorTaskManager::AddTaskInfo(std::unique_ptr<TaskInfo>&& taskInfo) {}
 
 HcclResult MirrorTaskManager::AddTaskInfo(
     u32 streamId, u32 taskId, u32 remoteRankId, const TaskParam& taskParam, std::shared_ptr<DfxOpInfo> dfxOpInfo,
-    bool isMaster, u32 tid)
+    bool isMaster, u32 tid, std::function<u32(u64)> getRemoteRankByHandle)
 {
     return HCCL_SUCCESS;
 }

@@ -199,42 +199,37 @@ CcuResult HcommCcuFunctionGet(CcuKernelHandle kernelHandle, const char* funcName
     return CcuResult::CCU_SUCCESS;
 }
 
-static std::shared_ptr<std::vector<Hccl::CcuProfilingInfo>>
-ConstructCcuDetailInfo(const std::vector<hcomm::CcuProfilingInfo>& allCcuProfilingInfo, bool isSaveProfilingData)
+static CcuResult ReportCcuTaskDfx(ThreadHandle threadHandle, const Hccl::TaskParam& taskParam)
 {
-    if (allCcuProfilingInfo.empty() || !isSaveProfilingData) {
-        return nullptr;
-    }
+    auto* rtsThread = reinterpret_cast<hccl::Thread*>(threadHandle);
+    CCU_CHK_PTR_NULL(rtsThread);
 
-    std::vector<Hccl::CcuProfilingInfo> converted(allCcuProfilingInfo.size());
-    for (u32 idx = 0; idx < allCcuProfilingInfo.size(); ++idx) {
-        auto& src = allCcuProfilingInfo[idx];
-        auto& dst = converted[idx];
-        dst.name = src.name;
-        dst.type = src.type;
-        dst.dieId = src.dieId;
-        dst.missionId = src.missionId;
-        dst.instrId = src.instrId;
-        dst.reduceOpType = src.reduceOpType;
-        dst.inputDataType = src.inputDataType;
-        dst.outputDataType = src.outputDataType;
-        dst.dataSize = src.dataSize;
-        dst.ckeId = src.ckeId;
-        dst.mask = src.mask;
-        (void)memcpy_s(dst.channelId, sizeof(dst.channelId), src.channelId, sizeof(src.channelId));
-        (void)memcpy_s(dst.channelHandle, sizeof(dst.channelHandle), src.channelHandle, sizeof(src.channelHandle));
+    auto callback = rtsThread->GetCallback();
+    if (!callback) {
+        HCCL_WARNING("[%s] task info callback is not registered on thread, skip ccu profiling report.", __func__);
+        return CcuResult::CCU_SUCCESS;
     }
-    return std::make_shared<std::vector<Hccl::CcuProfilingInfo>>(std::move(converted));
+    u32 streamId = INVALID_UINT;
+    u32 taskId = INVALID_UINT;
+    CCU_CHK_RET(hrtGetTaskIdAndStreamID(taskId, streamId));
+    CCU_CHK_RET(callback(streamId, taskId, taskParam, DFX_INVALID_U64));
+    return CcuResult::CCU_SUCCESS;
 }
 
+struct CcuTaskParamCtx {
+    std::shared_ptr<std::vector<Hccl::CcuProfilingInfo>> ccuStaticInfo;
+    std::shared_ptr<std::vector<Hccl::CcuProfilingInfo>> ccuDetailInfo;
+    u64 beginTime;
+    u64 endTime;
+    bool isMaster;
+};
+
 static Hccl::TaskParam ConstructCcuTaskParam(
-    const hcomm::CcuTaskParam& ccuParam, const CcuKernelHandle kernelHandle,
-    const std::shared_ptr<std::vector<Hccl::CcuProfilingInfo>>& ccuDetailInfo, u64 beginTime, u64 endTime,
-    bool isMaster)
+    const hcomm::CcuTaskParam& ccuParam, const CcuKernelHandle kernelHandle, const CcuTaskParamCtx& ctx)
 {
     Hccl::TaskParam taskParam{};
-    taskParam.beginTime = beginTime;
-    taskParam.endTime = endTime;
+    taskParam.beginTime = ctx.beginTime;
+    taskParam.endTime = ctx.endTime;
     taskParam.taskType = Hccl::TaskParamType::TASK_CCU;
     taskParam.taskPara.Ccu.dieId = ccuParam.dieId;
     taskParam.taskPara.Ccu.missionId = ccuParam.missionId;
@@ -242,8 +237,9 @@ static Hccl::TaskParam ConstructCcuTaskParam(
     taskParam.taskPara.Ccu.instrId = ccuParam.instStartId;
     taskParam.taskPara.Ccu.executeId = kernelHandle;
     taskParam.taskPara.Ccu.ccuKernelHandle = kernelHandle;
-    taskParam.isMaster = isMaster;
-    taskParam.ccuDetailInfo = ccuDetailInfo;
+    taskParam.isMaster = ctx.isMaster;
+    taskParam.ccuStaticInfo = ctx.ccuStaticInfo;
+    taskParam.ccuDetailInfo = ctx.ccuDetailInfo;
     return taskParam;
 }
 
@@ -264,59 +260,8 @@ static void LogCcuTaskInfo(const std::vector<hcomm::CcuTaskParam>& ccuParams, co
     }
 }
 
-static void ConstructProfilingInfoLog(const std::vector<hcomm::CcuProfilingInfo>& allCcuProfilingInfo)
+static HcclResult LaunchCcuTasks(const hcomm::CcuTaskParam& param, const aclrtStream stream, u16 timeoutSec)
 {
-    if (!HcclCheckLogLevel(HCCL_LOG_INFO)) {
-        return;
-    }
-    for (const hcomm::CcuProfilingInfo& profInfo : allCcuProfilingInfo) {
-        for (int idx = 0; idx < hcomm::CCU_MAX_CHANNEL_NUM; idx++) {
-            if (profInfo.channelId[idx] == hcomm::INVALID_VALUE_CHANNELID) {
-                break;
-            }
-            HCCL_INFO(
-                "[%s]idx[%d]: channelId[%u], channelHandle[0x%llx]", __func__, idx, profInfo.channelId[idx],
-                profInfo.channelHandle[idx]);
-        }
-    }
-}
-
-static CcuResult ConstructProfilingInfo(
-    hcomm::CcuKernel* kernel, const uint64_t* taskArgs, uint32_t argNum,
-    std::vector<hcomm::CcuProfilingInfo>& allCcuProfilingInfo, bool isSaveProfilingData)
-{
-    if (!isSaveProfilingData) {
-        return CcuResult::CCU_SUCCESS;
-    }
-
-    CCU_CHK_RET(kernel->GetCcuProfilingInfo(taskArgs, argNum, allCcuProfilingInfo));
-    if (allCcuProfilingInfo.empty()) {
-        return CcuResult::CCU_SUCCESS;
-    }
-    ConstructProfilingInfoLog(allCcuProfilingInfo);
-    return CcuResult::CCU_SUCCESS;
-}
-
-static CcuResult ReportCcuTaskDfx(const ThreadHandle threadHandle, const Hccl::TaskParam& taskParam)
-{
-    auto* rtsThread = reinterpret_cast<hccl::Thread*>(threadHandle);
-    CCU_CHK_PTR_NULL(rtsThread);
-
-    auto callback = rtsThread->GetCallback();
-    if (!callback) {
-        HCCL_WARNING("[%s] task info callback is not registered on thread, skip ccu profiling report.", __func__);
-        return CcuResult::CCU_SUCCESS;
-    }
-    u32 streamId = INVALID_UINT;
-    u32 taskId = INVALID_UINT;
-    CCU_CHK_RET(hrtGetTaskIdAndStreamID(taskId, streamId));
-    CCU_CHK_RET(callback(streamId, taskId, taskParam, DFX_INVALID_U64));
-    return CcuResult::CCU_SUCCESS;
-}
-
-static HcclResult LaunchCcuTasks(const hcomm::CcuTaskParam& param, const aclrtStream stream)
-{
-    const uint32_t execTimeOutSec = Hccl::EnvConfig::GetInstance().GetRtsConfig().GetExecTimeOut();
     rtCcuTaskInfo_t taskInfo{};
     taskInfo.dieId = param.dieId;
     taskInfo.missionId = param.missionId;
@@ -324,9 +269,8 @@ static HcclResult LaunchCcuTasks(const hcomm::CcuTaskParam& param, const aclrtSt
     taskInfo.instCnt = param.instCnt;
     taskInfo.key = param.key;
     taskInfo.argSize = param.argSize;
-    taskInfo.timeout = execTimeOutSec >= std::numeric_limits<u16>::max() ? std::numeric_limits<u16>::max() :
-                                                                           static_cast<u16>(execTimeOutSec);
-    std::copy(std::begin(param.args), std::end(param.args), std::begin(taskInfo.args));
+    taskInfo.timeout = timeoutSec;
+    CHK_SAFETY_FUNC_RET(memcpy_s(taskInfo.args, sizeof(taskInfo.args), param.args, sizeof(param.args)));
 
     auto ret = rtCCULaunch(&taskInfo, stream);
     if (ret != RT_ERROR_NONE) {
@@ -378,17 +322,21 @@ HcommCcuKernelLaunch(ThreadHandle threadHandle, CcuKernelHandle kernelHandle, co
     bool isCached = Hccl::DfxProfilingHandler::GetInstance().GetCachedFlag();
     bool isSaveProfilingData = isProfilingEnabledL1 || isCached;
 
-    std::vector<hcomm::CcuProfilingInfo> allCcuProfilingInfo;
-    CCU_CHK_RET(ConstructProfilingInfo(
-        kernel, static_cast<const uint64_t*>(taskArgs), argNum, allCcuProfilingInfo, isSaveProfilingData));
+    hcomm::CcuKernelProfiling::CcuDfxResult dfxResult;
+    CCU_CHK_RET(
+        kernel->ConstructProfilingInfo(static_cast<const uint64_t*>(taskArgs), argNum, dfxResult, isSaveProfilingData));
     LogCcuTaskInfo(taskParams, kernelHandle);
-    auto ccuDetailInfo = ConstructCcuDetailInfo(allCcuProfilingInfo, isSaveProfilingData);
+    bool isMaster = rtsThread->GetMaster();
+    const uint32_t execTimeOutSec = Hccl::EnvConfig::GetInstance().GetRtsConfig().GetExecTimeOut();
+    const u16 timeoutSec = execTimeOutSec >= std::numeric_limits<u16>::max() ? std::numeric_limits<u16>::max() :
+                                                                               static_cast<u16>(execTimeOutSec);
     for (u32 idx = 0; idx < taskParams.size(); idx++) {
         u64 beginTime = hcomm::GetProfCycleTime();
-        CCU_CHK_RET(LaunchCcuTasks(taskParams[idx], streamPtr));
+        CCU_CHK_RET(LaunchCcuTasks(taskParams[idx], streamPtr, timeoutSec));
         u64 endTime = hcomm::GetProfCycleTime();
         Hccl::TaskParam taskParam = ConstructCcuTaskParam(
-            taskParams[idx], kernelHandle, ccuDetailInfo, beginTime, endTime, rtsThread->GetMaster());
+            taskParams[idx], kernelHandle,
+            {dfxResult.ccuStaticInfo, dfxResult.ccuDetailInfo, beginTime, endTime, isMaster});
         CCU_CHK_RET(ReportCcuTaskDfx(threadHandle, taskParam));
     }
     CCU_EXCEPTION_HANDLE_END

@@ -292,7 +292,10 @@ string TaskInfo::GetParaAiv() const
 
 u32 TaskInfo::GetRemoteRankId() const
 {
-    return getRemoteRankByHandle_ ? getRemoteRankByHandle_(channelHandle_) : remoteRank_;
+    if (getRemoteRankByHandle_ != nullptr && channelHandle_ != INVALID_U64) {
+        return getRemoteRankByHandle_(channelHandle_);
+    }
+    return remoteRank_;
 }
 
 void PrintTaskLog(u32 streamId, u32 taskId, const TaskParam& taskParam, u32 remoteRankId)

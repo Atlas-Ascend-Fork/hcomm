@@ -11,6 +11,7 @@
 set(src_list
     ccu_kernel.cc
     ccu_kernel_mgr.cc
+    ccu_profiling.cc
 )
 
 if(TARGET hcomm_base_obj)

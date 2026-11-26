@@ -56,6 +56,7 @@ struct CcuProfilingInfo {
     uint64_t dataSize;      // 输入数据大小
     uint32_t ckeId;
     uint32_t mask;
+    uint64_t itemId; // profiling itemId，由 GetCcuProfilingInfo 首次构建时预填充，跨 launch 复用
     uint16_t channelId[CCU_MAX_CHANNEL_NUM];     // LoopGroup所包含的搬运指令使用的ChannelId
     uint32_t remoteRankId[CCU_MAX_CHANNEL_NUM];  // LoopGroup所包含的搬运指令的对端
     uint64_t channelHandle[CCU_MAX_CHANNEL_NUM]; // channel handle句柄
@@ -71,7 +72,8 @@ struct CcuProfilingInfo {
           outputDataType(0),
           dataSize(0),
           ckeId(0),
-          mask(0)
+          mask(0),
+          itemId(0)
     {
         (void)memset_s(channelId, sizeof(channelId), INVALID_VALUE_CHANNELID, sizeof(channelId));
         for (u32 i = 0; i < CCU_MAX_CHANNEL_NUM; i++) {
@@ -155,6 +157,9 @@ struct TaskParam {
         ParaAiv Aiv; // aiv param
     } taskPara;
     std::shared_ptr<std::vector<CcuProfilingInfo>> ccuDetailInfo; // taskType为TASK_CCU时，ParaCcu的补充profiling信息
+    // sqe/waitCke 静态部分：编译期固定，跨 launch 不变，shared_ptr 引用计数共享（0 拷贝）
+    // legacy 路径不填充此字段（保持 nullptr），消费方需判空
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuStaticInfo;
     std::string Describe() const
     {
         return StringFormat(

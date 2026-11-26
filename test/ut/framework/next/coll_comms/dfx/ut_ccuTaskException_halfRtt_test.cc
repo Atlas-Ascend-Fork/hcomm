@@ -68,7 +68,8 @@ protected:
                .endTime = 0,
                .isMaster = false,
                .taskPara = {.Ccu = paraCcu},
-               .ccuDetailInfo = nullptr};
+               .ccuDetailInfo = nullptr,
+               .ccuStaticInfo = nullptr};
         return Hccl::TaskInfo(1, 2, 3, taskParam, nullptr, false);
     }
 

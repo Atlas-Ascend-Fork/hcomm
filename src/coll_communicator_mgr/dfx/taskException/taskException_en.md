@@ -227,7 +227,7 @@ sequenceDiagram
     Note over HCCL,MirrorTaskManager: CCU task dispatch phase
 
     HcclCommDfx->>HcclCommDfx: AddTaskInfoCallback
-    Note right of HcclCommDfx: Thread or Channel callback triggers. When taskType==TASK_CCU, traverse ccuDetailInfo to fill remoteRankId.
+    Note right of HcclCommDfx: AddTaskInfoCallback only registers TaskInfo and getRemoteRankByHandle callback. remoteRankId is lazily filled during profiling report/exception handling consumption.
     HcclCommDfx->>HcclCommDfx: Create TaskInfo associated with DfxOpInfo
     HcclCommDfx->>MirrorTaskManager: AddTaskInfo
     Note right of MirrorTaskManager: Register with GlobalMirrorTasks
