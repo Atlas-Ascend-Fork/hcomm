@@ -69,6 +69,13 @@ pip install dist/hcomm4py-*.whl
 
 Offline `tests/test_comm_*_offline.py` (ABI gold + optional header offsetof probe), domain E2E `tests/run_domain_e2e.py`, examples, and combined acceptance with hccl ops.
 
+## Risk Assessment
+
+| Risk | Mitigation |
+|------|------------|
+| Package name conflict | Authoritative name `hcomm4py` + documentation constraints |
+| Config ABI drift | `_OFF` offset table + version gating + offline UTs |
+
 ## Alternatives
 
 ctypes (chosen) / pybind11 / docs-only.
