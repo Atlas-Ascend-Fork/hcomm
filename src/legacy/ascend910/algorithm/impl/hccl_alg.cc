@@ -254,6 +254,7 @@ HcclResult HcclAlg::InitExternalEnable(HcclExternalEnable& externalEnable)
     externalEnable.deterministic = GetExternalInputHcclDeterministicV2();
     externalEnable.intraRoceSwitch = GetExternalInputIntraRoceSwitch();
     externalEnable.dumpDebug = GetExternalInputHcclDumpDebug();
+    externalEnable.interHccsDisable = GetExternalInputInterHccsDisable();
     externalEnable.aivMode = GetExternalInputHcclAivMode();
     externalEnable.aicpuUnfold = GetExternalInputHcclAicpuUnfold();
     externalEnable.execTimeOut = GetInternalExecTimeOut();
