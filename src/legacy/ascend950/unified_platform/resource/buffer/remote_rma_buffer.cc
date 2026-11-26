@@ -40,7 +40,7 @@ RemoteIpcRmaBuffer::RemoteIpcRmaBuffer(const Serializable& rmtDto, uint8_t pathM
     memType = dto.memType;
     (void)memcpy_s(ipcName, RTS_IPC_MEM_NAME_LEN, dto.name, RTS_IPC_MEM_NAME_LEN);
     HCCL_INFO(
-        "[RemoteIpcRmaBuffer][RemoteIpcRmaBuffer]ipcAddr[%llu] ipcOffset[%llu] ipcName[%s] memInfo[%s]  pathMode[%u] "
+        "[RemoteIpcRmaBuffer][RemoteIpcRmaBuffer]ipcAddr[%llu] ipcOffset[%llu] ipcName[%s] memInfo[%s] pathMode[%u] "
         "remotePid[%u] remoteServerId[%llu] localServerId[%llu]",
         ipcAddr, ipcOffset, ipcName, memInfo.c_str(), pathMode_, remotePid, remoteServerId, localServerId);
     s32 tgid = 0;

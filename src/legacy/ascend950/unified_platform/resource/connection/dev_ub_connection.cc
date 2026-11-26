@@ -160,7 +160,7 @@ DevUbRtpConnection::DevUbRtpConnection(
           sqDepth, scqDepth, jettyMode)
 {
     tpProtocol = TpProtocol::UB_RTP;
-    // UB_RTP与UBOE同属UB传输，Jetty异步创建超时一致，均为16秒
+    // UB_RTP与UBOE同属UB传输，Jetty异步创建超时一致，均为 hw_val=16 (对应8s)
     jettyTimeOut = 16;
 }
 
@@ -329,14 +329,15 @@ void DevUbConnection::AdvanceUbConnFromJettyImporting()
 
 void DevUbConnection::AdvanceUbConnFromJettyImportWaiting()
 {
-    // 超时检查：超过 jettyTimeOut 秒仍未 publish，则对端异常，抛异常避免永久阻塞。
-    // 每次轮询都检查，保证超时判定不被退避延迟。
-    auto elapsedSec
-        = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - importWaitingStart_);
-    if (elapsedSec.count() >= static_cast<int64_t>(jettyTimeOut)) {
+    const uint64_t timeoutMs
+        = static_cast<uint64_t>(EnvConfig::GetInstance().GetSocketConfig().GetLinkTimeOut()) * 1000ULL;
+    auto elapsedMs
+        = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - importWaitingStart_);
+    if (static_cast<uint64_t>(elapsedMs.count()) >= timeoutMs) {
         HCCL_ERROR(
-            "[DevUbConnection][%s] JETTY_IMPORT_WAITING timeout[%us], remote jetty not published.", __func__,
-            static_cast<uint32_t>(elapsedSec.count()));
+            "[DevUbConnection][%s] JETTY_IMPORT_WAITING timeout, elapsed[%llums] >= limit[%llums], "
+            "remote jetty not published.",
+            __func__, static_cast<unsigned long long>(elapsedMs.count()), static_cast<unsigned long long>(timeoutMs));
         // 格式串含 %s 必须传 __func__：THROW 的可变参重载以精确匹配胜出，
         // 缺参会令 StringFormat 按 ABI 读不存在的可变参（UB）
         THROW<InternalException>("[DevUbConnection][%s] wait shared remote jetty publish timeout.", __func__);
