@@ -24,28 +24,34 @@ constexpr uint8_t UB_PATH_MODE_DEFAULT_VAL = 0xFFU; // UB_MEM pathMode 未配置
 namespace Hccl {
 RemoteIpcRmaBuffer::RemoteIpcRmaBuffer() : RemoteRmaBuffer(RmaType::IPC), isOpened(false) {}
 
-RemoteIpcRmaBuffer::RemoteIpcRmaBuffer(const Serializable& rmtDto, uint8_t pathMode)
+RemoteIpcRmaBuffer::RemoteIpcRmaBuffer(const Serializable& rmtDto, uint8_t pathMode, u64 localServerId)
     : RemoteRmaBuffer(RmaType::IPC),
       pathMode_(pathMode),
       isOpened(false)
 {
     const auto& dto = dynamic_cast<const ExchangeIpcBufferDto&>(rmtDto);
     remotePid = dto.pid;
+    remoteServerId = dto.serverId;
+    myServerId = localServerId;
     ipcAddr = dto.addr;
     ipcOffset = dto.offset;
     size = dto.size;
     memInfo = dto.memInfo;
     (void)memcpy_s(ipcName, RTS_IPC_MEM_NAME_LEN, dto.name, RTS_IPC_MEM_NAME_LEN);
     HCCL_INFO(
-        "[RemoteIpcRmaBuffer][RemoteIpcRmaBuffer]ipcAddr[%llu] ipcOffset[%llu] ipcName[%s] memInfo[%s]  pathMode[%u]",
-        ipcAddr, ipcOffset, ipcName, memInfo.c_str(), pathMode_);
+        "[RemoteIpcRmaBuffer][RemoteIpcRmaBuffer]ipcAddr[%llu] ipcOffset[%llu] ipcName[%s] memInfo[%s]  pathMode[%u] "
+        "remotePid[%u] remoteServerId[%llu] localServerId[%llu]",
+        ipcAddr, ipcOffset, ipcName, memInfo.c_str(), pathMode_, remotePid, remoteServerId, localServerId);
     myPid = HrtDeviceGetBareTgid();
-    if (myPid == remotePid) {
-        HCCL_INFO("RemoteIpcRmaBuffer: myPid is equal to remotePid, do not need to open memory");
+    if (myPid == remotePid && myServerId == remoteServerId) {
+        HCCL_INFO("RemoteIpcRmaBuffer: myPid is equal to remotePid and myServerId is equal to remoteServerId, "
+                  "do not need to open memory");
         HrtMemPrefetchToDevice(ReinterpretAs<void*>(ipcAddr + ipcOffset), size);
         addr = ipcAddr + ipcOffset;
     } else {
-        HCCL_INFO("RemoteIpcRmaBuffer: open memory.");
+        HCCL_INFO(
+            "RemoteIpcRmaBuffer: open memory, myPid[%u] remotePid[%u] myServerId[%llu] remoteServerId[%llu].", myPid,
+            remotePid, myServerId, remoteServerId);
         if (!OpenIpcMemory()) {
             THROW<InternalException>("[RemoteIpcRmaBuffer] OpenIpcMemory failed, ipcName[%s].", ipcName);
         }
@@ -151,9 +157,10 @@ string RemoteIpcRmaBuffer::Describe() const
 {
     return StringFormat(
         "RemoteIpcRmaBuffer[addr=0x%llx, size=0x%llx, myPid=%u, "
-        "remotePid=%u, ipcAddr=0x%llx, ipcOffset=0x%llx, ipcPtr=%p, ipcName=%s, "
+        "remotePid=%u, myServerId=%llu, remoteServerId=%llu, ipcAddr=0x%llx, ipcOffset=0x%llx, ipcPtr=%p, ipcName=%s, "
         "isOpened=%d, pathMode=%u]",
-        addr, size, myPid, remotePid, ipcAddr, ipcOffset, ipcPtr, ipcName, isOpened, pathMode_);
+        addr, size, myPid, remotePid, myServerId, remoteServerId, ipcAddr, ipcOffset, ipcPtr, ipcName, isOpened,
+        pathMode_);
 }
 
 RemoteRdmaRmaBuffer::RemoteRdmaRmaBuffer(RdmaHandle rdmaHandle)

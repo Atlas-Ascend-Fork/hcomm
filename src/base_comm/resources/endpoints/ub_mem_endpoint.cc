@@ -59,12 +59,14 @@ HcclResult UbMemEndpoint::Init()
 
     s32 devId = 0;
     CHK_RET(hrtGetDevice(&devId));
+    CHK_RET(Hccl::HrtGetServerId(static_cast<uint32_t>(devId), serverId_));
+    HCCL_RUN_INFO("[UbMemEndpoint][%s] local serverId[%llu], devId[%d].", __func__, serverId_, devId);
     u32 devPhyId = 0;
     CHK_RET(hrtGetDevicePhyIdByIndex(devId, devPhyId));
 
     MemMgrCacheKey key{devPhyId, COMM_PROTOCOL_UB_MEM, ipAddr, LocTypeToPortType(endpointDesc_.loc.locType)};
-    auto createMgr = []() {
-        return std::make_shared<UbMemRegedMemMgr>();
+    auto createMgr = [sId = serverId_]() {
+        return std::make_shared<UbMemRegedMemMgr>(sId);
     };
     CHK_RET(AttachCache(key, createMgr));
 

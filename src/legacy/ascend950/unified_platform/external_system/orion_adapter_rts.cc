@@ -398,6 +398,24 @@ HcclResult HrtGetMainboardId(uint32_t deviceLogicId, HcclMainboardId& hcclMainbo
     return HcclResult::HCCL_SUCCESS;
 }
 
+HcclResult HrtGetServerId(uint32_t userDevId, u64& serverId)
+{
+    constexpr int32_t moduleType = DEV_MODULE_TYPE::MODULE_TYPE_SYSTEM;
+    constexpr aclrtDevAttr infoType = aclrtDevAttr::ACL_DEV_ATTR_SUPER_POD_SERVER_ID;
+    int64_t val = 0;
+    HcclResult ret = HrtGetDeviceInfo(userDevId, moduleType, infoType, val);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR(
+            "[HrtGetServerId]errNo[0x%016llx] get server id failed, userDevId[%u].", HCCL_ERROR_CODE(ret), userDevId);
+        return ret;
+    }
+    CHK_PRT_RET(
+        val < 0, HCCL_ERROR("[HrtGetServerId]serverId[%lld] < 0, userDevId[%u].", val, userDevId), HCCL_E_RUNTIME);
+    serverId = static_cast<u64>(val);
+    HCCL_INFO("[HrtGetServerId] userDevId[%u] serverId[%llu].", userDevId, serverId);
+    return HcclResult::HCCL_SUCCESS;
+}
+
 aclrtStream HrtStreamCreateWithFlags(uint32_t priority, uint32_t flag)
 {
     aclrtStream ptr = nullptr;

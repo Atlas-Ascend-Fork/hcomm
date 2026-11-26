@@ -29,7 +29,7 @@ public:
     MAKE_ENUM(
         AivUbMemTransportStatus, INIT, P2P_ENABLING, SOCKET_OK, SEND_DATA_SIZE, RECV_DATA_SIZE, SEND_MEM_INFO,
         RECV_MEM_INFO, RECV_MEM_FIN, CONNECT_FAILED, SOCKET_TIMEOUT, READY);
-    AivUbMemTransport(Hccl::Socket* socket, HcommChannelDesc& channelDesc);
+    AivUbMemTransport(Hccl::Socket* socket, HcommChannelDesc& channelDesc, u64 localServerId = 0);
     ~AivUbMemTransport();
     HcclResult
     FillBufferVec(HcommMemHandle* memHandles, uint32_t bufferNum, std::vector<Hccl::LocalIpcRmaBuffer*>& bufferVec);
@@ -56,6 +56,7 @@ private:
     Hccl::TransportStatus baseStatus_{Hccl::TransportStatus::INVALID};
     bool p2pEnableStarted_{false}; // enable p2p 是否已成功下发（与 manager 引用计数对应，失败不置位）
     uint32_t localDeviceLogicId_{0}; // 触发 enable p2p 时的本地逻辑 device id，供析构对称 disable 使用
+    u64 localServerId_{0};           // 本端 server 标识
     std::mutex remoteMemsMutex_;     // 远端内存列表互斥锁
 
     std::vector<char> sendData_{};

@@ -302,6 +302,14 @@ HcclResult HrtGetMainboardId(uint32_t deviceLogicId, HcclMainboardId& hcclMainbo
     return HcclResult::HCCL_SUCCESS;
 }
 
+// serverId 桩：UbMemEndpoint::Init 在 hccl_llt 内经此取固定 server 标识（stub 类不参与判定，仅供链接）
+HcclResult HrtGetServerId(uint32_t userDevId, u64& serverId)
+{
+    (void)userDevId;
+    serverId = 1;
+    return HcclResult::HCCL_SUCCESS;
+}
+
 RdmaHandle HrtRaRdmaInit(HrtNetworkMode netMode, RaInterface& in) { return (RdmaHandle)0x12345678; }
 s32 HrtRaRdmaInit(HrtNetworkMode, RaInterface&, RdmaHandle& rdmaHandle)
 {
@@ -813,11 +821,13 @@ RemoteUbRmaBuffer::RemoteUbRmaBuffer(RdmaHandle rdmaHandle1, const Serializable&
 
 RemoteIpcRmaBuffer::RemoteIpcRmaBuffer() : RemoteRmaBuffer(RmaType::IPC), isOpened(true) {}
 
-RemoteIpcRmaBuffer::RemoteIpcRmaBuffer(const Serializable& rmtDto, uint8_t pathMode)
+RemoteIpcRmaBuffer::RemoteIpcRmaBuffer(const Serializable& rmtDto, uint8_t pathMode, u64 localServerId)
     : RemoteRmaBuffer(RmaType::IPC),
       pathMode_(pathMode),
       isOpened(true)
-{}
+{
+    (void)localServerId;
+}
 
 RemoteIpcRmaBuffer::RemoteIpcRmaBuffer(const Serializable& rmtDto, const string tag, uint8_t pathMode)
     : RemoteRmaBuffer(RmaType::IPC),
@@ -1160,15 +1170,19 @@ LocalUbRmaBuffer::LocalUbRmaBuffer(std::shared_ptr<Buffer> buf, void* netDevice,
     : LocalRmaBuffer(buf, RmaType::UB)
 {}
 
-LocalIpcRmaBuffer::LocalIpcRmaBuffer(std::shared_ptr<Buffer> buf) : LocalRmaBuffer(buf, RmaType::IPC) {}
+LocalIpcRmaBuffer::LocalIpcRmaBuffer(std::shared_ptr<Buffer> buf, u64 serverId) : LocalRmaBuffer(buf, RmaType::IPC)
+{
+    this->serverId = serverId;
+}
 
-LocalIpcRmaBuffer::LocalIpcRmaBuffer(std::shared_ptr<Buffer> buf, const LocalIpcRmaBuffer& parent)
+LocalIpcRmaBuffer::LocalIpcRmaBuffer(std::shared_ptr<Buffer> buf, const LocalIpcRmaBuffer& parent, u64 serverId)
     : LocalRmaBuffer(buf, RmaType::IPC, true)
 {
     (void)memcpy_s(name, RTS_IPC_MEM_NAME_LEN, parent.name, RTS_IPC_MEM_NAME_LEN);
     ipcPtr = parent.ipcPtr;
     ipcOffset = parent.ipcOffset;
     ipcSize = parent.ipcSize;
+    this->serverId = serverId;
 }
 
 LocalIpcRmaBuffer::~LocalIpcRmaBuffer() {}
@@ -1181,6 +1195,7 @@ std::unique_ptr<Serializable> LocalIpcRmaBuffer::GetExchangeDto()
         static_cast<u64>(buf->GetAddr()), static_cast<u64>(buf->GetSize()), ipcOffset, static_cast<u32>(0),
         buf->GetMemInfo().c_str());
     (void)memcpy_s(dto->name, RTS_IPC_MEM_NAME_LEN, name, RTS_IPC_MEM_NAME_LEN);
+    dto->serverId = serverId; // 与真实实现语义一致：携带构造时注入的本端 serverId
     return std::unique_ptr<Serializable>(dto.release());
 }
 

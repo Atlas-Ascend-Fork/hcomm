@@ -10,6 +10,7 @@
 
 #include "aiv_ub_mem_channel.h"
 #include "endpoint.h"
+#include "ub_mem_endpoint.h"
 
 namespace hcomm {
 
@@ -29,7 +30,11 @@ HcclResult AivUbMemChannel::ParseInputParam()
 
 HcclResult AivUbMemChannel::BuildTransport()
 {
-    EXCEPTION_CATCH(transport_ = std::make_unique<AivUbMemTransport>(socket_, channelDesc_), return HCCL_E_PTR);
+    auto* ubMemEndpoint = dynamic_cast<UbMemEndpoint*>(static_cast<Endpoint*>(endpointHandle_));
+    CHK_PTR_NULL(ubMemEndpoint);
+    u64 localServerId = ubMemEndpoint->GetServerId();
+    EXCEPTION_CATCH(
+        transport_ = std::make_unique<AivUbMemTransport>(socket_, channelDesc_, localServerId), return HCCL_E_PTR);
     CHK_PTR_NULL(transport_);
     CHK_RET(transport_->Init());
     return HCCL_SUCCESS;

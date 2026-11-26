@@ -31,25 +31,29 @@ public:
           memInfo(memInfo)
     {}
 
-    void Serialize(Hccl::BinaryStream& stream) override { stream << addr << size << offset << pid << name << memInfo; }
+    void Serialize(Hccl::BinaryStream& stream) override
+    {
+        stream << addr << size << offset << pid << serverId << name << memInfo;
+    }
 
     void Deserialize(Hccl::BinaryStream& stream) override
     {
-        stream >> addr >> size >> offset >> pid >> name >> memInfo;
+        stream >> addr >> size >> offset >> pid >> serverId >> name >> memInfo;
     }
 
     std::string Describe() const override
     {
         std::string strName(name, name + RTS_IPC_MEM_NAME_LEN);
         return StringFormat(
-            "ExchangeIpcBufferDto[addr=0x%llx, size=0x%llx, offset=0x%llx, pid=%u, name=%s, memInfo=%s]", addr, size,
-            offset, pid, strName.c_str(), memInfo.c_str());
+            "ExchangeIpcBufferDto[addr=0x%llx, size=0x%llx, offset=0x%llx, pid=%u, serverId=%llu, name=%s, memInfo=%s]",
+            addr, size, offset, pid, serverId, strName.c_str(), memInfo.c_str());
     }
 
     u64 addr{0};
     u64 size{0};
     u64 offset{0};
     u32 pid{0};
+    u64 serverId{0}; // 对端 server 物理标识，与 pid 共同构成同进程判定二元组
     char_t name[RTS_IPC_MEM_NAME_LEN]{0};
     std::string memInfo{""};
 };

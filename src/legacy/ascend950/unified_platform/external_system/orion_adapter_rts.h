@@ -234,6 +234,7 @@ void HrtResetDevice(s32 deviceLogicId);
 u32 HrtGetDeviceCount();
 HcclResult HrtGetDeviceInfo(uint32_t deviceLogicId, int32_t moduleType, aclrtDevAttr infoType, int64_t& val);
 HcclResult HrtGetMainboardId(uint32_t deviceLogicId, HcclMainboardId& hcclMainboardId);
+HcclResult HrtGetServerId(uint32_t userDevId, u64& serverId);
 aclrtStream HrtStreamCreateWithFlags(uint32_t priority, uint32_t flag);
 void HrtStreamDestroy(aclrtStream ptr);
 void HrtStreamSetMode(HcclRtStream streamPtr, const uint64_t stmMode);

@@ -13,6 +13,7 @@
 #include <mockcpp/mockcpp.hpp>
 
 #include "local_ub_rma_buffer.h"
+#include "local_ipc_rma_buffer_v2.h"
 #include "exchange_ub_buffer_dto.h"
 #include "exchange_ipc_buffer_dto.h"
 #include "exchange_rdma_buffer_dto.h"
@@ -324,3 +325,165 @@ TEST_F(RemoteRmaBufferTest, remoteipcrmabuffer_open_new_path_with_pathmode_one_l
     EXPECT_EQ(g_capturedSetAttrValue, static_cast<uint64_t>(ACL_RT_IPC_MEM_ATTR_ACCESS_LINK_UB_ONE_PORT_PATH));
     EXPECT_EQ(buffer.GetAddr(), reinterpret_cast<uintptr_t>(fakePtr) + dto.offset);
 };
+
+// ===================== serverId 维度（IPC 同进程判定二元组） =====================
+
+static void StubHrtDevMemAlignWithPage(void* ptr, u64 size, void*& ipcPtr, u64& ipcSize, u64& ipcOff)
+{
+    ipcPtr = ptr;
+    ipcSize = size;
+    ipcOff = 0;
+}
+
+static void StubHrtIpcSetMemoryName(void* ptr, char_t* name, u64 ptrMaxLen, u32 nameMaxLen)
+{
+    (void)ptr;
+    (void)ptrMaxLen;
+    (void)strncpy_s(name, nameMaxLen, "stub_ipc_name", RTS_IPC_MEM_NAME_LEN - 1);
+}
+
+// 同进程(pid 相等且 serverId 相等)：走 prefetch 捷径，不打开 IPC 内存
+TEST_F(RemoteRmaBufferTest, remoteipcrmabuffer_samepid_sameserverid_takes_prefetch_path)
+{
+    ExchangeIpcBufferDto dto;
+    dto.addr = 0x100000;
+    dto.offset = 0x10;
+    dto.size = 0x200;
+    dto.pid = 100;
+    dto.serverId = 5;
+    dto.memInfo = "test";
+    (void)memcpy_s(dto.name, RTS_IPC_MEM_NAME_LEN, "fakeName", sizeof("fakeName"));
+
+    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(static_cast<s32>(100)));
+    MOCKER(HrtMemPrefetchToDevice).expects(once()).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtIpcOpenMemory).expects(never());
+
+    RemoteIpcRmaBuffer buffer(dto, 0, 5);
+
+    EXPECT_FALSE(buffer.isOpened);
+    EXPECT_EQ(buffer.GetAddr(), dto.addr + dto.offset);
+}
+
+// 跨 server PID 碰撞(pid 相等但 serverId 不等)：走通用 open 路径——修复目标场景
+TEST_F(RemoteRmaBufferTest, remoteipcrmabuffer_samepid_diffserverid_takes_open_path)
+{
+    ExchangeIpcBufferDto dto;
+    dto.addr = 0x1000;
+    dto.offset = 0x100;
+    dto.size = 0x200;
+    dto.pid = 100;
+    dto.serverId = 9;
+    dto.memInfo = "test";
+    (void)memcpy_s(dto.name, RTS_IPC_MEM_NAME_LEN, "fakeName", sizeof("fakeName"));
+
+    g_capturedSetAttrValue = 0;
+    g_capturedSetAttrCallCount = 0;
+    void* fakePtr = reinterpret_cast<void*>(0x2000);
+    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(static_cast<s32>(100)));
+    MOCKER(HrtMemPrefetchToDevice).expects(never());
+    MOCKER(aclsysGetVersionNum).stubs().will(invoke(AclsysGetVersionNumHigh));
+    MOCKER(aclrtIpcMemSetAttr).stubs().will(invoke(AclrtIpcMemSetAttrSuccess));
+    MOCKER(aclrtIpcMemImportByKey).stubs().with(outBoundP(&fakePtr, sizeof(fakePtr))).will(returnValue(ACL_SUCCESS));
+
+    RemoteIpcRmaBuffer buffer(dto, 0, 5);
+
+    EXPECT_TRUE(buffer.isOpened);
+    EXPECT_EQ(buffer.GetAddr(), reinterpret_cast<uintptr_t>(fakePtr) + dto.offset);
+}
+
+// 同 server 跨进程(pid 不等)：走通用 open 路径，与既有行为一致
+TEST_F(RemoteRmaBufferTest, remoteipcrmabuffer_diffpid_sameserverid_takes_open_path)
+{
+    ExchangeIpcBufferDto dto;
+    dto.addr = 0x1000;
+    dto.offset = 0x100;
+    dto.size = 0x200;
+    dto.pid = 999;
+    dto.serverId = 5;
+    dto.memInfo = "test";
+    (void)memcpy_s(dto.name, RTS_IPC_MEM_NAME_LEN, "fakeName", sizeof("fakeName"));
+
+    void* fakePtr = reinterpret_cast<void*>(0x2000);
+    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(static_cast<s32>(100)));
+    MOCKER(aclsysGetVersionNum).stubs().will(invoke(AclsysGetVersionNumHigh));
+    MOCKER(aclrtIpcMemSetAttr).stubs().will(invoke(AclrtIpcMemSetAttrSuccess));
+    MOCKER(aclrtIpcMemImportByKey).stubs().with(outBoundP(&fakePtr, sizeof(fakePtr))).will(returnValue(ACL_SUCCESS));
+
+    RemoteIpcRmaBuffer buffer(dto, 0, 5);
+
+    EXPECT_TRUE(buffer.isOpened);
+}
+
+// 未启用方(不传 localServerId，DTO 默认 0)：判定退化为 pid 单维，同进程捷径行为不变
+TEST_F(RemoteRmaBufferTest, remoteipcrmabuffer_without_localserverid_keeps_pidonly_semantics)
+{
+    ExchangeIpcBufferDto dto;
+    dto.addr = 0x100000;
+    dto.offset = 0x10;
+    dto.size = 0x200;
+    dto.pid = 100;
+    dto.memInfo = "test";
+    (void)memcpy_s(dto.name, RTS_IPC_MEM_NAME_LEN, "fakeName", sizeof("fakeName"));
+
+    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(static_cast<s32>(100)));
+    MOCKER(HrtMemPrefetchToDevice).expects(once()).will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER(HrtIpcOpenMemory).expects(never());
+
+    RemoteIpcRmaBuffer buffer(dto);
+
+    EXPECT_FALSE(buffer.isOpened);
+    EXPECT_EQ(buffer.GetAddr(), dto.addr + dto.offset);
+}
+
+// DTO serverId 序列化往返无损（字段序紧随 pid）
+TEST_F(RemoteRmaBufferTest, exchangeipcbufferdto_serialize_deserialize_serverid_roundtrip)
+{
+    ExchangeIpcBufferDto dto;
+    dto.addr = 0x100000;
+    dto.size = 0x200;
+    dto.offset = 0x10;
+    dto.pid = 4321;
+    dto.serverId = 7;
+    dto.memInfo = "roundtrip";
+    (void)memcpy_s(dto.name, RTS_IPC_MEM_NAME_LEN, "roundName", sizeof("roundName"));
+
+    BinaryStream stream;
+    dto.Serialize(stream);
+    ExchangeIpcBufferDto parsed;
+    parsed.Deserialize(stream);
+
+    EXPECT_EQ(parsed.serverId, 7U);
+    EXPECT_EQ(parsed.pid, 4321U);
+    EXPECT_EQ(parsed.addr, dto.addr);
+    EXPECT_EQ(parsed.size, dto.size);
+    EXPECT_EQ(parsed.offset, dto.offset);
+    EXPECT_EQ(parsed.memInfo, dto.memInfo);
+    EXPECT_EQ(memcmp(parsed.name, dto.name, RTS_IPC_MEM_NAME_LEN), 0);
+}
+
+// LocalIpcRmaBuffer 构造注入 serverId：GetExchangeDto 携带注入值与 pid
+TEST_F(RemoteRmaBufferTest, localipcrmabuffer_serverid_injected_dto_carries_serverid)
+{
+    std::shared_ptr<DevBuffer> devBuf = DevBuffer::Create(0x100000, 0x1000);
+    ASSERT_NE(devBuf, nullptr);
+
+    MOCKER(HrtDevMemAlignWithPage)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(StubHrtDevMemAlignWithPage));
+    MOCKER(HrtIpcSetMemoryName)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(StubHrtIpcSetMemoryName));
+    MOCKER(HrtIpcDestroyMemoryName).stubs();
+    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(static_cast<s32>(4321)));
+
+    LocalIpcRmaBuffer localBuffer(devBuf, 5);
+    EXPECT_EQ(localBuffer.GetServerId(), 5U);
+
+    std::unique_ptr<Serializable> serializable = localBuffer.GetExchangeDto();
+    auto* ipcDto = dynamic_cast<ExchangeIpcBufferDto*>(serializable.get());
+    ASSERT_NE(ipcDto, nullptr);
+    EXPECT_EQ(ipcDto->serverId, 5U);
+    EXPECT_EQ(ipcDto->pid, 4321U);
+}

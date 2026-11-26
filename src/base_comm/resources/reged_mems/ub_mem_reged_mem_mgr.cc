@@ -14,7 +14,10 @@
 
 namespace hcomm {
 
-UbMemRegedMemMgr::UbMemRegedMemMgr() { localIpcRmaBufferMgr_ = std::make_unique<LocalIpcRmaBufferMgr>(); }
+UbMemRegedMemMgr::UbMemRegedMemMgr(u64 serverId) : serverId_(serverId)
+{
+    localIpcRmaBufferMgr_ = std::make_unique<LocalIpcRmaBufferMgr>();
+}
 
 HcclResult UbMemRegedMemMgr::RegisterMemory(const HcommMem* mem, const char* memTag, void** memHandle)
 {
@@ -27,10 +30,10 @@ HcclResult UbMemRegedMemMgr::RegisterMemory(const HcommMem* mem, const char* mem
         *mem, memTag, memHandle, localIpcRmaBufferMgr_, allRegisteredBuffers_,
         static_cast<std::vector<std::shared_ptr<Hccl::LocalIpcRmaBuffer>>*>(nullptr), "UbMemRegedMemMgr",
         [&](auto& bufPtr, auto& parent) {
-            return std::make_shared<Hccl::LocalIpcRmaBuffer>(bufPtr, *parent);
+            return std::make_shared<Hccl::LocalIpcRmaBuffer>(bufPtr, *parent, serverId_);
         },
         [&](auto& bufPtr) {
-            return std::make_shared<Hccl::LocalIpcRmaBuffer>(bufPtr);
+            return std::make_shared<Hccl::LocalIpcRmaBuffer>(bufPtr, serverId_);
         });
 }
 

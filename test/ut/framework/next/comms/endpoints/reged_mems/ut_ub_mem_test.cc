@@ -18,6 +18,7 @@
 #define protected public
 
 #include "ub_mem_reged_mem_mgr.h"
+#include "exchange_ipc_buffer_dto.h"
 
 #undef protected
 #undef private
@@ -53,7 +54,7 @@ static uint64_t GetRef(Mgr& mgr, const Key& key)
 // 父+子集注册 → 先解注册子(alias) → 再解注册父
 TEST_F(UbMemRegedMemMgrTest, ut_UbMemRegedMemMgr_When_ParentChild_Expect_UnregisterChildFirst)
 {
-    UbMemRegedMemMgr ubMemRegedMemMgr{};
+    UbMemRegedMemMgr ubMemRegedMemMgr{0};
     HcommMem mem0;
     mem0.type = CommMemType::COMM_MEM_TYPE_DEVICE;
     mem0.addr = (void*)0x2000;
@@ -96,7 +97,7 @@ TEST_F(UbMemRegedMemMgrTest, ut_UbMemRegedMemMgr_When_ParentChild_Expect_Unregis
 // 多次注册同一范围，各自解注册
 TEST_F(UbMemRegedMemMgrTest, ut_UbMemRegedMemMgr_When_MultipleSameRange_Expect_AllSuccess)
 {
-    UbMemRegedMemMgr ubMemRegedMemMgr{};
+    UbMemRegedMemMgr ubMemRegedMemMgr{0};
     HcommMem mem;
     mem.type = CommMemType::COMM_MEM_TYPE_DEVICE;
     mem.addr = (void*)0x4000;
@@ -130,7 +131,7 @@ TEST_F(UbMemRegedMemMgrTest, ut_UbMemRegedMemMgr_When_MultipleSameRange_Expect_A
 // 注册不重叠范围 → 应创建两个独立父buffer，各自ref=1
 TEST_F(UbMemRegedMemMgrTest, ut_UbMemRegedMemMgr_When_NonOverlap_Expect_TwoParents)
 {
-    UbMemRegedMemMgr ubMemRegedMemMgr{};
+    UbMemRegedMemMgr ubMemRegedMemMgr{0};
     HcommMem mem0;
     mem0.type = CommMemType::COMM_MEM_TYPE_DEVICE;
     mem0.addr = (void*)0x1000;
@@ -170,7 +171,7 @@ TEST_F(UbMemRegedMemMgrTest, ut_UbMemRegedMemMgr_When_NonOverlap_Expect_TwoParen
 // 父+子集注册 → 先解注册父(soft-delete) → 验证allBuffers_软删除标记 → 再解注册子
 TEST_F(UbMemRegedMemMgrTest, ut_UbMemRegedMemMgr_When_UnregisterParentFirst_Expect_ParentSoftDeleted)
 {
-    UbMemRegedMemMgr ubMemRegedMemMgr{};
+    UbMemRegedMemMgr ubMemRegedMemMgr{0};
     HcommMem mem0;
     mem0.type = CommMemType::COMM_MEM_TYPE_DEVICE;
     mem0.addr = (void*)0x6000;
@@ -232,7 +233,7 @@ TEST_F(UbMemRegedMemMgrTest, ut_UbMemRegedMemMgr_When_UnregisterParentFirst_Expe
 // RegisterMemory: 非法入参（null addr / zero size / invalid type）→ 返回错误
 TEST_F(UbMemRegedMemMgrTest, ut_UbMemRegedMemMgr_When_InvalidParams_Expect_Error)
 {
-    UbMemRegedMemMgr ubMemRegedMemMgr{};
+    UbMemRegedMemMgr ubMemRegedMemMgr{0};
     void* h = nullptr;
 
     HcommMem mem0{};
@@ -257,6 +258,50 @@ TEST_F(UbMemRegedMemMgrTest, ut_UbMemRegedMemMgr_When_InvalidParams_Expect_Error
 // UnregisterMemory: null memHandle → 返回错误
 TEST_F(UbMemRegedMemMgrTest, ut_UbMemRegedMemMgr_When_UnregisterNullHandle_Expect_Error)
 {
-    UbMemRegedMemMgr ubMemRegedMemMgr{};
+    UbMemRegedMemMgr ubMemRegedMemMgr{0};
     EXPECT_EQ(ubMemRegedMemMgr.UnregisterMemory(nullptr), HCCL_E_PTR);
+}
+
+// serverId 构造注入：注册的 LocalIpcRmaBuffer 携带该值，GetExchangeDto 交换给对端参与同进程判定
+TEST_F(UbMemRegedMemMgrTest, ut_UbMemRegedMemMgr_When_ServerIdInjected_Expect_BufferAndDtoCarryServerId)
+{
+    UbMemRegedMemMgr ubMemRegedMemMgr{5};
+    HcommMem mem;
+    mem.type = CommMemType::COMM_MEM_TYPE_DEVICE;
+    mem.addr = (void*)0x5000;
+    mem.size = 8192;
+    std::string memTag = "serverid";
+    void* memHandle = nullptr;
+    HcclResult ret = ubMemRegedMemMgr.RegisterMemory(&mem, memTag.c_str(), &memHandle);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+
+    auto* ipcBuffer = static_cast<Hccl::LocalIpcRmaBuffer*>(memHandle);
+    ASSERT_NE(ipcBuffer, nullptr);
+    EXPECT_EQ(ipcBuffer->GetServerId(), 5U);
+    auto serializable = ipcBuffer->GetExchangeDto();
+    auto* ipcDto = dynamic_cast<Hccl::ExchangeIpcBufferDto*>(serializable.get());
+    ASSERT_NE(ipcDto, nullptr);
+    EXPECT_EQ(ipcDto->serverId, 5U);
+}
+
+// 未注入 serverId（0，未启用方语义）：DTO 携带 0，判定退化为 pid 单维
+TEST_F(UbMemRegedMemMgrTest, ut_UbMemRegedMemMgr_When_ServerIdZero_Expect_DtoCarriesZero)
+{
+    UbMemRegedMemMgr ubMemRegedMemMgr{0};
+    HcommMem mem;
+    mem.type = CommMemType::COMM_MEM_TYPE_DEVICE;
+    mem.addr = (void*)0x6000;
+    mem.size = 8192;
+    std::string memTag = "serveridzero";
+    void* memHandle = nullptr;
+    HcclResult ret = ubMemRegedMemMgr.RegisterMemory(&mem, memTag.c_str(), &memHandle);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+
+    auto* ipcBuffer = static_cast<Hccl::LocalIpcRmaBuffer*>(memHandle);
+    ASSERT_NE(ipcBuffer, nullptr);
+    EXPECT_EQ(ipcBuffer->GetServerId(), 0U);
+    auto serializable = ipcBuffer->GetExchangeDto();
+    auto* ipcDto = dynamic_cast<Hccl::ExchangeIpcBufferDto*>(serializable.get());
+    ASSERT_NE(ipcDto, nullptr);
+    EXPECT_EQ(ipcDto->serverId, 0U);
 }

@@ -265,3 +265,21 @@ TEST_F(AivUbMemTransportTest, ut_RmtBufferUnpackProc_InjectsPathModeFromChannelD
     // 验证 RemoteIpcRmaBuffer 的 pathMode_ 被注入为 channelDesc_.ubMemAttr.pathMode
     EXPECT_EQ(aivTransport->rmtBufferVec_[0]->pathMode_, 2);
 }
+
+// ===================== serverId 维度（endpoint → transport / mgr → buffer 注入） =====================
+
+// transport 构造接收 channel 传入的本端 serverId，供接收侧 IPC 同进程判定使用
+TEST_F(AivUbMemTransportTest, ut_AivUbMemTransport_Ctor_When_ServerIdPassed_Expect_LocalServerIdStored)
+{
+    HcommChannelDesc desc{};
+    auto transport = std::make_shared<hcomm::AivUbMemTransport>(fakeSocket_, desc, 5);
+    EXPECT_EQ(transport->localServerId_, 5U);
+}
+
+// 未传 serverId 的构造（默认 0）：未启用方语义，与既有调用点零改动兼容
+TEST_F(AivUbMemTransportTest, ut_AivUbMemTransport_Ctor_When_ServerIdOmitted_Expect_DefaultZero)
+{
+    HcommChannelDesc desc{};
+    auto transport = std::make_shared<hcomm::AivUbMemTransport>(fakeSocket_, desc);
+    EXPECT_EQ(transport->localServerId_, 0U);
+}

@@ -18,9 +18,10 @@
 
 namespace hcomm {
 
-AivUbMemTransport::AivUbMemTransport(Hccl::Socket* socket, HcommChannelDesc& channelDesc)
+AivUbMemTransport::AivUbMemTransport(Hccl::Socket* socket, HcommChannelDesc& channelDesc, u64 localServerId)
     : socket_(socket),
-      channelDesc_(channelDesc)
+      channelDesc_(channelDesc),
+      localServerId_(localServerId)
 {}
 
 AivUbMemTransport::~AivUbMemTransport()
@@ -324,7 +325,8 @@ void AivUbMemTransport::RmtBufferUnpackProc(Hccl::BinaryStream& binaryStream)
             rmtRmaBufferVec_.push_back(nullptr);
         } else { // size非0，则构造一个remote buffer
             HCCL_INFO("[AivUbMemTransport][RmtBufferUnpackProc] unpack buffer memInfo[%s]", dto.memInfo.c_str());
-            rmtBufferVec_.push_back(std::make_unique<Hccl::RemoteIpcRmaBuffer>(dto, channelDesc_.ubMemAttr.pathMode));
+            rmtBufferVec_.push_back(
+                std::make_unique<Hccl::RemoteIpcRmaBuffer>(dto, channelDesc_.ubMemAttr.pathMode, localServerId_));
             rmtRmaBufferVec_.push_back(rmtBufferVec_.back().get());
         }
     }
