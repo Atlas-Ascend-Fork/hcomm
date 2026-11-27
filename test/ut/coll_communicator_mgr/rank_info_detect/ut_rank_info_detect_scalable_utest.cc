@@ -9,6 +9,7 @@
  */
 
 #include <chrono>
+#include <mutex>
 #include <thread>
 
 #include "gtest/gtest.h"
@@ -27,6 +28,12 @@
 #include "env_config/env_config_v2.h"
 #include "root_group_strategy.h"
 #include "root_handle_v2.h"
+#include "whitelist.h"
+#include "base_config_legacy.h"
+#include "host_socket_handle_manager.h"
+#include "hccp_peer_manager.h"
+#include "orion_adapter_rts.h"
+#include "acl/acl_rt.h"
 
 using namespace Hccl;
 
@@ -38,8 +45,32 @@ ScalableServerInfo MakeServerInfo(u32 nRoot, u32 rootIndex, u32 groupSize)
     info.nRoot = nRoot;
     info.rootIndex = rootIndex;
     info.groupSize = groupSize;
+    info.meshIdentifier = "test_comm_identifier";
     info.meshInfos.resize(nRoot);
     return info;
+}
+
+std::vector<RaSocketWhitelist> capturedMeshWlist;
+void CaptureMeshWlist(SocketHandle socketHandle, std::vector<RaSocketWhitelist>& wlists)
+{
+    (void)socketHandle;
+    capturedMeshWlist = wlists;
+}
+
+void FillMeshHostWhiteList(Whitelist* whitelist, std::vector<IpAddress>& whiteList)
+{
+    (void)whitelist;
+    whiteList = {IpAddress("127.0.0.1")};
+}
+
+void FillScalableRootInfo(HcclRootInfo& rootInfo, const char* identifier, u32 listenPort, u32 meshPort)
+{
+    HcclScalableRootHandleV2 handle{};
+    (void)strncpy_s(handle.rootHandle.identifier, sizeof(handle.rootHandle.identifier), identifier, strlen(identifier));
+    (void)strncpy_s(handle.rootHandle.ip, sizeof(handle.rootHandle.ip), "127.0.0.1", strlen("127.0.0.1"));
+    handle.rootHandle.listenPort = listenPort;
+    handle.meshPort = meshPort;
+    (void)memcpy_s(rootInfo.internal, HCCL_ROOT_INFO_BYTES, &handle, sizeof(handle));
 }
 } // namespace
 
@@ -164,10 +195,11 @@ HcclResult FinishAcceptAfterConnectFailure([[maybe_unused]] RankInfoDetectScalab
 // Accept 打桩序号：第 2 次（peer 1）返回失败模拟缺席，其余成功；记录每次收到的预算（验证按剩余对端数切片）
 std::atomic<u32> acceptSeq{0};
 std::vector<u32> acceptTimeouts;
+std::vector<std::string> acceptTags;
 HcclResult StubAcceptSeq(
-    [[maybe_unused]] Socket* self, [[maybe_unused]] const std::string& tag, std::shared_ptr<Socket>& acceptedSocket,
-    u32 timeout)
+    [[maybe_unused]] Socket* self, const std::string& tag, std::shared_ptr<Socket>& acceptedSocket, u32 timeout)
 {
+    acceptTags.push_back(tag);
     acceptTimeouts.push_back(timeout);
     if (acceptSeq.fetch_add(1) == 1) {
         return HCCL_E_TIMEOUT;
@@ -852,6 +884,172 @@ TEST_F(RankInfoDetectMeshTest, AcceptExchangeFailureIsolatedPerPeerAndSocketClos
     EXPECT_EQ(detect.peerMeshStates_[0], MeshPeerState::EXCHANGE_FAILED); // 已建链交换失败 → 状态未知
     EXPECT_EQ(detect.peerMeshStates_[1], MeshPeerState::EXCHANGE_FAILED);
     EXPECT_EQ(detect.meshRecvCount_.load(), 0U);
+}
+
+// 白名单下发、connect、accept 三处 mesh tag 必须使用同一通信域标识；
+// 同一 root 对/端口下不同 meshIdentifier 必须生成不同 tag，避免多通信域串扰。
+TEST_F(RankInfoDetectMeshTest, MeshWhiteListTagIncludesDomainIdentifier)
+{
+    static EnvHostNicConfig fakeEnvHostNicConfig;
+    fakeEnvHostNicConfig.whitelistDisable = CfgField<bool>{"HCCL_WHITELIST_DISABLE", false, CastBin2Bool};
+    fakeEnvHostNicConfig.whitelistDisable.isParsed = true;
+    MOCKER_CPP(&Hccl::EnvConfig::GetHostNicConfig).stubs().will(returnValue(fakeEnvHostNicConfig));
+    MOCKER_CPP(&Whitelist::GetHostWhiteList).stubs().will(invoke(FillMeshHostWhiteList));
+    MOCKER(HrtRaSocketWhiteListAdd).stubs().will(invoke(CaptureMeshWlist));
+
+    RankInfoDetectScalable detect(0, 0, 0);
+    detect.meshListenSocket_ = std::make_shared<Socket>(
+        nullptr, IpAddress(), 60003, IpAddress(), "mesh-ut", SocketRole::SERVER, NicType::HOST_NIC_TYPE);
+    detect.serverHostSocketHandle_ = reinterpret_cast<SocketHandle>(0x1);
+    ScalableServerInfo info = MakeServerInfo(3, 2, 1);
+    info.meshIdentifier = "domain_a";
+
+    ASSERT_EQ(detect.AddMeshSocketWhiteList(info), HCCL_SUCCESS);
+    ASSERT_EQ(capturedMeshWlist.size(), 2U);
+    EXPECT_EQ(capturedMeshWlist[0].tag, "rank_info_detect_scalable_mesh_tag_domain_a_0_2_60003");
+    EXPECT_EQ(capturedMeshWlist[1].tag, "rank_info_detect_scalable_mesh_tag_domain_a_1_2_60003");
+
+    capturedMeshWlist.clear();
+    info.meshIdentifier = "domain_b";
+    ASSERT_EQ(detect.AddMeshSocketWhiteList(info), HCCL_SUCCESS);
+    ASSERT_EQ(capturedMeshWlist.size(), 2U);
+    EXPECT_EQ(capturedMeshWlist[0].tag, "rank_info_detect_scalable_mesh_tag_domain_b_0_2_60003");
+    EXPECT_NE(capturedMeshWlist[0].tag, "rank_info_detect_scalable_mesh_tag_domain_a_0_2_60003");
+}
+
+TEST_F(RankInfoDetectMeshTest, MeshConnectTagIncludesDomainIdentifier)
+{
+    std::vector<std::string> tags;
+    for (const std::string& identifier : {"domain_a", "domain_b"}) {
+        RankInfoDetectScalable detect(0, 0, 0);
+        ScalableServerInfo info = MakeServerInfo(2, 0, 1);
+        info.meshIdentifier = identifier;
+        info.meshInfos[1].meshPort = 60002;
+        ASSERT_EQ(strcpy_s(info.meshInfos[1].ip, sizeof(info.meshInfos[1].ip), "127.0.0.1"), EOK);
+        ASSERT_EQ(detect.SetScalableServerInfo(info), HCCL_SUCCESS);
+        ASSERT_EQ(strcpy_s(detect.rootHandle_.ip, sizeof(detect.rootHandle_.ip), "127.0.0.1"), EOK);
+
+        auto socket = detect.MakeMeshSocket(1);
+        ASSERT_NE(socket, nullptr);
+        const std::string expected = "rank_info_detect_scalable_mesh_tag_" + identifier + "_0_1_60002";
+        EXPECT_NE(socket->Describe().find(expected), std::string::npos) << socket->Describe();
+        tags.push_back(expected);
+
+        // MakeMeshSocket 内部 Create 了 host socket handle，测试侧按生产 guard 语义归还引用。
+        const IpAddress localIp = socket->GetLocalIp();
+        socket->Close();
+        HostSocketHandleManager::GetInstance().Destroy(detect.devPhyId_, localIp);
+    }
+    EXPECT_NE(tags[0], tags[1]);
+}
+
+TEST_F(RankInfoDetectMeshTest, MeshAcceptTagIncludesDomainIdentifier)
+{
+    MOCKER_CPP(&Socket::Accept).stubs().will(invoke(StubAcceptSeq));
+    MOCKER_CPP(&Socket::Close).stubs();
+
+    std::vector<std::string> tags;
+    for (const std::string& identifier : {"domain_a", "domain_b"}) {
+        RankInfoDetectScalable detect(0, 0, 0);
+        ScalableServerInfo info = MakeServerInfo(2, 1, 1);
+        info.meshIdentifier = identifier;
+        ASSERT_EQ(detect.SetScalableServerInfo(info), HCCL_SUCCESS);
+        detect.partials_.resize(2);
+        detect.peerFailedLists_.resize(2);
+        detect.peerMeshStates_.assign(2, MeshPeerState::PENDING);
+        detect.meshListenSocket_ = std::make_shared<Socket>(
+            nullptr, IpAddress(), 60001, IpAddress(), "mesh-ut", SocketRole::SERVER, NicType::HOST_NIC_TYPE);
+        acceptSeq.store(0);
+        acceptTags.clear();
+
+        // 交换阶段因无 incoming 返回失败，不影响 accept 侧实际收到的 tag。
+        EXPECT_EQ(detect.MeshAcceptSmallerRootsCore(60), HCCL_E_NETWORK);
+        ASSERT_EQ(acceptTags.size(), 1U);
+        const std::string expected = "rank_info_detect_scalable_mesh_tag_" + identifier + "_0_1_60001";
+        EXPECT_EQ(acceptTags[0], expected);
+        tags.push_back(expected);
+    }
+    EXPECT_NE(tags[0], tags[1]);
+}
+
+// provider 侧契约：meshIdentifier 必须取 rootInfoList[0]，不能取本 root 自己的 identifier。
+TEST_F(RankInfoDetectMeshTest, ProviderUsesRoot0IdentifierAsMeshIdentifier)
+{
+    const RootInfoDetectBridge* bridge = GetRootInfoDetectBridgeScalable();
+    ASSERT_NE(bridge, nullptr);
+
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HCCL_SUCCESS));
+    int32_t logicDevId = 0;
+    MOCKER(aclrtGetLogicDevIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&logicDevId))
+        .will(returnValue(ACL_SUCCESS));
+    MOCKER(HrtGetDeviceCount).stubs().with(outBound(u32(8))).will(returnValue(HCCL_SUCCESS));
+    int32_t phyDevId = 0;
+    MOCKER(aclrtGetPhyDevIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&phyDevId))
+        .will(returnValue(ACL_SUCCESS));
+    MOCKER_CPP(&RankInfoDetect::SetupAgent).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankInfoDetect::WaitComplete).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&HccpPeerManager::DeInit).stubs();
+
+    HcclRootInfo rootInfoList[2]{};
+    FillScalableRootInfo(rootInfoList[0], "mesh_domain_root_0", 60000, 60032);
+    FillScalableRootInfo(rootInfoList[1], "mesh_domain_root_1", 60001, 60033);
+
+    auto server = std::make_shared<RankInfoDetectScalable>(0, 0, 0);
+    {
+        std::lock_guard<std::mutex> lock(GetScalableDetectRegistryMutex());
+        GetScalableDetectRegistry().EmplaceAndUpdate(
+            "mesh_domain_root_1", [&server](std::shared_ptr<RankInfoDetectScalable>& slot) {
+                slot = server;
+            });
+    }
+
+    RankTableInfo table{};
+    RootInfoDetectBridge::DetectContext context;
+    EXPECT_EQ(bridge->detectRankTableScalable(2, 2, rootInfoList, 1, table, context), HCCL_SUCCESS);
+    EXPECT_EQ(server->scalableInfo_.meshIdentifier, "mesh_domain_root_0");
+    EXPECT_NE(server->scalableInfo_.meshIdentifier, "mesh_domain_root_1");
+
+    std::lock_guard<std::mutex> lock(GetScalableDetectRegistryMutex());
+    GetScalableDetectRegistry().Erase("mesh_domain_root_1");
+}
+
+// rootInfoList[0] 的 identifier 为空时，provider 必须在注入阶段返回 HCCL_E_PARA。
+TEST_F(RankInfoDetectMeshTest, ProviderRejectsEmptyRoot0Identifier)
+{
+    const RootInfoDetectBridge* bridge = GetRootInfoDetectBridgeScalable();
+    ASSERT_NE(bridge, nullptr);
+
+    MOCKER(HrtGetDevice).stubs().with(outBound(0)).will(returnValue(HCCL_SUCCESS));
+    MOCKER(HrtGetDeviceCount).stubs().with(outBound(u32(8))).will(returnValue(HCCL_SUCCESS));
+    int32_t phyDevId = 0;
+    MOCKER(aclrtGetPhyDevIdByUserDevId)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&phyDevId))
+        .will(returnValue(ACL_SUCCESS));
+
+    HcclRootInfo rootInfoList[2]{};
+    FillScalableRootInfo(rootInfoList[0], "", 60000, 60032);
+    FillScalableRootInfo(rootInfoList[1], "mesh_domain_root_1", 60001, 60033);
+
+    auto server = std::make_shared<RankInfoDetectScalable>(0, 0, 0);
+    {
+        std::lock_guard<std::mutex> lock(GetScalableDetectRegistryMutex());
+        GetScalableDetectRegistry().EmplaceAndUpdate(
+            "mesh_domain_root_1", [&server](std::shared_ptr<RankInfoDetectScalable>& slot) {
+                slot = server;
+            });
+    }
+
+    RankTableInfo table{};
+    RootInfoDetectBridge::DetectContext context;
+    EXPECT_EQ(bridge->detectRankTableScalable(2, 2, rootInfoList, 1, table, context), HCCL_E_PARA);
+
+    std::lock_guard<std::mutex> lock(GetScalableDetectRegistryMutex());
+    GetScalableDetectRegistry().Erase("mesh_domain_root_1");
 }
 
 // 合并中段失败（子表 rankCount 与 ranks.size 不匹配）输出保持调用方原值：失败列表与子表
