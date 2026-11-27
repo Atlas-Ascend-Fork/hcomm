@@ -698,7 +698,7 @@ HcclResult RtsqA5::CCoreNotifyWait(u64 waitAddr, u64 curTurnCntAddr, bool last)
 {
     BuildA5SqeCCoreNotifyWait(streamId_, taskId_, waitAddr, curTurnCntAddr, last, GetCurrSqeBuffer());
     HCCL_INFO(
-        "RtsqA5::CCoreNotifyWait: streamId %u, taskId %u, waitAddr %llu, curTurnCntAddr %llu, last %d", streamId_,
+        "RtsqA5::CCoreNotifyWait: streamId %u, taskId %u, waitAddr 0x%llx, curTurnCntAddr 0x%llx, last %d", streamId_,
         taskId_, waitAddr, curTurnCntAddr, last);
     RecordCCoreDfxTask(true);
     RefreshInfo();
@@ -709,8 +709,8 @@ HcclResult RtsqA5::CCoreNotifyRecord(u64 recordAddr, u64 curTurnCntAddr)
 {
     BuildA5SqeCCoreNotifyRecord(streamId_, taskId_, recordAddr, curTurnCntAddr, GetCurrSqeBuffer());
     HCCL_INFO(
-        "RtsqA5::CCoreNotifyRecord: streamId %u, taskId %u, recordAddr %llu, curTurnCntAddr %llu", streamId_, taskId_,
-        recordAddr, curTurnCntAddr);
+        "RtsqA5::CCoreNotifyRecord: streamId %u, taskId %u, recordAddr 0x%llx, curTurnCntAddr 0x%llx", streamId_,
+        taskId_, recordAddr, curTurnCntAddr);
     RecordCCoreDfxTask(false);
     RefreshInfo();
     return HcclResult::HCCL_SUCCESS;
@@ -720,8 +720,8 @@ void RtsqA5::P2PWriteValue(u64 remoteAddr, u32 writeValue)
 {
     BuildA5SqeP2pWriteValue(streamId_, taskId_, remoteAddr, writeValue, GetCurrSqeBuffer());
     HCCL_INFO(
-        "RtsqA5::P2PWriteValue: streamId %u, taskId %u, remoteAddr %llu, writeValue %u", streamId_, taskId_, remoteAddr,
-        writeValue);
+        "RtsqA5::P2PWriteValue: streamId %u, taskId %u, remoteAddr 0x%llx, writeValue %u", streamId_, taskId_,
+        remoteAddr, writeValue);
     RefreshInfo();
 }
 

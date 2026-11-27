@@ -126,11 +126,11 @@ HcclResult CcuTempAllReduceMeshTwoShotMem2Mem2D::GetBufferAddr(
         outputOffSet = buffInfo_.outBuffBaseOff + tempFuncs.usrData.usrOutSlices[0].GetOffset();
     }
     HCCL_INFO(
-        "[GetBufferAddr] inputBaseAddr[%llu], inputOffSet[%llu], outputBaseAddr[%llu], outputOffSet[%llu]",
+        "[GetBufferAddr] inputBaseAddr[0x%llx], inputOffSet[%llu], outputBaseAddr[0x%llx], outputOffSet[%llu]",
         inputBaseAddr, inputOffSet, outputBaseAddr, outputOffSet);
     inputAddr = inputBaseAddr + inputOffSet;
     outputAddr = outputBaseAddr + outputOffSet;
-    HCCL_INFO("[GetBufferAddr] inputAddr[%llu], outputAddr[%llu]", inputAddr, outputAddr);
+    HCCL_INFO("[GetBufferAddr] inputAddr[0x%llx], outputAddr[0x%llx]", inputAddr, outputAddr);
     return HcclResult::HCCL_SUCCESS;
 }
 
@@ -207,7 +207,8 @@ HcclResult CcuTempAllReduceMeshTwoShotMem2Mem2D::Run(
     uint64_t inputAddr;
     uint64_t outputAddr;
     CHK_RET(GetBufferAddr(tempFuncs, inputAddr, outputAddr));
-    HCCL_INFO("[CcuTempAllReduceMeshTwoShotMem2Mem2D][Run] inputAddr[%llu], outputAddr[%llu]", inputAddr, outputAddr);
+    HCCL_INFO(
+        "[CcuTempAllReduceMeshTwoShotMem2Mem2D][Run] inputAddr[0x%llx], outputAddr[0x%llx]", inputAddr, outputAddr);
 
     // 计算切分信息：
     uint64_t normalRankDataSize = sliceInfoVec[0][0].size;

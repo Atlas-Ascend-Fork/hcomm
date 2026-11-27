@@ -88,8 +88,8 @@ HcclResult CcuTempAllToAllMesh1D2Die::GenExtIns(
     uint64_t outBuffBaseOff = buffInfo_.outBuffBaseOff;
 
     HCCL_INFO(
-        "[CcuTempAllToAllMesh1D2Die] myRank_[%d], dimSize[%llu], inputAddr[%llu],"
-        "outputAddr[%llu], sliceSize[%llu], outBuffBaseOff[%llu], inputSliceStride[%llu],",
+        "[CcuTempAllToAllMesh1D2Die] myRank_[%d], dimSize[%llu], inputAddr[0x%llx],"
+        "outputAddr[0x%llx], sliceSize[%llu], outBuffBaseOff[%llu], inputSliceStride[%llu],",
         myRank_, dimSize[0], inputAddr, outputAddr, sliceSize, outBuffBaseOff, inputSliceStride);
 
     // key表示为dieId

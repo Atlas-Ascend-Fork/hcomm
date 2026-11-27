@@ -32,7 +32,7 @@ DataBuffer RmtDataBufferMgr::GetBuffer(const LinkData& linkData, BufferType buff
             THROW<NullPtrException>("[%s] ERROR GetOpbase is null", __func__);
         }
         Buffer buffer = memTransportLite->GetRmtBuffer(bufferType);
-        HCCL_INFO("[%s] buffer.GetAddr()[%lu] buffer.GetSize()[%llu]", __func__, buffer.GetAddr(), buffer.GetSize());
+        HCCL_INFO("[%s] buffer.GetAddr()[0x%llx] buffer.GetSize()[%llu]", __func__, buffer.GetAddr(), buffer.GetSize());
         return DataBuffer(buffer.GetAddr(), buffer.GetSize());
     } else {
         THROW<NullPtrException>("[%s] ERROR no support offload mode", __func__);

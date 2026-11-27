@@ -473,8 +473,8 @@ std::vector<uint64_t> CcuContextAllReduceMeshTwoShotMem2Mem2D::GeneArgs(const Cc
     auto lastRankYGoSize = CalGoSize(lastRankYSliceSize);
 
     HCCL_INFO(
-        "[CcuContextAllReduceMeshTwoShotMem2Mem2D] GeneArgs, TaskArgs are inputAddr[%llu], "
-        "outputAddr[%llu], normalRankXSliceSize[%llu], normalRankYSliceSize[%llu], lastRankXSliceSize[%llu], "
+        "[CcuContextAllReduceMeshTwoShotMem2Mem2D] GeneArgs, TaskArgs are inputAddr[0x%llx], "
+        "outputAddr[0x%llx], normalRankXSliceSize[%llu], normalRankYSliceSize[%llu], lastRankXSliceSize[%llu], "
         "lastRankYSliceSize[%llu]",
         inputAddr, outputAddr, normalRankXSliceSize, normalRankYSliceSize, lastRankXSliceSize, lastRankYSliceSize);
 

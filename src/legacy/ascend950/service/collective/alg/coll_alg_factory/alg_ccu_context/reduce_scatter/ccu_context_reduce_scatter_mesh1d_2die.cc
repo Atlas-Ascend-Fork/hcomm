@@ -334,7 +334,7 @@ std::vector<uint64_t> CcuContextReduceScatterMesh1D2Die::GeneArgs(const CcuTaskA
     auto localReduceGoSize1 = CalGoSize(localRedcueSize1);
 
     HCCL_INFO(
-        "[CcuContextReduceScatterMesh1D2Die][GeneArgs] myInput[%llu], myOutput[%llu], myScratch[%llu], "
+        "[CcuContextReduceScatterMesh1D2Die][GeneArgs] myInput[0x%llx], myOutput[0x%llx], myScratch[0x%llx], "
         "rmtReduceSliceOffset[%llu], sliceSize[%llu], localReduceSize0[%llu], localReduceSize1[%llu]",
         myInput, myOutput, myScratch, rmtReduceSliceOffset, sliceSize, localRedcueSize0, localRedcueSize1);
 

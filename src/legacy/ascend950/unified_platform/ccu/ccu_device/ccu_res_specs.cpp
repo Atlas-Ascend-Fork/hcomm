@@ -228,7 +228,7 @@ HcclResult CcuResSpecifications::GetXnBaseAddr(const uint8_t dieId, uint64_t& xn
     constexpr uint32_t ccuXnOffset = ccum_offset + instrRevserveSize + gsaReserveSize;
     if (ccuResAddr > UINT64_MAX - ccuXnOffset) {
         HCCL_ERROR(
-            "[CcuResSpecifications][%s] failed, CCU resource base address[%llu] is "
+            "[CcuResSpecifications][%s] failed, CCU resource base address[0x%llx] is "
             "greater than expected, ccu xn offset[%llu], their sum will exceed the range "
             "of uint64_t.",
             __func__, ccuResAddr, ccuXnOffset);

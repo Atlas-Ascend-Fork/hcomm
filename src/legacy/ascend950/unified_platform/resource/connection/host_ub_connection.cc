@@ -564,7 +564,7 @@ HostUbConnection::PrepareInlineWrite(const MemoryBuffer& remoteMemBuf, u64 data,
 string HostUbConnection::Describe() const
 {
     return StringFormat(
-        "HostUbConnection[locAddr=%s, rmtAddr=%s, status=%s, dieId=%u, funcId=%u, jettyId=%u, sqBuffVa=%llx, "
+        "HostUbConnection[locAddr=%s, rmtAddr=%s, status=%s, dieId=%u, funcId=%u, jettyId=%u, sqBuffVa=0x%llx, "
         "sqDepth=%u, tpn=%u, dbAddr=0x%llx]",
         locAddr.Describe().c_str(), rmtAddr.Describe().c_str(), status.Describe().c_str(), dieId, funcId, jettyId_,
         sqBuffVa, sqDepth, tpn, dbAddr);

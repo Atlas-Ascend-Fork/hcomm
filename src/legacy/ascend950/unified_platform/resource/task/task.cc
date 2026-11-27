@@ -117,7 +117,7 @@ std::string TaskUbDirectSend::Describe() const
 
 std::string TaskWriteValue::Describe() const
 {
-    return StringFormat("Task %s: dbAddr[%llx] piVal[%u]", type.Describe().c_str(), dbAddr, piVal);
+    return StringFormat("Task %s: dbAddr[0x%llx] piVal[%u]", type.Describe().c_str(), dbAddr, piVal);
 }
 
 std::string TaskWaitBits::Describe() const

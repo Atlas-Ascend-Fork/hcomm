@@ -205,7 +205,7 @@ void CommunicatorImplLite::UpdateCommParam(HcclKernelParamLite* kernelParam)
     commId = kernelParam->comm.commId;
     HCCL_INFO(
         "CommunicatorImplLite::UpdateCommParam myRank [%u] rankSize[%u] devPhyId[%u] devType[%d] scratchSize [%llu] "
-        "scratchaddress[%llx] opCounterAddr[%llx] commId[%s]",
+        "scratchaddress[0x%llx] opCounterAddr[0x%llx] commId[%s]",
         myRank, rankSize, devPhyId, devType, scratchSize, kernelParam->comm.opBaseScratch.addr, opCounterAddr,
         commId.c_str());
     isUpdateComm = true;
@@ -482,7 +482,7 @@ void CommunicatorImplLite::InitCurrentOp(HcclKernelParamLite* kernelParam)
     kernelParam->op.algOperator.scratchMem = currentOp.scratchMem;
     if (kernelParam->op.algOperator.scratchMem != nullptr) {
         HCCL_INFO(
-            "CommunicatorImplLite::InitCurrentOp scratchMem addr %llx, size %llu",
+            "CommunicatorImplLite::InitCurrentOp scratchMem addr 0x%llx, size %llu",
             kernelParam->op.algOperator.scratchMem->GetAddr(), kernelParam->op.algOperator.scratchMem->GetSize());
     }
     HCCL_INFO("CommunicatorImplLite::InitCurrentOp end");

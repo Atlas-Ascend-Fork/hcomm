@@ -35,11 +35,11 @@ namespace {
 
 void AicpuKfcUtils::PrintKFCTask(const KFCTask& task)
 {
-    HCCL_INFO("KFCTask.inputA Addr %lu", task.inputA);
-    HCCL_INFO("KFCTask.outputC Addr %lu", task.outputC);
-    HCCL_INFO("KFCTask.commOut Addr %lu", task.commOut);
-    HCCL_INFO("KFCTask.context Addr %lu", task.context);
-    HCCL_INFO("KFCTask.workSpace Addr %lu", task.workSpace);
+    HCCL_INFO("KFCTask.inputA Addr 0x%llx", task.inputA);
+    HCCL_INFO("KFCTask.outputC Addr 0x%llx", task.outputC);
+    HCCL_INFO("KFCTask.commOut Addr 0x%llx", task.commOut);
+    HCCL_INFO("KFCTask.context Addr 0x%llx", task.context);
+    HCCL_INFO("KFCTask.workSpace Addr 0x%llx", task.workSpace);
 }
 
 void AicpuKfcUtils::PrintTilingData(const HcclKFCTilingData& tilingData, bool errorFlag)

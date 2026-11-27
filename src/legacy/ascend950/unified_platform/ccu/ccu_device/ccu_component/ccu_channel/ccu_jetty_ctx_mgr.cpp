@@ -171,7 +171,7 @@ static HcclResult GetSqeBuffVa(const uint64_t ccuResBaseVa, const uint32_t jetty
 
     if (UINT64_MAX - CCU_V1_WQE_BASIC_BLOCK_OFFSET - jettyCtxOffset < ccuResBaseVa) {
         HCCL_ERROR(
-            "[CcuJettyCtxMgr][%s] ccu resource space base va[%llu] "
+            "[CcuJettyCtxMgr][%s] ccu resource space base va[0x%llx] "
             "is greater than expected, jettyCtxId[%u], the sqe buff va exceed the "
             "range of uint64_t.",
             __func__, ccuResBaseVa, jettyCtxId);

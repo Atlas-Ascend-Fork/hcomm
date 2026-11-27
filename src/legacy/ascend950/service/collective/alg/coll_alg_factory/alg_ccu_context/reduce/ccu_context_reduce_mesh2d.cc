@@ -246,7 +246,7 @@ std::vector<uint64_t> CcuContextReduceMesh2D::GeneArgs(const CcuTaskArg& arg)
     auto yAxisGoSize = CalGoSize(yAxisSize);
 
     HCCL_INFO(
-        "[CcuContextReduceMesh2D] ReduceMesh2D inputAddr [%llu] outputAddr [%llu] offset [%llu], "
+        "[CcuContextReduceMesh2D] ReduceMesh2D inputAddr [0x%llx] outputAddr [0x%llx] offset [%llu], "
         "xAxisSize [%llu] yAxisSize [%llu]",
         inputAddr, outputAddr, offset, xAxisSize, yAxisSize);
 

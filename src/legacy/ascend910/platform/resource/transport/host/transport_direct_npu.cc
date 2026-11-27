@@ -525,7 +525,7 @@ HcclResult TransportDirectNpu::CreateOneQp(
 
         attrs.udpSport = udpSport;
         ret = hrtRaAiQpCreate(machinePara_.localDeviceId, nicRdmaHandle_, &attrs, &aiQpInfo, qpHandle);
-        HCCL_DEBUG("aiQpAddr:%llu db_index:%u, sq_index=%u", aiQpInfo.aiQpAddr, aiQpInfo.dbIndex, aiQpInfo.sqIndex);
+        HCCL_DEBUG("aiQpAddr:0x%llx db_index:%u, sq_index=%u", aiQpInfo.aiQpAddr, aiQpInfo.dbIndex, aiQpInfo.sqIndex);
         qpInfo = qpInfo + std::string(",sendCqDepth:") + std::to_string(attrs.cqAttr.sendCqDepth);
     } else if (!isUseQpCreateWithAttrs && qpsPerConnection == HCCL_QPS_PER_CONNECTION_DEFAULT) {
         ret = HrtRaQpCreate(nicRdmaHandle_, QP_FLAG_RC, qpMode, qpHandle);
@@ -1071,14 +1071,14 @@ HcclResult TransportDirectNpu::GetAiQpInfo(std::vector<HcclQpInfoV2>& aiQpInfo)
     aiQpInfo[0].sqIndex = aiQpInfo_.sqIndex;
     aiQpInfo[0].dbIndex = aiQpInfo_.dbIndex;
     HCCL_DEBUG(
-        "[TransportDirectNpu][GetAiQpInfo] i[0] qpPtr[%llu] sqIndex[%u] dbIndex[%u]", aiQpInfo[0].qpPtr,
+        "[TransportDirectNpu][GetAiQpInfo] i[0] qpPtr[0x%llx] sqIndex[%u] dbIndex[%u]", aiQpInfo[0].qpPtr,
         aiQpInfo[0].sqIndex, aiQpInfo[0].dbIndex);
     for (u32 i = 1, j = 0; i < aiQpInfo.size(); i++, j++) {
         aiQpInfo[i].qpPtr = aiQpInfos_[j].aiQpAddr;
         aiQpInfo[i].sqIndex = aiQpInfos_[j].sqIndex;
         aiQpInfo[i].dbIndex = aiQpInfos_[j].dbIndex;
         HCCL_DEBUG(
-            "[TransportDirectNpu][GetAiQpInfo] i[%u] qpPtr[%llu] sqIndex[%u] dbIndex[%u]", i, aiQpInfo[i].qpPtr,
+            "[TransportDirectNpu][GetAiQpInfo] i[%u] qpPtr[0x%llx] sqIndex[%u] dbIndex[%u]", i, aiQpInfo[i].qpPtr,
             aiQpInfo[i].sqIndex, aiQpInfo[i].dbIndex);
     }
     return HCCL_SUCCESS;

@@ -45,7 +45,7 @@ UbLocalNotify::UbLocalNotify(RdmaHandle rdmaHandle, bool devUsed)
     tokenIdHandle_ = tokenIdInfoPair.first;
     tokenId = tokenIdInfoPair.second;
     HCCL_INFO("[UbLocalNotify] tokenIdHandle=0x[%llx]", tokenIdHandle_);
-    HCCL_INFO("mapped addr=[%llx]", addr);
+    HCCL_INFO("mapped addr=[0x%llx]", addr);
     HCCL_INFO("UB notify size=[%u]", size);
 
     // halNotifyMap 返回的地址不保证4K对齐，

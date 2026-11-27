@@ -136,7 +136,7 @@ HcclResult CcuTempAllReduceMesh1DOneShot::CalcInputOutputAddr(
                      + tempFuncs.usrData.usrOutSlices[0].GetOffset();
     }
     HCCL_INFO(
-        "[CcuTempAllReduceMesh1DOneShot][CalcInputOutputAddr] end, inputAddr[%llu], outputAddr[%llu]", inputAddr,
+        "[CcuTempAllReduceMesh1DOneShot][CalcInputOutputAddr] end, inputAddr[0x%llx], outputAddr[0x%llx]", inputAddr,
         outputAddr);
     return HcclResult::HCCL_SUCCESS;
 }

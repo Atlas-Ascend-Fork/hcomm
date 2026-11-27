@@ -40,7 +40,7 @@ RemoteIpcRmaBuffer::RemoteIpcRmaBuffer(const Serializable& rmtDto, uint8_t pathM
     memType = dto.memType;
     (void)memcpy_s(ipcName, RTS_IPC_MEM_NAME_LEN, dto.name, RTS_IPC_MEM_NAME_LEN);
     HCCL_INFO(
-        "[RemoteIpcRmaBuffer][RemoteIpcRmaBuffer]ipcAddr[%llu] ipcOffset[%llu] ipcName[%s] memInfo[%s] pathMode[%u] "
+        "[RemoteIpcRmaBuffer][RemoteIpcRmaBuffer]ipcAddr[0x%llx] ipcOffset[%llu] ipcName[%s] memInfo[%s] pathMode[%u] "
         "remotePid[%u] remoteServerId[%llu] localServerId[%llu]",
         ipcAddr, ipcOffset, ipcName, memInfo.c_str(), pathMode_, remotePid, remoteServerId, localServerId);
     s32 tgid = 0;
@@ -77,7 +77,7 @@ RemoteIpcRmaBuffer::RemoteIpcRmaBuffer(const Serializable& rmtDto, const string 
     memType = dto.memType;
     (void)memcpy_s(ipcName, RTS_IPC_MEM_NAME_LEN, dto.name, RTS_IPC_MEM_NAME_LEN);
     HCCL_INFO(
-        "[RemoteIpcRmaBuffer][RemoteIpcRmaBuffer] tag[%s] ipcAddr[%llu] ipcOffset[%llu] ipcName[%s] memInfo[%s] "
+        "[RemoteIpcRmaBuffer][RemoteIpcRmaBuffer] tag[%s] ipcAddr[0x%llx] ipcOffset[%llu] ipcName[%s] memInfo[%s] "
         "pathMode[%u]",
         tag.c_str(), ipcAddr, ipcOffset, ipcName, memInfo.c_str(), pathMode_);
     if (!OpenIpcMemory()) {
@@ -269,8 +269,8 @@ RemoteUbRmaBuffer::RemoteUbRmaBuffer(RdmaHandle rdmaHandle1, const Serializable&
 string RemoteUbRmaBuffer::Describe() const
 {
     return StringFormat(
-        "RemoteUbRmaBuffer[rdmaHandle=%p, addr=0x%llx, size=0x%llx, memHandle=%p segVa=%llu, notifyId=%u]", rdmaHandle,
-        addr, size, memHandle, segVa, notifyId);
+        "RemoteUbRmaBuffer[rdmaHandle=%p, addr=0x%llx, size=0x%llx, memHandle=%p segVa=0x%llx, notifyId=%u]",
+        rdmaHandle, addr, size, memHandle, segVa, notifyId);
 }
 
 } // namespace Hccl

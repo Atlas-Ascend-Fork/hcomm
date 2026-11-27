@@ -1243,7 +1243,7 @@ HcclResult HrtRaGetNotifyBaseAddr(RdmaHandle rdmaHandle, u64* va, u64* size)
         return HCCL_E_PTR;
     }
 
-    HCCL_INFO("[HrtRaGetNotifyBaseAddr] Input params: rdmaHandle=%p, va=%llu, size=%llu", rdmaHandle, *va, *size);
+    HCCL_INFO("[HrtRaGetNotifyBaseAddr] Input params: rdmaHandle=%p, va=0x%llx, size=%llu", rdmaHandle, *va, *size);
     auto startTime = std::chrono::steady_clock::now();
     auto timeout = std::chrono::seconds(EnvLinkTimeoutGet());
     while (true) {
@@ -1630,7 +1630,7 @@ std::pair<u64, u64> BufAlign(u64 addr, u64 size)
     u64 newAddr = addr & (~(static_cast<u64>(pageSize - 1))); // UB内存注册要求起始地址4k对齐
     u64 offset = addr - newAddr;
     u64 newSize = size + offset;
-    HCCL_INFO("UB mem info: newAddr[%llx], newSize[%llu]", newAddr, newSize);
+    HCCL_INFO("UB mem info: newAddr[0x%llx], newSize[%llu]", newAddr, newSize);
 
     return std::make_pair(newAddr, newSize);
 }
@@ -1671,8 +1671,8 @@ HrtRaUbLocalMemRegOutParam HrtRaUbLocalMemReg(RdmaHandle handle, const HrtRaUbLo
     out.targetSegVa = info.out.ub.targetSegHandle;
     info.in.ub.tokenValue = 0;
     HCCL_INFO(
-        "[HrtRaUbLocalMemReg]UB mem reg info: in.addr[%llx], in.size[%llu], out.targetSegVa[%llu]", in.addr, in.size,
-        out.targetSegVa);
+        "[HrtRaUbLocalMemReg]UB mem reg info: in.addr[0x%llx], in.size[%llu], out.targetSegVa[0x%llx]", in.addr,
+        in.size, out.targetSegVa);
     return out;
 }
 
@@ -1780,7 +1780,7 @@ JfcHandle HrtRaUbCreateJfc(RdmaHandle handle, CqCreateInfo& cqInfo, HrtUbJfcMode
 
     cqInfo.cqDepth = info.in.depth;
     HCCL_INFO(
-        "[HrtRaUbCreateJfc] jfcId[%u], cqVA[%llx], cqeSize[%u], cqDepth[%u], dbAddr[%llx], mode[%u], jfcHandle[%p]",
+        "[HrtRaUbCreateJfc] jfcId[%u], cqVA[0x%llx], cqeSize[%u], cqDepth[%u], dbAddr[0x%llx], mode[%u], jfcHandle[%p]",
         cqInfo.id, cqInfo.va, cqInfo.cqeSize, cqInfo.cqDepth, cqInfo.swdbAddr, info.in.ub.mode, jfcHandle);
     return ReinterpretAs<JfcHandle>(jfcHandle);
 }
@@ -1819,7 +1819,7 @@ JfcHandle HrtRaUbCreateJfcUserCtl(RdmaHandle handle, CqCreateInfo& cqInfo)
     }
 
     HCCL_INFO(
-        "[HrtRaUbCreateJfcUserCtl] jfcId[%u], cqVA[%llx], cqeSize[%u], cqDepth[%u], dbAddr[%llx]", info.out.id,
+        "[HrtRaUbCreateJfcUserCtl] jfcId[%u], cqVA[0x%llx], cqeSize[%u], cqDepth[%u], dbAddr[0x%llx]", info.out.id,
         info.out.bufAddr, info.out.cqeSize, CQ_DEPTH, info.out.swdbAddr);
 
     cqInfo.va = info.out.bufAddr;
@@ -1893,7 +1893,7 @@ static struct QpCreateAttr GetQpCreateAttr(const HrtRaUbCreateJettyParam& in)
     HCCL_INFO(
         "Create jetty, input params: attr.ub.jettyId[%u], attr.rqDepth[%u], "
         "attr.sqDepth[%u], attr.transportMode[%d], attr.ub.mode[%d], "
-        "attr.ub.extMode.sqebbNum[%u], attr.ub.extMode.sq.buffVa[%llx], "
+        "attr.ub.extMode.sqebbNum[%u], attr.ub.extMode.sq.buffVa[0x%llx], "
         "attr.ub.extMode.sq.buffSize[%u], attr.ub.extMode.piType[%u], attr.ub.priority[%u], timeout[%u].",
         attr.ub.jettyId, attr.rqDepth, attr.sqDepth, attr.transportMode, attr.ub.mode, attr.ub.extMode.sqebbNum,
         attr.ub.extMode.sq.buffVa, attr.ub.extMode.sq.buffSize, attr.ub.extMode.piType, attr.ub.priority,
@@ -1934,7 +1934,7 @@ HrtRaUbJettyCreatedOutParam HrtRaUbCreateJetty(RdmaHandle handle, const HrtRaUbC
     }
     out.keySize = info.key.size;
     attr.ub.tokenValue = 0;
-    HCCL_INFO("Create jetty success, handle[%llu] jettyVa[%llu]", out.handle, out.jettyVa);
+    HCCL_INFO("Create jetty success, handle[%llu] jettyVa[0x%llx]", out.handle, out.jettyVa);
     return out;
 }
 
@@ -2004,7 +2004,7 @@ static HrtRaUbJettyImportedOutParam ImportJetty(
     out.targetJettyVa = info.out.ub.tjettyHandle;
     out.tpn = info.out.ub.tpn;
 
-    HCCL_INFO("ImportJetty handle[%llu] targetJettyVa[%llu] tpn[%u]", out.handle, out.targetJettyVa, out.tpn);
+    HCCL_INFO("ImportJetty handle[%llu] targetJettyVa[0x%llx] tpn[%u]", out.handle, out.targetJettyVa, out.tpn);
     info.in.ub.tokenValue = 0;
     return out;
 }

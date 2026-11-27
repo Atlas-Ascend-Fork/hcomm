@@ -141,7 +141,7 @@ HcclResult
 RtsqBase::GetSqeHeaderFieldsBySqIdx(u32 sqIdx, uint16_t& streamId, uint16_t& taskId, u8& sqeType, u32& notifyId) const
 {
     if (sqBaseAddr_ == 0 || sqIdx >= sqDepth_) {
-        HCCL_ERROR("[%s]fail, sqBaseAddr_[0x%llu], sqIdx[%u]", __func__, sqBaseAddr_, sqIdx);
+        HCCL_ERROR("[%s]fail, sqBaseAddr_[0x%llx], sqIdx[%u]", __func__, sqBaseAddr_, sqIdx);
         return HCCL_E_PARA;
     }
     auto* sqe = ReinterpretAs<const Rt91095StarsNotifySqe*>(sqBaseAddr_ + sqIdx * RTSQ_SQE_SIZE);

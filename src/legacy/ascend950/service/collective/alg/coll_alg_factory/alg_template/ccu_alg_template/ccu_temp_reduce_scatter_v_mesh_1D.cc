@@ -74,8 +74,8 @@ HcclResult CcuTempReduceScatterVMesh1D::GenExtIns(
     ccuIns.Init(
         static_cast<uint32_t>(myRank_), inputAddr, outputAddr, mySliceSize, mySliceInputOffset, token, op_, tempVTopo_);
     HCCL_INFO(
-        "[CcuTempReduceScatterVMesh1D] Run Init: myRank_[%d], dimSize[%llu], inputAddr[%llu],"
-        "outputAddr[%llu], mySliceSize[%llu], mySliceInputOffset[%llu]",
+        "[CcuTempReduceScatterVMesh1D] Run Init: myRank_[%d], dimSize[%llu], inputAddr[0x%llx],"
+        "outputAddr[0x%llx], mySliceSize[%llu], mySliceInputOffset[%llu]",
         myRank_, dimSize[0], inputAddr, outputAddr, mySliceSize, mySliceInputOffset);
 
     std::vector<LinkData> links;

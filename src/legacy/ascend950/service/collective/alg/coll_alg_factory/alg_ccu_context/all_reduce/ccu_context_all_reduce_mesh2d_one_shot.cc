@@ -254,8 +254,8 @@ std::vector<uint64_t> CcuContextAllReduceMesh2DOneShot::GeneArgs(const CcuTaskAr
     auto yGoSize = CalGoSize(taskArg->ySliceSize_);
 
     HCCL_INFO(
-        "[CcuContextAllReduceMesh2DOneShot] GeneArgs, TaskArgs are inputAddr[%llu], "
-        "outputAddr[%llu], scratchAddr[%llu], xSliceSize[%llu], ySliceSize[%llu], xSliceOffset[%llu], "
+        "[CcuContextAllReduceMesh2DOneShot] GeneArgs, TaskArgs are inputAddr[0x%llx], "
+        "outputAddr[0x%llx], scratchAddr[0x%llx], xSliceSize[%llu], ySliceSize[%llu], xSliceOffset[%llu], "
         "ySliceOffset[%llu]",
         inputAddr, outputAddr, scratchAddr, taskArg->xSliceSize_, taskArg->ySliceSize_, xSliceOffset, ySliceOffset);
 

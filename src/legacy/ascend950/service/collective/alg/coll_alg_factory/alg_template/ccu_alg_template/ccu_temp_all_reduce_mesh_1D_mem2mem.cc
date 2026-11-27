@@ -124,8 +124,8 @@ HcclResult CcuTempAllReduceMeshMem2Mem1D::GenExtIns(
         inputRepeatStride, outputRepeatStride, normalSliceSize, lastSliceSize, mySliceSize, isInputOutputEqual);
 
     HCCL_DEBUG(
-        "[CcuTempAllReduceMeshMem2Mem1D] Run Init: virtRankId[%u], inputAddr[%llu], "
-        "outputAddr[%llu], scratchAddr[%llu], inputSliceStride[%llu], outputSliceStride[%llu], "
+        "[CcuTempAllReduceMeshMem2Mem1D] Run Init: virtRankId[%u], inputAddr[0x%llx], "
+        "outputAddr[0x%llx], scratchAddr[0x%llx], inputSliceStride[%llu], outputSliceStride[%llu], "
         "inputRepeatStride[%llu], outputRepeatStride[%llu], normalSliceSize[%llu], lastSliceSize[%llu], "
         "mySliceSize[%llu], isInputOutputEqual[%llu]",
         virtRankId, inputAddr, outputAddr, scratchAddr, inputSliceStride, outputSliceStride, inputRepeatStride,

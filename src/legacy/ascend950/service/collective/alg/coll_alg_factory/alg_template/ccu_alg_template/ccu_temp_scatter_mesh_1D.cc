@@ -79,8 +79,8 @@ HcclResult CcuTempScatterMesh1D::GenExtIns(
         virtRankId, rootId, op, tempVTopo, inputAddr, outputAddr, token, inputSliceStride, outputSliceStride,
         inputRepeatStride, outputRepeatStride, normalSliceSize, lastSliceSize, repeatNumVar);
     HCCL_INFO(
-        "[CcuTempScatterMesh1D] Run Init: virtRankId[%u], rankId[%d], inputAddr[%llu], "
-        "outputAddr[%llu], inputSliceStride[%llu], outputSliceStride[%llu], "
+        "[CcuTempScatterMesh1D] Run Init: virtRankId[%u], rankId[%d], inputAddr[0x%llx], "
+        "outputAddr[0x%llx], inputSliceStride[%llu], outputSliceStride[%llu], "
         "inputRepeatStride[%llu], outputRepeatStride[%llu], normalSliceSize[%llu], lastSliceSize[%llu], "
         "repeatNumVar[%llu]",
         virtRankId, myRank_, inputAddr, outputAddr, inputSliceStride, outputSliceStride, inputRepeatStride,

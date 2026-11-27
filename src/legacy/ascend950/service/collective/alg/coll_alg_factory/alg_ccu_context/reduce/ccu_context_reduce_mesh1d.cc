@@ -248,7 +248,7 @@ std::vector<uint64_t> CcuContextReduceMesh1D::GeneArgs(const CcuTaskArg& arg)
     };
 
     HCCL_INFO(
-        "[CcuContextReduceMesh1D] TaskArgs: inputAddr[%llu], outputAddr[%llu], currentRankSliceInputOffset[%llu], "
+        "[CcuContextReduceMesh1D] TaskArgs: inputAddr[0x%llx], outputAddr[0x%llx], currentRankSliceInputOffset[%llu], "
         "currentRankSliceOutputOffset[%llu], repeatNum[%llu], inputRepeatStride[%llu], outputRepeatStride[%llu], "
         "normalSliceSize[%llu], lastSliceSize[%llu], repeatNumVar[%llu], goSize[0][%llu], goSize[1][%llu], "
         "goSize[2][%llu], goSize[3][%llu], ",

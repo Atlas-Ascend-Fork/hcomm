@@ -68,7 +68,7 @@ void CcuTempBroadcastMesh1D::GetInAndOutAddr(const TempFuncs& tempFuncs, uint64_
             BufferTypeToAddr(tempFuncs.usrData.usrOutSlices[0].GetType()),
             tempFuncs.usrData.usrOutSlices[0].GetOffset());
     }
-    HCCL_INFO("[CcuTempBroadcastMesh1D] inputAddr[%llu], outputAddr[%llu]", inputAddr, outputAddr);
+    HCCL_INFO("[CcuTempBroadcastMesh1D] inputAddr[0x%llx], outputAddr[0x%llx]", inputAddr, outputAddr);
     return;
 }
 

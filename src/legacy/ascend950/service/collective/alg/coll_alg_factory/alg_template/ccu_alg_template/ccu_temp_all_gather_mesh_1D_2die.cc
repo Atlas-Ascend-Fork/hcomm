@@ -62,8 +62,8 @@ HcclResult CcuTempAllGatherMesh1D2Die::GenExtIns(
     uint64_t token;
     CHK_RET(GetToken(op_, token));
     HCCL_INFO(
-        "[CcuTempAllGatherMesh1D2Die] dimSize[%llu], sliceSize[%llu], inputAddr[%llu],"
-        "outputAddr[%llu], outputSliceStride[%llu]",
+        "[CcuTempAllGatherMesh1D2Die] dimSize[%llu], sliceSize[%llu], inputAddr[0x%llx],"
+        "outputAddr[0x%llx], outputSliceStride[%llu]",
         dimSize[0], sliceSize, inputAddr, outputAddr, outputSliceStride);
 
     // key表示为dieId

@@ -358,7 +358,7 @@ std::vector<uint64_t> CcuContextReduceScatterNHR1DMem2Mem::GeneArgs(const CcuTas
     uint64_t isBottom = taskArg->isBottom_;
 
     HCCL_INFO(
-        "[CcuContextReduceScatterNHR1DMem2Mem] TaskArgs: inputAddr[%llu], outputAddr[%llu],"
+        "[CcuContextReduceScatterNHR1DMem2Mem] TaskArgs: inputAddr[0x%llx], outputAddr[0x%llx],"
         "die0Size[%llu], die1Size[%llu],"
         "inputSliceStride[%llu], outputSliceStride[%llu], inputRepeatStride[%llu], outputRepeatStride[%llu]",
         inputAddr, outputAddr, die0Size, die1Size, inputSliceStride, outputSliceStride, inputRepeatStride,

@@ -313,7 +313,7 @@ std::vector<uint64_t> CcuContextBroadcastMesh1DMem2Mem::GeneArgs(const CcuTaskAr
     };
 
     HCCL_INFO(
-        "[CcuContextBroadcastMesh1DMem2Mem] TaskArgs: inputAddr[%llx], outputAddr[%llx], "
+        "[CcuContextBroadcastMesh1DMem2Mem] TaskArgs: inputAddr[0x%llx], outputAddr[0x%llx], "
         "currentRankSliceInputOffset[%llu], "
         "currentRankSliceOutputOffset[%llu], inputRepeatStride[%llu], outputRepeatStride[%llu], "
         "normalSliceSize[%llu], lastSliceSize[%llu], allgatherOffset[%llu], repeatNumVar[%llu] ",

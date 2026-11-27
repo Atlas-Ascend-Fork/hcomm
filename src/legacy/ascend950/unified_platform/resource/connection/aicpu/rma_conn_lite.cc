@@ -29,7 +29,7 @@ RmaConnLite::RmaConnLite(const UbJettyLiteId& id, const UbJettyLiteAttr& attr, c
       rmtEid_(rmtEid)
 {
     HCCL_INFO(
-        "RmaConnLite id.dieId %u, id.funcId %u, id.jettyId %u, attr.dbaddr %llu, attr.sqVa %llu, attr.sqDepth %u",
+        "RmaConnLite id.dieId %u, id.funcId %u, id.jettyId %u, attr.dbaddr 0x%llx, attr.sqVa 0x%llx, attr.sqDepth %u",
         id.dieId_, id.funcId_, id.jettyId_, attr.dbAddr_, attr.sqVa_, attr.sqDepth_);
 }
 

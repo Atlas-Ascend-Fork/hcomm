@@ -38,8 +38,7 @@ TypicalMrManager::~TypicalMrManager()
 
 HcclResult TypicalMrManager::RegisterMem(struct MrInfoT& mrInfo)
 {
-    HCCL_DEBUG(
-        "[TypicalMrManager][RegisterMem]MR register start, addr[%llu], MR size[%llu].", mrInfo.addr, mrInfo.size);
+    HCCL_DEBUG("[TypicalMrManager][RegisterMem]MR register start, addr[%p], MR size[%llu].", mrInfo.addr, mrInfo.size);
     CHK_RET(RdmaResourceManager::GetInstance().GetRdmaHandle(rdmaHandle_));
     CHK_PTR_NULL(rdmaHandle_);
     // Check whether the key is the default value or already registered in map
@@ -54,7 +53,7 @@ HcclResult TypicalMrManager::RegisterMem(struct MrInfoT& mrInfo)
             return HCCL_E_PARA;
         }
         HCCL_ERROR(
-            "[TypicalMrManager][RegisterMem]invalid MR info for register, addr[%llu], key[%lu].", mrInfo.addr,
+            "[TypicalMrManager][RegisterMem]invalid MR info for register, addr[%p], key[%lu].", mrInfo.addr,
             mrInfo.lkey);
         return HCCL_E_PARA;
     }
@@ -63,7 +62,7 @@ HcclResult TypicalMrManager::RegisterMem(struct MrInfoT& mrInfo)
     CHK_RET(hrtRaRegGlobalMr(rdmaHandle_, mrInfo, mrHandle));
     if (mrHandle == nullptr) {
         HCCL_WARNING(
-            "[TypicalMrManager][RegisterMem]MR register not success, addr[%llu], MR size[%llu].", mrInfo.addr,
+            "[TypicalMrManager][RegisterMem]MR register not success, addr[%p], MR size[%llu].", mrInfo.addr,
             mrInfo.size);
         return HCCL_E_INTERNAL;
     }
@@ -71,7 +70,7 @@ HcclResult TypicalMrManager::RegisterMem(struct MrInfoT& mrInfo)
     regedMrMap_[mrInfo.lkey].second = mrHandle;
     HCCL_INFO(
         "[TypicalMrManager][RegisterMem]MR register success, "
-        "MR key[%llu], addr[%llu], size[%llu], mrHandle[%p], regedMrMap size[%u].",
+        "MR key[%llu], addr[%p], size[%llu], mrHandle[%p], regedMrMap size[%u].",
         mrInfo.lkey, mrInfo.addr, mrInfo.size, mrHandle, regedMrMap_.size());
     return HCCL_SUCCESS;
 }
@@ -79,7 +78,7 @@ HcclResult TypicalMrManager::RegisterMem(struct MrInfoT& mrInfo)
 HcclResult TypicalMrManager::DeRegisterMem(struct MrInfoT& mrInfo)
 {
     HCCL_DEBUG(
-        "[TypicalMrManager][DeRegisterMem]MR deregister start, addr[%llu], size[%llu], key[%lu].", mrInfo.addr,
+        "[TypicalMrManager][DeRegisterMem]MR deregister start, addr[%p], size[%llu], key[%lu].", mrInfo.addr,
         mrInfo.size, mrInfo.lkey);
     CHK_RET(RdmaResourceManager::GetInstance().GetRdmaHandle(rdmaHandle_));
     CHK_PTR_NULL(rdmaHandle_);
@@ -89,7 +88,7 @@ HcclResult TypicalMrManager::DeRegisterMem(struct MrInfoT& mrInfo)
     if (mrIter == regedMrMap_.end()) {
         HCCL_ERROR(
             "[TypicalMrManager][DeRegisterMem]no match MR info in MR map, "
-            "MR key[%llu], addr[%llu], size[%llu], regedMrMap size[%u].",
+            "MR key[%llu], addr[%p], size[%llu], regedMrMap size[%u].",
             mrInfo.lkey, mrInfo.addr, mrInfo.size, regedMrMap_.size());
         return HCCL_E_PARA;
     }

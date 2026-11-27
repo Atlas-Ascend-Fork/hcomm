@@ -57,7 +57,7 @@ public:
           token_(token)
     {
         HCCL_INFO(
-            "[CcuTaskArgBroadcastMeshMem2mem2D] inputAddr[%llu], sliceSize[%llu], "
+            "[CcuTaskArgBroadcastMeshMem2mem2D] inputAddr[0x%llx], sliceSize[%llu], "
             "xAxisSize[%llu], yAxisSize[%llu]",
             inputAddr_, sliceSize_, xAxisSize_, yAxisSize_);
     }

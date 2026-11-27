@@ -7070,7 +7070,7 @@ HcclResult HcclCommunicator::GetRemoteUserMemResource()
                 opResPara_.userMemRes[remoteId] = remoteMem;
                 HCCL_INFO(
                     "[%s]add userMem res success, remoteId[%u], "
-                    "remote addr[%llu], linkIdx[%u]",
+                    "remote addr[0x%llx], linkIdx[%u]",
                     __func__, remoteId, remoteMem.addr, linkIdx);
                 linkIdx++;
             }
@@ -7432,7 +7432,7 @@ HcclResult HcclCommunicator::Mc2CreateAndLaunchContext(
         CHK_RET(hrtCtxGetOverflowAddr(&overflowAddr));
         combinOparaPtr->overFlowAddr = reinterpret_cast<u64>(overflowAddr);
         HCCL_INFO(
-            "[HcclImplBase][Mc2CreateAndLaunchContext]get combinOparaPtr->overFlowAddr %llx",
+            "[HcclImplBase][Mc2CreateAndLaunchContext]get combinOparaPtr->overFlowAddr 0x%llx",
             combinOparaPtr->overFlowAddr);
         // 非整卡 (2DUO卡各取1芯的场景) 因为受到PCIE限制，不可以使用读操作进行数据拷贝
         if (pairLinkInfo_[static_cast<u32>(LinkTypeInServer::HCCS_TYPE)].size() != userRankSize_) {
@@ -8691,13 +8691,13 @@ HcclResult HcclCommunicator::SetCommResource(
             combinOparaPtr->signalInfo.noIpcEvents[i].resId = eventId;
             HCCL_DEBUG(
                 "SetCommResource ipc notify info pre record local rankid: %u: remote rankid:%u, resId:%llu, "
-                "devId:%u, tsId:%u, addr:%llu.",
+                "devId:%u, tsId:%u, addr:0x%llx.",
                 curRankId, combinOparaPtr->signalInfo.ipcNotifys[i].rankId,
                 combinOparaPtr->signalInfo.ipcNotifys[i].resId, combinOparaPtr->signalInfo.ipcNotifys[i].devId,
                 combinOparaPtr->signalInfo.ipcNotifys[i].tsId, combinOparaPtr->signalInfo.ipcNotifys[i].addr);
             HCCL_DEBUG(
                 "SetCommResource ipc notify info pre wait local rankid: %u: remote rankid:%u, resId:%llu, "
-                "devId:%u, tsId:%u, addr:%llu.",
+                "devId:%u, tsId:%u, addr:0x%llx.",
                 curRankId, combinOparaPtr->signalInfo.ipcNotifys[i + rankSize].rankId,
                 combinOparaPtr->signalInfo.ipcNotifys[i + rankSize].resId,
                 combinOparaPtr->signalInfo.ipcNotifys[i + rankSize].devId,
@@ -8705,7 +8705,7 @@ HcclResult HcclCommunicator::SetCommResource(
                 combinOparaPtr->signalInfo.ipcNotifys[i + rankSize].addr);
             HCCL_DEBUG(
                 "SetCommResource ipc notify info post record local rankid: %u: remote rankid:%u, resId:%llu, "
-                "devId:%u, tsId:%u, addr:%llu.",
+                "devId:%u, tsId:%u, addr:0x%llx.",
                 curRankId, combinOparaPtr->signalInfo.ipcNotifys[i + rankSize * txSigleBase].rankId,
                 combinOparaPtr->signalInfo.ipcNotifys[i + rankSize * txSigleBase].resId,
                 combinOparaPtr->signalInfo.ipcNotifys[i + rankSize * txSigleBase].devId,
@@ -8713,7 +8713,7 @@ HcclResult HcclCommunicator::SetCommResource(
                 combinOparaPtr->signalInfo.ipcNotifys[i + rankSize * txSigleBase].addr);
             HCCL_DEBUG(
                 "SetCommResource ipc notify info post wait local rankid: %u: remote rankid:%u, resId:%llu, "
-                "devId:%u, tsId:%u, addr:%llu.",
+                "devId:%u, tsId:%u, addr:0x%llx.",
                 curRankId, combinOparaPtr->signalInfo.ipcNotifys[i + rankSize * rxSigleBase].rankId,
                 combinOparaPtr->signalInfo.ipcNotifys[i + rankSize * rxSigleBase].resId,
                 combinOparaPtr->signalInfo.ipcNotifys[i + rankSize * rxSigleBase].devId,
@@ -9326,7 +9326,7 @@ HcclResult HcclCommunicator::RegisterCommUserMem(void* addr, u64 size, void** ha
     *handle = static_cast<void*>(userMemPtr.get());
     userMemMap_.insert(std::make_pair(*handle, userMemPtr));
     HCCL_INFO(
-        "[HcclCommunicator][%s]Register user mem success, group[%s], handle[%p], addr[%llu], size[%llu]", __func__,
+        "[HcclCommunicator][%s]Register user mem success, group[%s], handle[%p], addr[0x%llx], size[%llu]", __func__,
         identifier_.c_str(), *handle, reinterpret_cast<uint64_t>(addr), size);
     isUserMemRegisted_ = true;
     return HCCL_SUCCESS;

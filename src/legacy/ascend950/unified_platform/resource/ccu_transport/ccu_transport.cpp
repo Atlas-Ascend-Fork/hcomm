@@ -24,7 +24,7 @@ HcclResult CcuCreateTransport(
     CHK_PTR_NULL(socket);
     HCCL_INFO(
         "[%s]ccuConnectionInfo type[%d], locAddr[%s], rmtAddr[%s], channelInfo[channelId %u:dieId %u], "
-        "cclBufferInfo addr[%llu], size[%u]",
+        "cclBufferInfo addr[0x%llx], size[%u]",
         __func__, ccuConnectionInfo.type, ccuConnectionInfo.locAddr.GetIpStr().c_str(),
         ccuConnectionInfo.rmtAddr.GetIpStr().c_str(), ccuConnectionInfo.channelInfo.channelId,
         ccuConnectionInfo.channelInfo.dieId, cclBufferInfo.addr, cclBufferInfo.size);

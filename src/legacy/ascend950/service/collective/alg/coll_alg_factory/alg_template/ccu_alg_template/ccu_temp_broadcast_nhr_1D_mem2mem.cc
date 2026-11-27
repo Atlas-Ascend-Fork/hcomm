@@ -97,8 +97,8 @@ HcclResult CcuTempBroadcastNHRMem2Mem1D::GenExtIns(
     }
 
     HCCL_INFO(
-        "[CcuTempBroadcastNHRMem2Mem1D] dimSize[%llu], die0Size[%llu], die1Size[%llu], inputAddr[%llu],"
-        "outputAddr[%llu], repeatNum[%llu], die0SliceSize[%llu], die0LastSliceSize[%llu], die1SliceSize[%llu],"
+        "[CcuTempBroadcastNHRMem2Mem1D] dimSize[%llu], die0Size[%llu], die1Size[%llu], inputAddr[0x%llx],"
+        "outputAddr[0x%llx], repeatNum[%llu], die0SliceSize[%llu], die0LastSliceSize[%llu], die1SliceSize[%llu],"
         "die1LastSliceSize[%llu]",
         dimSize[0], die0Size, die1Size, inputAddr, outputAddr, repeatNum, die0SliceSize, die0LastSliceSize,
         die1SliceSize, die1LastSliceSize);

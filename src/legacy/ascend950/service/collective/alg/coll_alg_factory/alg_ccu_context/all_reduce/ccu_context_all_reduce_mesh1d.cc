@@ -204,7 +204,7 @@ std::vector<uint64_t> CcuContextAllReduceMesh1D::GeneArgs(const CcuTaskArg& arg)
         auto goSize = CalGoSize(sliceSize);
 
         HCCL_INFO(
-            "[CcuContextAllReduceMesh1D] GeneArgs, taskArg are inputAddr[%llu], outputAddr[%llu], "
+            "[CcuContextAllReduceMesh1D] GeneArgs, taskArg are inputAddr[0x%llx], outputAddr[0x%llx], "
             "offset[%llu], sliceSize[%llu]",
             inputAddr, outputAddr, offset, sliceSize);
         return {inputAddr, outputAddr, tokenInfo, offset, goSize[0], goSize[1], goSize[2], goSize[3]};

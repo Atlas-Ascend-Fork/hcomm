@@ -216,7 +216,7 @@ HcclResult CcuTempReduceScatterMeshDetour1D::Run(
                      + tempFuncs.usrData.usrOutSlices[0].GetOffset();
     }
     uint64_t sliceSize = sliceInfoVec[myRank_][0].size; // 获取本rank需要处理的数据量
-    HCCL_INFO("[CcuTempReduceScatterMeshDetour1D]inputAddr[%llu], outputAddr[%llu]", inputAddr, outputAddr);
+    HCCL_INFO("[CcuTempReduceScatterMeshDetour1D]inputAddr[0x%llx], outputAddr[0x%llx]", inputAddr, outputAddr);
     uint64_t token;
     CHK_RET(GetToken(op_, token));
     // 计算搬运整块的iterNum
@@ -233,7 +233,8 @@ HcclResult CcuTempReduceScatterMeshDetour1D::Run(
         static_cast<uint32_t>(myRank_), inputAddr, outputAddr, offset, token, op_, tempVTopo_, iterNum, tailOffSet,
         tailSize, singleTransportSize_, detourPathNum_, pathNumPerPeer_, lengths_);
     HCCL_INFO(
-        "[CcuTempReduceScatterMeshDetour1D] Run Init: myRank_[%d], dimSize[%llu], inputAddr[%llu], outputAddr[%llu],"
+        "[CcuTempReduceScatterMeshDetour1D] Run Init: myRank_[%d], dimSize[%llu], inputAddr[0x%llx], "
+        "outputAddr[0x%llx],"
         "sliceSize[%llu], offset[%llu], iterNum[%llu], tailOffSet[%llu], tailSize[%llu], singleTransportSize_[%u], "
         "detourPathNum_[%u], pathNumPerPeer_[%u]",
         myRank_, dimSize[0], inputAddr, outputAddr, sliceSize, offset, iterNum, tailOffSet, tailSize,

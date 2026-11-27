@@ -106,8 +106,8 @@ HcclResult CcuTempReduceMeshTwoShotMem2Mem1D::GenExtIns(
         mySliceSize);
 
     HCCL_INFO(
-        "[CcuTempReduceMeshTwoShotMem2Mem1D] Run Init: rankId[%u], rootId[%u], inputAddr[%llu], outputAddr[%llu],"
-        "scratchAddr[%llu], normalSliceSize[%llu], lastSliceSize[%llu], mySliceSize[%llu]",
+        "[CcuTempReduceMeshTwoShotMem2Mem1D] Run Init: rankId[%u], rootId[%u], inputAddr[0x%llx], outputAddr[0x%llx],"
+        "scratchAddr[0x%llx], normalSliceSize[%llu], lastSliceSize[%llu], mySliceSize[%llu]",
         rankId, rootId, inputAddr, outputAddr, scratchAddr, normalSliceSize, lastSliceSize, mySliceSize);
 
     std::vector<LinkData> links;

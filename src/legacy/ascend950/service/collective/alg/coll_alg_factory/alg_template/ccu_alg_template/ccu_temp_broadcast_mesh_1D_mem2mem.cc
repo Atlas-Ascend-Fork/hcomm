@@ -75,8 +75,8 @@ HcclResult CcuTempBroadcastMesh1DMem2Mem::GenExtIns(
         outputSliceStride, repeatNum, inputRepeatStride, outputRepeatStride, normalSliceSize, lastSliceSize,
         allgatherOffset, repeatNumVar);
     HCCL_DEBUG(
-        "[CcuTempBroadcastMesh1DTwoShotMem2Mem] Run Init: rankId[%u], rootId[%u], inputAddr[%llu], "
-        "outputAddr[%llu], inputSliceStride[%llu], outputSliceStride[%llu], repeatNum[%llu], "
+        "[CcuTempBroadcastMesh1DTwoShotMem2Mem] Run Init: rankId[%u], rootId[%u], inputAddr[0x%llx], "
+        "outputAddr[0x%llx], inputSliceStride[%llu], outputSliceStride[%llu], repeatNum[%llu], "
         "inputRepeatStride[%llu], outputRepeatStride[%llu], normalSliceSize[%llu], "
         "lastSliceSize[%llu],allgatherOffset_[%llu], repeatNumVar[%llu]",
         rankId, rootId, inputAddr, outputAddr, inputSliceStride, outputSliceStride, repeatNum, inputRepeatStride,

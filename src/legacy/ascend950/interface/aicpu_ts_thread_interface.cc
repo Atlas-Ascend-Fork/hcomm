@@ -133,7 +133,7 @@ HcclResult IAicpuTsThread::P2PWriteValue(uint64_t remoteAddr, uint32_t writeValu
     RtsqBase* rtsqA5 = static_cast<StreamLite*>(streamLiteVoidPtr_)->GetRtsq();
 
     HCCL_INFO(
-        "[IAicpuTsThread::%s] at Stream id [%u], remoteAddr [%llx], writeValue [%u]", __func__,
+        "[IAicpuTsThread::%s] at Stream id [%u], remoteAddr [0x%llx], writeValue [%u]", __func__,
         static_cast<StreamLite*>(streamLiteVoidPtr_)->GetId(), static_cast<unsigned long long>(remoteAddr), writeValue);
 
     rtsqA5->P2PWriteValue(remoteAddr, writeValue);
@@ -155,7 +155,7 @@ HcclResult IAicpuTsThread::SdmaCopy(uint64_t dstAddr, uint64_t srcAddr, uint64_t
     uint32_t sizeByteNarrowed = static_cast<uint32_t>(sizeByte);
 
     HCCL_INFO(
-        "[IAicpuTsThread::%s] at Stream id [%u], dstAddr [%llx], srcAddr [%llx], sizeByteNarrowed [%u]", __func__,
+        "[IAicpuTsThread::%s] at Stream id [%u], dstAddr [0x%llx], srcAddr [0x%llx], sizeByteNarrowed [%u]", __func__,
         static_cast<StreamLite*>(streamLiteVoidPtr_)->GetId(), static_cast<unsigned long long>(dstAddr),
         static_cast<unsigned long long>(srcAddr), sizeByteNarrowed);
 
@@ -187,7 +187,7 @@ HcclResult IAicpuTsThread::SdmaReduce(
     uint32_t sizeByteNarrowed = static_cast<uint32_t>(sizeByte);
 
     HCCL_INFO(
-        "[IAicpuTsThread::%s] at Stream id [%u], dstAddr [%llx], srcAddr [%llx], sizeByteNarrowed [%u], dataType "
+        "[IAicpuTsThread::%s] at Stream id [%u], dstAddr [0x%llx], srcAddr [0x%llx], sizeByteNarrowed [%u], dataType "
         "[%u][%s], reduceOp [%u][%s]",
         __func__, static_cast<StreamLite*>(streamLiteVoidPtr_)->GetId(), static_cast<unsigned long long>(dstAddr),
         static_cast<unsigned long long>(srcAddr), sizeByteNarrowed, dataTypeRaw, dataType.Describe().c_str(),

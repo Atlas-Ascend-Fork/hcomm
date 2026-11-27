@@ -2094,7 +2094,7 @@ HcclResult PingMesh::HccnRpingGetPayload(u32 deviceId, void** payload, u32* payl
         CHK_PRT_BREAK(
             ret != HCCL_SUCCESS,
             HCCL_ERROR(
-                "[HCCN][HccnRpingGetPayload]Get payload from device[%u] failed, bufferSize[%u], bufferVa[%llu].",
+                "[HCCN][HccnRpingGetPayload]Get payload from device[%u] failed, bufferSize[%u], bufferVa[0x%llx].",
                 deviceId, bufferInfo->bufferSize, bufferInfo->bufferVa),
             (errorFlag = true));
         // 重填payload头
@@ -2132,8 +2132,8 @@ HcclResult PingMesh::HccnRpingGetPayload(u32 deviceId, void** payload, u32* payl
 
     if (errorFlag) {
         HCCL_ERROR(
-            "[HCCN][HccnRpingGetPayload]Get payload from device[%u] failed, bufferSize[%u], bufferVa[%llu].", deviceId,
-            bufferInfo->bufferSize, bufferInfo->bufferVa);
+            "[HCCN][HccnRpingGetPayload]Get payload from device[%u] failed, bufferSize[%u], bufferVa[0x%llx].",
+            deviceId, bufferInfo->bufferSize, bufferInfo->bufferVa);
         delete[] payload_;
         payload_ = nullptr;
         return ret;

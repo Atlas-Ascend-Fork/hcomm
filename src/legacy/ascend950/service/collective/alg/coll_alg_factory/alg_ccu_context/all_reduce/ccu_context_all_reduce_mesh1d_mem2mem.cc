@@ -438,7 +438,7 @@ std::vector<uint64_t> CcuContextAllReduceMeshMem2Mem1D::GeneArgs(const CcuTaskAr
     }
 
     HCCL_INFO(
-        "[CcuContextAllReduce1DMesh] TaskArgs: inputAddr[%llu], outputAddr[%llu], scratchAddr[%llu], "
+        "[CcuContextAllReduce1DMesh] TaskArgs: inputAddr[0x%llx], outputAddr[0x%llx], scratchAddr[0x%llx], "
         "currentRankSliceInputOffset[%llu], currentRankSliceOutputOffset[%llu], normalSliceSize[%llu], "
         "lastSliceSize[%llu], mySliceSize[%llu], sliceOffset[%llu], isInputOutputEqual[%llu]",
         inputAddr, outputAddr, scratchAddr, currentRankSliceInputOffset, currentRankSliceOutputOffset, normalSliceSize,

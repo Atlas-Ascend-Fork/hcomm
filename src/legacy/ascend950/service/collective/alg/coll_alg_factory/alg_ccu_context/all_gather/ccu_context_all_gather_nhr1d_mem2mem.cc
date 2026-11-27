@@ -318,7 +318,7 @@ std::vector<uint64_t> CcuContextAllGatherNHR1D::GeneArgs(const CcuTaskArg& arg)
     uint64_t isInputOutputEqual = taskArg->isInputOutputEqual_;
 
     HCCL_INFO(
-        "[CcuContextAllGatherNHR1D] TaskArgs: inputAddr[%llu], outputAddr[%llu], "
+        "[CcuContextAllGatherNHR1D] TaskArgs: inputAddr[0x%llx], outputAddr[0x%llx], "
         "die0Size[%llu], die1Size[%llu], repeatNum[%llu] "
         "inputSliceStride[%llu], outputSliceStride[%llu], inputRepeatStride[%llu], outputRepeatStride[%llu]",
         inputAddr, outputAddr, die0Size, die1Size, repeatNum, inputSliceStride, outputSliceStride, inputRepeatStride,

@@ -23,7 +23,7 @@ static void DumpJettyCtxInfo(const JettyInfo& info)
 
     if (info.jettyType == CcuJettyType::CCUM_CACHED_JETTY) {
         HCCL_RUN_INFO(
-            "[CcuChannelMgr][%s] sq buffer va[%llu], sq buffer size[%u].", __func__, info.sqBufVa, info.sqBufSize);
+            "[CcuChannelMgr][%s] sq buffer va[0x%llx], sq buffer size[%u].", __func__, info.sqBufVa, info.sqBufSize);
     }
 }
 

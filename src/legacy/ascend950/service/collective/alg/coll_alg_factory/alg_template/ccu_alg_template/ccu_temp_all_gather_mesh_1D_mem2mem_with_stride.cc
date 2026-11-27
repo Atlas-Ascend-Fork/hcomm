@@ -79,8 +79,8 @@ HcclResult CcuTempAllGatherMesh1DMem2MemWithStride::GenExtIns(
         outputSliceStride, inputRepeatStride, outputRepeatStride, normalSliceSize, lastSliceSize, isInputOutputEqual);
 
     HCCL_DEBUG(
-        "[CcuTempAllGatherMesh1DMem2MemWithStride] Run Init: rankId[%u], repeatNum[%u], inputAddr[%llu], "
-        "outputAddr[%llu], inputSliceStride[%llu], outputSliceStride[%llu], "
+        "[CcuTempAllGatherMesh1DMem2MemWithStride] Run Init: rankId[%u], repeatNum[%u], inputAddr[0x%llx], "
+        "outputAddr[0x%llx], inputSliceStride[%llu], outputSliceStride[%llu], "
         "inputRepeatStride[%llu], outputRepeatStride[%llu], normalSliceSize[%llu], lastSliceSize[%llu]",
         rankId, repeatNum, inputAddr, outputAddr, inputSliceStride, outputSliceStride, inputRepeatStride,
         outputRepeatStride, normalSliceSize, lastSliceSize);

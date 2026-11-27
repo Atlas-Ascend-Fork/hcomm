@@ -342,7 +342,8 @@ std::vector<uint64_t> CcuContextScatterNHR1DMem2Mem::GeneArgs(const CcuTaskArg& 
     uint64_t isOutputScratch = taskArg->isOutputScratch_;
 
     HCCL_INFO(
-        "[CcuContextScatterNHR1DMem2Mem] TaskArgs: rankId_[%llu], inputAddr[%llu], outputAddr[%llu], scratchAddr[%llu],"
+        "[CcuContextScatterNHR1DMem2Mem] TaskArgs: rankId_[%llu], inputAddr[0x%llx], outputAddr[0x%llx], "
+        "scratchAddr[0x%llx],"
         "die0Size[%llu], die1Size[%llu], inputSliceStride[%llu], curScratchStride[%llu],"
         "inputRepeatStride[%llu], outputRepeatStride[%llu],repeatNumVar[%llu]",
         rankId_, inputAddr, outputAddr, scratchAddr, die0Size, die1Size, inputSliceStride, curScratchStride,

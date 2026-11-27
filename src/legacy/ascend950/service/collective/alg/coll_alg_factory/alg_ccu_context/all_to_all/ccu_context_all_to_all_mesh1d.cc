@@ -155,7 +155,7 @@ std::vector<uint64_t> CcuContextAllToAllMesh1D::GeneArgs(const CcuTaskArg& arg)
     uint64_t sliceSize = taskArg->sliceSize;
     auto goSize = CalGoSize(sliceSize);
     HCCL_INFO(
-        "[AllToAllAlgo] inputAddr[%llu], outputAddr[%llu], sliceSize[%llu], srcStride[%llu], srcOffset[%llu], "
+        "[AllToAllAlgo] inputAddr[0x%llx], outputAddr[0x%llx], sliceSize[%llu], srcStride[%llu], srcOffset[%llu], "
         "dstOffset[%llu].",
         inputAddr, outputAddr, sliceSize, srcStride, srcOffset, dstOffset);
 

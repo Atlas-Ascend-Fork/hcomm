@@ -100,8 +100,8 @@ HcclResult CcuTempReduceScatterNHR1DMem2Mem::GenExtIns(
     CHK_RET(GetToken(op_, token));
     uint64_t repeatNumVar = UINT64_MAX - repeatNum;
     HCCL_INFO(
-        "[CcuTempReduceScatterNHR1D] dimSize[%llu], die0Size[%llu], die1Size[%llu], inputAddr[%llu],"
-        "outputAddr[%llu], repeatNum[%llu], inputSliceStride[%llu], outputSliceStride[%llu],"
+        "[CcuTempReduceScatterNHR1D] dimSize[%llu], die0Size[%llu], die1Size[%llu], inputAddr[0x%llx],"
+        "outputAddr[0x%llx], repeatNum[%llu], inputSliceStride[%llu], outputSliceStride[%llu],"
         "inputRepeatStride[%llu], outputRepeatStride[%llu]",
         dimSize[0], die0Size, die1Size, inputAddr, outputAddr, repeatNum, inputSliceStride, outputSliceStride,
         inputRepeatStride, outputRepeatStride);

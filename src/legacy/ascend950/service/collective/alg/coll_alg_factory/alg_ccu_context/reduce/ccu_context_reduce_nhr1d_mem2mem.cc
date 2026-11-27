@@ -439,7 +439,7 @@ std::vector<uint64_t> CcuContextReduceNHR1DMem2mem::GeneArgs(const CcuTaskArg& a
     uint64_t die1LastSliceSize = taskArg->die1LastSliceSize_;
 
     HCCL_INFO(
-        "[CcuContextReduceNHR1DMem2mem] TaskArgs: inputAddr[%llu], outputAddr[%llu], "
+        "[CcuContextReduceNHR1DMem2mem] TaskArgs: inputAddr[0x%llx], outputAddr[0x%llx], "
         "die0Size[%llu], die1Size[%llu], die0SliceSize[%llu], die1SliceSize[%llu],"
         "die0LastSliceSize[%llu], die1LastSliceSize[%llu], isInputOutputEqual is [%lu]",
         inputAddr, outputAddr, die0Size, die1Size, die0SliceSize, die1SliceSize, die0LastSliceSize, die1LastSliceSize,

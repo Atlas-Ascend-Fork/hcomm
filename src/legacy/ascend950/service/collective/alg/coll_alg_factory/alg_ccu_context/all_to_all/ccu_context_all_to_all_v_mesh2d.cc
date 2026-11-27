@@ -774,7 +774,7 @@ std::vector<uint64_t> CcuContextAllToAllVMesh2D::GeneArgs(const CcuTaskArg& arg)
     auto scratchGoSliceSize = CalGoSize(scratchSliceSize);
 
     HCCL_INFO(
-        "[CcuContextAllToAllVMesh2D][GeneArgs] inputAddr[%llu], outputAddr[%llu], scratchAddr[%llu], "
+        "[CcuContextAllToAllVMesh2D][GeneArgs] inputAddr[0x%llx], outputAddr[0x%llx], scratchAddr[0x%llx], "
         "scratchSliceSize[%llu], firstScratchBaseOffset[%llu], secondScratchBaseOffset[%llu], "
         "firstScratchSliceOffset[%llu], firstScratchSliceStep[%llu], secondScratchSliceOffset[%llu], "
         "secondScratchSliceStep[%llu]",

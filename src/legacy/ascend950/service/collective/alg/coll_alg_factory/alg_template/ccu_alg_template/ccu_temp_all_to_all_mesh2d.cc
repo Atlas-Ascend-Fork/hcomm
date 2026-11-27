@@ -175,7 +175,7 @@ HcclResult CcuTempAlltoAllMesh2D::Run(
     uint64_t token;
     CHK_RET(GetToken(op_, token));
     HCCL_INFO(
-        "[CcuTempAlltoAllMesh2D] Rank[%d], input[%llu], output[%llu], scratch[%llu], sendStride[%llu], "
+        "[CcuTempAlltoAllMesh2D] Rank[%d], input[0x%llx], output[0x%llx], scratch[0x%llx], sendStride[%llu], "
         "recvStride[%llu].",
         myRank_, op_.inputMem->GetAddr(), op_.outputMem->GetAddr(), op_.scratchMem->GetAddr(), 0, 0);
 

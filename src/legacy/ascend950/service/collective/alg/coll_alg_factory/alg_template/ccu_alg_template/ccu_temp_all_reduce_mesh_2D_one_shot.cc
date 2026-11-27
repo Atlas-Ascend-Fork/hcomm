@@ -133,8 +133,8 @@ HcclResult CcuTempAllReduceMesh2DOneShot::GetBufferAddr(
     scratchOffSet = buffInfo_.scratchBuffBaseOff;
 
     HCCL_INFO(
-        "[GetBufferAddr] inputBaseAddr[%llu], inputOffSet[%llu], outputBaseAddr[%llu], outputOffSet[%llu], "
-        "scratchBaseAddr[%llu], scratchOffSet[%llu]",
+        "[GetBufferAddr] inputBaseAddr[0x%llx], inputOffSet[%llu], outputBaseAddr[0x%llx], outputOffSet[%llu], "
+        "scratchBaseAddr[0x%llx], scratchOffSet[%llu]",
         inputBaseAddr, inputOffSet, outputBaseAddr, outputOffSet, scratchBaseAddr, scratchOffSet);
 
     inputAddr = inputBaseAddr + inputOffSet;
@@ -142,7 +142,8 @@ HcclResult CcuTempAllReduceMesh2DOneShot::GetBufferAddr(
     scratchAddr = scratchBaseAddr + scratchOffSet;
 
     HCCL_INFO(
-        "[GetBufferAddr] inputAddr[%llu], outputAddr[%llu], scratchAddr[%llu]", inputAddr, outputAddr, scratchAddr);
+        "[GetBufferAddr] inputAddr[0x%llx], outputAddr[0x%llx], scratchAddr[0x%llx]", inputAddr, outputAddr,
+        scratchAddr);
     return HcclResult::HCCL_SUCCESS;
 }
 
@@ -218,7 +219,7 @@ HcclResult CcuTempAllReduceMesh2DOneShot::Run(
     uint64_t outputAddr;
     uint64_t scratchAddr;
     CHK_RET(GetBufferAddr(tempFuncs, inputAddr, outputAddr, scratchAddr));
-    HCCL_INFO("[Run] inputAddr[%llu], outputAddr[%llu], scratchAddr[%llu]", inputAddr, outputAddr, scratchAddr);
+    HCCL_INFO("[Run] inputAddr[0x%llx], outputAddr[0x%llx], scratchAddr[0x%llx]", inputAddr, outputAddr, scratchAddr);
 
     uint64_t totalSliceSize = sliceInfoVec[myRank_][0].size; // 获取本rank需要处理的数据总量
     uint64_t totalSliceCount = totalSliceSize / DataTypeSizeGet(dataType_);

@@ -65,13 +65,13 @@ public:
         void Pack(BinaryStream& binaryStream) const
         {
             binaryStream << addr << size << tokenId << tokenValue;
-            HCCL_INFO("Pack Ccl Buffer Info: addr[%llu] size[%u]", addr, size);
+            HCCL_INFO("Pack Ccl Buffer Info: addr[0x%llx] size[%u]", addr, size);
         }
 
         void Unpack(BinaryStream& binaryStream)
         {
             binaryStream >> addr >> size >> tokenId >> tokenValue;
-            HCCL_INFO("Unpack Ccl Buffer Info: addr[%llu] size[%u]", addr, size);
+            HCCL_INFO("Unpack Ccl Buffer Info: addr[0x%llx] size[%u]", addr, size);
         }
     };
 

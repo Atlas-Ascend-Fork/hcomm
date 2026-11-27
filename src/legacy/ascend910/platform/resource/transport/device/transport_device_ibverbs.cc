@@ -83,7 +83,7 @@ TransportDeviceIbverbs::~TransportDeviceIbverbs()
 HcclResult TransportDeviceIbverbs::InitDrainNotifyInfo()
 {
     HCCL_DEBUG(
-        "[%s] RemoteNotifyAddr[%llu], remoteNotifyKey[%u], localDataNotifyAddr[%llu], localDataNotifyKey[%u],"
+        "[%s] RemoteNotifyAddr[0x%llx], remoteNotifyKey[%u], localDataNotifyAddr[0x%llx], localDataNotifyKey[%u],"
         "notifySize[%u]",
         __func__, transDevIbverbsData_.remoteNotifyValueAddr, transDevIbverbsData_.remoteNotifyValueKey,
         transDevIbverbsData_.localDataNotifyAddr, transDevIbverbsData_.localDataNotifyKey,
@@ -91,7 +91,7 @@ HcclResult TransportDeviceIbverbs::InitDrainNotifyInfo()
     CHK_PRT_RET(
         (transDevIbverbsData_.localDataNotifyAddr == 0 || transDevIbverbsData_.remoteNotifyValueAddr == 0),
         HCCL_ERROR(
-            "[%s] Notify addr is nullptr, RemoteNotifyAddr[%llu], localDataNotifyAddr[%llu]", __func__,
+            "[%s] Notify addr is nullptr, RemoteNotifyAddr[0x%llx], localDataNotifyAddr[0x%llx]", __func__,
             transDevIbverbsData_.remoteNotifyValueAddr, transDevIbverbsData_.localDataNotifyAddr),
         HCCL_E_PTR);
     memMsg_[MemType::DATA_NOTIFY_MEM].addr = reinterpret_cast<void*>(transDevIbverbsData_.localDataNotifyAddr);
@@ -136,7 +136,7 @@ HcclResult TransportDeviceIbverbs::Init()
         combineAiQpInfos_[j].aiQpInfo.sqIndex = transDevIbverbsData_.qpInfo[i].sqIndex;
         combineAiQpInfos_[j].aiQpInfo.dbIndex = transDevIbverbsData_.qpInfo[i].dbIndex;
         HCCL_DEBUG(
-            "TransportDeviceIbverbs Init multiQp[%u], aiQpAddr[%llu] sqIndex[%u] dbIndex[%u]", j,
+            "TransportDeviceIbverbs Init multiQp[%u], aiQpAddr[0x%llx] sqIndex[%u] dbIndex[%u]", j,
             transDevIbverbsData_.qpInfo[i].qpPtr, transDevIbverbsData_.qpInfo[i].sqIndex,
             transDevIbverbsData_.qpInfo[i].dbIndex);
     }
@@ -913,7 +913,7 @@ HcclResult TransportDeviceIbverbs::RdmaSendAsync(
             ret != HCCL_SUCCESS,
             HCCL_ERROR(
                 "[TransportDeviceIbverbs][RdmaSendAsync]errNo[0x%016llx] In lbv exp op base mode, "
-                "rdma send failed. dbIndex[%u] dbInfo[%llu] wqe type[%llu] addr[%llu]",
+                "rdma send failed. dbIndex[%u] dbInfo[%llu] wqe type[%llu] addr[0x%llx]",
                 HCCL_ERROR_CODE(ret), dbIndex, dbInfo, wrInfoVec[i].type, wrInfoVec[i].wrDataAddr),
             ret);
     }
@@ -955,7 +955,7 @@ TransportDeviceIbverbs::RdmaSendAsync(struct SendWr& wr, Stream& stream, WqeType
         ret != HCCL_SUCCESS,
         HCCL_ERROR(
             "[TransportDeviceIbverbs][RdmaSendAsync]errNo[0x%016llx] In lbv exp op base mode, "
-            "rdma send failed. dbIndex[%u] dbInfo[%llu], addr[%llu]",
+            "rdma send failed. dbIndex[%u] dbInfo[%llu], addr[0x%llx]",
             HCCL_ERROR_CODE(ret), dbIndex, dbInfo, notifyAddr),
         ret);
     return HCCL_SUCCESS;
@@ -988,7 +988,7 @@ HcclResult TransportDeviceIbverbs::GetWrDataAddr(void* dstAddr, WqeType wqeType,
             return HCCL_E_INTERNAL;
     }
     HCCL_DEBUG(
-        "%s dstAddr:%p, wqeType:%d, wrDataAddr:%llu, notifyId:%u", __func__, dstAddr, wqeType, wrDataAddr, notifyId);
+        "%s dstAddr:%p, wqeType:%d, wrDataAddr:0x%llx, notifyId:%u", __func__, dstAddr, wqeType, wrDataAddr, notifyId);
     return HCCL_SUCCESS;
 }
 

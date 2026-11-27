@@ -180,7 +180,7 @@ std::vector<uint64_t> CcuContextAllReduceMesh1DOneShot::GeneArgs(const CcuTaskAr
     auto mainBlockGoSize = CalGoSize(sliceSize);
 
     HCCL_INFO(
-        "[CcuContextAllReduceMesh1DOneShot] GeneArgs, taskArg are inputAddr[%llu], outputAddr[%llu], "
+        "[CcuContextAllReduceMesh1DOneShot] GeneArgs, taskArg are inputAddr[0x%llx], outputAddr[0x%llx], "
         "sliceSize[%llu]",
         inputAddr, outputAddr, sliceSize);
 

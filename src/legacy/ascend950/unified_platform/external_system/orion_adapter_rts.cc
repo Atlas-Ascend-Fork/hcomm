@@ -922,7 +922,7 @@ HcclResult HrtNotifyGetAddr(RtNotify_t notifyHandle, u64& addr)
     if (ret != RT_ERROR_NONE) {
         HCCL_ERROR(
             "[rtGetNotifyAddress]rt get notify address failed. "
-            "notifyHandle[%p], addr[%llu], return[%d].",
+            "notifyHandle[%p], addr[0x%llx], return[%d].",
             notifyHandle, addr, ret);
         return HCCL_E_RUNTIME;
     }
@@ -1358,7 +1358,7 @@ HcclResult HrtUbDevQueryInfo(rtUbDevQueryCmd cmd, void* devInfo)
 // pair<tokendId, tokenValue>
 std::pair<u32, u32> HrtUbDevQueryToken(u64 addr, u64 size)
 {
-    HCCL_INFO("[HrtUbDevQueryToken] addr[%llu], size[%llu].", addr, size);
+    HCCL_INFO("[HrtUbDevQueryToken] addr[0x%llx], size[%llu].", addr, size);
     rtMemUbTokenInfo info;
     info.va = addr;
     info.size = size;
@@ -1416,7 +1416,7 @@ HcclResult HrtGetDevResAddress(const HrtDevResInfo& devResInfo, HrtDevResAddrInf
     }
     devResAddrInfo.address = addr;
     devResAddrInfo.len = len;
-    HCCL_INFO("devResAddrInfo.address[%llu], devResAddrInfo.len[%u].", devResAddrInfo.address, devResAddrInfo.len);
+    HCCL_INFO("devResAddrInfo.address[0x%llx], devResAddrInfo.len[%u].", devResAddrInfo.address, devResAddrInfo.len);
     return HCCL_SUCCESS;
 }
 

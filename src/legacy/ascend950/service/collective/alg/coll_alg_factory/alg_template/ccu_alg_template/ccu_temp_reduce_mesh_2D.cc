@@ -169,8 +169,8 @@ HcclResult CcuTempReduceMesh2D::Run(
             yAxisSize, offset, token, op_, tempVTopo_);
 
         HCCL_INFO(
-            "[CcuTempReduceMesh2D] Run Init: myRank_[%d], dimSize[%llu], inputAddr[%llu],"
-            "outputAddr[%llu], sliceSize[%llu], xAxisSize[%llu], yAxisSize[%llu], offset[%llu], axisId_[%u]",
+            "[CcuTempReduceMesh2D] Run Init: myRank_[%d], dimSize[%llu], inputAddr[0x%llx],"
+            "outputAddr[0x%llx], sliceSize[%llu], xAxisSize[%llu], yAxisSize[%llu], offset[%llu], axisId_[%u]",
             myRank_, dimSize[0], inputAddr, outputAddr, sliceSize, xAxisSize, yAxisSize, offset, axisId);
 
         ccuInsReduceMesh2D.SetLinks(axisId == 0 ? linksX_ : linksY_);

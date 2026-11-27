@@ -49,7 +49,7 @@ struct CcuJettyInfo {
     {
         return StringFormat(
             "jettyType=%d, jettyCtxId=%u, taJettyId=%u, sqDepth=%u, "
-            "wqeBBStartId=%u, sqBufVa=%llu, sqBufSize=%u.",
+            "wqeBBStartId=%u, sqBufVa=0x%llx, sqBufSize=%u.",
             jettyType, jettyCtxId, taJettyId, sqDepth, wqeBBStartId, sqBufVa, sqBufSize);
     }
 };

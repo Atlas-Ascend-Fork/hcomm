@@ -280,7 +280,7 @@ std::vector<uint64_t> CcuContextAllToAllVMesh1D::GeneArgs(const CcuTaskArg& arg)
     uint64_t dstOffset = taskArg->dstOffset_;
 
     HCCL_INFO(
-        "[AllToAllVAlgo] inputAddr[%llu], outputAddr[%llu],"
+        "[AllToAllVAlgo] inputAddr[0x%llx], outputAddr[0x%llx],"
         "srcOffset[%llu], dstOffset[%llu]",
         inputAddr, outputAddr, srcOffset, dstOffset);
     std::vector<uint64_t> processReturn = {inputAddr, outputAddr, tokenInfo, srcOffset, dstOffset};

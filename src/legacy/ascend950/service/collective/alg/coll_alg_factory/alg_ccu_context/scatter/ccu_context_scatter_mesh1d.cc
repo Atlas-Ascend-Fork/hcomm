@@ -228,7 +228,7 @@ std::vector<uint64_t> CcuContextScatterMesh1D::GeneArgs(const CcuTaskArg& arg)
            goSize[3]};
 
     HCCL_INFO(
-        "[CcuContextScatterMesh1D] TaskArgs: inputAddr[%llu], outputAddr[%llu], "
+        "[CcuContextScatterMesh1D] TaskArgs: inputAddr[0x%llx], outputAddr[0x%llx], "
         "currentRankSliceInputOffset[%llu], currentRankSliceOutputOffset[%llu], "
         "inputRepeatStride[%llu], outputRepeatStride[%llu], normalSliceSize[%llu], lastSliceSize[%llu],"
         "repeatNumVar[%llu], goSize[0][%llu], goSize[1][%llu], goSize[2][%llu], goSize[3][%llu]",

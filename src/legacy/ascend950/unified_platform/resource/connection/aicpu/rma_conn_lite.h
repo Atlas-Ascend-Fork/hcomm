@@ -72,7 +72,7 @@ public:
         [[maybe_unused]] const StreamLite& stream, ConnLiteOperationOut& out)
     {
         HCCL_INFO(
-            "RmaConnLite read start. loc.addr = %llx, rmt.addr = %llx, cfg.cqeEn = %u, out.pi = %u", loc.GetAddr(),
+            "RmaConnLite read start. loc.addr = 0x%llx, rmt.addr = 0x%llx, cfg.cqeEn = %u, out.pi = %u", loc.GetAddr(),
             rmt.GetAddr(), cfg.cqeEn, out.pi);
         return HCCL_SUCCESS;
     }
@@ -82,8 +82,8 @@ public:
         [[maybe_unused]] const StreamLite& stream, const SqeConfigLite& cfg, ConnLiteOperationOut& out)
     {
         HCCL_INFO(
-            "RmaConnLite ReadReduce start. dataType = %u, reduceOp %u, loc.addr = %llx, "
-            "rmt.addr = %llx, cfg.cqeEn = %u, out.pi = %u",
+            "RmaConnLite ReadReduce start. dataType = %u, reduceOp %u, loc.addr = 0x%llx, "
+            "rmt.addr = 0x%llx, cfg.cqeEn = %u, out.pi = %u",
             reduceIn.dataType, reduceIn.reduceOp, loc.GetAddr(), rmt.GetAddr(), cfg.cqeEn, out.pi);
         return HCCL_SUCCESS;
     }
@@ -93,7 +93,7 @@ public:
         [[maybe_unused]] const StreamLite& stream, ConnLiteOperationOut& out)
     {
         HCCL_INFO(
-            "RmaConnLite write start. loc.addr = %llx, rmt.addr = %llx, cfg.cqeEn = %u, out.pi = %u", loc.GetAddr(),
+            "RmaConnLite write start. loc.addr = 0x%llx, rmt.addr = 0x%llx, cfg.cqeEn = %u, out.pi = %u", loc.GetAddr(),
             rmt.GetAddr(), cfg.cqeEn, out.pi);
         return HCCL_SUCCESS;
     }
@@ -103,8 +103,8 @@ public:
         [[maybe_unused]] const StreamLite& stream, ConnLiteOperationOut& out)
     {
         HCCL_INFO(
-            "RmaConnLite InlineWrite start. data = %p, size = %hu, rmt.addr = %llx, cfg.cqeEn = %u, out.pi = %u", data,
-            size, rmt.GetAddr(), cfg.cqeEn, out.pi);
+            "RmaConnLite InlineWrite start. data = %p, size = %hu, rmt.addr = 0x%llx, cfg.cqeEn = %u, out.pi = %u",
+            data, size, rmt.GetAddr(), cfg.cqeEn, out.pi);
         return HCCL_SUCCESS;
     }
 
@@ -113,8 +113,8 @@ public:
         const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg, ConnLiteOperationOut& out)
     {
         HCCL_INFO(
-            "RmaConnLite WriteReduce start. dataType = %u, reduceOp %u, loc.addr = %llx, "
-            "rmt.addr = %llx, cfg.cqeEn = %u, out.pi = %u",
+            "RmaConnLite WriteReduce start. dataType = %u, reduceOp %u, loc.addr = 0x%llx, "
+            "rmt.addr = 0x%llx, cfg.cqeEn = %u, out.pi = %u",
             dataType, reduceOp, loc.GetAddr(), rmt.GetAddr(), cfg.cqeEn, out.pi);
         return HCCL_SUCCESS;
     }
@@ -124,8 +124,8 @@ public:
         const RmtRmaBufSliceLite& notify, [[maybe_unused]] const StreamLite& stream, u64 notifyData)
     {
         HCCL_INFO(
-            "RmaConnLite WriteWithNotify start. loc.addr = %llx, rmt.addr = %llx, cfg.cqeEn = %u, "
-            "out.pi = %u, notify.addr = %llx, notifyData = %u",
+            "RmaConnLite WriteWithNotify start. loc.addr = 0x%llx, rmt.addr = 0x%llx, cfg.cqeEn = %u, "
+            "out.pi = %u, notify.addr = 0x%llx, notifyData = %llu",
             loc.GetAddr(), rmt.GetAddr(), cfg.cqeEn, out.pi, notify.GetAddr(), notifyData);
         return HCCL_SUCCESS;
     }
@@ -136,8 +136,8 @@ public:
         const RmtRmaBufSliceLite& notify, u64 notifyData)
     {
         HCCL_INFO(
-            "RmaConnLite WriteReduceWithNotify start. dataType = %d, reduceOp %d, loc.addr = %llx, "
-            "rmt.addr = %llx, cfg.cqeEn = %u, out.pi = %u, notify.addr = %llx, notifyData = %llu",
+            "RmaConnLite WriteReduceWithNotify start. dataType = %d, reduceOp %d, loc.addr = 0x%llx, "
+            "rmt.addr = 0x%llx, cfg.cqeEn = %u, out.pi = %u, notify.addr = 0x%llx, notifyData = %llu",
             dataType, reduceOp, loc.GetAddr(), rmt.GetAddr(), cfg.cqeEn, out.pi, notify.GetAddr(), notifyData);
         return HCCL_SUCCESS;
     }
