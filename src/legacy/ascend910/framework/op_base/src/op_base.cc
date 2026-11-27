@@ -5688,10 +5688,7 @@ static HcclResult RegisterTaskReportCallback(hccl::CollComm* collComm, HcclComm 
     auto hcclCommDfx = collComm->GetHcclCommDfx();
     CHK_PTR_NULL(hcclCommDfx);
     auto reportCallback = [hcclCommDfx]() -> HcclResult {
-        bool isOpBase = false;
-        bool isCached = false;
-        CHK_RET(hcclCommDfx->GetOpModeFlags(isOpBase, isCached));
-        return hcclCommDfx->ReportAllTasks(isCached);
+        return hcclCommDfx->ReportAllTasks(false);
     };
     HcclResult ret = HcclTaskReportRegisterV2(commV2, reportCallback);
     CHK_PRT_RET(
