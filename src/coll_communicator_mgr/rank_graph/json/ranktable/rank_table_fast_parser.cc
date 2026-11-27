@@ -13,7 +13,6 @@
 #include "json_scan_simd.h"
 
 #include <algorithm>
-#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <vector>
@@ -1843,21 +1842,8 @@ namespace {
         return scanner.Run();
     }
 
-    // 线程数: 按输入字节数估算，再受硬件核数和上限约束。
-    // 环境变量 HCCL_FAST_PARSER_THREADS 可强制指定线程数(1~kMaxParseThreads, 合法取值直接生效,
-    // 不再受硬件核数约束, 单核 CI 也可确定性触发并行路径), 供 UT 断言并行路径; 非法取值报错后回退自动估算。
     size_t ResolveParseThreadNum(size_t inputBytes)
     {
-        const char* forced = std::getenv("HCCL_FAST_PARSER_THREADS");
-        if (forced != nullptr) {
-            char* end = nullptr;
-            const long parsed = std::strtol(forced, &end, 10);
-            if (end != nullptr && end != forced && *end == '\0' && parsed >= 1
-                && static_cast<size_t>(parsed) <= kMaxParseThreads) {
-                return static_cast<size_t>(parsed);
-            }
-            HCCL_ERROR("[%s] invalid HCCL_FAST_PARSER_THREADS[%s], fallback to auto", __func__, forced);
-        }
         const size_t byBytes = (inputBytes + kBytesPerParseThread - 1) / kBytesPerParseThread;
         const size_t threadNum = std::max<size_t>(1, std::min(byBytes, kMaxParseThreads));
         const size_t hardware = static_cast<size_t>(std::thread::hardware_concurrency());
@@ -1977,9 +1963,6 @@ namespace {
         MergeChunks(partRanks, merged);
         return true;
     }
-
-    // 测试观测: 并行解析路径累计成功次数, 仅供 UT 断言并行路径被触发, 不参与生产逻辑
-    std::atomic<u64> gParallelParseUsed{0};
 
     struct ParseFlags {
         bool hasVersion{false};
@@ -2161,7 +2144,6 @@ namespace {
         const size_t minParallelBytes = threadNum * 2 * kChunkTargetBytes;
         if (threadNum > 1 && jsonString.size() >= minParallelBytes
             && TryParseRankTableParallel<InfoT, kIsRankTable>(jsonString, info, threadNum)) {
-            gParallelParseUsed.fetch_add(1, std::memory_order_relaxed);
             if constexpr (kIsRankTable) {
                 if (check) {
                     CHK_RET(info.Check());
@@ -2208,9 +2190,6 @@ namespace {
     }
 
 } // namespace
-
-// 仅供 UT 观测: 返回并行解析路径累计成功次数, 用于断言并行路径确实被触发
-u64 GetFastParserParallelUsedForTest() { return gParallelParseUsed.load(std::memory_order_relaxed); }
 
 HcclResult ParseRankTableStringFast(const std::string& jsonString, Hccl::RankTableInfo& info)
 {

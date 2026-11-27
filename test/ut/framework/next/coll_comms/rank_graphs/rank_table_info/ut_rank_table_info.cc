@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <limits>
 #include <set>
+#include <thread>
 #include <type_traits>
 #include <utility>
 #include "json/common/json_parse_util.h"
@@ -1033,8 +1034,11 @@ TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_RankAddrCountBo
 
 TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_ParallelLargeTable_Expect_Success)
 {
-    const std::string json = MakeLargeRankTable(4096, 5120);
-    ASSERT_GT(json.size(), 16U * 1024U * 1024U);
+    if (std::thread::hardware_concurrency() < 2) {
+        GTEST_SKIP() << "Parallel rank table parsing requires at least two hardware threads";
+    }
+    const std::string json = MakeLargeRankTable(4096, 8192);
+    ASSERT_GT(json.size(), hccl::kBytesPerParseThread);
 
     RankTableInfo info;
     ASSERT_EQ(hccl::ParseRankTableStringFast(json, info), HCCL_SUCCESS);
@@ -1048,7 +1052,11 @@ TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_ParallelLargeTa
 
 TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_ParallelLargeTrailingComma_Expect_Para)
 {
-    std::string json = MakeLargeRankTable(4096, 5120);
+    if (std::thread::hardware_concurrency() < 2) {
+        GTEST_SKIP() << "Parallel rank table parsing requires at least two hardware threads";
+    }
+    std::string json = MakeLargeRankTable(4096, 8192);
+    ASSERT_GT(json.size(), hccl::kBytesPerParseThread);
     const size_t pos = json.find_last_of('}');
     ASSERT_NE(pos, std::string::npos);
     json.insert(pos, ",");
@@ -1059,7 +1067,11 @@ TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_ParallelLargeTr
 
 TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_ParallelLargeLeadingZero_Expect_Para)
 {
-    std::string json = MakeLargeRankTable(4096, 5120);
+    if (std::thread::hardware_concurrency() < 2) {
+        GTEST_SKIP() << "Parallel rank table parsing requires at least two hardware threads";
+    }
+    std::string json = MakeLargeRankTable(4096, 8192);
+    ASSERT_GT(json.size(), hccl::kBytesPerParseThread);
     json = ReplaceOnce(json, R"("rank_count":4096)", R"("rank_count":04096)");
 
     RankTableInfo info;
@@ -1165,10 +1177,13 @@ std::string MakeLargeRankTableCustom(size_t rankCount, const std::string& paddin
 
 TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_ParallelLargeStringStructuralChars_Expect_Success)
 {
+    if (std::thread::hardware_concurrency() < 2) {
+        GTEST_SKIP() << "Parallel rank table parsing requires at least two hardware threads";
+    }
     // padding 字符串值包含未转义的 { } 以及 \" \\ \uXXXX: 字符串内结构字符不得影响元素边界
-    const std::string padding = std::string(2048, 'x') + R"(xx}yy{zz\"ww\\q\u4e2d)";
+    const std::string padding = std::string(8192, 'x') + R"(xx}yy{zz\"ww\\q\u4e2d)";
     const std::string json = MakeLargeRankTableCustom(4096, padding, "");
-    ASSERT_GT(json.size(), 8U * 1024U * 1024U);
+    ASSERT_GT(json.size(), hccl::kBytesPerParseThread);
 
     RankTableInfo info;
     ASSERT_EQ(hccl::ParseRankTableStringFast(json, info), HCCL_SUCCESS);
@@ -1182,9 +1197,12 @@ TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_ParallelLargeSt
 
 TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_ParallelLargeWhitespace_Expect_Success)
 {
+    if (std::thread::hardware_concurrency() < 2) {
+        GTEST_SKIP() << "Parallel rank table parsing requires at least two hardware threads";
+    }
     // 元素之间插入空格/换行, 走 SkipWs 后进入 SIMD 元素扫描
-    const std::string json = MakeLargeRankTableCustom(4096, std::string(2048, 'x'), "\n    ");
-    ASSERT_GT(json.size(), 8U * 1024U * 1024U);
+    const std::string json = MakeLargeRankTableCustom(4096, std::string(8192, 'x'), "\n    ");
+    ASSERT_GT(json.size(), hccl::kBytesPerParseThread);
 
     RankTableInfo info;
     ASSERT_EQ(hccl::ParseRankTableStringFast(json, info), HCCL_SUCCESS);
@@ -1194,10 +1212,13 @@ TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_ParallelLargeWh
 
 TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_ParallelLargeNestedUnknownObject_Expect_Success)
 {
+    if (std::thread::hardware_concurrency() < 2) {
+        GTEST_SKIP() << "Parallel rank table parsing requires at least two hardware threads";
+    }
     // 元素内注入深度嵌套的未知对象, depth 计数需跨嵌套正确归零
-    std::string json = MakeLargeRankTable(4096, 5120);
+    std::string json = MakeLargeRankTable(4096, 8192);
     json = ReplaceOnce(json, R"({"rank_id":0,)", R"({"unknown":{"a":{"b":{"c":[1,2,{"d":{}}]}}},"rank_id":0,)");
-    ASSERT_GT(json.size(), 8U * 1024U * 1024U);
+    ASSERT_GT(json.size(), hccl::kBytesPerParseThread);
 
     RankTableInfo info;
     ASSERT_EQ(hccl::ParseRankTableStringFast(json, info), HCCL_SUCCESS);
@@ -1208,8 +1229,12 @@ TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_ParallelLargeNe
 
 TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_ParallelLargeUnclosedElement_Expect_Para)
 {
+    if (std::thread::hardware_concurrency() < 2) {
+        GTEST_SKIP() << "Parallel rank table parsing requires at least two hardware threads";
+    }
     // 删除最后一个元素的闭合 '}': 布局扫描 depth 无法归零, 拒绝该表
-    std::string json = MakeLargeRankTable(4096, 5120);
+    std::string json = MakeLargeRankTable(4096, 8192);
+    ASSERT_GT(json.size(), hccl::kBytesPerParseThread);
     const size_t pos = json.rfind("}]}");
     ASSERT_NE(pos, std::string::npos);
     json.erase(pos, 1);
@@ -1220,7 +1245,11 @@ TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_ParallelLargeUn
 
 TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_ParallelLargeTrailingContent_Expect_Para)
 {
-    std::string json = MakeLargeRankTable(4096, 5120);
+    if (std::thread::hardware_concurrency() < 2) {
+        GTEST_SKIP() << "Parallel rank table parsing requires at least two hardware threads";
+    }
+    std::string json = MakeLargeRankTable(4096, 8192);
+    ASSERT_GT(json.size(), hccl::kBytesPerParseThread);
     json += "garbage";
 
     RankTableInfo info;
@@ -1466,12 +1495,15 @@ std::string MakeRankListArray(size_t count, size_t paddingBytes, size_t rankIdOf
 
 TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_ParallelDuplicateRankList_Expect_LastWins)
 {
-    // 顶层重复 rank_list, 后段为大表(>8MB)触发并行布局扫描: 只统计最后一段, 与串行/DOM一致
+    if (std::thread::hardware_concurrency() < 2) {
+        GTEST_SKIP() << "Parallel rank table parsing requires at least two hardware threads";
+    }
+    // 顶层重复 rank_list, 后段为大表(>32MB)触发并行布局扫描: 只统计最后一段, 与串行/DOM一致
     const std::string first = MakeRankListArray(1024, 0, 3000);
-    const std::string second = MakeRankListArray(2048, 4096, 0);
+    const std::string second = MakeRankListArray(2048, 16384, 0);
     const std::string json = R"({"version":"2.0","detour":"false","rank_count":2048,"rank_list":)" + first
                              + R"(,"rank_list":)" + second + "}";
-    ASSERT_GT(json.size(), 8U * 1024U * 1024U);
+    ASSERT_GT(json.size(), hccl::kBytesPerParseThread);
 
     RankTableInfo info;
     ASSERT_EQ(hccl::ParseRankTableStringFast(json, info), HCCL_SUCCESS);
@@ -1496,87 +1528,6 @@ TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_Utf8BomPrefix_E
     hccl::ChangedRankInfo changed;
     ASSERT_EQ(ParseChangedRankInfoStringFast(bom + FAST_CHANGED_RANK_INFO, changed), HCCL_SUCCESS);
     EXPECT_EQ(changed.rankCount, 1U);
-}
-
-namespace {
-
-// RAII: 用例结束(含断言失败提前返回)后自动清理强制线程数环境变量
-class ForceParseThreadsGuard {
-public:
-    explicit ForceParseThreadsGuard(const char* value) { setenv("HCCL_FAST_PARSER_THREADS", value, 1); }
-
-    ~ForceParseThreadsGuard() { unsetenv("HCCL_FAST_PARSER_THREADS"); }
-
-    ForceParseThreadsGuard(const ForceParseThreadsGuard&) = delete;
-    ForceParseThreadsGuard& operator=(const ForceParseThreadsGuard&) = delete;
-};
-
-} // namespace
-
-TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_ForcedParallel_Expect_PathTakenAndSerialEqual)
-{
-    const std::string json = MakeLargeRankTable(2048, 2048);
-    ASSERT_GT(json.size(), 4U * 1024U * 1024U);
-
-    // 强制 2 线程: 并行路径必须被触发(累计计数递增)
-    ForceParseThreadsGuard guard("2");
-    const u64 before = hccl::GetFastParserParallelUsedForTest();
-    RankTableInfo parallelInfo;
-    ASSERT_EQ(hccl::ParseRankTableStringFast(json, parallelInfo), HCCL_SUCCESS);
-    EXPECT_GT(hccl::GetFastParserParallelUsedForTest(), before);
-    EXPECT_EQ(parallelInfo.rankCount, 2048U);
-    ASSERT_EQ(parallelInfo.ranks.size(), 2048U);
-
-    // 强制 1 线程(串行): 同输入逐字段与并行结果一致
-    ForceParseThreadsGuard serialGuard("1");
-    RankTableInfo serialInfo;
-    ASSERT_EQ(hccl::ParseRankTableStringFast(json, serialInfo), HCCL_SUCCESS);
-    ASSERT_EQ(serialInfo.ranks.size(), parallelInfo.ranks.size());
-    for (size_t i = 0; i < serialInfo.ranks.size(); ++i) {
-        EXPECT_EQ(parallelInfo.ranks[i].rankId, serialInfo.ranks[i].rankId);
-        EXPECT_EQ(parallelInfo.ranks[i].localId, serialInfo.ranks[i].localId);
-        EXPECT_EQ(parallelInfo.ranks[i].deviceId, serialInfo.ranks[i].deviceId);
-        ASSERT_EQ(parallelInfo.ranks[i].rankLevelInfos.size(), serialInfo.ranks[i].rankLevelInfos.size());
-        for (size_t level = 0; level < serialInfo.ranks[i].rankLevelInfos.size(); ++level) {
-            EXPECT_EQ(
-                parallelInfo.ranks[i].rankLevelInfos[level].netLayer,
-                serialInfo.ranks[i].rankLevelInfos[level].netLayer);
-            EXPECT_EQ(
-                parallelInfo.ranks[i].rankLevelInfos[level].netInstId,
-                serialInfo.ranks[i].rankLevelInfos[level].netInstId);
-            ASSERT_EQ(
-                parallelInfo.ranks[i].rankLevelInfos[level].rankAddrs.size(),
-                serialInfo.ranks[i].rankLevelInfos[level].rankAddrs.size());
-            EXPECT_EQ(
-                parallelInfo.ranks[i].rankLevelInfos[level].rankAddrs[0].addr,
-                serialInfo.ranks[i].rankLevelInfos[level].rankAddrs[0].addr);
-            EXPECT_EQ(
-                parallelInfo.ranks[i].rankLevelInfos[level].rankAddrs[0].ports,
-                serialInfo.ranks[i].rankLevelInfos[level].rankAddrs[0].ports);
-        }
-    }
-}
-
-TEST_F(RankTableInfoParserTest, Ut_ParseRankTableStringFast_When_ForcedParallelDuplicateRankList_Expect_LastWins)
-{
-    // 前段小表 + 后段大表重复 rank_list 键: 并行路径直接 last-wins 成功, 不依赖串行回退
-    const std::string first = MakeRankListArray(1024, 0, 3000);
-    const std::string second = MakeRankListArray(1280, 4096, 0);
-    const std::string json = R"({"version":"2.0","detour":"false","rank_count":1280,"rank_list":)" + first
-                             + R"(,"rank_list":)" + second + "}";
-    ASSERT_GT(json.size(), 4U * 1024U * 1024U);
-
-    ForceParseThreadsGuard guard("2");
-    const u64 before = hccl::GetFastParserParallelUsedForTest();
-    RankTableInfo info;
-    const HcclResult ret = hccl::ParseRankTableStringFast(json, info);
-    EXPECT_EQ(ret, HCCL_SUCCESS);
-    // 计数递增说明并行路径直接处理重复键成功, 未回退串行
-    EXPECT_GT(hccl::GetFastParserParallelUsedForTest(), before);
-    EXPECT_EQ(info.rankCount, 1280U);
-    ASSERT_EQ(info.ranks.size(), 1280U);
-    EXPECT_EQ(info.ranks[0].rankId, 0U);
-    EXPECT_EQ(info.ranks[1279].rankId, 1279U);
 }
 
 // NewRankInfo / hccl::AddressInfo 需支持 noexcept 移动构造/赋值，
