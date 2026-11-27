@@ -132,9 +132,26 @@ private:
     CheckSocketInfo(const SocketHandle socketHandle, const HcclIpAddress& ipAddr, u32 port = NO_LISTEN_PORT) const;
     HcclResult StopNicsSocketListen(const HcclIpAddress& localIp, u32 port);
     HcclResult StopNicsSocket(const HcclIpAddress& ipAddr);
+    // StopNicsSocket的不持锁实现, 调用方须已持有raLock_, 避免非递归mutex重入自死锁
+    HcclResult StopNicsSocketInternal(const HcclIpAddress& ipAddr);
     // 查询ip是否在用(计数>0): 在用时置位markSocket/markRdma对应的pending标志并返回true,
     // 供最后一个使用者注销时延迟拆除
     bool MarkNicUserPendingStop(const HcclIpAddress& ipAddr, bool markSocket, bool markRdma);
+    // 一侧deinit后置空另一侧map内与之相等的handle副本, 防止二次deinit; 调用方须已持有raLock_
+    void SyncNullPeerMapHandle(
+        const HcclIpAddress& ipAddr, SocketHandle socketHandle, RdmaHandle rdmaHandle,
+        HcclNetDevDeployment teardownSide);
+    // 仅纯占位(socket与rdma handle均为空)时移除nicSocketMap条目,
+    // 非纯占位条目可能还持有另一侧未拆的handle, 须保留供延迟拆除; 调用方须已持有raLock_
+    void EraseNicSocketMapIfPlaceholder(const HcclIpAddress& ipAddr);
+    // host侧对称清理: 置空本入口已deinit的socket handle后按纯占位准则移除条目; 调用方须已持有raLock_
+    void EraseHostNetSocketMapIfPlaceholder(const HcclIpAddress& ipAddr);
+    // raLock_内检查指定map条目的handle是否存活, 供延迟拆除逐site紧跟对应Stop*调用时使用,
+    // 避免无锁find+解引用的悬垂读
+    bool IsSocketMapHandleAlive(
+        const std::map<HcclIpAddress, IpSocket>& socketMap, const HcclIpAddress& ipAddr, bool rdmaFlag);
+    // HeterogStopListen的不持锁实现, 调用方须已持有raLock_
+    HcclResult HeterogStopListenInternal(const HcclIpAddress& ipAddr, u32 port, bool isNeedDeinit);
     HcclResult StopAllDeviceNicSockets();
     HcclResult StopAllDeviceVnicSockets();
     HcclResult StopAllHostNicSockets();
@@ -179,6 +196,8 @@ private:
     };
     std::map<HcclIpAddress, NicSocketUserState> nicSocketUserMap_;
     std::mutex nicSocketUserMutex_;
+    // 拆除路径串行锁, 防止跨map置空与并发erase互踩; 锁序固定为先raLock_后nicSocketUserMutex_, 不能反
+    // 非递归锁: 持锁期间再调StopNicsSocket/HeterogStopListen会死锁, 须改调对应的Internal版本
     std::mutex raLock_;
     std::mutex hccpProcInfoMutex_;
     NotifyTypeT notifyType_;

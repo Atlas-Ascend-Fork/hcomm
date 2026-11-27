@@ -471,6 +471,12 @@ HcclResult NetworkManager::HeterogInit(u32 devId, const HcclIpAddress& ipAddr, u
 
 HcclResult NetworkManager::HeterogStopListen(const HcclIpAddress& ipAddr, u32 port, bool isNeedDeinit)
 {
+    std::unique_lock<std::mutex> lock(raLock_);
+    return HeterogStopListenInternal(ipAddr, port, isNeedDeinit);
+}
+
+HcclResult NetworkManager::HeterogStopListenInternal(const HcclIpAddress& ipAddr, u32 port, bool isNeedDeinit)
+{
     HCCL_DEBUG("HeterogStopListen ipAddr[%s] port[%u]", ipAddr.GetReadableAddress(), port);
     SocketHandle nicSocketHandle = raResourceInfo_.nicSocketMap[ipAddr].nicSocketHandle;
 
@@ -489,7 +495,11 @@ HcclResult NetworkManager::HeterogStopListen(const HcclIpAddress& ipAddr, u32 po
         }
 
         if (isNeedDeinit) {
+            SocketHandle deinitSocketHandle = nicSocketHandle;
             CHK_RET(hrtRaSocketDeInit(nicSocketHandle));
+            raResourceInfo_.nicSocketMap[ipAddr].nicSocketHandle = nullptr;
+            SyncNullPeerMapHandle(
+                ipAddr, deinitSocketHandle, nullptr, HcclNetDevDeployment::HCCL_NETDEV_DEPLOYMENT_DEVICE);
         }
     }
     return HCCL_SUCCESS;
@@ -497,6 +507,7 @@ HcclResult NetworkManager::HeterogStopListen(const HcclIpAddress& ipAddr, u32 po
 
 HcclResult NetworkManager::HeterogDeinit(u32 devId, const HcclIpAddress& ipAddr, u32 port)
 {
+    std::unique_lock<std::mutex> lock(raLock_);
     // 在用时跳过整个Deinit, 条目留给延迟拆除; 守卫须在Unref之前, 否则计数归零后
     // 进程退出时Destroy()的兜底失效, Ra资源泄漏
     if (MarkNicUserPendingStop(ipAddr, true, true)) {
@@ -512,7 +523,7 @@ HcclResult NetworkManager::HeterogDeinit(u32 devId, const HcclIpAddress& ipAddr,
         return HCCL_E_INTERNAL;
     }
 
-    CHK_RET(HeterogStopListen(ipAddr, port, true));
+    CHK_RET(HeterogStopListenInternal(ipAddr, port, true));
 
     SocketHandle nicRdmaHandle = raResourceInfo_.nicSocketMap[ipAddr].nicRdmaHandle;
     if (!GetExternalInputHcclIsTcpMode() && nicRdmaHandle != nullptr) {
@@ -526,8 +537,9 @@ HcclResult NetworkManager::HeterogDeinit(u32 devId, const HcclIpAddress& ipAddr,
     HCCL_INFO("HeterogDeinit call HrtRaDeInit.");
     CHK_RET(HrtRaDeInit(&config));
 
-    raResourceInfo_.nicSocketMap.erase(raResourceInfo_.nicSocketMap.find(ipAddr));
-    raResourceInfo_.hostNetSocketMap.erase(raResourceInfo_.hostNetSocketMap.find(ipAddr));
+    // erase(key)对不存在的key安全, 避免erase(find())遇end()的UB
+    raResourceInfo_.nicSocketMap.erase(ipAddr);
+    raResourceInfo_.hostNetSocketMap.erase(ipAddr);
 
     return HCCL_SUCCESS;
 }
@@ -1104,6 +1116,7 @@ HcclResult NetworkManager::StopRdmaHandle(const HcclIpAddress& ipAddr, HcclNetDe
 {
     // rdma没有socket 没有listen
 
+    std::unique_lock<std::mutex> lock(raLock_);
     // 销毁socket
     switch (netDevDeployment) {
         case HcclNetDevDeployment::HCCL_NETDEV_DEPLOYMENT_DEVICE: {
@@ -1124,18 +1137,10 @@ HcclResult NetworkManager::StopRdmaHandle(const HcclIpAddress& ipAddr, HcclNetDe
                 return HCCL_E_NETWORK;
             }
             ipSock.nicRdmaHandle = nullptr;
-            // 两个map记录同一rdma handle: 一侧deinit后另一侧成为悬空指针, 此处同步置空, 防止二次deinit
-            if (deinitRdmaHandle != nullptr) {
-                auto hostIt = raResourceInfo_.hostNetSocketMap.find(ipAddr);
-                if (hostIt != raResourceInfo_.hostNetSocketMap.end()
-                    && hostIt->second.nicRdmaHandle == deinitRdmaHandle) {
-                    hostIt->second.nicRdmaHandle = nullptr;
-                }
-            }
+            SyncNullPeerMapHandle(
+                ipAddr, nullptr, deinitRdmaHandle, HcclNetDevDeployment::HCCL_NETDEV_DEPLOYMENT_DEVICE);
             // 如果该ip下既没有tcp也没有rdma那么移除该ip
-            if (ipSock.nicSocketHandle == nullptr && ipSock.nicRdmaHandle == nullptr) {
-                raResourceInfo_.nicSocketMap.erase(ipAddr);
-            }
+            EraseNicSocketMapIfPlaceholder(ipAddr);
             break;
         }
         case HcclNetDevDeployment::HCCL_NETDEV_DEPLOYMENT_HOST: {
@@ -1155,17 +1160,9 @@ HcclResult NetworkManager::StopRdmaHandle(const HcclIpAddress& ipAddr, HcclNetDe
                 return HCCL_E_NETWORK;
             }
             ipSock.nicRdmaHandle = nullptr;
-            // 同步置空nicSocketMap内同一指针, 防止二次deinit; 仅当该ip的socket与rdma均已空时才移除,
-            // 条目可能还持有Device侧未拆的socket, 提前erase会使延迟拆除查不到条目而泄漏
-            auto nicIt = raResourceInfo_.nicSocketMap.find(ipAddr);
-            if (nicIt != raResourceInfo_.nicSocketMap.end()) {
-                if (deinitRdmaHandle != nullptr && nicIt->second.nicRdmaHandle == deinitRdmaHandle) {
-                    nicIt->second.nicRdmaHandle = nullptr;
-                }
-                if (nicIt->second.nicSocketHandle == nullptr && nicIt->second.nicRdmaHandle == nullptr) {
-                    raResourceInfo_.nicSocketMap.erase(ipAddr); // 移除额外的占位
-                }
-            }
+            // 同步置空nicSocketMap内同一副本, 条目可能还持有Device侧未拆的socket, 须按纯占位准则移除
+            SyncNullPeerMapHandle(ipAddr, nullptr, deinitRdmaHandle, HcclNetDevDeployment::HCCL_NETDEV_DEPLOYMENT_HOST);
+            EraseNicSocketMapIfPlaceholder(ipAddr);
             // 如果该ip下没有tcp也没有rdma那么移除该ip
             if (ipSock.nicSocketHandle == nullptr && ipSock.nicRdmaHandle == nullptr) {
                 raResourceInfo_.hostNetSocketMap.erase(ipAddr);
@@ -1195,6 +1192,18 @@ HcclResult NetworkManager::AddNicSocketUser(const HcclIpAddress& ipAddr)
     return HCCL_SUCCESS;
 }
 
+// raLock_内检查指定map条目的handle是否存活, 供延迟拆除逐site使用, 避免无锁find+解引用的悬垂读
+bool NetworkManager::IsSocketMapHandleAlive(
+    const std::map<HcclIpAddress, IpSocket>& socketMap, const HcclIpAddress& ipAddr, bool rdmaFlag)
+{
+    std::lock_guard<std::mutex> lock(raLock_);
+    auto it = socketMap.find(ipAddr);
+    if (it == socketMap.end()) {
+        return false;
+    }
+    return rdmaFlag ? (it->second.nicRdmaHandle != nullptr) : (it->second.nicSocketHandle != nullptr);
+}
+
 HcclResult NetworkManager::RemoveNicSocketUser(const HcclIpAddress& ipAddr)
 {
     bool needDeferredStop = false;
@@ -1211,8 +1220,7 @@ HcclResult NetworkManager::RemoveNicSocketUser(const HcclIpAddress& ipAddr)
         return HCCL_SUCCESS;
     }
     if (count < 0) {
-        // 下溢说明Add/Remove未严格配对: 负计数使条目永不清除且in-use守卫失效, 在用handle会被强拆;
-        // Clear复位后条目正常清除, 拆除函数幂等, 重复进入无害
+        // 下溢说明Add/Remove未严格配对; Clear复位后条目正常清除, 拆除函数幂等
         HCCL_ERROR(
             "[NetworkManager][RemoveNicSocketUser]ip[%s] refcount underflow[%d], "
             "AddNicSocketUser/RemoveNicSocketUser not paired",
@@ -1225,14 +1233,14 @@ HcclResult NetworkManager::RemoveNicSocketUser(const HcclIpAddress& ipAddr)
     nicSocketUserMutex_.unlock();
 
     HcclResult ret = HCCL_SUCCESS;
+    // 存活判断逐site紧跟对应Stop*而非一次性前置快照: 前序Stop*的跨map同步置空需对后续判断可见;
+    // 不全程持锁是因为Stop*内部会再拿raLock_, 非递归mutex重入自死锁
     if (needRdmaDeferredStop) {
         HCCL_INFO(
             "[NetworkManager][RemoveNicSocketUser]ip[%s] last user released, do deferred rdma stop",
             ipAddr.GetReadableAddress());
-        // 两个map可能各持有真实handle, 都需拆除(原else分支只拆一侧会泄漏);
-        // 失败只记录不中断, 返回值保留首个非SUCCESS
-        auto nicIt = raResourceInfo_.nicSocketMap.find(ipAddr);
-        if (nicIt != raResourceInfo_.nicSocketMap.end() && nicIt->second.nicRdmaHandle != nullptr) {
+        // 两个map可能各持有真实handle, 都需拆除; 失败不中断, 返回首个非SUCCESS
+        if (IsSocketMapHandleAlive(raResourceInfo_.nicSocketMap, ipAddr, true)) {
             HcclResult curRet = StopRdmaHandle(ipAddr, HcclNetDevDeployment::HCCL_NETDEV_DEPLOYMENT_DEVICE);
             if (curRet != HCCL_SUCCESS) {
                 HCCL_ERROR(
@@ -1242,8 +1250,7 @@ HcclResult NetworkManager::RemoveNicSocketUser(const HcclIpAddress& ipAddr)
                 ret = (ret == HCCL_SUCCESS) ? curRet : ret;
             }
         }
-        auto hostIt = raResourceInfo_.hostNetSocketMap.find(ipAddr);
-        if (hostIt != raResourceInfo_.hostNetSocketMap.end() && hostIt->second.nicRdmaHandle != nullptr) {
+        if (IsSocketMapHandleAlive(raResourceInfo_.hostNetSocketMap, ipAddr, true)) {
             HcclResult curRet = StopRdmaHandle(ipAddr, HcclNetDevDeployment::HCCL_NETDEV_DEPLOYMENT_HOST);
             if (curRet != HCCL_SUCCESS) {
                 HCCL_ERROR(
@@ -1258,9 +1265,7 @@ HcclResult NetworkManager::RemoveNicSocketUser(const HcclIpAddress& ipAddr)
         HCCL_INFO(
             "[NetworkManager][RemoveNicSocketUser]ip[%s] last user released, do deferred stop",
             ipAddr.GetReadableAddress());
-        // 三个map各持有独立的socket handle, 都需拆除; 失败不中断, 返回首个非SUCCESS
-        auto nicIt = raResourceInfo_.nicSocketMap.find(ipAddr);
-        if (nicIt != raResourceInfo_.nicSocketMap.end() && nicIt->second.nicSocketHandle != nullptr) {
+        if (IsSocketMapHandleAlive(raResourceInfo_.nicSocketMap, ipAddr, false)) {
             HcclResult curRet = StopNicSocketHandle(ipAddr);
             if (curRet != HCCL_SUCCESS) {
                 HCCL_ERROR(
@@ -1270,8 +1275,7 @@ HcclResult NetworkManager::RemoveNicSocketUser(const HcclIpAddress& ipAddr)
                 ret = (ret == HCCL_SUCCESS) ? curRet : ret;
             }
         }
-        auto vnicIt = raResourceInfo_.vnicSocketMap.find(ipAddr);
-        if (vnicIt != raResourceInfo_.vnicSocketMap.end() && vnicIt->second.nicSocketHandle != nullptr) {
+        if (IsSocketMapHandleAlive(raResourceInfo_.vnicSocketMap, ipAddr, false)) {
             HcclResult curRet = StopVnicSocketHandle(ipAddr);
             if (curRet != HCCL_SUCCESS) {
                 HCCL_ERROR(
@@ -1280,8 +1284,7 @@ HcclResult NetworkManager::RemoveNicSocketUser(const HcclIpAddress& ipAddr)
                 ret = (ret == HCCL_SUCCESS) ? curRet : ret;
             }
         }
-        auto hostIt = raResourceInfo_.hostNetSocketMap.find(ipAddr);
-        if (hostIt != raResourceInfo_.hostNetSocketMap.end() && hostIt->second.nicSocketHandle != nullptr) {
+        if (IsSocketMapHandleAlive(raResourceInfo_.hostNetSocketMap, ipAddr, false)) {
             HcclResult curRet = StopHostSocketHandle(ipAddr);
             if (curRet != HCCL_SUCCESS) {
                 HCCL_ERROR(
@@ -1323,8 +1326,49 @@ bool NetworkManager::MarkNicUserPendingStop(const HcclIpAddress& ipAddr, bool ma
     return false;
 }
 
+void NetworkManager::SyncNullPeerMapHandle(
+    const HcclIpAddress& ipAddr, SocketHandle socketHandle, RdmaHandle rdmaHandle, HcclNetDevDeployment teardownSide)
+{
+    // 逐指针比较相等才置空, 防止误清另一侧独立创建的handle
+    auto& peerMap = (teardownSide == HcclNetDevDeployment::HCCL_NETDEV_DEPLOYMENT_HOST) ?
+                        raResourceInfo_.nicSocketMap :
+                        raResourceInfo_.hostNetSocketMap;
+    auto it = peerMap.find(ipAddr);
+    if (it == peerMap.end()) {
+        return;
+    }
+    if (socketHandle != nullptr && it->second.nicSocketHandle == socketHandle) {
+        it->second.nicSocketHandle = nullptr;
+    }
+    if (rdmaHandle != nullptr && it->second.nicRdmaHandle == rdmaHandle) {
+        it->second.nicRdmaHandle = nullptr;
+    }
+}
+
+void NetworkManager::EraseNicSocketMapIfPlaceholder(const HcclIpAddress& ipAddr)
+{
+    auto it = raResourceInfo_.nicSocketMap.find(ipAddr);
+    if (it != raResourceInfo_.nicSocketMap.end() && it->second.nicSocketHandle == nullptr
+        && it->second.nicRdmaHandle == nullptr) {
+        raResourceInfo_.nicSocketMap.erase(it);
+    }
+}
+
+void NetworkManager::EraseHostNetSocketMapIfPlaceholder(const HcclIpAddress& ipAddr)
+{
+    auto it = raResourceInfo_.hostNetSocketMap.find(ipAddr);
+    if (it == raResourceInfo_.hostNetSocketMap.end()) {
+        return;
+    }
+    it->second.nicSocketHandle = nullptr;
+    if (it->second.nicRdmaHandle == nullptr) {
+        raResourceInfo_.hostNetSocketMap.erase(it);
+    }
+}
+
 HcclResult NetworkManager::StopNicSocketHandle(const HcclIpAddress& ipAddr)
 {
+    std::unique_lock<std::mutex> lock(raLock_);
     if (MarkNicUserPendingStop(ipAddr, true, false)) {
         return HCCL_SUCCESS;
     }
@@ -1360,24 +1404,16 @@ HcclResult NetworkManager::StopNicSocketHandle(const HcclIpAddress& ipAddr)
         return HCCL_E_NETWORK;
     }
     ipSock.nicSocketHandle = nullptr;
-    // 两个map记录同一socket handle(PsWorkerRaInit双写): 一侧deinit后同步置空另一侧, 防止二次释放
-    if (deinitSocketHandle != nullptr) {
-        auto hostIt = raResourceInfo_.hostNetSocketMap.find(ipAddr);
-        if (hostIt != raResourceInfo_.hostNetSocketMap.end() && hostIt->second.nicSocketHandle == deinitSocketHandle) {
-            hostIt->second.nicSocketHandle = nullptr;
-        }
-    }
-
+    SyncNullPeerMapHandle(ipAddr, deinitSocketHandle, nullptr, HcclNetDevDeployment::HCCL_NETDEV_DEPLOYMENT_DEVICE);
     // 如果该ip下既没有tcp也没有rdma那么移除该ip
-    if (ipSock.nicSocketHandle == nullptr && ipSock.nicRdmaHandle == nullptr) {
-        raResourceInfo_.nicSocketMap.erase(ipAddr);
-    }
+    EraseNicSocketMapIfPlaceholder(ipAddr);
 
     return HCCL_SUCCESS;
 }
 
 HcclResult NetworkManager::StopNic(const HcclIpAddress& ipAddr, u32 port)
 {
+    std::unique_lock<std::mutex> lock(raLock_);
     auto it = raResourceInfo_.nicSocketMap.find(ipAddr);
     CHK_PRT_RET(
         it == raResourceInfo_.nicSocketMap.end(),
@@ -1404,22 +1440,20 @@ HcclResult NetworkManager::StopNic(const HcclIpAddress& ipAddr, u32 port)
     }
 
     if (ipSock.listenedPort.size() == 0) {
-        ret = StopNicsSocket(ipAddr);
+        ret = StopNicsSocketInternal(ipAddr);
         CHK_PRT_RET(
             ret != HCCL_SUCCESS,
             HCCL_ERROR(
                 "[Stop][Nic]errNo[0x%016llx] stop nic socket failed,devid[%u], ip[%s], return[%d]",
                 HCCL_ERROR_CODE(HCCL_E_TCP_CONNECT), devicePhyId_, ipAddr.GetReadableAddress(), ret),
             HCCL_E_INTERNAL);
-        // 纯rdma占位条目需保留, 否则延迟拆除查不到条目导致rdma handle泄漏
-        if (ipSock.nicSocketHandle == nullptr && ipSock.nicRdmaHandle == nullptr) {
-            raResourceInfo_.nicSocketMap.erase(ipAddr);
-        }
+        EraseNicSocketMapIfPlaceholder(ipAddr);
     }
     return HCCL_SUCCESS;
 }
 HcclResult NetworkManager::StopAllDeviceNicSockets()
 {
+    std::unique_lock<std::mutex> lock(raLock_);
     HcclResult ret = HCCL_SUCCESS;
     for (auto& itSocket : raResourceInfo_.nicSocketMap) {
         std::set<u32> listenedPorts = itSocket.second.listenedPort;
@@ -1435,11 +1469,13 @@ HcclResult NetworkManager::StopAllDeviceNicSockets()
                 break;
             }
         }
-        ret = StopNicsSocket(itSocket.first);
+        ret = StopNicsSocketInternal(itSocket.first);
         if (ret != HCCL_SUCCESS) {
             HCCL_ERROR(
                 "[Stop][AllDeviceNicSockets]errNo[0x%016llx] stop nic socket failed,devid[%u],ip[%s],return[%d]",
                 HCCL_ERROR_CODE(HCCL_E_TCP_CONNECT), devicePhyId_, itSocket.first.GetReadableAddress(), ret);
+            RdmaHandle deinitRdmaHandle = itSocket.second.nicRdmaHandle;
+            SocketHandle deinitSocketHandle = itSocket.second.nicSocketHandle;
             if (itSocket.second.nicRdmaHandle != nullptr) {
                 HCCL_ERROR("[Stop][AllDeviceNicSockets] itSocket.second.nicRdmaHandle is not nullptr.");
                 (void)HrtRaRdmaDeInit(itSocket.second.nicRdmaHandle, notifyType_);
@@ -1447,10 +1483,13 @@ HcclResult NetworkManager::StopAllDeviceNicSockets()
             }
             if (itSocket.second.nicSocketHandle != nullptr) {
                 HCCL_ERROR("[Stop][AllDeviceNicSockets] itSocket.second.nicSocketHandle is not nullptr.");
-                // socket handle须调hrtRaSocketDeInit, 误调rdma版本编译期无法发现
                 (void)hrtRaSocketDeInit(itSocket.second.nicSocketHandle);
                 itSocket.second.nicSocketHandle = nullptr;
             }
+            // deinit后同步置空另一map内相等副本, 防止StopAllHostNicSockets二次deinit
+            SyncNullPeerMapHandle(
+                itSocket.first, deinitSocketHandle, deinitRdmaHandle,
+                HcclNetDevDeployment::HCCL_NETDEV_DEPLOYMENT_DEVICE);
         }
     }
 
@@ -1706,12 +1745,26 @@ HcclResult NetworkManager::StopHostNetAndListen(SocketHandle socketHandle, const
         (hostNicInitRef_.Count() == 0),
         HCCL_ERROR("[Stop][HostNetAndListen]cannot start nic socket before host nic inited!"), HCCL_E_INTERNAL);
 
-    CHK_RET(CheckSocketInfo(socketHandle, ipAddr, port));
+    auto hostIt = raResourceInfo_.hostNetSocketMap.find(ipAddr);
+    const bool handleAlreadyDeinit
+        = (hostIt != raResourceInfo_.hostNetSocketMap.end() && hostIt->second.nicSocketHandle == nullptr
+           && socketHandle != nullptr && (port == NO_LISTEN_PORT || hostIt->second.listenedPort.count(port) > 0));
+    if (handleAlreadyDeinit) {
+        HCCL_WARNING(
+            "[Stop][HostNetAndListen]ip[%s] socketHandle[%p] already deinit by other teardown path, skip physical "
+            "teardown.",
+            ipAddr.GetReadableAddress(), socketHandle);
+    } else {
+        CHK_RET(CheckSocketInfo(socketHandle, ipAddr, port));
+    }
 
     if (IPPortListenRefMapHost_[ipAddr][port].Unref() == 0) {
-        CHK_RET(StopListenSocket(socketHandle, port)); /* 当前只拉起一个server */
-
-        HCCL_INFO("ip[%s] port[%u] stop success.", ipAddr.GetReadableAddress(), port);
+        if (!handleAlreadyDeinit) {
+            CHK_RET(StopListenSocket(socketHandle, port)); /* 当前只拉起一个server */
+            HCCL_INFO("ip[%s] port[%u] stop success.", ipAddr.GetReadableAddress(), port);
+        } else {
+            HCCL_INFO("ip[%s] port[%u] bookkeeping cleared, physical stop skipped.", ipAddr.GetReadableAddress(), port);
+        }
         raResourceInfo_.hostNetSocketMap[ipAddr].listenedPort.erase(port);
         raResourceInfo_.nicSocketMap[ipAddr].listenedPort.erase(port);
     } else {
@@ -1726,9 +1779,12 @@ HcclResult NetworkManager::StopHostNetAndListen(SocketHandle socketHandle, const
         if (MarkNicUserPendingStop(ipAddr, true, false)) {
             return HCCL_SUCCESS;
         }
-        CHK_RET(hrtRaSocketDeInit(socketHandle));
-        raResourceInfo_.hostNetSocketMap.erase(ipAddr);
-        raResourceInfo_.nicSocketMap.erase(ipAddr);
+        if (!handleAlreadyDeinit) {
+            CHK_RET(hrtRaSocketDeInit(socketHandle));
+        }
+        SyncNullPeerMapHandle(ipAddr, socketHandle, nullptr, HcclNetDevDeployment::HCCL_NETDEV_DEPLOYMENT_HOST);
+        EraseNicSocketMapIfPlaceholder(ipAddr);
+        EraseHostNetSocketMapIfPlaceholder(ipAddr);
         HCCL_INFO("ip[%s] port[%u] deinit success.", ipAddr.GetReadableAddress(), port);
     }
 
@@ -1736,31 +1792,45 @@ HcclResult NetworkManager::StopHostNetAndListen(SocketHandle socketHandle, const
 }
 HcclResult NetworkManager::StopAllHostNicSockets()
 {
+    std::unique_lock<std::mutex> lock(raLock_);
     HcclResult ret = HCCL_SUCCESS;
     for (auto itSocket : raResourceInfo_.hostNetSocketMap) {
         // 在用条目跳过强拆, 统一延迟拆除; 值拷贝迭代无法回写置空, 强拆会残留悬空指针
         if (MarkNicUserPendingStop(itSocket.first, true, true)) {
             continue;
         }
-        for (auto itPort : itSocket.second.listenedPort) {
-            ret = (StopListenSocket(itSocket.second.nicSocketHandle, itPort));
+        // 同handle已被其他拆除路径释放(值为空): 跳过物理listen stop与deinit, 仅做计数清理
+        if (itSocket.second.nicSocketHandle != nullptr) {
+            for (auto itPort : itSocket.second.listenedPort) {
+                ret = (StopListenSocket(itSocket.second.nicSocketHandle, itPort));
+                if (ret != HCCL_SUCCESS) {
+                    HCCL_ERROR(
+                        "[Stop][StopAllHostNicSockets]errNo[0x%016llx] stop listen socket failed,"
+                        "devid[%u], ip[%s], port[%u], return[%d].",
+                        HCCL_ERROR_CODE(HCCL_E_TCP_CONNECT), devicePhyId_, itSocket.first.GetReadableAddress(), itPort,
+                        ret);
+                } else {
+                    HCCL_INFO("ip[%s] port[%u] stop success.", itSocket.first.GetReadableAddress(), itPort);
+                }
+            }
+            ret = hrtRaSocketDeInit(itSocket.second.nicSocketHandle);
             if (ret != HCCL_SUCCESS) {
                 HCCL_ERROR(
-                    "[Stop][StopAllHostNicSockets]errNo[0x%016llx] stop listen socket failed,"
-                    "devid[%u], ip[%s], port[%u], return[%d].",
-                    HCCL_ERROR_CODE(HCCL_E_TCP_CONNECT), devicePhyId_, itSocket.first.GetReadableAddress(), itPort,
-                    ret);
+                    "[Stop][StopAllHostNicSockets]errNo[0x%016llx] deinit socket failed, devid[%u], ip[%s], "
+                    "return[%d]",
+                    HCCL_ERROR_CODE(HCCL_E_TCP_CONNECT), devicePhyId_, itSocket.first.GetReadableAddress(), ret);
             } else {
-                HCCL_INFO("ip[%s] port[%u] stop success.", itSocket.first.GetReadableAddress(), itPort);
+                HCCL_INFO("ip[%s] deinit success.", itSocket.first.GetReadableAddress());
+                SyncNullPeerMapHandle(
+                    itSocket.first, itSocket.second.nicSocketHandle, nullptr,
+                    HcclNetDevDeployment::HCCL_NETDEV_DEPLOYMENT_HOST);
+                EraseNicSocketMapIfPlaceholder(itSocket.first);
             }
-        }
-        ret = hrtRaSocketDeInit(itSocket.second.nicSocketHandle);
-        if (ret != HCCL_SUCCESS) {
-            HCCL_ERROR(
-                "[Stop][StopAllHostNicSockets]errNo[0x%016llx] deinit socket failed, devid[%u], ip[%s], return[%d]",
-                HCCL_ERROR_CODE(HCCL_E_TCP_CONNECT), devicePhyId_, itSocket.first.GetReadableAddress(), ret);
         } else {
-            HCCL_INFO("ip[%s] deinit success.", itSocket.first.GetReadableAddress());
+            HCCL_WARNING(
+                "[Stop][StopAllHostNicSockets] ip[%s] socket handle already deinit by other teardown path, skip "
+                "physical teardown.",
+                itSocket.first.GetReadableAddress());
         }
         hostNicSocketClientRef_[itSocket.first].Clear();
     }
@@ -1779,25 +1849,20 @@ HcclResult NetworkManager::StopAllHostNicSockets()
 HcclResult NetworkManager::Destroy()
 {
     /* 停止nic ra的监听 */
-    if (raResourceInfo_.nicSocketMap.size() != 0) {
-        for (auto it : raResourceInfo_.nicSocketMap) {
-            HCCL_WARNING("nicSocketMap[%s] is not stopped when NetworkManager Destroy", it.first.GetReadableAddress());
-        }
-        // StartHostNetAndListen等函数中，同一地址在nicSocketMap和hostNetSocketMap内同时插入
-        // 此处StopAllDeviceNicSockets()销毁nicSocketMap后，StopAllHostNicSockets内会发生重复销毁导致core
-        // 为了避免此种情况，同时尽量减少对既有函数的修改扩散影响，此处同步对hostNetSocketMap进行清理
-        // 最终修改方案需要重构本类，解除两个MAP的耦合
-
-        // 在用条目须保留host侧记录, 无条件erase会使host侧handle失去deinit入口而泄漏;
-        // 同时置位socket与rdma的pending标志, 交由最后一个用户延迟拆除
-        for (auto& it : raResourceInfo_.nicSocketMap) {
-            if (MarkNicUserPendingStop(it.first, true, true)) {
-                continue;
+    // 双map内同一地址的handle副本由拆除路径的SyncNullPeerMapHandle同步置空, 无需前置erase host侧条目
+    // (最终方案仍需重构本类解除双map耦合); 遍历留痕须持raLock_, 并发拆除入口的持锁erase会使
+    // 无锁遍历迭代器失效; StopAllDeviceNicSockets自身持锁, 须留锁外调用
+    {
+        std::unique_lock<std::mutex> lock(raLock_);
+        if (raResourceInfo_.nicSocketMap.size() != 0) {
+            for (auto& it : raResourceInfo_.nicSocketMap) {
+                HCCL_WARNING(
+                    "nicSocketMap[%s] is not stopped when NetworkManager Destroy", it.first.GetReadableAddress());
+                (void)MarkNicUserPendingStop(it.first, true, true);
             }
-            raResourceInfo_.hostNetSocketMap.erase(it.first); // key不存在则不会删除
         }
-        StopAllDeviceNicSockets();
     }
+    StopAllDeviceNicSockets();
 
     /* 停止vnic ra的监听 */
     if (raResourceInfo_.vnicSocketMap.size() != 0) {
@@ -1805,13 +1870,16 @@ HcclResult NetworkManager::Destroy()
     }
 
     /* 停止host nic ra的监听 */
-    if (raResourceInfo_.hostNetSocketMap.size() != 0) {
-        for (auto it : raResourceInfo_.hostNetSocketMap) {
-            HCCL_WARNING(
-                "hostNicSocketMap[%s] is not stopped when NetworkManager Destroy", it.first.GetReadableAddress());
+    {
+        std::unique_lock<std::mutex> lock(raLock_);
+        if (raResourceInfo_.hostNetSocketMap.size() != 0) {
+            for (auto& it : raResourceInfo_.hostNetSocketMap) {
+                HCCL_WARNING(
+                    "hostNicSocketMap[%s] is not stopped when NetworkManager Destroy", it.first.GetReadableAddress());
+            }
         }
-        StopAllHostNicSockets();
     }
+    StopAllHostNicSockets();
 
     /* 释放ra资源 重复RaInit时，不再调用内部DeInit */
     HCCL_DEBUG("Destroy call HrtRaDeInit.");
@@ -1869,6 +1937,16 @@ HcclResult NetworkManager::StopNicsSocketListen(const HcclIpAddress& ipAddr, u32
 
 HcclResult NetworkManager::StopNicsSocket(const HcclIpAddress& ipAddr)
 {
+    std::unique_lock<std::mutex> lock(raLock_);
+    HcclResult ret = StopNicsSocketInternal(ipAddr);
+    if (ret == HCCL_SUCCESS) {
+        EraseNicSocketMapIfPlaceholder(ipAddr);
+    }
+    return ret;
+}
+
+HcclResult NetworkManager::StopNicsSocketInternal(const HcclIpAddress& ipAddr)
+{
     auto it = raResourceInfo_.nicSocketMap.find(ipAddr);
     CHK_PRT_RET(
         it == raResourceInfo_.nicSocketMap.end(),
@@ -1879,16 +1957,20 @@ HcclResult NetworkManager::StopNicsSocket(const HcclIpAddress& ipAddr)
     if (MarkNicUserPendingStop(ipAddr, true, true)) {
         return HCCL_SUCCESS;
     }
+    RdmaHandle deinitRdmaHandle = ipSock.nicRdmaHandle;
     if (ipSock.nicRdmaHandle != nullptr && HrtRaRdmaDeInit(ipSock.nicRdmaHandle, notifyType_) != HCCL_SUCCESS) {
         HCCL_ERROR("[Stop][NicsSocket]NIC rdev deInit not successfully, notifyType_[%d]", notifyType_);
         return HCCL_E_NETWORK;
     }
     ipSock.nicRdmaHandle = nullptr;
+    SyncNullPeerMapHandle(ipAddr, nullptr, deinitRdmaHandle, HcclNetDevDeployment::HCCL_NETDEV_DEPLOYMENT_DEVICE);
+    SocketHandle deinitSocketHandle = ipSock.nicSocketHandle;
     if (ipSock.nicSocketHandle != nullptr && hrtRaSocketDeInit(ipSock.nicSocketHandle) != HCCL_SUCCESS) {
         HCCL_ERROR("[Stop][NicsSocket]NIC socket deInit not successfully");
         return HCCL_E_NETWORK;
     }
     ipSock.nicSocketHandle = nullptr;
+    SyncNullPeerMapHandle(ipAddr, deinitSocketHandle, nullptr, HcclNetDevDeployment::HCCL_NETDEV_DEPLOYMENT_DEVICE);
     return HCCL_SUCCESS;
 }
 
@@ -2130,6 +2212,7 @@ void NetworkManager::GetDeviceRaInitConfig(RaInitConfig& config)
 
 HcclResult NetworkManager::PsWorkerRaDeinit(u32 devId, const HcclIpAddress& ipAddr, u32 port)
 {
+    std::unique_lock<std::mutex> lock(raLock_);
     // 在用时跳过整个Deinit, 条目留给延迟拆除; 守卫须在Unref之前, 否则计数归零后
     // 进程退出时Destroy()的兜底失效, Ra资源泄漏
     if (MarkNicUserPendingStop(ipAddr, true, true)) {
@@ -2163,7 +2246,7 @@ HcclResult NetworkManager::PsWorkerRaDeinit(u32 devId, const HcclIpAddress& ipAd
     HCCL_INFO("PsWorkerRaDeinit devId[%u], isRaInitRepeated[%d]", devId, isRaInitRepeated_);
     // 重复RaInit时，不再调用内部DeInit
     if (!isRaInitRepeated_) {
-        CHK_RET(HeterogStopListen(ipAddr, port, true));
+        CHK_RET(HeterogStopListenInternal(ipAddr, port, true));
     }
 
     SocketHandle nicRdmaHandle = raResourceInfo_.nicSocketMap[ipAddr].nicRdmaHandle;
@@ -2192,8 +2275,8 @@ HcclResult NetworkManager::PsWorkerRaDeinit(u32 devId, const HcclIpAddress& ipAd
         }
     }
 
-    raResourceInfo_.nicSocketMap.erase(raResourceInfo_.nicSocketMap.find(ipAddr));
-    raResourceInfo_.hostNetSocketMap.erase(raResourceInfo_.hostNetSocketMap.find(ipAddr));
+    raResourceInfo_.nicSocketMap.erase(ipAddr);
+    raResourceInfo_.hostNetSocketMap.erase(ipAddr);
 
     return HCCL_SUCCESS;
 }
@@ -2224,7 +2307,17 @@ HcclResult NetworkManager::StopHostNet(SocketHandle socketHandle, const HcclIpAd
         (hostNicInitRef_.Count() == 0), HCCL_ERROR("[Stop][HostNet]cannot start nic socket before host nic inited!"),
         HCCL_E_INTERNAL);
 
-    CHK_RET(CheckSocketInfo(socketHandle, ipAddr));
+    auto hostIt = raResourceInfo_.hostNetSocketMap.find(ipAddr);
+    const bool handleAlreadyDeinit
+        = (hostIt != raResourceInfo_.hostNetSocketMap.end() && hostIt->second.nicSocketHandle == nullptr
+           && socketHandle != nullptr);
+    if (handleAlreadyDeinit) {
+        HCCL_WARNING(
+            "[Stop][HostNet]ip[%s] socketHandle[%p] already deinit by other teardown path, skip physical teardown.",
+            ipAddr.GetReadableAddress(), socketHandle);
+    } else {
+        CHK_RET(CheckSocketInfo(socketHandle, ipAddr));
+    }
 
     if (hostNicSocketClientRef_[ipAddr].Unref() == 0
         && raResourceInfo_.hostNetSocketMap[ipAddr].listenedPort.size() == 0) {
@@ -2232,11 +2325,14 @@ HcclResult NetworkManager::StopHostNet(SocketHandle socketHandle, const HcclIpAd
         if (MarkNicUserPendingStop(ipAddr, true, false)) {
             return HCCL_SUCCESS;
         }
-        CHK_RET(hrtRaSocketDeInit(socketHandle));
+        if (!handleAlreadyDeinit) {
+            CHK_RET(hrtRaSocketDeInit(socketHandle));
+        }
         HCCL_INFO("ip[%s] deinit success.", ipAddr.GetReadableAddress());
 
-        raResourceInfo_.hostNetSocketMap.erase(ipAddr);
-        raResourceInfo_.nicSocketMap.erase(ipAddr);
+        SyncNullPeerMapHandle(ipAddr, socketHandle, nullptr, HcclNetDevDeployment::HCCL_NETDEV_DEPLOYMENT_HOST);
+        EraseNicSocketMapIfPlaceholder(ipAddr);
+        EraseHostNetSocketMapIfPlaceholder(ipAddr);
     }
     return HCCL_SUCCESS;
 }
@@ -2260,14 +2356,24 @@ HcclResult NetworkManager::StopHostSocketHandle(const HcclIpAddress& ipAddr)
     if (MarkNicUserPendingStop(ipAddr, true, false)) {
         return HCCL_SUCCESS;
     }
-    CHK_RET(CheckSocketInfo(sock.nicSocketHandle, ipAddr));
+    const bool handleAlreadyDeinit = (sock.nicSocketHandle == nullptr);
+    if (handleAlreadyDeinit) {
+        HCCL_WARNING(
+            "[NetworkManager][StopHostSocketHandle] ip[%s] socket handle already deinit by other teardown path, "
+            "skip physical teardown.",
+            ipAddr.GetReadableAddress());
+    } else {
+        CHK_RET(CheckSocketInfo(sock.nicSocketHandle, ipAddr));
+    }
 
     // 停止所有的listen
     if (ipIt != IPPortListenRefMapHost_.end()) {
         for (auto& portIt : ipIt->second) {
             u32 port = portIt.first;
             if (IPPortListenRefMapHost_[ipAddr][port].Count() > 0) {
-                CHK_RET(StopListenSocket(sock.nicSocketHandle, port));
+                if (!handleAlreadyDeinit) {
+                    CHK_RET(StopListenSocket(sock.nicSocketHandle, port));
+                }
                 HCCL_WARNING(
                     "[NetworkManager][StopHostSocketHandle] ip [%s] stop listen port [%u]", ipAddr.GetReadableAddress(),
                     port);
@@ -2285,20 +2391,14 @@ HcclResult NetworkManager::StopHostSocketHandle(const HcclIpAddress& ipAddr)
         HCCL_E_INTERNAL);
     // 删除socket 删除IP
     SocketHandle deinitSocketHandle = sock.nicSocketHandle;
-    CHK_RET(hrtRaSocketDeInit(sock.nicSocketHandle));
+    if (!handleAlreadyDeinit) {
+        CHK_RET(hrtRaSocketDeInit(sock.nicSocketHandle));
+    }
     HCCL_INFO("[NetworkManager][StopHostSocketHandle] ip [%s] deinit success.", ipAddr.GetReadableAddress());
     sock.nicSocketHandle = nullptr;
-    // 两个map记录同一handle(PsWorkerRaInit双写): 一侧deinit后同步置空另一侧, 防止二次释放
-    if (deinitSocketHandle != nullptr) {
-        auto nicIt = raResourceInfo_.nicSocketMap.find(ipAddr);
-        if (nicIt != raResourceInfo_.nicSocketMap.end() && nicIt->second.nicSocketHandle == deinitSocketHandle) {
-            nicIt->second.nicSocketHandle = nullptr;
-        }
-    }
-    // 没有host和rdma时 删除ip
-    if (sock.nicSocketHandle == nullptr && sock.nicRdmaHandle == nullptr) {
-        raResourceInfo_.hostNetSocketMap.erase(ipAddr);
-    }
+    SyncNullPeerMapHandle(ipAddr, deinitSocketHandle, nullptr, HcclNetDevDeployment::HCCL_NETDEV_DEPLOYMENT_HOST);
+    EraseNicSocketMapIfPlaceholder(ipAddr);
+    EraseHostNetSocketMapIfPlaceholder(ipAddr);
     hostNicSocketClientRef_[ipAddr].Clear();
     return HCCL_SUCCESS;
 }
