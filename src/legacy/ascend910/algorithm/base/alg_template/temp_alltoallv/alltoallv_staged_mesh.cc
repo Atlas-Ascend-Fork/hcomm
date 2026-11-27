@@ -120,8 +120,8 @@ HcclResult AlltoAllVStagedMesh::RunZCopyMode(const u32 rank, const u32 rankSize,
     // 从stream wait, 主stream record
     for (u32 i = 0; i < rankSize - 2; i++) { // 从stream 个数 = ranksize -2
         CHK_RET(
-            LocalNotify::Wait((*subStreamsPtr_)[i], dispatcher_, (*meshSignalMainToSubPtr_)[i], INVALID_VALUE_STAGE));
-        CHK_RET(LocalNotify::Post(*mainStreamPtr_, dispatcher_, (*meshSignalMainToSubPtr_)[i], INVALID_VALUE_STAGE));
+            LocalNotify::Wait((*subStreamsPtr_)[i], dispatcher_, (*meshSignalSubToMainPtr_)[i], INVALID_VALUE_STAGE));
+        CHK_RET(LocalNotify::Post(*mainStreamPtr_, dispatcher_, (*meshSignalSubToMainPtr_)[i], INVALID_VALUE_STAGE));
     }
 
     for (u32 i = 1; i < rankSize; i++) {
@@ -139,9 +139,9 @@ HcclResult AlltoAllVStagedMesh::RunZCopyMode(const u32 rank, const u32 rankSize,
     }
     // 主stream wait, 从stream record
     for (u32 i = 0; i < rankSize - 2; i++) { // 从stream 个数 = ranksize -2
-        CHK_RET(LocalNotify::Wait(*mainStreamPtr_, dispatcher_, (*meshSignalSubToMainPtr_)[i], INVALID_VALUE_STAGE));
+        CHK_RET(LocalNotify::Wait(*mainStreamPtr_, dispatcher_, (*meshSignalMainToSubPtr_)[i], INVALID_VALUE_STAGE));
         CHK_RET(
-            LocalNotify::Post((*subStreamsPtr_)[i], dispatcher_, (*meshSignalSubToMainPtr_)[i], INVALID_VALUE_STAGE));
+            LocalNotify::Post((*subStreamsPtr_)[i], dispatcher_, (*meshSignalMainToSubPtr_)[i], INVALID_VALUE_STAGE));
     }
 
     CHK_RET(AlgTemplateBase::ExecEmptyTask(sendMem_, recvMem_, *mainStreamPtr_, dispatcher_));
