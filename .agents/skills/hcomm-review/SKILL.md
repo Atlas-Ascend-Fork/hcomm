@@ -39,7 +39,8 @@ python3 .agents/skills/hcomm-review/scripts/pr_review.py --pr <N> --meta --repo-
 cd <本仓路径>
 git fetch <remote> <target_branch>                    # remote 用 origin 或 upstream（指向 cann/hcomm 的那个）
 git fetch <remote> refs/merge-requests/<N>/head:refs/remotes/<remote>/mr/<N>-head
-git worktree add --detach .wt/review-<N> refs/remotes/<remote>/mr/<N>-head
+# <临时目录> 用系统临时目录（Linux /tmp、Windows %TEMP%），不放仓内，避免 worktree 出现在 git status
+git worktree add --detach <临时目录>/review-<N> refs/remotes/<remote>/mr/<N>-head
 ```
 
 - **基线核验**（防基线漂移把意见发到非本 PR 的代码上）：本地 `git diff <base_sha>..<head_sha>` 的文件数应与元数据 `changed_files` 一致；不一致时以 `--pr <N> --files` 的 API 权威列表为准，禁止据本地 diff 检视。
@@ -54,11 +55,11 @@ git worktree add --detach .wt/review-<N> refs/remotes/<remote>/mr/<N>-head
 
 ### Step 3 多维检视
 
-**先读检视规范与仓内权威资料，再检视**（检视规范按七类分档，见 [`references/README.md`](./references/README.md) 索引，按 PR 触碰范围加载）：
+**先读检视规范与仓内权威资料，再检视**（检视规范按八类分档，见 [`references/README.md`](./references/README.md) 索引，按 PR 触碰范围加载）：
 
 | 资料 | 用途 | 加载条件 |
 |------|------|----------|
-| [`references/`](./references/README.md) 检视规范 | 编码安全红线 / 对外 API / 架构合规 / PR 完备性 | 所有代码 PR（按触碰范围选载，见索引） |
+| [`references/`](./references/README.md) 检视规范 | 编码安全红线 / 异步与生命周期 / 对外 API / 架构合规 / PR 完备性 | 所有 PR（按触碰范围选载，见索引） |
 | [`references/markdown-writing.md`](./references/markdown-writing.md) | Markdown 写作规范（14 类 + 通顺/敏感词/术语） | PR diff 含 `.md` 变更时 |
 | [`references/markdown-api-accuracy.md`](./references/markdown-api-accuracy.md) | Markdown 接口文档准确性（原型/参数/样例） | PR 触碰 `docs/zh/api_ref/` 或文档涉及 `include/`、`pkg_inc/` 接口原型时 |
 | 根目录 `AGENTS.md` | 架构约束（分层依赖/控制面数据面分离/legacy 约束）、编码规范、目录职责 | 所有 PR |
@@ -73,7 +74,7 @@ git worktree add --detach .wt/review-<N> refs/remotes/<remote>/mr/<N>-head
 ```json
 [{"severity": "CRITICAL|HIGH|MEDIUM|LOW", "file": "src/path.cc", "line": 42,
   "dimension": "Resource Lifecycle", "title": "简短描述",
-  "body": "问题描述 + 建议修复（必须给具体改法，不只点问题）",
+  "body": "问题描述 + 证据（读到的代码/调用链）+ 影响 + 具体改法（不只点问题）",
   "code_snippet": "该行内容片段"}]
 ```
 
@@ -118,10 +119,40 @@ python3 .agents/skills/hcomm-review/scripts/pr_review.py --pr <N> --dispose --li
 
 ```bash
 python3 .agents/skills/hcomm-review/scripts/pr_review.py --pr <N> --cleanup \
-  --worktree <本仓路径>/.wt/review-<N> --repo-root <本仓路径>
+  --worktree <临时目录>/review-<N> --repo-root <本仓路径>
 ```
 
 移除 worktree、prune、删除临时 findings 文件。
+
+## 检视纪律与意见分级
+
+检视只产出意见、不改被检视代码；所有结论来自实读代码与调用链，不靠关键词命中定罪。
+
+**四条纪律**
+
+- **只读**：不改动被检视代码、不产生任何提交，仓内受版本控制的文件一律不写；只允许写检视中间产物（Step 1 的临时 worktree、findings 等），流程结束按 Step 5 清理。对外产出只有检视意见评论（PR 已合入时为跟踪 Issue）。
+- **代码事实**：读完整函数体而非只看 diff，`git show`/grep 核对调用方；按控制流、数据流与调用链判断，不凭推测报告。
+- **工具验证**：指针赋值/传递（值传 vs 引用）、算术溢出（确认类型与值域）、结构体成员增删（grep 成员名核对全部引用点）、跨文件遗漏（grep 被改/删符号的全部引用）——这几类发现先工具验证再报。
+  - 死代码与注释代码：建议删除未使用的符号/文件前，按全限定名 `git grep` 全仓（含 `test/`、`scripts/`、构建配置）确认无引用；注释掉的代码按「是否有计划保留的理由」判断（注明 Issue 的计划占位不算违规），不做符号引用式的机械判断。对外/ABI 符号、弱符号、dlsym 动态查找符号不得建议删除，确需删除时引导作者走仓内废弃流程（deprecate→宽限期→移除），检视侧只跟踪不代删。
+- **反证检验**：报告前反问"什么条件下该问题不成立"，并用工具验证该条件（调用链上游已判空、RAII 已管理该资源、值域受限）；反证成立则不报。
+
+**移动代码与存量代码**
+
+- 与同 PR 删除行内容相同的 `+` 行是移动代码，不按新增违规报；前提是新位置上下文等价（判空、加锁、初始化、生命周期顺序未变），上下文变了并引入新缺陷的仍按本次 diff 定级。
+- 检视中读到的存量代码命中任一规则同样提意见，级别按规则本身定（红线类仍是 CRITICAL/HIGH），但不阻塞当次合入；量大可另开 Issue 跟踪。
+
+**严重级别**（每条意见标一个）
+
+| 级别 | 含义 | 与合入的关系 |
+|------|------|-------------|
+| CRITICAL | 崩溃、数据损坏、安全漏洞、编译/链接失败级缺陷 | 阻塞，必须修复 |
+| HIGH | 高风险缺陷，或违反仓内强制规范 | 阻塞，须修复或给出可核实的豁免理由 |
+| MEDIUM | 应当修复的质量问题（可读性、可维护性、经验性规范） | 不阻塞，须回应 |
+| LOW | 可选改进 | 不阻塞 |
+
+阻塞 = 本次 diff 引入 且 级别为 CRITICAL/HIGH；存量问题无论级别都不阻塞当次合入（见上「移动代码与存量代码」）。表中「与合入的关系」指本次 diff 引入的意见。
+
+**每条意见四要素**：位置（`file:line`，行号实证）、证据（读到的代码或调用链）、影响（会导致什么）、整改建议（具体改法）。缺要素不发。
 
 ## 执行纪律
 
