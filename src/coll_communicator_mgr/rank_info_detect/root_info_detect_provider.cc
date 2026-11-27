@@ -225,6 +225,10 @@ namespace {
         serverInfo.groupSize = groupSize;
         serverInfo.groupFirstRank = groupFirstRank;
         serverInfo.identifier = selfHandle.rootHandle.identifier;
+        serverInfo.meshIdentifier = rootHandles[0].rootHandle.identifier;
+        CHK_PRT_RET(
+            serverInfo.meshIdentifier.empty(),
+            HCCL_ERROR("[%s] empty mesh identifier, root[0] identifier is invalid.", __func__), HCCL_E_PARA);
         serverInfo.meshInfos.resize(nRoot);
         for (u32 i = 0; i < nRoot; ++i) {
             s32 sRet = memcpy_s(

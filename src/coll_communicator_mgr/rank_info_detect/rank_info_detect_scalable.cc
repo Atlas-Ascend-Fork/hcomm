@@ -36,11 +36,11 @@ namespace {
     const std::string MESH_TAG_PREFIX = "rank_info_detect_scalable_mesh_tag"; // mesh 白名单 tag 前缀
     constexpr u32 MESH_SOCKET_CONN_LIMIT = 1;                                 // 每对 root 仅一条 mesh 连接
 
-    // mesh tag 构造（connect/accept、白名单下发共用）：编号归一化后拼接，双侧独立计算一致且每对唯一。
-    std::string BuildMeshTag(u32 smallerRootIndex, u32 largerRootIndex, u32 serverMeshPort)
+    // mesh tag 构造：meshIdentifier是rootInfoList[0]的identifier，用于区分不同通信域
+    std::string BuildMeshTag(u32 rootIndexA, u32 rootIndexB, u32 serverMeshPort, const std::string& meshIdentifier)
     {
-        return MESH_TAG_PREFIX + "_" + std::to_string(std::min(smallerRootIndex, largerRootIndex)) + "_"
-               + std::to_string(std::max(smallerRootIndex, largerRootIndex)) + "_" + std::to_string(serverMeshPort);
+        return MESH_TAG_PREFIX + "_" + meshIdentifier + "_" + std::to_string(std::min(rootIndexA, rootIndexB)) + "_"
+               + std::to_string(std::max(rootIndexA, rootIndexB)) + "_" + std::to_string(serverMeshPort);
     }
 
     // 小编号 root 主动连接大编号 root，accept 侧只接收较小编号
@@ -59,8 +59,7 @@ namespace {
     {
         std::vector<RaSocketWhitelist> wlistInfo;
         for (u32 peer : MeshAcceptPeers(info)) {
-            const std::string tag
-                = BuildMeshTag(std::min(peer, info.rootIndex), std::max(peer, info.rootIndex), listenPort);
+            const std::string tag = BuildMeshTag(peer, info.rootIndex, listenPort, info.meshIdentifier);
             for (auto& ipAddress : hostSocketWlist) {
                 RaSocketWhitelist wl{};
                 wl.remoteIp = ipAddress;
@@ -812,8 +811,8 @@ std::shared_ptr<Socket> RankInfoDetectScalable::MakeMeshSocket(u32 peer)
     auto handle = HostSocketHandleManager::GetInstance().Create(devPhyId_, localIp);
     const bool disable = EnvConfig::GetInstance().GetHostNicConfig().GetWhitelistDisable();
     return std::make_shared<Socket>(
-        handle, localIp, serverPort, peerIp, BuildMeshTag(self, peer, serverPort), SocketRole::CLIENT,
-        NicType::HOST_NIC_TYPE, disable);
+        handle, localIp, serverPort, peerIp, BuildMeshTag(self, peer, serverPort, scalableInfo_.meshIdentifier),
+        SocketRole::CLIENT, NicType::HOST_NIC_TYPE, disable);
 }
 
 HcclResult RankInfoDetectScalable::MeshConnectToLargerRoots(u32 timeoutSec)
@@ -905,7 +904,8 @@ HcclResult RankInfoDetectScalable::MeshAcceptSmallerRootsCore(u32 timeoutSec)
             break;
         }
         const u32 perPeerSec = SliceMeshWaitSeconds(remainTimeSec, scalableInfo_.rootIndex - peer);
-        const auto tag = BuildMeshTag(peer, scalableInfo_.rootIndex, meshListenSocket_->GetListenPort());
+        const auto tag = BuildMeshTag(
+            peer, scalableInfo_.rootIndex, meshListenSocket_->GetListenPort(), scalableInfo_.meshIdentifier);
         std::shared_ptr<Socket> socket;
         // 建链阶段：Accept 失败/异常均记状态未知，不影响后续对端
         HcclResult ret = HCCL_SUCCESS;

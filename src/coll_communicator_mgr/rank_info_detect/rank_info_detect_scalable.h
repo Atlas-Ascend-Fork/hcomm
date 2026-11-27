@@ -53,7 +53,8 @@ struct ScalableServerInfo {
     u32 rootIndex{SCALABLE_INVALID_INDEX}; // 本 root 序号
     u32 groupSize{0};                      // 本组 rank 个数
     u32 groupFirstRank{0};                 // 本组首 rank（组内最小 rankId，即 root 的 rankId）
-    std::string identifier{};              // rootHandle 标识符
+    std::string identifier{};              // 本组 root 标识符
+    std::string meshIdentifier{};          // 组间 root mesh 标识符
     std::vector<RootMeshInfo> meshInfos;   // 全量 root ip+meshPort，下标 = rootIndex
 };
 
