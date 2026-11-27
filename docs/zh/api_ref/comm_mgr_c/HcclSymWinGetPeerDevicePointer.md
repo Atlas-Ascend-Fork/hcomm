@@ -65,7 +65,7 @@ HcclResult HcclSymWinGetPeerDevicePointer(HcclCommSymWindow winHandle, size_t of
 - UB Memory场景会在运行时校验offset，超出`[0, 窗口用户size)`时返回`HCCL_E_PARA`。
 <!-- end id9 -->
 - 该接口在HOST侧调用，返回对端Device地址。
-- 本接口符号由`libhcomm.so`提供；Release构建下仅由HOST侧版本脚本`src/legacy/ascend910/framework/hcomm.map`导出，非Release构建不挂载该脚本。设备侧库`libccl_kernel.so`与`libaicpu_custom.so`不导出该符号。调用方应链接`libhcomm.so`，或通过`dlsym`从`libhcomm.so`加载本接口符号，不得从设备侧库中查找。
+- 本接口符号由`libhcomm.so`提供。设备侧库`libccl_kernel.so`与`libaicpu_custom.so`不导出该符号。调用方应链接`libhcomm.so`，或通过`dlsym`从`libhcomm.so`加载本接口符号，不得从设备侧库中查找。
 - 接口失败时*ptr一定为nullptr，调用方不得沿用上一次查询得到的地址。
 - winHandle对应的窗口解注册（[HcclCommSymWinDeregister](HcclCommSymWinDeregister.md)）后，通过本接口获取的地址失效。
 

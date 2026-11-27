@@ -65,7 +65,7 @@ HcclResult HcclSymWinGetPeerDevicePointer(HcclCommSymWindow winHandle, size_t of
 - In the UB Memory scenario, offset is validated at runtime. If it is outside `[0, window user size)`, `HCCL_E_PARA` is returned.
 <!-- end id9 -->
 - This API is called on the host side and returns the peer device address.
-- The symbol of this API is provided by `libhcomm.so`. In Release builds, it is exported only through the host-side version script `src/legacy/ascend910/framework/hcomm.map`; the script is not applied in non-Release builds. The device-side libraries `libccl_kernel.so` and `libaicpu_custom.so` do not export this symbol. The caller should link against `libhcomm.so`, or load the API symbol from `libhcomm.so` through `dlsym`. Do not look up this symbol in device-side libraries.
+- The symbol of this API is provided by `libhcomm.so`. The device-side libraries `libccl_kernel.so` and `libaicpu_custom.so` do not export this symbol. The caller should link against `libhcomm.so`, or load the API symbol from `libhcomm.so` through `dlsym`. Do not look up this symbol in device-side libraries.
 - On failure, *ptr is always set to nullptr. The caller must not reuse the address obtained from a previous query.
 - After the window corresponding to winHandle is deregistered ([HcclCommSymWinDeregister](HcclCommSymWinDeregister.md)), the address obtained by this API becomes invalid.
 

@@ -154,17 +154,6 @@ if(PRODUCT_SIDE STREQUAL "device")
         OUTPUT_NAME rs
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/device"
     )
-    # 符号隐藏: 仅导出白名单符号; 非 release 模式依赖动态符号, 不挂载
-    if(CMAKE_BUILD_TYPE STREQUAL "Release")
-        target_link_options(rs_device PRIVATE "-Wl,--version-script=${CMAKE_CURRENT_LIST_DIR}/rs_device.map")
-        set_property(TARGET rs_device APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/rs_device.map")
-    endif()
-endif()
-
-# 符号隐藏: 仅导出白名单符号; 非 release 模式依赖动态符号, 不挂载
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    target_link_options(rs PRIVATE "-Wl,--version-script=${CMAKE_CURRENT_LIST_DIR}/rs.map")
-    set_property(TARGET rs APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/rs.map")
 endif()
 
 # 安装

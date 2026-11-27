@@ -194,4 +194,4 @@ sequenceDiagram
 | **DPU 本地原语** | 单参 `LocalNotifyRecord(notifyId)`/`LocalNotifyWait(notifyId)` 与 `LocalReduce` 不支持，返回 `HCCL_E_NOT_SUPPORT`；跨线程 notify、带超时 notify 等待、通道级原语与本地拷贝经 SQ 提交器转 SQE 下发 DPU。 |
 | **DPU 名片时序** | `IsNamecardReady()` 为 false 表示队列 kernel 尚未拉起，消费侧须空转；SQ 提交器初始化失败时名片不置就绪，无恢复路径。 |
 | **DPU 队列描述校验** | `RunDpuQueueNamecardRestore` 要求 CQ 深度恒为单槽（`DPU_CQ_DEPTH = 1`）、SQ/CQ `elemSize` 与 `DPU_SQE_SIZE`/`DPU_CQE_SIZE`（均为 64）一致、SQ `depth` 非零且为 2 的幂，违者投递失败。 |
-| **DPU kernel 入口对齐** | 两个 device kernel 入口由 host 侧按名解析下发（不在 host 侧链接符号），入口名须与 `ccl_kernel.ini` 的 section 名、`.map` 白名单三处一致，缺一只在 Release 运行期报「函数解析失败」。 |
+| **DPU kernel 入口对齐** | 两个 device kernel 入口由 host 侧按名解析下发（不在 host 侧链接符号），入口名须与 `ccl_kernel.ini` 的 section 名一致，不一致在运行期报「函数解析失败」。 |

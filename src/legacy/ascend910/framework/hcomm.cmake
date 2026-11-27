@@ -253,12 +253,6 @@ else()
     )
 endif()
 
-# 符号隐藏: 仅导出白名单符号; 非 release 模式依赖动态符号, 不挂载
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    target_link_options(hcomm PRIVATE "-Wl,--version-script=${CMAKE_CURRENT_LIST_DIR}/hcomm.map")
-    set_property(TARGET hcomm APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/hcomm.map")
-endif()
-
 # 安装 hcomm 库
 install(TARGETS hcomm
     LIBRARY DESTINATION ${INSTALL_LIBRARY_DIR} ${INSTALL_OPTIONAL}

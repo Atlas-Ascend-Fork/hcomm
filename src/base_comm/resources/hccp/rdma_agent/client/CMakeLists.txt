@@ -65,12 +65,6 @@ target_compile_options(ra PRIVATE
     $<$<CONFIG:Debug>:-Og -g>
 )
 
-# 符号隐藏: 仅导出白名单符号; 非 release 模式依赖动态符号, 不挂载
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    target_link_options(ra PRIVATE "-Wl,--version-script=${CMAKE_CURRENT_LIST_DIR}/ra.map")
-    set_property(TARGET ra APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/ra.map")
-endif()
-
 target_link_libraries(ra PRIVATE
     $<BUILD_INTERFACE:intf_pub>
     $<BUILD_INTERFACE:ascend_hal_headers>

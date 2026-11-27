@@ -10,7 +10,7 @@
 
 # 定义 device 侧 base_comm 独立动态库 libbase_comm_aicpu.so
 # 承载编译进 ccl_kernel 的 base_comm 源文件，由 ccl_kernel 链接。
-# 不挂 version-script，保留 RunAicpuThread*/HcommThreadCreateAicpu 等入口供 AICPU 按名解析。
+# 保留 RunAicpuThread*/HcommThreadCreateAicpu 等入口的默认可见性导出，供 AICPU 按名解析。
 add_library(base_comm_aicpu SHARED)
 
 # 编译选项（与 ccl_kernel 保持一致）

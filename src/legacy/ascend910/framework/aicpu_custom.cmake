@@ -61,12 +61,6 @@ add_custom_target(aicpu_custom_json ALL
     DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/libaicpu_custom.json
 )
 
-# 符号隐藏: 仅导出白名单符号; 非 release 模式依赖动态符号, 不挂载
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    target_link_options(aicpu_custom PRIVATE "-Wl,--version-script=${CMAKE_CURRENT_LIST_DIR}/aicpu_custom.map")
-    set_property(TARGET aicpu_custom APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/aicpu_custom.map")
-endif()
-
 # 安装
 install(TARGETS aicpu_custom
     LIBRARY DESTINATION ${INSTALL_CCL_KERNEL_JSON_DIR}/kernel ${INSTALL_OPTIONAL}
