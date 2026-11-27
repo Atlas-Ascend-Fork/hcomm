@@ -22,10 +22,10 @@ std::string ControlPlane::Describe() const
         listenPort);
 }
 
-void ControlPlane::GetBinStream(Hccl::BinaryStream& binStream) const
+void ControlPlane::GetBinStream(Hccl::BinaryStream& binaryStream) const
 {
-    binStream << static_cast<u32>(addrType) << listenPort;
-    addr.GetBinStream(binStream);
+    binaryStream << static_cast<u32>(addrType) << listenPort;
+    addr.GetBinStream(binaryStream);
 }
 
 ControlPlane::ControlPlane(Hccl::BinaryStream& binStream)
