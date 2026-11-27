@@ -572,12 +572,26 @@ HcclComm hcclComm::GetCommunicatorV2()
 
 HcclCommunicator* hcclComm::GetHcclCommunicator() { return communicator_.get(); }
 
-CollComm* hcclComm::GetCollComm() { return collComm_ != nullptr ? collComm_.get() : nullptr; }
+CollComm* hcclComm::GetCollComm() const { return collComm_ != nullptr ? collComm_.get() : nullptr; }
 
 HcclResult hcclComm::SetCollCommInitSource(CommInitSource initSource)
 {
     CHK_PRT_RET(collComm_ == nullptr, HCCL_ERROR("[SetCollCommInitSource] collComm is nullptr."), HCCL_E_PTR);
     collComm_->SetInitSource(initSource);
+    return HCCL_SUCCESS;
+}
+
+HcclResult hcclComm::InheritParentCommContext(const hcclComm& parent, const uint32_t* rankIds, uint32_t rankNum)
+{
+    CollComm* parentCollComm = parent.GetCollComm();
+    if (parentCollComm == nullptr) {
+        HCCL_INFO("[%s] parent CollComm is nullptr, skip inheritance.", __func__);
+        return HCCL_SUCCESS;
+    }
+
+    CHK_PRT_RET(collComm_ == nullptr, HCCL_ERROR("[%s] CollComm is nullptr.", __func__), HCCL_E_PTR);
+    collComm_->SetInitSource(parentCollComm->GetInitSource());
+    CHK_RET(collComm_->InheritRootFromParentComm(*parentCollComm, rankIds, rankNum));
     return HCCL_SUCCESS;
 }
 

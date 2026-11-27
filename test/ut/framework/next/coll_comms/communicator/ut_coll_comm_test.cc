@@ -2389,6 +2389,104 @@ protected:
     }
 };
 
+TEST_F(CollCommShrinkGrowTest, Ut_InheritRootFromParentComm_When_RankIdsReordered_ExpectRootRemapped)
+{
+    CollComm parent(nullptr, 0, "ut_parent", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    HcclRootHandleV2 parentRootHandle{};
+    parentRootHandle.listenPort = 60070;
+    parentRootHandle.rootRankId = 1;
+    strncpy_s(
+        parentRootHandle.identifier, sizeof(parentRootHandle.identifier), "ut_parent_root",
+        sizeof("ut_parent_root") - 1);
+    parent.SetRootHandle(parentRootHandle);
+
+    CollComm child(nullptr, 0, "ut_child", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    uint32_t rankIds[] = {1, 2, 3, 4};
+    ASSERT_EQ(child.InheritRootFromParentComm(parent, rankIds, 4), HCCL_SUCCESS);
+    EXPECT_TRUE(child.IsRootHandleValid());
+    EXPECT_EQ(child.GetRootRankId(), 0u);
+    EXPECT_EQ(child.GetCollCommRootHandle().listenPort, parentRootHandle.listenPort);
+    EXPECT_STREQ(child.GetCollCommRootHandle().identifier, parentRootHandle.identifier);
+}
+
+TEST_F(CollCommShrinkGrowTest, Ut_InheritRootFromParentComm_When_RootNotInRankIds_ExpectNoRoot)
+{
+    struct RootMappingCase {
+        uint32_t parentRootRankId;
+        std::vector<uint32_t> rankIds;
+        uint32_t expectedChildRootRankId;
+        bool expectedRootValid;
+    };
+    const std::vector<RootMappingCase> cases = {
+        {1, {0, 1, 2, 3}, 1, true},
+        {1, {0, 2, 3, 4}, UINT32_MAX, false},
+        {3, {1, 2, 3, 4}, 2, true},
+    };
+
+    for (const auto& testCase : cases) {
+        SCOPED_TRACE(
+            "parentRootRankId=" + std::to_string(testCase.parentRootRankId)
+            + ", rankNum=" + std::to_string(testCase.rankIds.size()));
+        CollComm parent(nullptr, 0, "ut_parent", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+        HcclRootHandleV2 parentRootHandle{};
+        parentRootHandle.listenPort = 60071;
+        parentRootHandle.rootRankId = testCase.parentRootRankId;
+        strncpy_s(
+            parentRootHandle.identifier, sizeof(parentRootHandle.identifier), "ut_parent_root",
+            sizeof("ut_parent_root") - 1);
+        parent.SetRootHandle(parentRootHandle);
+
+        CollComm child(nullptr, 0, "ut_child", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+        ASSERT_EQ(
+            child.InheritRootFromParentComm(
+                parent, testCase.rankIds.data(), static_cast<uint32_t>(testCase.rankIds.size())),
+            HCCL_SUCCESS);
+        EXPECT_EQ(child.GetRootRankId(), testCase.expectedChildRootRankId);
+        EXPECT_EQ(child.IsRootHandleValid(), testCase.expectedRootValid);
+    }
+}
+
+TEST_F(CollCommShrinkGrowTest, Ut_InheritRootFromParentComm_When_ParentHasNoRoot_ExpectNoRoot)
+{
+    CollComm parent(nullptr, 0, "ut_parent", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    parent.SetRootHandle({});
+
+    CollComm child(nullptr, 0, "ut_child", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    uint32_t rankIds[] = {0, 1, 2, 3};
+    ASSERT_EQ(child.InheritRootFromParentComm(parent, rankIds, 4), HCCL_SUCCESS);
+    EXPECT_FALSE(child.IsRootHandleValid());
+    EXPECT_EQ(child.GetRootRankId(), UINT32_MAX);
+}
+
+TEST_F(CollCommShrinkGrowTest, Ut_InheritRootFromParentComm_ThenShrink_ExpectRemappedRootSurvives)
+{
+    CollComm parent(nullptr, 0, "ut_parent", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    HcclRootHandleV2 parentRootHandle{};
+    parentRootHandle.listenPort = 60072;
+    parentRootHandle.rootRankId = 1;
+    strncpy_s(
+        parentRootHandle.identifier, sizeof(parentRootHandle.identifier), "ut_parent_root",
+        sizeof("ut_parent_root") - 1);
+    parent.SetRootHandle(parentRootHandle);
+
+    MockRankGraphSG mockGraph;
+    mockGraph.mockRankSize = 4;
+    CollComm child(nullptr, 0, "ut_child", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    child.rankgraph_ = &mockGraph;
+    child.rankId_ = 0;
+
+    uint32_t rankIds[] = {1, 2, 3, 4};
+    ASSERT_EQ(child.InheritRootFromParentComm(parent, rankIds, 4), HCCL_SUCCESS);
+    ASSERT_EQ(child.GetRootRankId(), 0u);
+
+    uint32_t excludeRanks[] = {1};
+    CollComm::ShrinkSurvivorResult result;
+    ASSERT_EQ(child.BuildShrinkSurvivorRanks(excludeRanks, 1, result), HCCL_SUCCESS);
+    EXPECT_FALSE(result.rootExcluded);
+    EXPECT_EQ(result.childRootRank, 0u);
+    EXPECT_EQ(result.survivorRanks, std::vector<uint32_t>({0, 2, 3}));
+}
+
 TEST_F(CollCommShrinkGrowTest, Ut_CommGrow_When_RankOutOfRange_Expect_E_PARA)
 {
     MockRankGraphSG mockGraph;

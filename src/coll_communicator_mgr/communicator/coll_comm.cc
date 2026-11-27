@@ -1153,6 +1153,35 @@ void CollComm::SetRootHandle(const Hccl::HcclRootHandleV2& handle)
     }
 }
 
+HcclResult CollComm::InheritRootFromParentComm(const CollComm& parent, const uint32_t* rankIds, uint32_t rankNum)
+{
+    CHK_PTR_NULL(rankIds);
+
+    Hccl::HcclRootHandleV2 childRootHandle{};
+    // 子通信域继承父域 root 身份: root 不在 rankIds 中时，子域显式置为无 root。
+    if (parent.IsRootIdentityValid()) {
+        const uint32_t parentRootRankId = parent.GetRootRankId();
+        for (uint32_t childRankId = 0; childRankId < rankNum; ++childRankId) {
+            if (rankIds[childRankId] == parentRootRankId) {
+                childRootHandle = parent.GetCollCommRootHandle();
+                childRootHandle.rootRankId = childRankId;
+                break;
+            }
+        }
+        if (childRootHandle.rootRankId == UINT32_MAX) {
+            HCCL_INFO(
+                "[CollComm][%s] parent root rankId[%u] is not in sub comm rankIds, child has no root.", __func__,
+                parentRootRankId);
+        }
+    }
+
+    SetRootHandle(childRootHandle);
+    HCCL_INFO(
+        "[CollComm][%s] parent rootRankId[%u], child rootRankId[%u], rankNum[%u], rootValid[%d].", __func__,
+        parent.GetRootRankId(), GetRootRankId(), rankNum, static_cast<int>(IsRootIdentityValid()));
+    return HCCL_SUCCESS;
+}
+
 void CollComm::SetRankInfoDetect(std::shared_ptr<Hccl::RankInfoDetect> detect)
 {
     rankInfoDetect_ = std::move(detect);

@@ -851,7 +851,6 @@ HcclResult HcclCreateSubCommConfig(
         CHK_RET(ReadHcclCommConfig(config, normalizedConfig));
         CHK_RET(HcclCreateSubCommConfigV2(
             &commV2, rankNum, rankIds, subCommId, subCommRankId, &normalizedConfig, &subCommV2));
-        const auto* parentCollComm = globalComm->GetCollComm();
         HcclResult ret = HcclCommInitCollComm(subCommRankId, &subCommV2, &normalizedConfig, subComm);
         if (ret != HCCL_SUCCESS) {
             HCCL_ERROR("[HcclCommInitCollComm]HcclCommInitCollComm failed. Destroy subCommV2");
@@ -860,11 +859,9 @@ HcclResult HcclCreateSubCommConfig(
             *subComm = nullptr;
             return ret;
         }
-        if (parentCollComm != nullptr) {
-            auto* subCommPtr = static_cast<hccl::hcclComm*>(*subComm);
-            CHK_PTR_NULL(subCommPtr);
-            CHK_RET(subCommPtr->SetCollCommInitSource(parentCollComm->GetInitSource()));
-        }
+        auto* subCommPtr = static_cast<hccl::hcclComm*>(*subComm);
+        CHK_PTR_NULL(subCommPtr);
+        CHK_RET(subCommPtr->InheritParentCommContext(*globalComm, rankIds, rankNum));
         return HCCL_SUCCESS;
     }());
 #endif
