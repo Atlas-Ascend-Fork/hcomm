@@ -275,6 +275,7 @@ private:
     void FillAlgInfoBaseFields(
         NslbDpAlgorithmInfo& algorithmInfo, HcclCMDType opType, u32 srcLocalRankId, u32 rootRank, u8 algType);
     bool TryFillA3SimulatedAdjInfo(const std::string& identifier, u32 srcLocalRankId, AdjInfo& nslbAdjInfo);
+    bool TryFillAllGatherNhrAdjInfo(const std::string& identifier, u32 srcLocalRankId, AdjInfo& nslbAdjInfo);
     bool IsAlgAdjacencyDuplicated(const NslbDpAlgorithmInfo& algorithmInfo);
     bool FillAlgInfoAdjInfo(NslbDpAlgorithmInfo& algorithmInfo, const AdjInfo& nslbAdjInfo, u32 srcLocalRankId);
     // 表1首条记录（全局通信域）落库后，缓存其 rankInfo 的 deviceIp/podId/index

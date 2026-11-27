@@ -1035,6 +1035,14 @@ HcclResult hcclNslbDp::GetAlgAdjacencyTable(
         }
     }
 
+    /* allgather：host 未上报邻接(dstRankNum==0)时，按 AllGatherNHR 标准邻居推导模拟填充 */
+    if (GetNslbOpType(opType) == NSLBDP_CMD_ALLGATHER && nslbAdjInfo.dstRankNum == 0) {
+        if (!TryFillAllGatherNhrAdjInfo(identifier, srcLocalRankId, nslbAdjInfo)) {
+            HCCL_RUN_INFO("[NSLB-DP-ADJ] allgather adj info skipped for identifier[%s].", identifier.c_str());
+            return HCCL_SUCCESS;
+        }
+    }
+
     NslbDpAlgorithmInfo algorithmInfo;
     algorithmInfo.taskId = taskId;
     if (InitAlgInfoCommDesc(algorithmInfo, identifier) == false) {
@@ -1214,6 +1222,44 @@ bool hcclNslbDp::TryFillA3SimulatedAdjInfo(const std::string& identifier, u32 sr
     }
     /* 从实际 push_back 的数量赋值，保证 dstRankNum 与 nsAdjInfo.size() 一致 */
     nslbAdjInfo.dstRankNum = static_cast<u16>(nslbAdjInfo.nsAdjInfo.size());
+    return true;
+}
+
+/* allgather：host 未上报邻接(dstRankNum==0)时，按 AllGatherNHR 的邻居推导模拟填充。 */
+/* 参考 TEMPLATE_ALL_GATHER_NHR 的 GetNslbAdjInfo：rankSize 按表1的 rankTotalNum。 */
+/* nSteps = ceil(log2(rankTotalNum))，每个 step 的邻居 dst = (src + (1<<(nSteps-1-step))) % rankTotalNum， */
+/* phaseId 为 1 基连续计数。 */
+bool hcclNslbDp::TryFillAllGatherNhrAdjInfo(const std::string& identifier, u32 srcLocalRankId, AdjInfo& nslbAdjInfo)
+{
+    const NslbDpCommConfigVal* commConfig = FindCommConfigByDesc(identifier.c_str());
+    if (commConfig == nullptr) {
+        HCCL_RUN_INFO(
+            "[NSLB-DP-ADJ] allgather identifier[%s] not found in comm config table, skip.", identifier.c_str());
+        return false;
+    }
+    u16 rankTotalNum = commConfig->rankTotalNum;
+    if (rankTotalNum <= 1) {
+        HCCL_RUN_INFO(
+            "[NSLB-DP-ADJ] allgather identifier[%s] abnormal rankTotalNum[%u], skip.", identifier.c_str(),
+            rankTotalNum);
+        return false;
+    }
+    u32 nSteps = 0;
+    for (u32 tmp = rankTotalNum - 1; tmp != 0; tmp >>= 1, ++nSteps) {
+    }
+    for (u32 step = 0; step < nSteps; step++) {
+        u32 deltaRank = 1 << (nSteps - 1 - step);
+        u32 sendTo = (srcLocalRankId + deltaRank) % rankTotalNum;
+        NslbDpAdjInfo adjInfo = {};
+        adjInfo.dstLocalRankId = sendTo;
+        adjInfo.phaseId = step + 1;
+        adjInfo.rev = 0;
+        nslbAdjInfo.nsAdjInfo.push_back(adjInfo);
+    }
+    nslbAdjInfo.dstRankNum = static_cast<u16>(nslbAdjInfo.nsAdjInfo.size());
+    HCCL_RUN_INFO(
+        "[NSLB-DP-ADJ] allgather identifier[%s] simulated adj info by NHR, rankTotalNum[%u], dstRankNum[%u].",
+        identifier.c_str(), rankTotalNum, nslbAdjInfo.dstRankNum);
     return true;
 }
 

@@ -574,6 +574,108 @@ TEST_F(NslbDpStFlowTest, GetAlgAdjacencyTable_EarlyReturns)
 }
 
 // ============================================================
+// 16.1 TryFillAllGatherNhrAdjInfo：allgather 空邻接时按 NHR 推导填充
+// 用例说明：
+//   RankTotalNumTooSmall              rankTotalNum 为 1/0 时返回 false，不填充邻接
+//   IdentifierNotFound                identifier 未注册(表1查不到)时返回 false
+//   PowerOfTwoRanks                   8 rank、src=3，邻居 7/5/4，phaseId 1/2/3
+//   NonPowerOfTwoWrap                 5 rank、src=4，取模环绕得到 3/1/0
+//   AllGatherEmptyAdjFilledByNhr      端到端落表3：校验 oper/dstRankNum/邻居/phaseId
+//   AllGatherSmallRankTotalNumSkipped rankTotalNum<=1 时返回 SUCCESS 且不落表
+//   NonAllGatherEmptyAdjSkipped       allreduce 空邻接不触发该模拟填充
+// ============================================================
+TEST_F(NslbDpStFlowTest, TryFillAllGatherNhrAdjInfo_RankTotalNumTooSmall)
+{
+    AdjInfo adjInfo = {};
+    inst_->hcclNslbDpCommConfig_[0].rankTotalNum = 1;
+    EXPECT_FALSE(inst_->TryFillAllGatherNhrAdjInfo(kTestCommDesc, 0U, adjInfo));
+    EXPECT_EQ(adjInfo.dstRankNum, 0U);
+    EXPECT_TRUE(adjInfo.nsAdjInfo.empty());
+
+    inst_->hcclNslbDpCommConfig_[0].rankTotalNum = 0;
+    EXPECT_FALSE(inst_->TryFillAllGatherNhrAdjInfo(kTestCommDesc, 0U, adjInfo));
+    EXPECT_TRUE(adjInfo.nsAdjInfo.empty());
+}
+
+TEST_F(NslbDpStFlowTest, TryFillAllGatherNhrAdjInfo_IdentifierNotFound)
+{
+    inst_->hcclNslbDpCommConfig_[0].rankTotalNum = 8;
+    AdjInfo adjInfo = {};
+    EXPECT_FALSE(inst_->TryFillAllGatherNhrAdjInfo("nonexistent_group", 0U, adjInfo));
+    EXPECT_EQ(adjInfo.dstRankNum, 0U);
+    EXPECT_TRUE(adjInfo.nsAdjInfo.empty());
+}
+
+TEST_F(NslbDpStFlowTest, TryFillAllGatherNhrAdjInfo_PowerOfTwoRanks)
+{
+    inst_->hcclNslbDpCommConfig_[0].rankTotalNum = 8;
+    AdjInfo adjInfo = {};
+    ASSERT_TRUE(inst_->TryFillAllGatherNhrAdjInfo(kTestCommDesc, 3U, adjInfo));
+    // nSteps=3：step0 delta=4 -> 7，step1 delta=2 -> 5，step2 delta=1 -> 4
+    ASSERT_EQ(adjInfo.nsAdjInfo.size(), 3U);
+    EXPECT_EQ(adjInfo.dstRankNum, 3U);
+    EXPECT_EQ(adjInfo.nsAdjInfo[0].dstLocalRankId, 7U);
+    EXPECT_EQ(adjInfo.nsAdjInfo[0].phaseId, 1U);
+    EXPECT_EQ(adjInfo.nsAdjInfo[1].dstLocalRankId, 5U);
+    EXPECT_EQ(adjInfo.nsAdjInfo[1].phaseId, 2U);
+    EXPECT_EQ(adjInfo.nsAdjInfo[2].dstLocalRankId, 4U);
+    EXPECT_EQ(adjInfo.nsAdjInfo[2].phaseId, 3U);
+}
+
+TEST_F(NslbDpStFlowTest, TryFillAllGatherNhrAdjInfo_NonPowerOfTwoWrap)
+{
+    inst_->hcclNslbDpCommConfig_[0].rankTotalNum = 5;
+    AdjInfo adjInfo = {};
+    ASSERT_TRUE(inst_->TryFillAllGatherNhrAdjInfo(kTestCommDesc, 4U, adjInfo));
+    // nSteps=3：step0 delta=4 -> (4+4)%5=3，step1 delta=2 -> (4+2)%5=1，step2 delta=1 -> 0
+    ASSERT_EQ(adjInfo.nsAdjInfo.size(), 3U);
+    EXPECT_EQ(adjInfo.dstRankNum, 3U);
+    EXPECT_EQ(adjInfo.nsAdjInfo[0].dstLocalRankId, 3U);
+    EXPECT_EQ(adjInfo.nsAdjInfo[1].dstLocalRankId, 1U);
+    EXPECT_EQ(adjInfo.nsAdjInfo[2].dstLocalRankId, 0U);
+}
+
+TEST_F(NslbDpStFlowTest, GetAlgAdjacencyTable_AllGatherEmptyAdjFilledByNhr)
+{
+    inst_->hcclNslbDpCommConfig_[0].rankTotalNum = 8;
+    AdjInfo adjInfo = {};
+    HcclResult ret = inst_->GetAlgAdjacencyTable(
+        HcclCMDType::HCCL_CMD_ALLGATHER, 3U, 0U, NSLB_ALGO_TYPE_RING, std::string(kTestCommDesc), adjInfo);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+
+    ASSERT_EQ(inst_->hcclNslbDpAlgorithmInfo_.size(), 1U);
+    const auto& entry = inst_->hcclNslbDpAlgorithmInfo_[0];
+    EXPECT_EQ(entry.oper, NSLBDP_CMD_ALLGATHER);
+    EXPECT_EQ(entry.dstRankNum, 3U);
+    ASSERT_EQ(entry.AdjInfo.size(), 3U);
+    EXPECT_EQ(entry.AdjInfo[0].dstLocalRankId, 7U);
+    EXPECT_EQ(entry.AdjInfo[0].phaseId, 1U);
+    EXPECT_EQ(entry.AdjInfo[1].dstLocalRankId, 5U);
+    EXPECT_EQ(entry.AdjInfo[1].phaseId, 2U);
+    EXPECT_EQ(entry.AdjInfo[2].dstLocalRankId, 4U);
+    EXPECT_EQ(entry.AdjInfo[2].phaseId, 3U);
+}
+
+TEST_F(NslbDpStFlowTest, GetAlgAdjacencyTable_AllGatherSmallRankTotalNumSkipped)
+{
+    inst_->hcclNslbDpCommConfig_[0].rankTotalNum = 1;
+    AdjInfo adjInfo = {};
+    HcclResult ret = inst_->GetAlgAdjacencyTable(
+        HcclCMDType::HCCL_CMD_ALLGATHER, 0U, 0U, NSLB_ALGO_TYPE_RING, std::string(kTestCommDesc), adjInfo);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(inst_->hcclNslbDpAlgorithmInfo_.size(), 0U);
+}
+
+TEST_F(NslbDpStFlowTest, GetAlgAdjacencyTable_NonAllGatherEmptyAdjSkipped)
+{
+    inst_->hcclNslbDpCommConfig_[0].rankTotalNum = 4;
+    AdjInfo adjInfo = {};
+    (void)inst_->GetAlgAdjacencyTable(
+        HcclCMDType::HCCL_CMD_ALLREDUCE, 1U, 0U, NSLB_ALGO_TYPE_RING, std::string(kTestCommDesc), adjInfo);
+    EXPECT_EQ(inst_->hcclNslbDpAlgorithmInfo_.size(), 0U);
+}
+
+// ============================================================
 // 17. GenerateOpAndAdjTable：ST 全路径
 // ============================================================
 TEST_F(NslbDpStFlowTest, GenerateOpAndAdjTable_FullPath)
