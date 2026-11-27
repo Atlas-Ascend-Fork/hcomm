@@ -12,10 +12,11 @@
 #define UBOE_ENDPOINT_H
 
 #include <memory>
+#include <optional>
 #include <shared_mutex>
 #include <vector>
 #include "ub_device_endpoint_base.h"
-#include "server_socket_context/ub_rtp_uboe_server_socket_context.h"
+#include "server_socket_context/device_server_socket_context.h"
 #include "ub_reged_mem_mgr.h"
 
 namespace hcomm {
@@ -37,7 +38,10 @@ public:
     HcclResult GetAllLocalMemHandles(void** memHandles, uint32_t* memHandleNum) override;
     void* GetRdmaHandle() override { return ctxHandle_; }
     bool IsCtxHandleValid() const override;
-    ServerSocketContext* GetServerSocketContext() override { return &serverSocketContext_; }
+    ServerSocketContext* GetServerSocketContext() override
+    {
+        return serverSocketContext_.has_value() ? &serverSocketContext_.value() : nullptr;
+    }
 
 private:
     HcclResult ReleaseEndpointCtx();
@@ -51,7 +55,7 @@ private:
     mutable std::shared_mutex localMemMtx_;
     std::vector<std::shared_ptr<Hccl::LocalUbRmaBuffer>> localMemRecords_; // 本实例注册的 memHandle 记录
     std::shared_ptr<RemoteRegedMemMgr> remoteMemMgr_{}; // 实例级远端 mgr（EndpointRemoteRegedMemMgr，Ub 适配）
-    UbRtpUboeServerSocketContext serverSocketContext_{}; // no-op 监听语义
+    std::optional<DeviceServerSocketContext> serverSocketContext_{};
     MemMgrCacheKey cacheKey_{};
     // 非 owning 别名（空 deleter）：实例寿命由 EndpointMgr 声明序保证（R3），reset 不触发释放
     std::shared_ptr<ProcRegedMemMgrCache> cacheAlias_{};
