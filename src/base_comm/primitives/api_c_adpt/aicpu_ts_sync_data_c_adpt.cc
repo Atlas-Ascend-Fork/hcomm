@@ -25,6 +25,15 @@ constexpr size_t MSG_TAG_SIZE_BYTE = 256;
 constexpr uint32_t TIMEOUT_SIZE_BYTE = 4;      // timeout字段长度为4字节，表示超时时间，单位为秒
 constexpr uint32_t CTRL_HDR_DATA_SIZE_LEN = 8; // size_t 在不同平台上长度不同，取最大值
 
+// 空闲轮询退避：前 100 次 1us，之后 10/100/1000us 分级，封顶 1ms
+constexpr uint32_t POLL_BACKOFF_FAST_RETRIES = 100;
+constexpr uint32_t POLL_BACKOFF_MID_RETRIES = 1000;
+constexpr uint32_t POLL_BACKOFF_SLOW_RETRIES = 10000;
+constexpr uint32_t POLL_BACKOFF_FAST_US = 1;
+constexpr uint32_t POLL_BACKOFF_MID_US = 10;
+constexpr uint32_t POLL_BACKOFF_SLOW_US = 100;
+constexpr uint32_t POLL_BACKOFF_MAX_US = 1000;
+
 // Msg 数据格式如下（单位：字节）：
 // +----------+--------------+-----------+-------------+---------------+-----------------+
 // | flag [1] | msgTag [256] | msgId [4] | timeout [4] | data size [8] | data [sizeByte] |
@@ -42,6 +51,7 @@ static HcclResult WaitFlagReady(uint8_t* srcFlagPtr, uint8_t* srcTimeoutPtr)
     HCCL_INFO("[%s] Using timeout = %u seconds.", __func__, timeoutVal);
     auto timeoutSec = std::chrono::seconds(timeoutVal);
     uint8_t flagReadValue{0};
+    uint32_t idlePollCount = 0;
     while (true) {
         ret = memcpy_s(&flagReadValue, sizeof(flagReadValue), srcFlagPtr, sizeof(flagReadValue));
         CHK_PRT_RET(ret != EOK, HCCL_ERROR("[%s][memcpy_s] Polling flag ERROR[%d].", __func__, ret), HCCL_E_INTERNAL);
@@ -59,7 +69,18 @@ static HcclResult WaitFlagReady(uint8_t* srcFlagPtr, uint8_t* srcTimeoutPtr)
             HCCL_ERROR("[%s] Polling flag TIMEOUT, timeout[%u]s.", __func__, timeoutVal);
             return HCCL_E_TIMEOUT;
         }
-        std::this_thread::sleep_for(std::chrono::microseconds(1)); // 轮询间隔1us，避免占满核
+        uint32_t sleepUs = POLL_BACKOFF_FAST_US;
+        if (idlePollCount >= POLL_BACKOFF_FAST_RETRIES) {
+            sleepUs = POLL_BACKOFF_MID_US;
+        }
+        if (idlePollCount >= POLL_BACKOFF_MID_RETRIES) {
+            sleepUs = POLL_BACKOFF_SLOW_US;
+        }
+        if (idlePollCount >= POLL_BACKOFF_SLOW_RETRIES) {
+            sleepUs = POLL_BACKOFF_MAX_US;
+        }
+        ++idlePollCount;
+        std::this_thread::sleep_for(std::chrono::microseconds(sleepUs));
     }
     HCCL_INFO("[%s] Polling flag SUCCESS.", __func__);
     return HCCL_SUCCESS;

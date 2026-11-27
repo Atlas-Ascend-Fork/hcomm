@@ -284,28 +284,22 @@ HcclResult CpuThreadBase::WaitKernelTerminate()
     }
 
     // 先读取是否有dpu线程回写的退出信号
-    uint8_t flag = 0;
-    errno_t ret = memcpy_s(&flag, sizeof(flag), dputagHostPtr_, sizeof(flag));
-    if (ret != EOK) {
-        HCCL_ERROR("[CpuThreadBase][%s] Read Terminate TaskRun Signal Fail, return[%d]", __func__, ret);
-        return HCCL_E_INTERNAL;
-    }
+    uint8_t flag = __atomic_load_n(static_cast<uint8_t*>(dputagHostPtr_), __ATOMIC_ACQUIRE);
     if (flag == DEVICE_SIGNAL_THIRD) {
         return HCCL_SUCCESS; // dpu线程已退出
     }
-    flag = DEVICE_SIGNAL_SECOND;
-    ret = memcpy_s(dputagHostPtr_, sizeof(flag), &flag, sizeof(flag));
-    if (ret != EOK) {
-        HCCL_ERROR("[CpuThreadBase][%s] Terminate TaskRun Fail, return[%d]", __func__, ret);
-        return HCCL_E_INTERNAL;
+    // CAS 写 2：若 TaskRun 已回写 3，CAS 失败并保留 3，避免 2 覆盖 3 后永久等待
+    while (!__atomic_compare_exchange_n(
+        static_cast<uint8_t*>(dputagHostPtr_), &flag, DEVICE_SIGNAL_SECOND, false, __ATOMIC_ACQ_REL,
+        __ATOMIC_ACQUIRE)) {
+        if (flag == DEVICE_SIGNAL_THIRD) {
+            return HCCL_SUCCESS;
+        }
+        std::this_thread::sleep_for(std::chrono::microseconds(1));
     }
     // 无超时上限：kernel 未退出就释放共享内存会与其读写冲突，必须等到退出信号
     do {
-        ret = memcpy_s(&flag, sizeof(flag), dputagHostPtr_, sizeof(flag));
-        if (ret != EOK) {
-            HCCL_ERROR("[CpuThreadBase][%s] Read Terminate TaskRun Signal Fail, return[%d]", __func__, ret);
-            return HCCL_E_INTERNAL;
-        }
+        flag = __atomic_load_n(static_cast<uint8_t*>(dputagHostPtr_), __ATOMIC_ACQUIRE);
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     } while (flag != DEVICE_SIGNAL_THIRD);
     return HCCL_SUCCESS;

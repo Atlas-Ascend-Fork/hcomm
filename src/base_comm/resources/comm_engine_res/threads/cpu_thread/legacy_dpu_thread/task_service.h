@@ -37,10 +37,15 @@ namespace Hccl {
  * |      data      |
  * +----------------+
  */
+/**
+ * @note ABI：本类经 ccl_dpu.map 跨 so 导出，两库必须同版本配套；新增成员会改变 sizeof/布局，
+ *       修改构造/析构签名会改变导出符号并须同步 ccl_dpu.map。
+ */
 class TaskService {
 public:
     TaskService() = default;
     ~TaskService();
+    // isPcieLink=true 时 dmaSrcMem 必须非空；参数平铺导出，扩展需同步 ccl_dpu.map
     TaskService(
         void* deviceMem, int32_t deviceMemSize, void* hostMem, int32_t hostMemSize, void* taskExpMem,
         std::string commId, uint32_t devId, bool isPcieLink = false, void* dmaSrcMem = nullptr);
@@ -58,9 +63,10 @@ public:
 
 private:
     HcclResult WriteFlag(uint8_t* flagPtr, uint8_t newFlag) const;
-    // 下列方法的 ctrlHdr 缓冲尺寸由 task_service.cc 的 CTRL_HDR_READ_LEN（编译期常量）统一固定，
-    // 不再以形参传入长度，避免调用方传入的上界与栈缓冲实际尺寸脱钩
-    HcclResult ReadFlag(uint8_t* ctrlHdr, uint8_t& flag) const;
+    // 空闲只读 1 字节 flag，确认有任务后再读整块控制头
+    HcclResult ReadFlag(uint8_t& flag) const;
+    // ctrlHdr 尺寸由 CTRL_HDR_READ_LEN 固定，不接收调用方长度
+    HcclResult ReadControlHeader(uint8_t* ctrlHdr) const;
     HcclResult ReadTaskType(const uint8_t* ctrlHdr, const uint8_t* srcTaskTypePtr, std::string& taskTypeStr) const;
     HcclResult ExecuteTask(uint8_t* ctrlHdr, uint8_t* srcPtr, std::string taskTypeStr);
     HcclResult SynchronizeControlInfo();
@@ -85,8 +91,8 @@ private:
     void* taskExpMem_{nullptr}; // DPUTASKEXCEPTION 共享内存 host 侧地址，异常时回写错误码
     std::string commId_{};
     uint32_t devId_{UINT32_MAX};
-    bool isPcieLink_{false}; // PCIE链路下共享内存拷贝走aclrtMemcpy, 非PCIE(UB)链路直接用memcpy_s
-    // aclrtMemcpy 专用 device 侧源地址（PCIE 下 DpuShmem::va_），与 npu2dpuMem_ 指向同块物理内存，
+    bool isPcieLink_{false}; // PCIE链路下共享内存拷贝走HrtMemcpy, 非PCIE(UB)链路直接用memcpy_s
+    // HrtMemcpy 专用 device 侧源地址（PCIE 下 DpuShmem::va_），与 npu2dpuMem_ 指向同块物理内存，
     // 避免把 host 访问地址（DpuShmem::accessVA_）当作 DEVICE_TO_HOST 的 device 源地址
     void* dmaSrcMem_{nullptr};
 };

@@ -8,8 +8,11 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include <atomic>
+#include <chrono>
 #include <cstdlib>
 #include <stdexcept>
+#include <thread>
 #include <vector>
 #include "mockcpp/ApiHook.h"
 #include "../../../hccl_api_base_test.h"
@@ -63,20 +66,19 @@ void PrepareLaunchedState(LegacyDpuThread* legacy)
 }
 
 // WaitKernelTerminate 无超时上限（自旋等 device 回写 3），测不了「无回写」场景；
-// 用计数桩：宿主写 2 后立即模拟 dpu 线程回写 3，让握手循环正常退出并记录写入值
-uint32_t g_signalWriteCount = 0;
-uint8_t g_signalWrittenValue = 0;
-errno_t StubMemcpySignalWithAck(void* dest, size_t destMax, const void* src, size_t count)
+// 用观察线程：宿主原子写 2 后立即模拟 dpu 线程原子回写 3，让握手循环正常退出
+void WaitAndAckTerminateSignal(std::atomic<bool>* sawSecond)
 {
-    (void)destMax;
-    (void)count;
-    *static_cast<uint8_t*>(dest) = *static_cast<const uint8_t*>(src);
-    if (dest == g_signalBuf) {
-        g_signalWrittenValue = *static_cast<const uint8_t*>(src);
-        ++g_signalWriteCount;
-        g_signalBuf[0] = EXIT_SIGNAL; // 模拟 dpu 线程读到 2 后回写退出信号
+    for (uint32_t i = 0; i < 1000; ++i) {
+        if (__atomic_load_n(&g_signalBuf[0], __ATOMIC_ACQUIRE) == 2) {
+            sawSecond->store(true, std::memory_order_release);
+            __atomic_store_n(&g_signalBuf[0], EXIT_SIGNAL, __ATOMIC_RELEASE);
+            return;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    return EOK;
+    // 兜底：被测代码未写 2 时也回写 3，避免 UT 永久挂起；由 sawSecond 断言失败
+    __atomic_store_n(&g_signalBuf[0], EXIT_SIGNAL, __ATOMIC_RELEASE);
 }
 
 // 失败出口回收已建流的观测点：断言被回收的正是 StubCreateStreamWithFakeHandle 建出的那条流、
@@ -487,28 +489,29 @@ TEST_F(TestCpuThread, Ut_CpuThread_WaitKernelTerminate_When_DputagPtrNull_Expect
     EXPECT_EQ(HCCL_E_PTR, thread.GetLegacy()->WaitKernelTerminate());
 }
 
-TEST_F(TestCpuThread, Ut_CpuThread_WaitKernelTerminate_When_MemcpyFailed_Expect_HCCL_E_INTERNAL)
+TEST_F(TestCpuThread, Ut_CpuThread_WaitKernelTerminate_When_AckAlreadySet_Expect_Success)
 {
-    MOCKER(memcpy_s).stubs().will(returnValue(1)); // 1 != EOK
-
+    // 已回写 3 时不得再写 2 覆盖退出信号
+    g_signalBuf[0] = EXIT_SIGNAL;
     CpuThread thread;
     thread.GetLegacy()->dputagHostPtr_ = g_signalBuf;
-    EXPECT_EQ(HCCL_E_INTERNAL, thread.GetLegacy()->WaitKernelTerminate());
+    EXPECT_EQ(HCCL_SUCCESS, thread.GetLegacy()->WaitKernelTerminate());
+    EXPECT_EQ(EXIT_SIGNAL, g_signalBuf[0]);
 }
 
 TEST_F(TestCpuThread, Ut_CpuThread_WaitKernelTerminate_When_PeerAck_Expect_Success)
 {
-    // 宿主写 2（DEVICE_SIGNAL_SECOND）后 dpu 线程回写 3，握手循环应正常退出并返回成功
+    // 宿主 CAS 写 2（DEVICE_SIGNAL_SECOND）后，观察线程原子回写 3，握手循环应正常退出
     g_signalBuf[0] = 0;
-    g_signalWriteCount = 0;
-    g_signalWrittenValue = 0;
-    MOCKER(memcpy_s).stubs().will(invoke(StubMemcpySignalWithAck));
+    std::atomic<bool> sawSecond{false};
+    std::thread ackThread(WaitAndAckTerminateSignal, &sawSecond);
 
     CpuThread thread;
     thread.GetLegacy()->dputagHostPtr_ = g_signalBuf;
     EXPECT_EQ(HCCL_SUCCESS, thread.GetLegacy()->WaitKernelTerminate());
-    EXPECT_EQ(1u, g_signalWriteCount);
-    EXPECT_EQ(2u, g_signalWrittenValue);    // 已按协议写入 DEVICE_SIGNAL_SECOND
+    ackThread.join();
+
+    EXPECT_TRUE(sawSecond.load());
     EXPECT_EQ(EXIT_SIGNAL, g_signalBuf[0]); // dpu 线程已回写退出信号
 }
 

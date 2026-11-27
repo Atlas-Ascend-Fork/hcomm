@@ -32,10 +32,19 @@ constexpr uint32_t CTRL_HDR_DEFAULT_DATA_LEN = 512;
 constexpr uint32_t CTRL_HDR_BASE_LEN
     = CTRL_HDR_FLAG_LENGTH + TASKTYPE_ADDR_LENGTH + CTRL_HDR_MSG_ID_LEN + TIMEOUT_SIZE_BYTE + CTRL_HDR_DATA_SIZE_LEN;
 // 单次从 deviceMem 读入的长度 = 控制信息 + 随行默认数据。必须是编译期常量：它既是 ctrlHdr 栈缓冲尺寸，
-// 也是 ReadFlag 的拷贝上限；写成运行期值即成 VLA（非标准 C++），且任一加数改为可配置长度会放大为栈溢出
+// 也是 ReadControlHeader 的拷贝上限；写成运行期值即成 VLA（非标准 C++），且任一加数改为可配置长度会放大为栈溢出
 constexpr uint32_t CTRL_HDR_READ_LEN = CTRL_HDR_BASE_LEN + CTRL_HDR_DEFAULT_DATA_LEN;
 
 constexpr uint8_t MEMORY_DEVIDE = 2;
+
+// 空闲轮询退避：前 100 次 1us，之后 10/100/1000us 分级，封顶 1ms
+constexpr uint32_t POLL_BACKOFF_FAST_RETRIES = 100;
+constexpr uint32_t POLL_BACKOFF_MID_RETRIES = 1000;
+constexpr uint32_t POLL_BACKOFF_SLOW_RETRIES = 10000;
+constexpr uint32_t POLL_BACKOFF_FAST_US = 1;
+constexpr uint32_t POLL_BACKOFF_MID_US = 10;
+constexpr uint32_t POLL_BACKOFF_SLOW_US = 100;
+constexpr uint32_t POLL_BACKOFF_MAX_US = 1000;
 
 TaskService::TaskService(
     void* deviceMem, int32_t deviceMemSize, void* hostMem, int32_t hostMemSize, void* taskExpMem, std::string commId,
@@ -110,23 +119,28 @@ HcclResult TaskService::TaskGetDpuTaskInfoRegister(GetDpuTaskInfoCallbackTemplat
 
 HcclResult TaskService::WriteFlag(uint8_t* flagPtr, uint8_t newFlag) const
 {
-    errno_t ret = memcpy_s(flagPtr, sizeof(newFlag), &newFlag, sizeof(newFlag));
-    if (ret != EOK) {
-        HCCL_ERROR("[TaskService::TaskRun] set flag failed: %d", ret);
-        return HCCL_E_INTERNAL;
-    }
+    // 与 ProcessTaskOk CAS、DeInit 握手共用同一字节，统一原子写
+    __atomic_store_n(flagPtr, newFlag, __ATOMIC_RELEASE);
     return HCCL_SUCCESS;
 }
 
-HcclResult TaskService::ReadFlag(uint8_t* ctrlHdr, uint8_t& flag) const
+HcclResult TaskService::ReadFlag(uint8_t& flag) const
 {
-    // dest 容量与拷贝长度都用编译期常量，不接收调用方传入的长度，避免上界被形参放大
-    errno_t ret = memcpy_s(ctrlHdr, CTRL_HDR_READ_LEN, npu2dpuMem_, CTRL_HDR_READ_LEN);
+    // 只读 flag 字节，与 CAS/WriteFlag 保持原子口径
+    flag = __atomic_load_n(static_cast<uint8_t*>(npu2dpuMem_), __ATOMIC_ACQUIRE);
+    return HCCL_SUCCESS;
+}
+
+HcclResult TaskService::ReadControlHeader(uint8_t* ctrlHdr) const
+{
+    // flag 字节单独原子读，其余控制头一次性拷贝，避免整块 memcpy_s 触碰 flag
+    ctrlHdr[0] = __atomic_load_n(static_cast<uint8_t*>(npu2dpuMem_), __ATOMIC_ACQUIRE);
+    errno_t ret = memcpy_s(
+        ctrlHdr + 1, CTRL_HDR_READ_LEN - 1, static_cast<const uint8_t*>(npu2dpuMem_) + 1, CTRL_HDR_READ_LEN - 1);
     if (ret != EOK) {
-        HCCL_ERROR("[TaskService::%s] memcpy_s failed on flag, return[%d].", __func__, ret);
+        HCCL_ERROR("[TaskService::%s] memcpy_s failed on ctrlHdr, return[%d].", __func__, ret);
         return HCCL_E_INTERNAL;
     }
-    flag = *ctrlHdr;
     return HCCL_SUCCESS;
 }
 
@@ -270,7 +284,25 @@ HcclResult TaskService::ExecuteTask(uint8_t* ctrlHdr, uint8_t* srcPtr, std::stri
     /* ctrlHdr提前从deviceMem copy一定长度，如果长度够，直接从ctrlHdr copy，减少一次aclmemcpy耗时 */
     bool dataInCtrlHdr = false;
     uint8_t* dataPtr = nullptr;
-    if (CTRL_HDR_READ_LEN < ctrlHdrLen + dataLen) {
+
+    // srcPtr 必须落在 npu2dpuMem_ 内；统一换算偏移供大小包使用
+    const uintptr_t srcAddr = reinterpret_cast<uintptr_t>(srcPtr);
+    const uintptr_t baseAddr = reinterpret_cast<uintptr_t>(npu2dpuMem_);
+    if (srcAddr < baseAddr) {
+        HCCL_ERROR("[TaskService::%s] srcPtr[%p] before npu2dpuMem_[%p]", __func__, srcPtr, npu2dpuMem_);
+        return HCCL_E_PTR;
+    }
+    const uint64_t srcOffset = static_cast<uint64_t>(srcAddr - baseAddr);
+
+    // 仅 srcPtr 无偏移且 payload 已预读进快照时，才直接从 ctrlHdr 取数
+    const bool payloadInCtrlHdr = (CTRL_HDR_READ_LEN >= ctrlHdrLen + dataLen) && (srcOffset == 0);
+    if (!payloadInCtrlHdr) {
+        if (srcOffset + ctrlHdrLen + dataLen > static_cast<uint64_t>(shmemSize_)) {
+            HCCL_ERROR(
+                "[TaskService::%s] srcPtr[%p] out of npu2dpuMem_[%p, size %d], ctrlHdrLen[%u], dataLen[%llu]", __func__,
+                srcPtr, npu2dpuMem_, shmemSize_, ctrlHdrLen, static_cast<unsigned long long>(dataLen));
+            return HCCL_E_PTR;
+        }
         dataPtr = srcPtr + ctrlHdrLen;
     } else {
         dataPtr = ctrlHdr + ctrlHdrLen;
@@ -279,8 +311,8 @@ HcclResult TaskService::ExecuteTask(uint8_t* ctrlHdr, uint8_t* srcPtr, std::stri
     /* PCIE链路上超过4K的包用memcpy_s耗时非常长，源在device时改为HrtMemcpy；源已在host或非PCIE链路直接memcpy_s */
     bool dmaCopied = false;
     if (isPcieLink_ && !dataInCtrlHdr) {
-        // DEVICE_TO_HOST 的源显式使用 device 侧地址（DpuShmem::va_），不依赖 host/device 同址假设
-        const uint8_t* dmaSrcPtr = static_cast<const uint8_t*>(dmaSrcMem_) + ctrlHdrLen;
+        // host/device 两个视图指向同一块共享内存，按 srcOffset 换算 device 源
+        const uint8_t* dmaSrcPtr = static_cast<const uint8_t*>(dmaSrcMem_) + srcOffset + ctrlHdrLen;
         // HrtMemcpy 内部会把当前线程 capture mode 临时切到 RELAXED，图捕获场景下也能完成同步拷贝
         HcclResult hrtRet = HrtMemcpy(
             hostMem_, static_cast<uint64_t>(hostMemSize_), dmaSrcPtr, static_cast<uint64_t>(dataLen),
@@ -334,10 +366,13 @@ HcclResult TaskService::SynchronizeControlInfo()
 {
     CHK_PTR_NULL(npu2dpuMem_);
     CHK_PTR_NULL(dpu2npuMem_);
-    // npu2dpu -> dpu2npu
-    int32_t controlDataSize = sizeof(uint8_t) + sizeof(char) * TASKTYPE_ADDR_LENGTH + sizeof(uint32_t);
+    // 只拷贝 taskType/msgId，跳过 flag 字节；响应 flag 先原子清 0，拷贝完成后再置 1
+    int32_t controlDataSize = sizeof(char) * TASKTYPE_ADDR_LENGTH + sizeof(uint32_t);
+    __atomic_store_n(static_cast<uint8_t*>(dpu2npuMem_), 0, __ATOMIC_RELEASE);
     HCCL_INFO("[TaskService::TaskRun] Send response: npu2dpu -> dpu2npu memcpy");
-    errno_t ret = memcpy_s(dpu2npuMem_, controlDataSize, npu2dpuMem_, controlDataSize);
+    errno_t ret = memcpy_s(
+        static_cast<uint8_t*>(dpu2npuMem_) + sizeof(uint8_t), controlDataSize,
+        static_cast<const uint8_t*>(npu2dpuMem_) + sizeof(uint8_t), controlDataSize);
     if (ret != EOK) {
         HCCL_ERROR("[TaskService::TaskRun] npu2dpu -> dpu2npu memcpy failed: %d", ret);
         return HCCL_E_INTERNAL;
@@ -354,9 +389,14 @@ HcclResult TaskService::SynchronizeControlInfo()
 HcclResult TaskService::ProcessTaskOk(uint8_t* ctrlHdr, uint8_t* srcFlagPtr, uint8_t* srcTaskTypePtr)
 {
     std::string taskTypeStr;
-    HCCL_INFO("[TaskService::TaskRun] flag = %u.", TASK_OK);
+    // CAS 清 TASK_OK：若 DeInit 已写 TASK_TERMINATE，失败并保留终止信号，避免 0 覆盖 2
+    auto* flagAtomic = reinterpret_cast<std::atomic<uint8_t>*>(srcFlagPtr);
+    uint8_t expected = TASK_OK;
+    if (!flagAtomic->compare_exchange_strong(expected, TASK_UNSET, std::memory_order_acq_rel)) {
+        HCCL_INFO("[TaskService::%s] flag changed from TASK_OK to [%u] before ack, skip task.", __func__, expected);
+        return HCCL_SUCCESS;
+    }
     HCCL_INFO("[TaskService::TaskRun] Set npu2dpu flag -> %u.", TASK_UNSET);
-    CHK_RET(WriteFlag(srcFlagPtr, TASK_UNSET));
     CHK_RET(ReadTaskType(ctrlHdr, srcTaskTypePtr, taskTypeStr));
     CHK_RET(ExecuteTask(ctrlHdr, srcFlagPtr, taskTypeStr));
     // 取副本后锁外执行，避免回调体再触发注册时自锁（同 callbacks_ 口径）
@@ -405,11 +445,11 @@ HcclResult TaskService::TaskRun()
     HcclResult ret = TaskRunImpl();
     // 收编前由 kernel 入口在 TaskRun 失败时写退出信号，现下沉进本类：异常退出也要让 NPU 侧看到终止响应
     if (ret != HCCL_SUCCESS) {
-        uint8_t newFlag = TASK_TERMINATE_RESPONSE;
-        errno_t cpyRet = memcpy_s(static_cast<uint8_t*>(npu2dpuMem_), sizeof(newFlag), &newFlag, sizeof(newFlag));
-        if (cpyRet != EOK) {
-            HCCL_ERROR("[TaskService::%s] set exit flag failed: %d", __func__, cpyRet);
-            return HCCL_E_INTERNAL;
+        // 失败退出也走原子写，避免与终止握手混用
+        HcclResult writeRet = WriteFlag(static_cast<uint8_t*>(npu2dpuMem_), TASK_TERMINATE_RESPONSE);
+        if (writeRet != HCCL_SUCCESS) {
+            HCCL_ERROR("[TaskService::%s] set exit flag failed: %d", __func__, writeRet);
+            return writeRet;
         }
     }
     return ret;
@@ -430,13 +470,36 @@ HcclResult TaskService::TaskRunImpl()
     u32 timeout = GetDpuExecTimeout();
     CHK_SAFETY_FUNC_RET(memcpy_s(dstTimeoutPtr, sizeof(timeout), &timeout, sizeof(timeout)));
 
+    uint32_t idlePollCount = 0;
     while (true) {
-        CHK_RET(ReadFlag(ctrlHdr, flag));
+        CHK_RET(ReadFlag(flag));
+        if (flag == TASK_UNSET) {
+            uint32_t sleepUs = POLL_BACKOFF_FAST_US;
+            if (idlePollCount >= POLL_BACKOFF_FAST_RETRIES) {
+                sleepUs = POLL_BACKOFF_MID_US;
+            }
+            if (idlePollCount >= POLL_BACKOFF_MID_RETRIES) {
+                sleepUs = POLL_BACKOFF_SLOW_US;
+            }
+            if (idlePollCount >= POLL_BACKOFF_SLOW_RETRIES) {
+                sleepUs = POLL_BACKOFF_MAX_US;
+            }
+            ++idlePollCount;
+            std::this_thread::sleep_for(std::chrono::microseconds(sleepUs));
+            continue;
+        }
+        idlePollCount = 0;
         switch (flag) {
-            case TASK_UNSET:
-                std::this_thread::sleep_for(std::chrono::microseconds(1));
-                continue;
             case TASK_OK:
+                CHK_RET(ReadControlHeader(ctrlHdr));
+                // flag 与控制头是两次读：若期间被改成 TASK_TERMINATE，先复检快照首字节；
+                // 复检到 CAS 之间的残余窗口由 ProcessTaskOk 的 CAS 兜底
+                if (ctrlHdr[0] != TASK_OK) {
+                    HCCL_INFO(
+                        "[TaskService::TaskRun] flag changed during ctrlHdr read: snapshot[%u], expect[%u], re-poll.",
+                        ctrlHdr[0], TASK_OK);
+                    continue;
+                }
                 CHK_RET(ProcessTaskOk(ctrlHdr, srcFlagPtr, srcTaskTypePtr));
                 continue;
             case TASK_TERMINATE:

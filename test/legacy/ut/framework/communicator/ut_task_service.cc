@@ -794,14 +794,17 @@ TEST_F(TaskServiceTest, Ut_ExecuteTask_When_DataInCtrlHdr_Expect_NoAclrtMemcpyAn
     constexpr int32_t deviceMemSize = 1024;
     constexpr int32_t hostMemSize = 512;
     std::vector<uint8_t> deviceMem(deviceMemSize, 0);
+    // device 视图用独立缓冲区模拟，避免与 host 视图同址导致源地址断言恒真
+    std::vector<uint8_t> devView(deviceMemSize, 0);
     std::vector<uint8_t> hostMem(hostMemSize, 0);
 
     TaskService taskService(
-        deviceMem.data(), deviceMemSize, hostMem.data(), hostMemSize, nullptr, commId, devId, true, deviceMem.data());
+        deviceMem.data(), deviceMemSize, hostMem.data(), hostMemSize, nullptr, commId, devId, true, devView.data());
     taskService.TaskRegister("testTask", PayloadCheckCallback);
 
     constexpr uint32_t dataSize = 16;
     PreparePayload(deviceMem, dataSize);
+    memcpy(devView.data(), deviceMem.data(), deviceMemSize);
     g_payloadMatched = false;
     g_aclrtMemcpyCalls = 0;
     MOCKER(aclrtMemcpy).stubs().will(invoke(FakeAclrtMemcpy));
@@ -847,14 +850,16 @@ TEST_F(TaskServiceTest, Ut_ExecuteTask_When_PcieLinkDataExceedsCtrlHdr_Expect_De
     constexpr int32_t deviceMemSize = 4096;
     constexpr int32_t hostMemSize = 2048;
     std::vector<uint8_t> deviceMem(deviceMemSize, 0);
+    std::vector<uint8_t> devView(deviceMemSize, 0);
     std::vector<uint8_t> hostMem(hostMemSize, 0);
 
     TaskService taskService(
-        deviceMem.data(), deviceMemSize, hostMem.data(), hostMemSize, nullptr, commId, devId, true, deviceMem.data());
+        deviceMem.data(), deviceMemSize, hostMem.data(), hostMemSize, nullptr, commId, devId, true, devView.data());
     taskService.TaskRegister("testTask", PayloadCheckCallback);
 
     constexpr uint32_t dataSize = 1024;
     PreparePayload(deviceMem, dataSize);
+    memcpy(devView.data(), deviceMem.data(), deviceMemSize);
     g_payloadMatched = false;
     g_aclrtMemcpyCalls = 0;
     g_capturedDestMax = 0;
@@ -871,8 +876,8 @@ TEST_F(TaskServiceTest, Ut_ExecuteTask_When_PcieLinkDataExceedsCtrlHdr_Expect_De
     EXPECT_TRUE(g_payloadMatched);
     EXPECT_EQ(g_aclrtMemcpyCalls, 1U);
     EXPECT_EQ(g_capturedDestMax, static_cast<size_t>(hostMemSize));
-    // DEVICE_TO_HOST 的源必须是 device 侧地址，不能复用 host 访问地址
-    EXPECT_EQ(g_capturedSrc, static_cast<const void*>(deviceMem.data() + CTRL_HDR_LEN_IN_UT));
+    // DEVICE_TO_HOST 的源必须是 device 视图，不能复用 host 访问地址
+    EXPECT_EQ(g_capturedSrc, static_cast<const void*>(devView.data() + CTRL_HDR_LEN_IN_UT));
     EXPECT_EQ(g_capturedMemcpyKind, ACL_MEMCPY_DEVICE_TO_HOST);
     // HrtMemcpy 必须先把线程 capture mode 切到 RELAXED，图捕获场景下同步拷贝才能完成
     EXPECT_GT(g_captureModeExchangeCalls, 0U);
@@ -886,14 +891,17 @@ TEST_F(TaskServiceTest, Ut_ExecuteTask_When_AclrtMemcpyFails_Expect_FallbackMemc
     constexpr int32_t deviceMemSize = 4096; // shmemSize_ = 2048, leftSize_ = 1775
     constexpr int32_t hostMemSize = 2048;
     std::vector<uint8_t> deviceMem(deviceMemSize, 0);
+    // DMA 源与 host 访问源分离：回退路径必须从 host 视图取数据，不能依赖两个视图同址
+    std::vector<uint8_t> devView(deviceMemSize, 0);
     std::vector<uint8_t> hostMem(hostMemSize, 0);
 
     TaskService taskService(
-        deviceMem.data(), deviceMemSize, hostMem.data(), hostMemSize, nullptr, commId, devId, true, deviceMem.data());
+        deviceMem.data(), deviceMemSize, hostMem.data(), hostMemSize, nullptr, commId, devId, true, devView.data());
     taskService.TaskRegister("testTask", PayloadCheckCallback);
 
     constexpr uint32_t dataSize = 1024;
     PreparePayload(deviceMem, dataSize);
+    memcpy(devView.data(), deviceMem.data(), deviceMemSize);
     g_payloadMatched = false;
     SetupOkTask(deviceMem.data(), "testTask", 42, dataSize);
     // ctrlHdr 为 512 字节，容纳不下 1024 字节 payload，触发 aclrtMemcpy 分支
@@ -908,6 +916,133 @@ TEST_F(TaskServiceTest, Ut_ExecuteTask_When_AclrtMemcpyFails_Expect_FallbackMemc
     EXPECT_EQ(result, HCCL_SUCCESS); // 回退 memcpy_s 后任务继续
     EXPECT_EQ(g_aclrtMemcpyCalls, 1U);
     EXPECT_TRUE(g_payloadMatched); // 回退路径数据完整
+    GlobalMockObject::verify();
+}
+
+// srcPtr 带偏移时，DMA 源必须按同一偏移换算到 device 视图；offset 写错会被本用例拦住
+TEST_F(TaskServiceTest, Ut_ExecuteTask_When_SrcPtrHasOffset_Expect_DeviceSourceIncludesOffset)
+{
+    constexpr int32_t deviceMemSize = 4096;
+    constexpr int32_t hostMemSize = 2048;
+    constexpr uint32_t srcOffset = 64;
+    constexpr uint32_t dataSize = 1024;
+    std::vector<uint8_t> deviceMem(deviceMemSize, 0);
+    std::vector<uint8_t> devView(deviceMemSize, 0);
+    std::vector<uint8_t> hostMem(hostMemSize, 0);
+
+    TaskService taskService(
+        deviceMem.data(), deviceMemSize, hostMem.data(), hostMemSize, nullptr, commId, devId, true, devView.data());
+    taskService.TaskRegister("testTask", PayloadCheckCallback);
+
+    // payload 位于 srcPtr + CTRL_HDR_LEN_IN_UT，而不是 npu2dpuMem_ + CTRL_HDR_LEN_IN_UT
+    g_expectedPayload.assign(dataSize, 0);
+    for (uint32_t i = 0; i < dataSize; ++i) {
+        deviceMem[srcOffset + CTRL_HDR_LEN_IN_UT + i] = static_cast<uint8_t>((i % 251) + 1);
+        g_expectedPayload[i] = deviceMem[srcOffset + CTRL_HDR_LEN_IN_UT + i];
+    }
+    memcpy(devView.data(), deviceMem.data(), deviceMemSize);
+
+    std::vector<uint8_t> ctrlHdr(CTRL_HDR_LEN_IN_UT, 0);
+    SetupOkTask(ctrlHdr.data(), "testTask", 42, dataSize);
+
+    g_payloadMatched = false;
+    g_aclrtMemcpyCalls = 0;
+    g_capturedSrc = nullptr;
+    MOCKER(aclrtMemcpy).stubs().will(invoke(FakeAclrtMemcpy));
+    MOCKER(aclmdlRICaptureThreadExchangeMode).stubs().will(invoke(FakeExchangeCaptureMode));
+
+    HcclResult result = taskService.ExecuteTask(ctrlHdr.data(), deviceMem.data() + srcOffset, "testTask");
+
+    EXPECT_EQ(result, HCCL_SUCCESS);
+    EXPECT_TRUE(g_payloadMatched);
+    EXPECT_EQ(g_aclrtMemcpyCalls, 1U);
+    EXPECT_EQ(g_capturedSrc, static_cast<const void*>(devView.data() + srcOffset + CTRL_HDR_LEN_IN_UT));
+    GlobalMockObject::verify();
+}
+
+// 小包 + srcPtr 偏移：ctrlHdr 快照来自基址，payload 不在快照内，必须回源 srcPtr
+TEST_F(TaskServiceTest, Ut_ExecuteTask_When_SrcPtrHasOffsetAndDataInCtrlHdr_Expect_CopyFromSrcPtr)
+{
+    constexpr int32_t deviceMemSize = 4096;
+    constexpr int32_t hostMemSize = 2048;
+    constexpr uint32_t srcOffset = 64;
+    constexpr uint32_t dataSize = 16;
+    std::vector<uint8_t> deviceMem(deviceMemSize, 0);
+    std::vector<uint8_t> devView(deviceMemSize, 0);
+    std::vector<uint8_t> hostMem(hostMemSize, 0);
+
+    TaskService taskService(
+        deviceMem.data(), deviceMemSize, hostMem.data(), hostMemSize, nullptr, commId, devId, true, devView.data());
+    taskService.TaskRegister("testTask", PayloadCheckCallback);
+
+    g_expectedPayload.assign(dataSize, 0);
+    for (uint32_t i = 0; i < dataSize; ++i) {
+        deviceMem[srcOffset + CTRL_HDR_LEN_IN_UT + i] = static_cast<uint8_t>((i % 251) + 1);
+        g_expectedPayload[i] = deviceMem[srcOffset + CTRL_HDR_LEN_IN_UT + i];
+    }
+    memcpy(devView.data(), deviceMem.data(), deviceMemSize);
+
+    std::vector<uint8_t> ctrlHdr(CTRL_HDR_LEN_IN_UT, 0);
+    SetupOkTask(ctrlHdr.data(), "testTask", 42, dataSize);
+
+    g_payloadMatched = false;
+    g_aclrtMemcpyCalls = 0;
+    g_capturedSrc = nullptr;
+    MOCKER(aclrtMemcpy).stubs().will(invoke(FakeAclrtMemcpy));
+    MOCKER(aclmdlRICaptureThreadExchangeMode).stubs().will(invoke(FakeExchangeCaptureMode));
+
+    HcclResult result = taskService.ExecuteTask(ctrlHdr.data(), deviceMem.data() + srcOffset, "testTask");
+
+    EXPECT_EQ(result, HCCL_SUCCESS);
+    EXPECT_TRUE(g_payloadMatched);
+    EXPECT_EQ(g_aclrtMemcpyCalls, 1U); // 小包+offset 也必须回源 srcPtr，而不是命中基址快照
+    EXPECT_EQ(g_capturedSrc, static_cast<const void*>(devView.data() + srcOffset + CTRL_HDR_LEN_IN_UT));
+    GlobalMockObject::verify();
+}
+
+// DeInit 已在 ProcessTaskOk 前写入 TASK_TERMINATE 时，CAS 必须保留终止信号，不能覆盖为 TASK_UNSET
+TEST_F(TaskServiceTest, Ut_ProcessTaskOk_When_FlagChangedToTerminate_Expect_KeepTerminateSignal)
+{
+    constexpr int32_t deviceMemSize = 4096;
+    constexpr int32_t hostMemSize = 2048;
+    std::vector<uint8_t> deviceMem(deviceMemSize, 0);
+    std::vector<uint8_t> hostMem(hostMemSize, 0);
+    std::vector<uint8_t> ctrlHdr(CTRL_HDR_LEN_IN_UT, 0);
+
+    TaskService taskService(deviceMem.data(), deviceMemSize, hostMem.data(), hostMemSize, nullptr, commId, devId);
+    SetupOkTask(ctrlHdr.data(), "testTask", 42, 16);
+    deviceMem[0] = TASK_TERMINATE;
+
+    HcclResult result = taskService.ProcessTaskOk(ctrlHdr.data(), deviceMem.data(), deviceMem.data() + 1);
+
+    EXPECT_EQ(result, HCCL_SUCCESS);
+    EXPECT_EQ(deviceMem[0], TASK_TERMINATE);
+}
+
+// srcPtr 指到 dpu2npu 区域（越过 npu2dpu 数据区）时必须拒绝，不能算出非法 device 源地址
+TEST_F(TaskServiceTest, Ut_ExecuteTask_When_SrcPtrOutOfRange_Expect_ReturnPtrError)
+{
+    constexpr int32_t deviceMemSize = 4096; // shmemSize_ = 2048
+    constexpr int32_t hostMemSize = 2048;
+    constexpr uint32_t dataSize = 1024;
+    std::vector<uint8_t> deviceMem(deviceMemSize, 0);
+    std::vector<uint8_t> devView(deviceMemSize, 0);
+    std::vector<uint8_t> hostMem(hostMemSize, 0);
+
+    TaskService taskService(
+        deviceMem.data(), deviceMemSize, hostMem.data(), hostMemSize, nullptr, commId, devId, true, devView.data());
+    taskService.TaskRegister("testTask", PayloadCheckCallback);
+
+    std::vector<uint8_t> ctrlHdr(CTRL_HDR_LEN_IN_UT, 0);
+    SetupOkTask(ctrlHdr.data(), "testTask", 42, dataSize);
+
+    g_aclrtMemcpyCalls = 0;
+    MOCKER(aclrtMemcpy).stubs().will(invoke(FakeAclrtMemcpy));
+
+    HcclResult result = taskService.ExecuteTask(ctrlHdr.data(), deviceMem.data() + deviceMemSize / 2, "testTask");
+
+    EXPECT_EQ(result, HCCL_E_PTR);
+    EXPECT_EQ(g_aclrtMemcpyCalls, 0U);
     GlobalMockObject::verify();
 }
 
