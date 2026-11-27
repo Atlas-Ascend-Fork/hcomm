@@ -18,6 +18,7 @@
 #include "adapter_rts.h"
 #include "hccl/hccl_comm.h"
 #include "coll_comm_config.h"
+#include "net_layer_config.h"
 
 using namespace hccl;
 

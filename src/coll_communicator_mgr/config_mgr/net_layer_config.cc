@@ -10,6 +10,7 @@
 
 #include "net_layer_config.h"
 
+#include <cstddef>
 #include <cstring>
 
 #include "coll_comm_config.h"
@@ -60,7 +61,8 @@ namespace {
                         0U);
                 return HCCL_E_PARA;
             }
-            layers |= 1U << static_cast<uint32_t>(expression[position] - '0');
+            const uint32_t layer = static_cast<uint32_t>(expression[position]) - static_cast<uint32_t>('0');
+            layers |= 1U << layer;
             ++position;
             SkipWhitespace(expression, position);
             if (position == expression.size() || expression[position] != ',') {
@@ -127,9 +129,11 @@ HcclResult NetLayerSelection::ParseExpression(const std::string& expression)
     size_t position = 0;
     SkipWhitespace(expression, position);
     mode_ = NetLayerSelectionMode::INCLUDE;
-    if (expression.compare(position, 3, "not") == 0) {
+    constexpr char EXCLUDE_KEYWORD[] = "not";
+    constexpr size_t EXCLUDE_KEYWORD_LEN = sizeof(EXCLUDE_KEYWORD) - 1U;
+    if (expression.compare(position, EXCLUDE_KEYWORD_LEN, EXCLUDE_KEYWORD) == 0) {
         mode_ = NetLayerSelectionMode::EXCLUDE;
-        position += 3;
+        position += EXCLUDE_KEYWORD_LEN;
         SkipWhitespace(expression, position);
         if (position == expression.size() || expression[position] != '(') {
             HCCL_ERROR(
@@ -173,7 +177,7 @@ void NetLayerSelection::Normalize()
         if (!firstLayer) {
             normalizedExpression_ += ',';
         }
-        normalizedExpression_ += static_cast<char>('0' + layer);
+        normalizedExpression_ += std::to_string(layer);
         firstLayer = false;
     }
     if (mode_ == NetLayerSelectionMode::EXCLUDE) {

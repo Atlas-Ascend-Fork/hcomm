@@ -9,7 +9,7 @@
  */
 
 #include "rank_graph_v2.h"
-#include "coll_comm_config.h"
+#include "net_layer_config.h"
 
 namespace hccl {
 

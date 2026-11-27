@@ -25,6 +25,7 @@
 #include "securec.h"
 #include "comm_config_pub.h"
 #include "coll_comm_config.h"
+#include "net_layer_config.h"
 #include "net_layer_test_common.h"
 
 using namespace hccl;

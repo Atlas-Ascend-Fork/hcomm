@@ -15,7 +15,7 @@
 #include "checkcrc.h"
 #include "ip_address.h"
 #include "comm_manager.h"
-#include "coll_comm_config.h"
+#include "net_layer_config.h"
 #include "comm_config_pub.h"
 
 using namespace Hccl;

@@ -23,6 +23,7 @@
 #include <utility>
 #include "hccl/hccl_comm.h"
 #include "coll_comm_config.h"
+#include "net_layer_config.h"
 
 #define private public
 #define protected public

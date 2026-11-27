@@ -10,9 +10,11 @@
 
 #include "coll_comm_config.h"
 #include "comm_config_pub.h"
+#include "net_layer_config.h"
 #include <algorithm>
 #include <cstddef>
 #include <cstring> // 包含strnlen函数
+#include <string>
 #include "hccl/hccl_comm.h"
 
 namespace hccl {

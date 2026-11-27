@@ -14,9 +14,11 @@
 #include <cstdint>
 #include <functional>
 #include <atomic>
-#include <thread>
+#include <memory>
+#include <mutex>
 #include <vector>
 #include <string>
+#include "hccl/base.h"
 #include "socket.h"
 #include "new_rank_info.h"
 #include "rank_table_info.h"
@@ -25,7 +27,8 @@
 #include "socket_exception.h"
 #include "socket_agent.h"
 #include "ip_address.h"
-#include "coll_comm_config.h"
+#include "net_layer_config.h"
+#include "root_handle_v2.h"
 
 namespace Hccl {
 

@@ -16,7 +16,7 @@
 #include "detour_service.h"
 #include "json/json_api.h"
 #include "phy_topo_builder.h"
-#include "coll_comm_config.h"
+#include "net_layer_config.h"
 
 namespace Hccl {
 

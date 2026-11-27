@@ -21,7 +21,7 @@
 #include "not_support_exception.h"
 #include "rank_gph.h"
 #include "link_data_adapter.h"
-#include "coll_comm_config.h"
+#include "net_layer_config.h"
 
 namespace Hccl {
 

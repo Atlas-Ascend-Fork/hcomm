@@ -27,6 +27,7 @@
 #if (!defined(HCCD)) && (!defined(CCL_KERNEL_AICPU))
 #include "coll_comm.h"
 #include "coll_comm_config.h"
+#include "net_layer_config.h"
 #endif
 #include "../common/src/topo/topoinfo_detect.h"
 #include "../common/src/topo/topoinfo_detect_scalable.h"

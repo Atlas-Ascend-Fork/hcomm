@@ -11,7 +11,7 @@
 #include "communicator_impl.h"
 #include <cstddef>
 #include "comm_config_pub.h"
-#include "coll_comm_config.h"
+#include "net_layer_config.h"
 #include <algorithm>
 #include <iterator>
 #include "link_data_adapter.h"
@@ -1510,7 +1510,7 @@ static HcclResult SaveBuiltNetLayerConfig(const RankGraph& graph, HcclCommConfig
             if (!expression.empty()) {
                 expression += ',';
             }
-            expression += static_cast<char>('0' + layer);
+            expression += std::to_string(layer);
         }
     }
     CHK_SAFETY_FUNC_RET(strcpy_s(config.hcclUseNetLayer, sizeof(config.hcclUseNetLayer), expression.c_str()));
