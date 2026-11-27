@@ -119,12 +119,13 @@ HcclResult AivRoceHostLocChannel::BuildBuffer()
         for (uint32_t i = 0; i < channelDesc_.memHandleNum; ++i) {
             CHK_PTR_NULL(channelDesc_.memHandles[i]);
             auto* localRdmaBuffer = ReinterpretAs<Hccl::LocalRdmaRmaBuffer*>(channelDesc_.memHandles[i]);
+            Hccl::Buffer* buf = localRdmaBuffer->GetBuf();
+            CHK_PTR_NULL(buf);
             HCCL_INFO(
                 "[%s::%s] Got memHandle No.%u: addr[0x%llx], size[0x%llx], memType[%d], memInfo[%s].",
                 channelClassName_, __func__, i, static_cast<unsigned long long>(localRdmaBuffer->GetAddr()),
-                static_cast<unsigned long long>(localRdmaBuffer->GetSize()),
-                static_cast<int>(localRdmaBuffer->GetBuf()->GetMemType()),
-                localRdmaBuffer->GetBuf()->GetMemInfo().c_str());
+                static_cast<unsigned long long>(localRdmaBuffer->GetSize()), static_cast<int>(buf->GetMemType()),
+                buf->GetMemInfo().c_str());
             localRmaBuffers_.emplace_back(localRdmaBuffer);
         }
     }
