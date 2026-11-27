@@ -402,6 +402,8 @@ public:
         const HcclCommConfig* config, CollCommInitMode initMode = CollCommInitMode::fullMode);
     HcclResult InitCollCommInner(uint32_t userRank);
     HcclResult SetCollCommInitSource(CommInitSource initSource);
+    // 子通信域 CollComm 初始化完成后，从父域继承通信上下文（初始化来源、root 身份映射）。
+    HcclResult InheritParentCommContext(const hcclComm& parent, const uint32_t* rankIds, uint32_t rankNum);
 #endif
     // Shrink/Grow 场景：接收已创建好的 CollComm 所有权，跳过 InitCollComm
     HcclResult AdoptCollComm(std::unique_ptr<CollComm> collComm);
@@ -412,7 +414,7 @@ public:
     HcclCommunicator* GetHcclCommunicator();
 #ifndef CCL_KERNEL_AICPU
 #ifndef HCCD
-    CollComm* GetCollComm();
+    CollComm* GetCollComm() const;
 #endif
     IndependentOp& GetIndependentOp();
 #endif

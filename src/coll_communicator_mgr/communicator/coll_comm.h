@@ -150,7 +150,8 @@ public:
     uint32_t GetRootRankId() const { return rootHandle_.rootRankId; }
     const Hccl::HcclRootHandleV2& GetCollCommRootHandle() const { return rootHandle_; }
     void SetRootHandle(const Hccl::HcclRootHandleV2& handle);
-    // 获取 Grow 使用的 rootInfo；root 身份无效时可能触发 root 重选并创建新 server。
+    // 子通信域继承父域 root 身份: root 不在 rankIds 中时，子域显式置为无 root。
+    HcclResult InheritRootFromParentComm(const CollComm& parent, const uint32_t* rankIds, uint32_t rankNum);
     HcclResult GetCollCommRootInfo(Hccl::HcclRootHandleV2& rootInfo);
     bool IsRootIdentityValid() const
     {

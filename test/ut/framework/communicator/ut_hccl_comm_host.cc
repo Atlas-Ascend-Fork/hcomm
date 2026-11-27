@@ -110,6 +110,33 @@ TEST_F(HcclCommHostTest, Ut_AdoptCollComm_When_AicpuMode_Expect_KernelLaunched)
     EXPECT_TRUE(hcclCommPtr->GetAicpuCommState());
 }
 
+TEST_F(HcclCommHostTest, Ut_InheritParentCommContext_When_RankIdsReordered_ExpectContextInherited)
+{
+    MockDerivedCommSetupDeps();
+    MOCKER(HcclDeviceRefresh).stubs().with(outBound(0)).will(returnValue(HCCL_SUCCESS));
+
+    auto parent = std::make_shared<hccl::hcclComm>();
+    auto parentCollComm = MakeDerivedCollComm();
+    Hccl::HcclRootHandleV2 parentRootHandle{};
+    parentRootHandle.listenPort = 60080;
+    parentRootHandle.rootRankId = 1;
+    strncpy_s(parentRootHandle.identifier, sizeof(parentRootHandle.identifier), "ut_parent_root", 14);
+    parentCollComm->SetRootHandle(parentRootHandle);
+    parentCollComm->SetInitSource(CommInitSource::rootInfo);
+    ASSERT_EQ(parent->AdoptCollComm(std::move(parentCollComm)), HCCL_SUCCESS);
+
+    auto child = std::make_shared<hccl::hcclComm>();
+    auto childCollComm = MakeDerivedCollComm();
+    childCollComm->SetInitSource(CommInitSource::clusterInfo);
+    ASSERT_EQ(child->AdoptCollComm(std::move(childCollComm)), HCCL_SUCCESS);
+
+    uint32_t rankIds[] = {1, 2, 3, 4};
+    ASSERT_EQ(child->InheritParentCommContext(*parent, rankIds, 4), HCCL_SUCCESS);
+    EXPECT_EQ(child->GetCollComm()->GetInitSource(), CommInitSource::rootInfo);
+    EXPECT_EQ(child->GetCollComm()->GetRootRankId(), 0u);
+    EXPECT_EQ(child->GetCollComm()->GetCollCommRootHandle().listenPort, parentRootHandle.listenPort);
+}
+
 TEST_F(HcclCommHostTest, Ut_SimpleModeIgnoresNetLayerSelection)
 {
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_910_93)).will(returnValue(HCCL_SUCCESS));
