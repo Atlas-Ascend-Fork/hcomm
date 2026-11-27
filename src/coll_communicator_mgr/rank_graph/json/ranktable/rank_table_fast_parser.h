@@ -40,10 +40,6 @@ HcclResult ParseRankTableStringFast(const std::string& jsonString, Hccl::RankTab
 // Reader 路径使用：只解析，不执行 Hccl::RankTableInfo::Check()。
 HcclResult ParseRankTableStringFastNoCheck(const std::string& jsonString, Hccl::RankTableInfo& info);
 
-// 仅供 UT 观测: 返回并行解析路径累计成功次数(HCCL_FAST_PARSER_THREADS 可强制线程数),
-// 用于断言并行路径确实被触发。
-u64 GetFastParserParallelUsedForTest();
-
 } // namespace hccl
 
 #endif // HCCLV2_RANK_TABLE_FAST_PARSER_H
