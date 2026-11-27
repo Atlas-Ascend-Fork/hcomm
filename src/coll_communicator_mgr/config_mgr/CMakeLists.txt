@@ -11,6 +11,7 @@
 set(src_list
     coll_comm_config.cc
     coll_comm_config_mgr.cc
+    env_aicpu_order_launch_config.cc
     env_ub_config.cc
     host_multi_qp_config.cc
 )

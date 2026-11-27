@@ -21,6 +21,7 @@ HcclResult CollCommConfigMgr::Init()
 
     CHK_RET(envUbConfig_.Parse());
     CHK_RET(hostMultiQpConfig_.Parse());
+    CHK_RET(envAicpuOrderLaunchConfig_.Parse());
     initialized_ = true;
     return HCCL_SUCCESS;
 }
