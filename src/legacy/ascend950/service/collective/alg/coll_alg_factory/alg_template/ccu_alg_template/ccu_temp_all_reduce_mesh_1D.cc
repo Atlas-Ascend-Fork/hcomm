@@ -120,7 +120,7 @@ HcclResult CcuTempAllReduceMesh1D::Run(
         outputAddr = BufferTypeToAddr(buffInfo_.outBuffType) + buffInfo_.outBuffBaseOff
                      + tempFuncs.usrData.usrOutSlices[0].GetOffset();
     }
-    HCCL_INFO("inputAddr[%llu], outputAddr[%llu]", inputAddr, outputAddr);
+    HCCL_INFO("inputAddr[0x%llx], outputAddr[0x%llx]", inputAddr, outputAddr);
 
     uint64_t sliceSize = sliceInfoVec[myRank_][0].size; // 获取本rank需要处理的数据量
     uint64_t offset = sliceInfoVec[myRank_][0].offset;  // 自己需要 reduce 的数据基于 inputAddr 的偏移
@@ -129,7 +129,7 @@ HcclResult CcuTempAllReduceMesh1D::Run(
     ccuInsAllReduceMesh1D.Init(
         static_cast<uint32_t>(myRank_), inputAddr, outputAddr, sliceSize, offset, token, op_, tempVTopo_);
     HCCL_INFO(
-        "[CcuTempAllReduceMesh1D] Run Init: myRank_[%d], dimSize[%llu], inputAddr[%llu], outputAddr[%llu],"
+        "[CcuTempAllReduceMesh1D] Run Init: myRank_[%d], dimSize[%llu], inputAddr[0x%llx], outputAddr[0x%llx],"
         "sliceSize[%llu], offset[%llu]",
         myRank_, dimSize[0], inputAddr, outputAddr, sliceSize, offset);
 

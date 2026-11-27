@@ -419,7 +419,7 @@ void TaskProfiling::DumpReportDataInfo(uint32_t type, const MsprofHcclInfo& prof
     HCCL_DEBUG(
         "[DumpReportDataInfo] type[%u], itemId[%llu], cclTag[%llu], groupName[%llu], localRank[%u], remoteRank[%u], "
         "rankSize[%u], workFlowMode[%u], planeID[%u], ctxId[%u], notifyID[%llu], stage[%u], role[%u], "
-        "durationEstimated[%f us], srcAddr[%llu], dstAddr[%llu], dataSize[%llu Byte], opType[%u], dataType[%u], "
+        "durationEstimated[%f us], srcAddr[0x%llx], dstAddr[0x%llx], dataSize[%llu Byte], opType[%u], dataType[%u], "
         "linkType[%u], "
         "transportType[%u], rdmaType[%u]",
         type, profInfo.itemId, profInfo.cclTag, profInfo.groupName, profInfo.localRank, profInfo.remoteRank,

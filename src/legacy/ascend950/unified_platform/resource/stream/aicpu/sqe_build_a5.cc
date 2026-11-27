@@ -130,7 +130,7 @@ void BuildA5SqeCCoreNotifyWait(u32 streamId, u32 taskId, u64 waitAddr, u64 actAd
 
     sqe->header.sqeProf = g_sqeProfBit;
     HCCL_INFO(
-        "[SQE]CCoreWait: waitAddr=%llu, actAddr=%llu, last=%u, streamId=%u, taskId=%u, sqeProf=%u, "
+        "[SQE]CCoreWait: waitAddr=0x%llx, actAddr=0x%llx, last=%u, streamId=%u, taskId=%u, sqeProf=%u, "
         "ISA=%08x %08x %08x %08x %08x %08x %08x",
         waitAddr, actAddr, last, streamId, taskId, static_cast<uint32_t>(sqe->header.sqeProf), sqe->ldrImm1,
         sqe->ldrImm2, sqe->beq, sqe->clear.llwi1, sqe->clear.lhwi1, sqe->clear.sw, sqe->clear.nop[0]);

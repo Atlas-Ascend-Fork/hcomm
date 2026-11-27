@@ -421,18 +421,18 @@ struct TransportDeviceNormalData {
     void Print()
     {
         HCCL_DEBUG(
-            "remoteInputMem: addr[%llu], size[%llu], key[%u]", remoteInputMem.addr, remoteInputMem.size,
+            "remoteInputMem: addr[0x%llx], size[%llu], key[%u]", remoteInputMem.addr, remoteInputMem.size,
             remoteInputMem.key);
         HCCL_DEBUG(
-            "remoteOutputMem: addr[%llu], size[%llu], key[%u]", remoteOutputMem.addr, remoteOutputMem.size,
+            "remoteOutputMem: addr[0x%llx], size[%llu], key[%u]", remoteOutputMem.addr, remoteOutputMem.size,
             remoteOutputMem.key);
         HCCL_DEBUG(
-            "localInputMem: addr[%llu], size[%llu], key[%u]", localInputMem.addr, localInputMem.size,
+            "localInputMem: addr[0x%llx], size[%llu], key[%u]", localInputMem.addr, localInputMem.size,
             localInputMem.key);
         HCCL_DEBUG(
-            "localOutputMem: addr[%llu], size[%llu], key[%u]", localOutputMem.addr, localOutputMem.size,
+            "localOutputMem: addr[0x%llx], size[%llu], key[%u]", localOutputMem.addr, localOutputMem.size,
             localOutputMem.key);
-        HCCL_DEBUG("qpInfo: qpPtr[%llu], sqIndex[%u], dbIndex[%u]", qpInfo.qpPtr, qpInfo.sqIndex, qpInfo.dbIndex);
+        HCCL_DEBUG("qpInfo: qpPtr[0x%llx], sqIndex[%u], dbIndex[%u]", qpInfo.qpPtr, qpInfo.sqIndex, qpInfo.dbIndex);
         HCCL_DEBUG("qpMode[%d]", static_cast<int32_t>(qpMode));
         return;
     }

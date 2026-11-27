@@ -215,7 +215,7 @@ void CcuConnection::Serialize(std::vector<char>& dtoData)
     dtoStream << ccuBufAddr;
     dtoStream << ccuBufTokenId;
     dtoStream << ccuBufTokenValue;
-    HCCL_INFO("[CcuConnection][%s], ccuBufAddr[%llx]", __func__, ccuBufAddr);
+    HCCL_INFO("[CcuConnection][%s], ccuBufAddr[0x%llx]", __func__, ccuBufAddr);
 
     dtoStream << jettyNum;
     HCCL_INFO("[CcuConnection][%s], jettyNum[%u]", __func__, jettyNum);
@@ -253,7 +253,7 @@ void CcuConnection::Deserialize(const std::vector<char>& dtoData)
     dtoStream >> rmtCcuBufAddr;
     dtoStream >> rmtCcuBufTokenId;
     dtoStream >> rmtCcuBufTokenValue;
-    HCCL_INFO("[CcuConnection][%s], rmtCcuBufAddr[%llx].", __func__, rmtCcuBufAddr);
+    HCCL_INFO("[CcuConnection][%s], rmtCcuBufAddr[0x%llx].", __func__, rmtCcuBufAddr);
 
     uint32_t remoteJettySize{0};
     dtoStream >> remoteJettySize;

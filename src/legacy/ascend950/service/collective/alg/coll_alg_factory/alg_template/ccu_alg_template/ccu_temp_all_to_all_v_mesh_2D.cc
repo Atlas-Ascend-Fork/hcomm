@@ -205,7 +205,7 @@ HcclResult CcuTempAlltoAllVMesh2D::Run(
     uint64_t blockBufferSize = static_cast<uint64_t>((scratchBufferSize_ / blockSize) / typeSize) * typeSize * 2;
 
     HCCL_INFO(
-        "[CcuTempAlltoAllVMesh2D] Rank[%d], input[%llu], output[%llu], scratch[%llu], blockSize[%llu],"
+        "[CcuTempAlltoAllVMesh2D] Rank[%d], input[0x%llx], output[0x%llx], scratch[0x%llx], blockSize[%llu],"
         "blockBufferSize[%llu].",
         myRank_, inputAddr, outputAddr, scratchAddr, blockSize, blockBufferSize);
 

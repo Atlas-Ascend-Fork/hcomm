@@ -343,7 +343,7 @@ std::vector<uint64_t> CcuContextBroadcastNHRMem2Mem1D::GeneArgs(const CcuTaskArg
     uint64_t die1LastSliceSize = taskArg->die1LastSliceSize_;
 
     HCCL_INFO(
-        "[CcuContextBroadcastNHRMem2Mem1D] TaskArgs: inputAddr[%llu], outputAddr[%llu], "
+        "[CcuContextBroadcastNHRMem2Mem1D] TaskArgs: inputAddr[0x%llx], outputAddr[0x%llx], "
         "die0Size[%llu], die1Size[%llu], die0SliceSize[%llu], die1SliceSize[%llu],"
         "die0LastSliceSize[%llu], die1LastSliceSize[%llu]",
         inputAddr, outputAddr, die0Size, die1Size, die0SliceSize, die1SliceSize, die0LastSliceSize, die1LastSliceSize);

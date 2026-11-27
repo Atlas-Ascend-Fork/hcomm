@@ -268,7 +268,7 @@ void CollServiceAiCpuImpl::SetOpbaseBufferParam(
         InitAicpuLocBufLite(param.kernel.op.output, op.outputMem->GetAddr(), op.outputMem->GetSize(), "outputMem");
     }
     HCCL_INFO(
-        "SetOpbaseBufferParam param.kernel.comm.opBaseScratch.addr %llu, param.kernel.comm.opBaseScratch.size %llu",
+        "SetOpbaseBufferParam param.kernel.comm.opBaseScratch.addr 0x%llx, param.kernel.comm.opBaseScratch.size %llu",
         param.kernel.comm.opBaseScratch.addr, param.kernel.comm.opBaseScratch.size);
 }
 

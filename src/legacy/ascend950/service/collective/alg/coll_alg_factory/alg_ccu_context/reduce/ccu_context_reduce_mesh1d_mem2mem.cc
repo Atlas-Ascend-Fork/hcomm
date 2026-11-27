@@ -283,7 +283,7 @@ std::vector<uint64_t> CcuContextReduceMeshMem2Mem1D::GeneArgs(const CcuTaskArg& 
     taskArgs.push_back(localGoSize[2]);
     taskArgs.push_back(localGoSize[3]);
     HCCL_INFO(
-        "[CcuContextReduceMeshMem2Mem1D] TaskArgs: inputAddr[%llu], outputAddr[%llu], inputRepeatStride[%llu], "
+        "[CcuContextReduceMeshMem2Mem1D] TaskArgs: inputAddr[0x%llx], outputAddr[0x%llx], inputRepeatStride[%llu], "
         "outputRepeatStride[%llu], normalSliceSize[%llu], lastSliceSize[%llu], repeatNumVar[%llu], "
         "bigDataSliceNum[%llu], bigDataSliceSize[%llu], smallDataSliceNum[%llu], smallDataSliceSize[%llu], ",
         inputAddr, outputAddr, inputRepeatStride, outputRepeatStride, normalSliceSize, lastSliceSize, repeatNumVar,

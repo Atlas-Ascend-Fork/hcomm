@@ -151,7 +151,7 @@ TransportHeterogRoce::Isend(const TransData& sendData, const TransportEndPointPa
         reinterpret_cast<void*>(sendData.srcBuf), static_cast<u64>(sendData.count * SIZE_TABLE[sendData.dataType]),
         lkey));
     HCCL_DEBUG(
-        "addr[%llu] count[%d] datatype[%s]", sendData.srcBuf, sendData.count,
+        "addr[0x%llx] count[%d] datatype[%s]", sendData.srcBuf, sendData.count,
         GetDataTypeEnumStr(sendData.dataType).c_str());
 
     HcclEnvelope envelope(
@@ -245,7 +245,7 @@ TransportHeterogRoce::Iwrite(const TransData& sendData, const HcclEnvelope& enve
 
         struct ibv_send_wr* badWr = nullptr;
         HCCL_INFO(
-            "rdma write: remote addr[%llu] count[%d] datatype[%s] wrId[%llu]",
+            "rdma write: remote addr[0x%llx] count[%d] datatype[%s] wrId[%llu]",
             reinterpret_cast<u64>(envelope.transData.dstBuf), envelope.transData.count,
             GetDataTypeEnumStr(envelope.transData.dataType).c_str(), dataWriteWr_.wr_id);
         CHK_RET(hrtIbvPostSend(dataQpInfo_.qp, &dataWriteWr_, &badWr));
@@ -330,7 +330,7 @@ HcclResult TransportHeterogRoce::Imrecv(const TransData& recvData, HcclMessageIn
 
         struct ibv_send_wr* badWr = nullptr;
         HCCL_INFO(
-            "rdma read: remote addr[%llx] count[%d] datatype[%s] wrId[%llu]",
+            "rdma read: remote addr[0x%llx] count[%d] datatype[%s] wrId[%llu]",
             reinterpret_cast<u64>(envelope.transData.srcBuf), envelope.transData.count,
             GetDataTypeEnumStr(envelope.transData.dataType).c_str(), dataReadWr_.wr_id);
         CHK_RET(hrtIbvPostSend(dataQpInfo_.qp, &dataReadWr_, &badWr));
@@ -534,7 +534,7 @@ HcclResult TransportHeterogRoce::ParseTagRqes(const struct ibv_wc* wc, int num)
             void* devPtr = reinterpret_cast<void*>(uDevPtr);
             u64 uHostPtr = uDevPtr - reinterpret_cast<uint64_t>(deviceEvePtr_) + hostAddrBegin_;
             void* hostPtr = reinterpret_cast<void*>(uHostPtr);
-            HCCL_DEBUG("ParseTagRqes devPtr[%p][%llu] hostPtr[%p][%llu]", devPtr, uDevPtr, hostPtr, uHostPtr);
+            HCCL_DEBUG("ParseTagRqes devPtr[%p][0x%llx] hostPtr[%p][0x%llx]", devPtr, uDevPtr, hostPtr, uHostPtr);
             CHK_RET(hrtMemcpy(
                 hostPtr, MEM_BLOCK_SIZE, devPtr, MEM_BLOCK_SIZE, HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_DEVICE_TO_HOST));
             envelope = reinterpret_cast<HcclEnvelope*>(hostPtr);
@@ -696,7 +696,7 @@ HcclResult TransportHeterogRoce::SendEnvelope(HcclEnvelope& envelopInfo, void* s
 
         struct ibv_send_wr* badWr = nullptr;
         HCCL_INFO(
-            "rdma send: srcRank[%u] dstRank[%u] tag[%d]: addr[%llu] count[%d] dtype[%s] msn[%llu]",
+            "rdma send: srcRank[%u] dstRank[%u] tag[%d]: addr[0x%llx] count[%d] dtype[%s] msn[%llu]",
             envelopInfo.epParam.src.rank, envelopInfo.epParam.dst.rank, envelopInfo.epParam.src.tag,
             reinterpret_cast<u64>(envelopInfo.transData.srcBuf), envelopInfo.transData.count,
             GetDataTypeEnumStr(envelopInfo.transData.dataType).c_str(), envelopInfo.msn);
@@ -1542,7 +1542,7 @@ HcclResult TransportHeterogRoce::RecordNotify([[maybe_unused]] Stream& stream, R
 
         struct ibv_send_wr* badWr = nullptr;
         HCCL_INFO(
-            "notify write: remote addr[%llu] length[%d] wrId[%llu]", notifyWriteWr_.wr.rdma.remote_addr,
+            "notify write: remote addr[0x%llx] length[%d] wrId[%llu]", notifyWriteWr_.wr.rdma.remote_addr,
             notifyWriteSge_.length, notifyWriteWr_.wr_id);
         CHK_RET(hrtIbvPostSend(dataQpInfo_.qp, &notifyWriteWr_, &badWr));
     } else {

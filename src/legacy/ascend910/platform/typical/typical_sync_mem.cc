@@ -159,7 +159,7 @@ HcclResult TypicalSyncMem::GetNotifyHandle(u64 notifyVa, HcclRtNotify& notifyHan
         notifyHandle = smIter->second;
         return HCCL_SUCCESS;
     }
-    HCCL_ERROR("[TypicalSyncMem][GetNotifyHandle]invalid notifyVa[%llu].", notifyVa);
+    HCCL_ERROR("[TypicalSyncMem][GetNotifyHandle]invalid notifyVa[0x%llx].", notifyVa);
     return HCCL_E_PARA;
 }
 

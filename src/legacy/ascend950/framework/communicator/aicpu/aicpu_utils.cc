@@ -181,8 +181,8 @@ HcclResult AicpuUtils::HcclLaunchCcore(
 {
     const char* typeStr = (ccoreType == CCORE_NOTIFY_TYPE) ? "HcclLaunchCcoreWait" : "HcclLaunchCcorePost";
     HCCL_INFO(
-        "[%s]opHandle %p, dstAddr %llu, turnNum %u, turnNumAddr %llu, isLast %u, type %s.", __func__, opHandle, dstAddr,
-        turnNum, turnNumAddr, isLast, typeStr);
+        "[%s]opHandle %p, dstAddr 0x%llx, turnNum %u, turnNumAddr 0x%llx, isLast %u, type %s.", __func__, opHandle,
+        dstAddr, turnNum, turnNumAddr, isLast, typeStr);
     if (ccoreType != CCORE_WAIT_TYPE && ccoreType != CCORE_NOTIFY_TYPE) {
         HCCL_ERROR("[%s]Args type %d is not in CCORE_WAIT_TYPE(0) or CCORE_NOTIFY_TYPE(1).", __func__, ccoreType);
         return HCCL_E_PARA;
@@ -340,7 +340,7 @@ AicpuUtils::FillCollOperatorMemInfo(CollAlgOperator& algOperator, HcclAicpuOpLit
         }
     }
     HCCL_INFO(
-        "[%s]opType %s, op.input.addr %llu, op.input.size %llu, op.output.addr %llu, "
+        "[%s]opType %s, op.input.addr 0x%llx, op.input.size %llu, op.output.addr 0x%llx, "
         "op.output.size %llu",
         __func__, algOperator.opType.Describe().c_str(), op.input.addr, op.input.size, op.output.addr, op.output.size);
     return HCCL_SUCCESS;

@@ -165,7 +165,7 @@ HcclResult AicpuMc2Handler::HcclLaunchCcoreWait(
     void* opHandle, uint64_t waitAddr, uint32_t turnNum, uint64_t turnNumAddr, bool isLast) const
 {
     HCCL_INFO(
-        "[%s]opHandle %p, waitAddr %llu, turnNum %u, turnNumAddr %llu, isLast %u.", __func__, opHandle, waitAddr,
+        "[%s]opHandle %p, waitAddr 0x%llx, turnNum %u, turnNumAddr 0x%llx, isLast %u.", __func__, opHandle, waitAddr,
         turnNum, turnNumAddr, isLast);
     return AicpuUtils::GetInstance().HcclLaunchCcore(opHandle, waitAddr, turnNum, turnNumAddr, isLast, CCORE_WAIT_TYPE);
 }
@@ -175,7 +175,7 @@ HcclResult
 AicpuMc2Handler::HcclLaunchCcorePost(void* opHandle, uint64_t recordAddr, uint32_t turnNum, uint64_t turnNumAddr) const
 {
     HCCL_INFO(
-        "[%s]opHandle %p, recordAddr %llu, turnNum %u, turnNumAddr %llu.", __func__, opHandle, recordAddr, turnNum,
+        "[%s]opHandle %p, recordAddr 0x%llx, turnNum %u, turnNumAddr 0x%llx.", __func__, opHandle, recordAddr, turnNum,
         turnNumAddr);
     return AicpuUtils::GetInstance().HcclLaunchCcore(
         opHandle, recordAddr, turnNum, turnNumAddr, false, CCORE_NOTIFY_TYPE);

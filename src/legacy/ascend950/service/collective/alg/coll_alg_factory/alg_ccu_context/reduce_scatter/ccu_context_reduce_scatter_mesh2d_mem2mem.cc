@@ -507,7 +507,7 @@ std::vector<uint64_t> CcuContextReduceScatterMeshMem2Mem2D::GeneArgs(const CcuTa
         }
     }
     HCCL_INFO(
-        "[CcuContextReduceScatterMeshMem2Mem2D] GeneArgs: inputAddr[%llu], outputAddr[%llu],"
+        "[CcuContextReduceScatterMeshMem2Mem2D] GeneArgs: inputAddr[0x%llx], outputAddr[0x%llx],"
         "step0BaseOffset[%llu], step0AddOffset[%llu], step1AddOffset[%llu]",
         inputAddr, outputAddr, step0BaseOffset, step0AddOffset, step1AddOffset);
 

@@ -537,8 +537,8 @@ std::vector<uint64_t> CcuContextAlltoAllMesh2D::GeneArgs(const CcuTaskArg& arg)
     CalculateArgs(taskArg);
 
     HCCL_INFO(
-        "[CcuContextAlltoAllMesh2D][GeneArgs] RankId[%u]--AxisId[%u], inputAddr[%llu], outputAddr[%llu], \
-bufferA[%llu], bufferB[%llu], goSize--[%llu][%llu][%llu][%llu], sendStride[%llu], recvStride[%llu], \
+        "[CcuContextAlltoAllMesh2D][GeneArgs] RankId[%u]--AxisId[%u], inputAddr[0x%llx], outputAddr[0x%llx], \
+bufferA[0x%llx], bufferB[0x%llx], goSize--[%llu][%llu][%llu][%llu], sendStride[%llu], recvStride[%llu], \
 sendRecvSize[%llu], sendLength[%llu], aSize[%llu], bSize[%llu], baseOffset[%llu]",
         rankId_, axisId, inputAddr, outputAddr, bufferAAddr, bufferBAddr, goSize[0], goSize[1], goSize[2], goSize[3],
         taskArg->sendStride, taskArg->recvStride, sliceSizeValue, taskArg->sendLength, taskArg->aSize, taskArg->bSize,

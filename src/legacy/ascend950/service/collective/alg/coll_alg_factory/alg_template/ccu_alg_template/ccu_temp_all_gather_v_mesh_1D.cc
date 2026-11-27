@@ -67,8 +67,8 @@ HcclResult CcuTempAllGatherVMesh1D::GenExtIns(
         static_cast<uint32_t>(myRank_), inputAddr, outputAddr, mySliceSize, mySliceOutputOffset, token, op_,
         tempVTopo_);
     HCCL_INFO(
-        "[CcuTempAllGatherVMesh1D] Run Init: myRank_[%d], dimSize[%llu], inputAddr[%llu],"
-        "outputAddr[%llu], mySliceSize[%llu], mySliceOutputOffset[%llu]",
+        "[CcuTempAllGatherVMesh1D] Run Init: myRank_[%d], dimSize[%llu], inputAddr[0x%llx],"
+        "outputAddr[0x%llx], mySliceSize[%llu], mySliceOutputOffset[%llu]",
         myRank_, dimSize[0], inputAddr, outputAddr, mySliceSize, mySliceOutputOffset);
 
     std::vector<LinkData> links;

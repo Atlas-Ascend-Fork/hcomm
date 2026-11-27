@@ -523,7 +523,7 @@ std::vector<uint64_t> CcuContextScatterMesh2D::GeneArgs(const CcuTaskArg& arg)
     auto curGosize = (axisId_ == DIM_X) ? xSliceGoSize : ySliceGoSize;
 
     HCCL_INFO(
-        "[CcuContextScatterMesh2DAlgo] inputAddr[%llu], outputAddr[%llu], scratchAddr[%llu], sliceSize[%llu], "
+        "[CcuContextScatterMesh2DAlgo] inputAddr[0x%llx], outputAddr[0x%llx], scratchAddr[0x%llx], sliceSize[%llu], "
         "stride[%llu], xSliceSize[%llu], ySliceSize[%llu] ",
         inputAddr, outputAddr, scratchAddr, sliceSize, stride, xSliceSize, ySliceSize);
     // 8个参数

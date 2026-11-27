@@ -805,7 +805,7 @@ HcclResult CcuTransport::GetRmtVarAddrByXnId(const uint32_t rmtXnId, uint64_t& r
         xnOffsetCcumAddr);
     if (rmtResourceAddr > UINT64_MAX - xnOffsetCcumAddr) {
         HCCL_ERROR(
-            "[CcuTransport][%s] failed, CCU resource base address[%llu] is "
+            "[CcuTransport][%s] failed, CCU resource base address[0x%llx] is "
             "greater than expected, ccu xn offset[%llu], their sum will exceed the range "
             "of uint64_t.",
             __func__, rmtResourceAddr, xnOffsetCcumAddr);

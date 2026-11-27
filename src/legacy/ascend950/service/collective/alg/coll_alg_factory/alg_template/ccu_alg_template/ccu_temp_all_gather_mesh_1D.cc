@@ -97,8 +97,8 @@ HcclResult CcuTempAllGatherMesh1D::Run(
     ccuInsAllGatherMesh1D.Init(
         static_cast<uint32_t>(myRank_), inputAddr, outputAddr, sliceSize, offset, token, op_, tempVTopo_);
     HCCL_INFO(
-        "[CcuTempAllGatherMesh1D] Run Init: myRank_[%d], dimSize[%llu], inputAddr[%llu],"
-        "outputAddr[%llu], sliceSize[%llu], offset[%llu]",
+        "[CcuTempAllGatherMesh1D] Run Init: myRank_[%d], dimSize[%llu], inputAddr[0x%llx],"
+        "outputAddr[0x%llx], sliceSize[%llu], offset[%llu]",
         myRank_, dimSize[0], inputAddr, outputAddr, sliceSize, offset);
 
     std::vector<LinkData> links;

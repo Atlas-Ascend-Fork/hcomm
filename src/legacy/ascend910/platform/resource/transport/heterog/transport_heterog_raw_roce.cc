@@ -271,7 +271,7 @@ HcclResult TransportHeterogRawRoce::ImrecvScatter(
 
     struct ibv_send_wr* badWr = nullptr;
     HCCL_INFO(
-        "rdma read: remote addr[%llu] count[%d] datatype[%s] wrId[%llu] num_sge[%d] qpHandle[%p]",
+        "rdma read: remote addr[0x%llx] count[%d] datatype[%s] wrId[%llu] num_sge[%d] qpHandle[%p]",
         reinterpret_cast<u64>(envelope.transData.srcBuf), envelope.transData.count,
         GetDataTypeEnumStr(envelope.transData.dataType).c_str(), dataReadWr_.wr_id, bufCount, dataQpInfo_.qp);
     HcclResult ret = hrtIbvPostSend(dataQpInfo_.qp, &dataReadWrScatter_, &badWr);
@@ -280,7 +280,7 @@ HcclResult TransportHeterogRawRoce::ImrecvScatter(
             HCCL_WARNING("rdma read post send wqe overflow.[%d]", ret);
         } else {
             HCCL_ERROR(
-                "rdma read fail: remote addr[%llx] count[%d] datatype[%s] wrId[%llu] bufCount[%d]",
+                "rdma read fail: remote addr[0x%llx] count[%d] datatype[%s] wrId[%llu] bufCount[%d]",
                 reinterpret_cast<u64>(envelope.transData.srcBuf), envelope.transData.count,
                 GetDataTypeEnumStr(envelope.transData.dataType).c_str(), dataReadWr_.wr_id, bufCount);
         }

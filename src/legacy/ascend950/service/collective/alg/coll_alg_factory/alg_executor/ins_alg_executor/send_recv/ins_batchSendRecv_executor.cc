@@ -218,7 +218,7 @@ HcclResult InsBatchSendRecvExecutor<AlgTopoMatch>::ProcessSendRecv(
                 DataBuffer inScratchSlice(
                     scratchBufferAddr + (remoteRank % rankSize_) * maxRoundTransferSize_, sendRemoteSlices[step].size_);
                 HCCL_DEBUG(
-                    "scratchBufferAddr[%llu], offset[%llu], dataSize[%llu]", scratchBufferAddr,
+                    "scratchBufferAddr[0x%llx], offset[%llu], dataSize[%llu]", scratchBufferAddr,
                     (remoteRank % rankSize_) * maxRoundTransferSize_, sendRemoteSlices[step].size_);
 
                 queue->Append(std::make_unique<InsLocalCopyExtend>(
@@ -450,7 +450,7 @@ HcclResult InsBatchSendRecvExecutor<AlgTopoMatch>::ProcessSendDataSlice(
     DataBuffer inScratchSlice(
         scratchBufferAddr + (remoteRank % rankSize_) * maxRoundTransferSize_, sendRemoteSlice.size_);
     HCCL_DEBUG(
-        "scratchBufferAddr[%llu], offset[%llu], dataSize[%llu]", scratchBufferAddr,
+        "scratchBufferAddr[0x%llx], offset[%llu], dataSize[%llu]", scratchBufferAddr,
         (remoteRank % rankSize_) * maxRoundTransferSize_, sendRemoteSlice.size_);
 
     queue->Append(std::make_unique<InsLocalCopyExtend>(inputBuffer, inScratchSlice));
@@ -470,8 +470,8 @@ HcclResult InsBatchSendRecvExecutor<AlgTopoMatch>::CopyRecvDataSliceToUsrOut(
 
     DataBuffer outputBuffer(slice.addr_, slice.size_);
     HCCL_DEBUG(
-        "[InsBatchSendRecvExecutor][CopyRecvDataSliceToUsrOut] scratchMem Addr[%llu] localcopy"
-        "size[%llu] to outputBuffer[%llu].",
+        "[InsBatchSendRecvExecutor][CopyRecvDataSliceToUsrOut] scratchMem Addr[0x%llx] localcopy"
+        "size[%llu] to outputBuffer[0x%llx].",
         outScratchSlice.GetAddr(), slice.size_, outputBuffer.GetAddr());
     queue->Append(std::make_unique<InsLocalCopyExtend>(outScratchSlice, outputBuffer));
 

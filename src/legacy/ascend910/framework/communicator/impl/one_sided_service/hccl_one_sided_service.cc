@@ -1167,7 +1167,7 @@ HcclResult HcclOneSidedService::CreateAicpuNotify(std::shared_ptr<LocalNotify>& 
     CHK_RET(localNotify->SetIpc());
     CHK_RET(localNotify->GetNotifyData(notifyInfo));
     HCCL_INFO(
-        "[HcclOneSidedService][CreateAicpuNotify]resId[%llu], addr[%llu], devId[%u], tsId[%u].", notifyInfo.resId,
+        "[HcclOneSidedService][CreateAicpuNotify]resId[%llu], addr[0x%llx], devId[%u], tsId[%u].", notifyInfo.resId,
         notifyInfo.addr, notifyInfo.devId, notifyInfo.tsId);
     return HCCL_SUCCESS;
 }

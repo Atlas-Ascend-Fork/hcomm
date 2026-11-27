@@ -1968,7 +1968,7 @@ HcclResult OpUnfoldCacheEntry::GetTransferCountForAlltoallv(
         CHK_PRT_RET(
             mapIter == alltoallvMetadata.signalAddrRankRflagMap.cend(),
             HCCL_ERROR(
-                "[OpUnfoldCacheEntry][GetTransferCountForAlltoallv] signalAddr[%llu] not in alltoallvMetadata",
+                "[OpUnfoldCacheEntry][GetTransferCountForAlltoallv] signalAddr[0x%llx] not in alltoallvMetadata",
                 signalAddr),
             HCCL_E_INTERNAL);
 

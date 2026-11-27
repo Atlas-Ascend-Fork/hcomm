@@ -172,8 +172,8 @@ Buffer P2PTransportLiteImpl::GetRmtBuffer(u32 index)
             "P2PTransportLiteImpl::GetRmtBuffer out-of-bounds. index=%u, size=%u", index, rmtBufferVec.size()));
     }
     HCCL_DEBUG(
-        "[P2PTransportLiteImpl][GetRmtBuffer]buffer index[%u], addr[%llu], size[%llu]", index, rmtBufferVec[index].addr,
-        rmtBufferVec[index].size);
+        "[P2PTransportLiteImpl][GetRmtBuffer]buffer index[%u], addr[0x%llx], size[%llu]", index,
+        rmtBufferVec[index].addr, rmtBufferVec[index].size);
     return Buffer(rmtBufferVec[index].addr, rmtBufferVec[index].size);
 }
 

@@ -74,7 +74,7 @@ public:
             for (uint32_t i = 0; i < HCCL_RES_TAG_MAX_LEN; ++i) {
                 binaryStream << static_cast<u8>(memInfo[i]);
             }
-            HCCL_INFO("Pack Ccl Buffer Info: addr[%llu] size[%u] memInfo[%s]", addr, size, memInfo.data());
+            HCCL_INFO("Pack Ccl Buffer Info: addr[0x%llx] size[%u] memInfo[%s]", addr, size, memInfo.data());
         }
 
         void Unpack(Hccl::BinaryStream& binaryStream)
@@ -85,7 +85,7 @@ public:
                 binaryStream >> byte;
                 memInfo[i] = static_cast<char>(byte);
             }
-            HCCL_INFO("Unpack Ccl Buffer Info: addr[%llu] size[%u] memInfo[%s]", addr, size, memInfo.data());
+            HCCL_INFO("Unpack Ccl Buffer Info: addr[0x%llx] size[%u] memInfo[%s]", addr, size, memInfo.data());
         }
     };
 

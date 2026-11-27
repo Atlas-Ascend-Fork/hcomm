@@ -103,7 +103,7 @@ void AicpuKernelLauncher::SetOpbaseBufferParam(HcclKernelLaunchParam& param, Col
         InitAicpuLocBufLite(param.kernel.op.output, op.outputMem->GetAddr(), op.outputMem->GetSize(), "outputMem");
     }
     HCCL_INFO(
-        "[AicpuKernelLauncher::%s] end, SetOpbaseBufferParam param.kernel.comm.opBaseScratch.addr %llu, "
+        "[AicpuKernelLauncher::%s] end, SetOpbaseBufferParam param.kernel.comm.opBaseScratch.addr 0x%llx, "
         "param.kernel.comm.opBaseScratch.size %llu",
         __func__, param.kernel.comm.opBaseScratch.addr, param.kernel.comm.opBaseScratch.size);
 }

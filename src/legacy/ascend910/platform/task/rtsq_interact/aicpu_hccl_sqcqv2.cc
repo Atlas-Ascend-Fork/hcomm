@@ -143,7 +143,7 @@ void AddOneMemcpySqeV2(
         = isReduce ? ReduceOpcode(runtimeDataType) : static_cast<uint8_t>(SdmaReduceOpcode::SDMA_OPCODE_NOT_ATOMIC);
     HCCL_INFO(
         "[SQE]MemcpySqe copyKind=%u,Opcode=0x%x, streamId=%u, len=%u, src:%p, dst:%p src_substreamid:%u "
-        "dst_substreamid:%u src_streamid:%x dst_streamid:%x overflowAddr:%llx sqe->linkType=%u hcclQos=%u",
+        "dst_substreamid:%u src_streamid:%x dst_streamid:%x overflowAddr:0x%llx sqe->linkType=%u hcclQos=%u",
         static_cast<uint32_t>(rtReduceOp), static_cast<uint32_t>(sqe->opcode), streamId, length, src, dst,
         sqe->src_substreamid, sqe->dst_substreamid, sqe->src_streamid, sqe->dst_streamid, overflowAddr,
         static_cast<unsigned int>(linkType), hcclQos);

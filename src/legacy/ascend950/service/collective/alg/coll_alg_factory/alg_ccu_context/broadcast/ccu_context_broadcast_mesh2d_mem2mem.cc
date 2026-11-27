@@ -325,7 +325,7 @@ std::vector<uint64_t> CcuContextBroadcastMeshMem2Mem2D::GeneArgs(const CcuTaskAr
     auto xAxisGoSize = CalGoSize(xAxisSize);
     auto yAxisGoSize = CalGoSize(yAxisSize);
     HCCL_INFO(
-        "[CcuContextBroadcastMeshMem2Mem2D][GeneArgs] RankId[%u]--AxisId[%u], inputAddr[%llu],xAxisSize[%llu], "
+        "[CcuContextBroadcastMeshMem2Mem2D][GeneArgs] RankId[%u]--AxisId[%u], inputAddr[0x%llx],xAxisSize[%llu], "
         "yAxisSize[%llu],yAxisOffset[%llu]",
         rankId_, axisId_, inputAddr, xAxisSize, yAxisSize, yAxisOffset);
     return {inputAddr, yAxisOffset, tokenInfo, xAxisSize, yAxisSize};

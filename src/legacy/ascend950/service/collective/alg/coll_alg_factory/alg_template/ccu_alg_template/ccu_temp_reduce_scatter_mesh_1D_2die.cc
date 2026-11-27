@@ -88,7 +88,7 @@ HcclResult CcuTempReduceScatterMesh1D2Die::GenExtIns(
     uint64_t token;
     CHK_RET(GetToken(op_, token));
     HCCL_INFO(
-        "[CcuTempReduceScatterMesh1D2Die] inputAddr[%llu], outputAddr[%llu], scratchAddr0[%llu], "
+        "[CcuTempReduceScatterMesh1D2Die] inputAddr[0x%llx], outputAddr[0x%llx], scratchAddr0[0x%llx], "
         "inputSliceStride[%llu], outputSliceStride[%llu]",
         inputAddr, outputAddr, scratchAddr, inputSliceStride, outputSliceStride);
 

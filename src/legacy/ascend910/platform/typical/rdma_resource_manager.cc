@@ -92,7 +92,7 @@ HcclResult RdmaResourceManager::Init()
         this->ipAddr_.GetReadableAddress(), this->port_);
 
     CHK_RET(HrtRaGetNotifyBaseAddr(rdmaHandle_, &notifyBaseVa_, &notifyTotalSize_));
-    HCCL_INFO("[RdmaResourceManager][Init] NotifyBaseAddr addr[%llu] size[%llu].", notifyBaseVa_, notifyTotalSize_);
+    HCCL_INFO("[RdmaResourceManager][Init] NotifyBaseAddr addr[0x%llx] size[%llu].", notifyBaseVa_, notifyTotalSize_);
 
     notifyMrInfo_.addr = reinterpret_cast<void*>(notifyBaseVa_);
     notifyMrInfo_.size = notifyTotalSize_;

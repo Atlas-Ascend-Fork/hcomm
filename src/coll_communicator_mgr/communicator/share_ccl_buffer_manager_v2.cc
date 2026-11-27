@@ -54,7 +54,7 @@ HcclResult ShareCclBufferManager::GetShareCclBuffer(
                 return HCCL_E_PARA;
             }
             HCCL_RUN_INFO(
-                "[ShareCclBufferManager][%s] reuse share cclBuffer, bufferName[%s], addr[%llu], size[%llu], "
+                "[ShareCclBufferManager][%s] reuse share cclBuffer, bufferName[%s], addr[0x%llx], size[%llu], "
                 "useCount[%ld].",
                 __func__, bufferName.c_str(), static_cast<unsigned long long>(cclBuffer->GetAddr()), bufferSize,
                 cclBuffer.use_count());
@@ -68,7 +68,7 @@ HcclResult ShareCclBufferManager::GetShareCclBuffer(
     bufferSizeMap_[bufferName] = bufferSize;
     cclBuffer = std::move(newBuffer);
     HCCL_RUN_INFO(
-        "[ShareCclBufferManager][%s] create share cclBuffer, bufferName[%s], addr[%llu], size[%llu].", __func__,
+        "[ShareCclBufferManager][%s] create share cclBuffer, bufferName[%s], addr[0x%llx], size[%llu].", __func__,
         bufferName.c_str(), static_cast<unsigned long long>(cclBuffer->GetAddr()), bufferSize);
     return HCCL_SUCCESS;
 }

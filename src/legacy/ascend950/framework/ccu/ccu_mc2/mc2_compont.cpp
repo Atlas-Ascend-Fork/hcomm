@@ -62,8 +62,8 @@ void Mc2Compont::AllocCommResource(void* mc2Tiling, void** commContext)
     }
 
     HCCL_RUN_INFO(
-        "hcclCombinOpParam info: workSpace = [%llu], rankId = [%u], rankDim = [%u], xnAddr = [%llu], "
-        "ckeAddr = [%llu], winSize = [%llu], windowsOut[0] = [%llu]",
+        "hcclCombinOpParam info: workSpace = [0x%llx], rankId = [%u], rankDim = [%u], xnAddr = [0x%llx], "
+        "ckeAddr = [0x%llx], winSize = [%llu], windowsOut[0] = [0x%llx]",
         combinOpParam.workSpace, combinOpParam.rankId, combinOpParam.rankDim, combinOpParam.xnAddr,
         combinOpParam.ckeAddr, combinOpParam.winSize, combinOpParam.windowsOut[0]);
     HCCL_RUN_INFO(

@@ -386,8 +386,8 @@ std::vector<uint64_t> CcuContextReduceScatterMeshMem2Mem1D::GeneArgs(const CcuTa
            inputRepeatStride, outputRepeatStride, normalSliceSize, repeatNum};
 
     HCCL_INFO(
-        "[CcuContextReduceScatterMeshMem2Mem1D] TaskArgs: inputAddr[%llu], outputAddr[%llu], "
-        "scratchAddr[%llu], currentRankSliceInputOffset[%llu], inputRepeatStride[%llu],"
+        "[CcuContextReduceScatterMeshMem2Mem1D] TaskArgs: inputAddr[0x%llx], outputAddr[0x%llx], "
+        "scratchAddr[0x%llx], currentRankSliceInputOffset[%llu], inputRepeatStride[%llu],"
         "outputRepeatStride[%llu], normalSliceSize[%llu], repeatNum[%llu]",
         inputAddr, outputAddr, scratchAddr, currentRankSliceInputOffset, inputRepeatStride, outputRepeatStride,
         normalSliceSize, repeatNum);

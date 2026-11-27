@@ -481,7 +481,7 @@ void Interpret(const InsReadExtend& ins, const StreamLite& stream, ResMgrFetcher
     DataBuffer remoteBuffer = ins.GetRemoteBuffer();
     u64 scratchAddr = resMgrFetcher->GetRmaBufferLite(BufferType::SCRATCH)->GetAddr();
     u64 scratchSize = resMgrFetcher->GetRmaBufferLite(BufferType::SCRATCH)->GetSize();
-    HCCL_INFO("%s scratchAddr = %llu, scratchSize = %llu", __func__, scratchAddr, scratchSize);
+    HCCL_INFO("%s scratchAddr = 0x%llx, scratchSize = %llu", __func__, scratchAddr, scratchSize);
     RmaBufferLite loc(
         localBuffer.GetAddr(), localBuffer.GetSize(),
         resMgrFetcher->GetRmaBufferLite(BufferType::SCRATCH)->GetTokenId(),
@@ -574,7 +574,7 @@ void Interpret(const InsWriteExtend& ins, const StreamLite& stream, ResMgrFetche
     DataBuffer remoteBuffer = ins.GetRemoteBuffer();
     u64 scratchAddr = resMgrFetcher->GetRmaBufferLite(BufferType::SCRATCH)->GetAddr();
     u64 scratchSize = resMgrFetcher->GetRmaBufferLite(BufferType::SCRATCH)->GetSize();
-    HCCL_INFO("%s scratchAddr = %llu, scratchSize = %llu", __func__, scratchAddr, scratchSize);
+    HCCL_INFO("%s scratchAddr = 0x%llx, scratchSize = %llu", __func__, scratchAddr, scratchSize);
     RmaBufferLite loc(
         localBuffer.GetAddr(), localBuffer.GetSize(),
         resMgrFetcher->GetRmaBufferLite(BufferType::SCRATCH)->GetTokenId(),
@@ -615,7 +615,7 @@ void Interpret(const InsWriteWithFinExtend& ins, const StreamLite& stream, ResMg
     }
     u64 scratchAddr = resMgrFetcher->GetRmaBufferLite(BufferType::SCRATCH)->GetAddr();
     u64 scratchSize = resMgrFetcher->GetRmaBufferLite(BufferType::SCRATCH)->GetSize();
-    HCCL_INFO("%s scratchAddr = %llu, scratchSize = %llu", __func__, scratchAddr, scratchSize);
+    HCCL_INFO("%s scratchAddr = 0x%llx, scratchSize = %llu", __func__, scratchAddr, scratchSize);
 
     RmaBufferLite loc(
         localBuffer.GetAddr(), localBuffer.GetSize(),

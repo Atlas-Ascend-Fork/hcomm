@@ -683,7 +683,7 @@ HcclResult TransportIbverbs::CreateOneQp(
 
         attrs.udpSport = udpSport;
         ret = hrtRaAiQpCreate(machinePara_.localDeviceId, nicRdmaHandle_, &attrs, &aiQpInfo, qpHandle);
-        HCCL_DEBUG("aiQpAddr:%llu db_index:%u, sq_index=%u", aiQpInfo.aiQpAddr, aiQpInfo.dbIndex, aiQpInfo.sqIndex);
+        HCCL_DEBUG("aiQpAddr:0x%llx db_index:%u, sq_index=%u", aiQpInfo.aiQpAddr, aiQpInfo.dbIndex, aiQpInfo.sqIndex);
         qpInfo = qpInfo + std::string(",sendCqDepth:") + std::to_string(attrs.cqAttr.sendCqDepth);
     } else if (!isUseQpCreateWithAttrs && qpsPerConnection == HCCL_QPS_PER_CONNECTION_DEFAULT) {
         ret = HrtRaQpCreate(nicRdmaHandle_, QP_FLAG_RC, qpMode, qpHandle);
@@ -2576,7 +2576,7 @@ HcclResult TransportIbverbs::GetLocalRdmaNotify(std::vector<HcclSignalInfo>& rdm
             rdmaNotify.push_back(signalInfo);
         }
         HCCL_DEBUG(
-            "[TransportIbverbs][GetLocalRdmaNotify] resId[%llu] addr[%llu]", rdmaNotify.back().resId,
+            "[TransportIbverbs][GetLocalRdmaNotify] resId[%llu] addr[0x%llx]", rdmaNotify.back().resId,
             rdmaNotify.back().addr);
     }
     return HCCL_SUCCESS;
@@ -2683,14 +2683,14 @@ HcclResult TransportIbverbs::GetAiQpInfo(std::vector<HcclQpInfoV2>& aiQpInfo)
     aiQpInfo[0].sqIndex = combineAiQpInfo_.aiQpInfo.sqIndex;
     aiQpInfo[0].dbIndex = combineAiQpInfo_.aiQpInfo.dbIndex;
     HCCL_DEBUG(
-        "[TransportIbverbs][GetAiQpInfo] i[0] qpPtr[%llu] sqIndex[%u] dbIndex[%u]", aiQpInfo[0].qpPtr,
+        "[TransportIbverbs][GetAiQpInfo] i[0] qpPtr[0x%llx] sqIndex[%u] dbIndex[%u]", aiQpInfo[0].qpPtr,
         aiQpInfo[0].sqIndex, aiQpInfo[0].dbIndex);
     for (u32 i = 1, j = 0; i < aiQpInfo.size(); i++, j++) {
         aiQpInfo[i].qpPtr = combineAiQpInfos_[j].aiQpInfo.aiQpAddr;
         aiQpInfo[i].sqIndex = combineAiQpInfos_[j].aiQpInfo.sqIndex;
         aiQpInfo[i].dbIndex = combineAiQpInfos_[j].aiQpInfo.dbIndex;
         HCCL_DEBUG(
-            "[TransportIbverbs][GetAiQpInfo] i[%u] qpPtr[%llu] sqIndex[%u] dbIndex[%u]", i, aiQpInfo[i].qpPtr,
+            "[TransportIbverbs][GetAiQpInfo] i[%u] qpPtr[0x%llx] sqIndex[%u] dbIndex[%u]", i, aiQpInfo[i].qpPtr,
             aiQpInfo[i].sqIndex, aiQpInfo[i].dbIndex);
     }
     return HCCL_SUCCESS;

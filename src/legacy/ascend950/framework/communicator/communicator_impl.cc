@@ -928,7 +928,7 @@ void CommunicatorImpl::RegisterOffloadScratchBuffer(
     if (scratchBuffer) {
         offloadScrachBufferMap[opTag] = scratchBuffer;
         HCCL_RUN_INFO(
-            "[CommunicatorImpl] offloadScratchBuffer register, opTag[%s], offloadScratchBufferAddr[%llu], "
+            "[CommunicatorImpl] offloadScratchBuffer register, opTag[%s], offloadScratchBufferAddr[0x%llx], "
             "offloadScratchBufferBufSize[%llu]M",
             opTag.c_str(), scratchBuffer->GetAddr(), scratchBuffer->GetSize() / HCCL_CCL_COMM_FIXED_CALC_BUFFER_SIZE);
     }
@@ -1622,7 +1622,7 @@ void CommunicatorImpl::InitDataBufferManager()
                 InternalException, "get share cclBuffer failed");
         }
         HCCL_RUN_INFO(
-            "[CommunicatorImpl][InitDataBufferManager] cclBuffer create, commId[%s], bufferName[%s], addr[%llu], "
+            "[CommunicatorImpl][InitDataBufferManager] cclBuffer create, commId[%s], bufferName[%s], addr[0x%llx], "
             "size[%llu]M",
             GetId().c_str(), cclBufferName_.c_str(), static_cast<unsigned long long>(cclBuffer->GetAddr()),
             cclBufferSize / HCCL_CCL_COMM_FIXED_CALC_BUFFER_SIZE);

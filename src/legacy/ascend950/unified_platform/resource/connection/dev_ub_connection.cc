@@ -991,7 +991,7 @@ string DevUbConnection::Describe() const
 {
     return StringFormat(
         "DevUbConnection[locAddr=%s, rmtAddr=%s, status=%s, ubStage=%s, dieId=%u, funcId=%u, jettyId=%u, "
-        "sqBuffVa=%llx, sqDepth=%u, maxReadSize=%u, maxWriteSize=%u, tpn=%u, dbAddr=0x%llx]",
+        "sqBuffVa=0x%llx, sqDepth=%u, maxReadSize=%u, maxWriteSize=%u, tpn=%u, dbAddr=0x%llx]",
         locAddr.Describe().c_str(), rmtAddr.Describe().c_str(), status.Describe().c_str(),
         ubConnStatus.Describe().c_str(), dieId, funcId, jettyId, sqBuffVa, sqDepth, maxReadSize, maxWriteSize, tpn,
         dbAddr);

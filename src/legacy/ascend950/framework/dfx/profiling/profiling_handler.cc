@@ -576,7 +576,7 @@ void ProfilingHandler::DumpHCCLReportData(const TaskInfo& taskInfo, const Msprof
             profInfo->stage, profInfo->role, profInfo->durationEstimated,
             static_cast<int>(taskInfo.taskParam_.taskType));
         HCCL_INFO(
-            "MsprofAdditionalInfo profInfo detail: srcAddr[%llu], dstAddr[%llu], dataSize[%llu], notifyID[%llu], "
+            "MsprofAdditionalInfo profInfo detail: srcAddr[0x%llx], dstAddr[0x%llx], dataSize[%llu], notifyID[%llu], "
             "linkType[%u], opType[%s], transportType[%u], dataType[%s], rdmaType[%u]",
             profInfo->srcAddr, profInfo->dstAddr, profInfo->dataSize, profInfo->notifyID, profInfo->linkType,
             OpTypeToSerialString(profInfo->opType).c_str(), profInfo->transportType,
@@ -592,7 +592,8 @@ void ProfilingHandler::DumpHCCLReportData(const TaskInfo& taskInfo, const Msprof
             dpuProfInfo->planeID, dpuProfInfo->stage, dpuProfInfo->role, dpuProfInfo->durationEstimated,
             static_cast<int>(taskInfo.taskParam_.taskType));
         HCCL_INFO(
-            "MsprofAdditionalInfo dpuProfInfo detail: srcAddr[%llu], dstAddr[%llu], dataSize[%llu], notifyID[%llu], "
+            "MsprofAdditionalInfo dpuProfInfo detail: srcAddr[0x%llx], dstAddr[0x%llx], dataSize[%llu], "
+            "notifyID[%llu], "
             "linkType[%u], opType[%s], transportType[%u], dataType[%s], rdmaType[%u], "
             "taskId[%u], aicpu_task_id[%u], streamId[%u], npuDevId[%u], dpuDevId[%u], timeStamp[%llu]",
             dpuProfInfo->srcAddr, dpuProfInfo->dstAddr, dpuProfInfo->dataSize, dpuProfInfo->notifyID,

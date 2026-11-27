@@ -113,7 +113,7 @@ public:
         baseOffset_ = baseOffset;
         token_ = token;
         HCCL_INFO(
-            "[CcuInstructionAlltoAllMesh2D][Init] rankId[%u] inputAddr[%llu] outputAddr[%llu] scratchAddr[%llu],\
+            "[CcuInstructionAlltoAllMesh2D][Init] rankId[%u] inputAddr[0x%llx] outputAddr[0x%llx] scratchAddr[0x%llx],\
 axisId[%u], sendStride[%llu], recvStride[%llu], sendLength[%llu], aSize[%llu], bSize[%llu], baseOffset[%llu], \
 dimSize.size[%u], tempVTopo.size[%u]",
             rankId_, inputAddr_, outputAddr_, scratchAddr_, axisId_, sendStride_, recvStride_, sendLength_, aSize_,

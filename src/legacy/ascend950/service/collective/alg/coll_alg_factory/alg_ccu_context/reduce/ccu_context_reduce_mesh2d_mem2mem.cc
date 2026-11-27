@@ -319,7 +319,7 @@ std::vector<uint64_t> CcuContextReduceMeshMem2Mem2D::GeneArgs(const CcuTaskArg& 
     auto yAxisGoSize = CalGoSize(yAxisSize);
     std::vector<uint64_t> processReturn = {inputAddr, outputAddr, tokenInfo, xAxisSize, yAxisSize, yAxisOffset};
     HCCL_INFO(
-        "[CcuContextReduceMeshMem2Mem2D] ReduceMeshMem2Mem2D inputAddr [%llu] outputAddr [%llu] "
+        "[CcuContextReduceMeshMem2Mem2D] ReduceMeshMem2Mem2D inputAddr [0x%llx] outputAddr [0x%llx] "
         "xAxisSize [%llu] yAxisSize [%llu],yAxisOffset[%llu],",
         inputAddr, outputAddr, xAxisSize, yAxisSize, yAxisOffset);
     // mesh chunk for x slice size

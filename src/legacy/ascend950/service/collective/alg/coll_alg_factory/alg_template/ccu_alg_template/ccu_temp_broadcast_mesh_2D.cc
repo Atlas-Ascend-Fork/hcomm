@@ -154,7 +154,7 @@ HcclResult CcuTempBroadcastMesh2D::Run(
 
         HCCL_INFO(
             "[CcuTempBroadcastMesh2D] Run Init: dimSize0[%llu], dimSize1[%llu], myRank_[%d],"
-            "inputAddr[%llu], sliceSize[%llu], xAxisSize[%llu], yAxisSize[%llu]",
+            "inputAddr[0x%llx], sliceSize[%llu], xAxisSize[%llu], yAxisSize[%llu]",
             dimSize_[0], dimSize_[1], myRank_, inputAddr, sliceSize, xAxisSize, yAxisSize);
 
         ccuInsBroadcastMesh2D.SetLinks(axisId == 0 ? linksX_ : linksY_);

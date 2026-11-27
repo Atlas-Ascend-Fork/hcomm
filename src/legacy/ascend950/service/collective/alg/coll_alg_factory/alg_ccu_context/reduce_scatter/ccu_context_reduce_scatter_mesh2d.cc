@@ -282,7 +282,7 @@ std::vector<uint64_t> CcuContextReduceScatterMesh2D::GeneArgs(const CcuTaskArg& 
     auto xAxisGoSize = CalGoSize(xAxisSize);
     auto yAxisGoSize = CalGoSize(yAxisSize);
     HCCL_INFO(
-        "[CcuContextReduceScatterMesh2D] GeneArgs: inputAddr[%llu], outputAddr[%llu],"
+        "[CcuContextReduceScatterMesh2D] GeneArgs: inputAddr[0x%llx], outputAddr[0x%llx],"
         "step0BaseOffset[%llu], step0AddOffset[%llu], step1AddOffset[%llu]",
         inputAddr, outputAddr, step0BaseOffset, step0AddOffset, step1AddOffset);
     return {inputAddr,      outputAddr,     tokenInfo,      step0BaseOffset, step0AddOffset,

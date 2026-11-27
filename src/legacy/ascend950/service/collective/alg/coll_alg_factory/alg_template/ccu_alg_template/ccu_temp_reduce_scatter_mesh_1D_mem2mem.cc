@@ -90,8 +90,8 @@ HcclResult CcuTempReduceScatterMeshMem2Mem1D::GenExtIns(
         inputRepeatStride, outputRepeatStride, normalSliceSize, lastSliceSize);
 
     HCCL_DEBUG(
-        "[CcuTempReduceScatterMeshMem2Mem1D] Run Init: rankId[%u], repeatNum[%u], inputAddr[%llu], "
-        "outputAddr[%llu], scratchAddr[%llu], inputSliceStride[%llu], "
+        "[CcuTempReduceScatterMeshMem2Mem1D] Run Init: rankId[%u], repeatNum[%u], inputAddr[0x%llx], "
+        "outputAddr[0x%llx], scratchAddr[0x%llx], inputSliceStride[%llu], "
         "inputRepeatStride[%llu], outputRepeatStride[%llu], normalSliceSize[%llu], lastSliceSize[%llu]",
         rankId, repeatNum, inputAddr, outputAddr, scratchAddr, inputSliceStride, inputRepeatStride, outputRepeatStride,
         normalSliceSize, lastSliceSize);

@@ -132,7 +132,7 @@ HcclResult CcuTempBroadcastMeshMem2Mem2D::GenExtIns(
         uint64_t yAxisSize = sliceSize - xAxisSize;
         HCCL_INFO(
             "[CcuTempBroadcastMeshMem2Mem2D] [GenExtIns]: dimSize0[%llu], dimSize1[%llu], myRank_[%d],"
-            "inputAddr[%llu], sliceSize[%llu], xAxisSize[%llu], yAxisSize[%llu],axisId[%u]",
+            "inputAddr[0x%llx], sliceSize[%llu], xAxisSize[%llu], yAxisSize[%llu],axisId[%u]",
             dimSize_[0], dimSize_[1], myRank_, inputAddr, sliceSize, xAxisSize, yAxisSize, axisId);
         CcuInstructionBroadcastMeshMem2Mem2D ccuInsBroadcastMeshMem2Mem2D;
         ccuInsBroadcastMeshMem2Mem2D.Init(

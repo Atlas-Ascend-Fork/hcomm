@@ -59,14 +59,14 @@ std::string P2PTransport::Describe() const
 static void SubmitTask(const TaskP2pMemcpy& p2pMemcpy, const Stream& stream)
 {
     HCCL_INFO(
-        "[P2PTransport::%s]not support, p2p dst addr[%llu], stream[%p]", __func__, p2pMemcpy.GetDstAddr(),
+        "[P2PTransport::%s]not support, p2p dst addr[0x%llx], stream[%p]", __func__, p2pMemcpy.GetDstAddr(),
         stream.GetPtr());
 }
 
 static void SubmitTask(const TaskSdmaReduce& sdmaReduce, const Stream& stream)
 {
     HCCL_INFO(
-        "[P2PTransport::%s]not support, sdmaReduce dst addr[%llu], stream[%p]", __func__, sdmaReduce.GetDstAddr(),
+        "[P2PTransport::%s]not support, sdmaReduce dst addr[0x%llx], stream[%p]", __func__, sdmaReduce.GetDstAddr(),
         stream.GetPtr());
 }
 

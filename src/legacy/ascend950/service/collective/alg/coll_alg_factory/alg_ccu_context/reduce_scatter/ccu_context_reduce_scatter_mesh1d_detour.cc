@@ -336,7 +336,7 @@ std::vector<uint64_t> CcuContextReduceScatterMeshDetour1D::GeneArgs(const CcuTas
     auto goSize = CalGoSize(tailSize); // ***
 
     HCCL_INFO(
-        "[CcuContextReduceScatterMeshDetour1D] GeneArgs, taskArg are inputAddr[%llu], outputAddr[%llu], "
+        "[CcuContextReduceScatterMeshDetour1D] GeneArgs, taskArg are inputAddr[0x%llx], outputAddr[0x%llx], "
         "offset[%llu], iterNum[%llu], tailOffset[%llu], tailSize[%llu]",
         inputAddr, outputAddr, offset, iterNum, tailOffset, tailSize);
     std::vector<uint64_t> sqeArgs = {inputAddr, outputAddr, tokenInfo, offset,    iterNum,  tailOffset,

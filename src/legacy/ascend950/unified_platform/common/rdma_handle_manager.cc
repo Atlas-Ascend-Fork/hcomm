@@ -307,7 +307,7 @@ RdmaHandleManager::GetTokenIdInfo(RdmaHandle rdmaHandle, const BufferKey<uintptr
     std::pair<TokenIdHandle, uint32_t> tokenInfo = tokenInfoMap[rdmaHandle]->GetTokenInfo(bufKey);
 
     HCCL_INFO(
-        "[RdmaHandleManager::%s] Addr[%llu] Size[%llu] rdmahandle[%p]", __func__, bufKey.Addr(), bufKey.Size(),
+        "[RdmaHandleManager::%s] Addr[0x%llx] Size[%llu] rdmahandle[%p]", __func__, bufKey.Addr(), bufKey.Size(),
         rdmaHandle);
     return tokenInfo;
 }
@@ -329,7 +329,7 @@ void RdmaHandleManager::PutTokenIdInfo(
 
     tokenInfoMap[rdmaHandle]->PutTokenInfo(bufKey, tokenIdHandle);
     HCCL_DEBUG(
-        "[RdmaHandleManager::%s] Addr[%llu] Size[%llu] rdmahandle[%p]", __func__, bufKey.Addr(), bufKey.Size(),
+        "[RdmaHandleManager::%s] Addr[0x%llx] Size[%llu] rdmahandle[%p]", __func__, bufKey.Addr(), bufKey.Size(),
         rdmaHandle);
 }
 

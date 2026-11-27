@@ -234,7 +234,7 @@ HcclResult CcuTempAllGatherMeshDetour1D::Run(
         lengths_, singleTransportSize_, detourPathNum_, pathNumPerPeer_, op_, tempVTopo_));
 
     HCCL_INFO(
-        "[CcuTempAllGatherMeshDetour1D] Run Init: myRank_[%d], dimSize[%llu], inputAddr[%llu],outputAddr[%llu],"
+        "[CcuTempAllGatherMeshDetour1D] Run Init: myRank_[%d], dimSize[%llu], inputAddr[0x%llx],outputAddr[0x%llx],"
         "sliceSize[%llu], baseOffset[%llu], tailOffset[%llu], tailSize[%llu], loopIterNum[%llu],"
         "singleTransportSize[%llu], detourPathNum[%u], pathNumPerPeer[%u], links.size[%llu]",
         myRank_, dimSize[0], inputAddr, outputAddr, sliceSize, offset, tailOffset, tailSize, loopIterNum,

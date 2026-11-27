@@ -514,8 +514,8 @@ HcclResult UbConnLite::WriteReduce(
     const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg, ConnLiteOperationOut& out)
 {
     HCCL_DEBUG(
-        "[UbConnLite::%s] start, dataType = %u, reduceOp %u, loc.addr = %llu, "
-        "rmt.addr = %llu, cfg.cqeEn = %u, out.pi = %u",
+        "[UbConnLite::%s] start, dataType = %u, reduceOp %u, loc.addr = 0x%llx, "
+        "rmt.addr = 0x%llx, cfg.cqeEn = %u, out.pi = %u",
         __func__, static_cast<u32>(dataType), static_cast<u32>(reduceOp), loc.GetAddr(), rmt.GetAddr(), cfg.cqeEn,
         out.pi);
 
@@ -671,7 +671,7 @@ HcclResult UbConnLite::FillBatchOneWqe(
 
     CustomizeSqeByOneSidedComm(&(sqe.comm), isLastWqe);
 
-    HCCL_INFO("UbConnLite BatchWrite cp data to va %llu, pi %u", sqVa_, pi);
+    HCCL_INFO("UbConnLite BatchWrite cp data to va 0x%llx, pi %u", sqVa_, pi);
     u8* va = ReinterpretAs<u8*>(sqVa_ + sqOffset * SQE_SIZE_64);
     if (dwqeCacheLocked_ == false) {
         auto ret = memcpy_sp(va, SQE_SIZE_64, &sqe, sizeof(UdmaSqeWrite));

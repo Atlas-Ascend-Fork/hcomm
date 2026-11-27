@@ -215,7 +215,7 @@ std::vector<uint64_t> CcuContextAllGatherMesh1DMem2MemWithStride::GeneArgs(const
            isInputOutputEqual};
 
     HCCL_INFO(
-        "[CcuContextAllGatherMesh1DMem2MemWithStride] TaskArgs: inputAddr[%llu], outputAddr[%llu], "
+        "[CcuContextAllGatherMesh1DMem2MemWithStride] TaskArgs: inputAddr[0x%llx], outputAddr[0x%llx], "
         "currentRankSliceInputOffset[%llu], currentRankSliceOutputOffset[%llu], "
         "repeatNum[%llu],inputRepeatStride[%llu], outputRepeatStride[%llu], normalSliceSize[%llu], lastSliceSize[%llu]",
         inputAddr, outputAddr, currentRankSliceInputOffset, currentRankSliceOutputOffset, tmpRepeatNum,

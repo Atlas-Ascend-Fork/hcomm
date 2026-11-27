@@ -202,7 +202,7 @@ void CcuTempAllReduceMeshDetour1D::GetAddrInfo(const TempFuncs& tempFuncs, uint6
         outputAddr = BufferTypeToAddr(buffInfo_.outBuffType) + buffInfo_.outBuffBaseOff
                      + tempFuncs.usrData.usrOutSlices[0].GetOffset();
     }
-    HCCL_INFO("inputAddr[%llu], outputAddr[%llu]", inputAddr, outputAddr);
+    HCCL_INFO("inputAddr[0x%llx], outputAddr[0x%llx]", inputAddr, outputAddr);
     return;
 }
 
@@ -238,7 +238,7 @@ HcclResult CcuTempAllReduceMeshDetour1D::Run(
         static_cast<uint32_t>(myRank_), inputAddr, outputAddr, offset, token, op_, tempVTopo_, iterNum, tailOffset,
         tailSize, singleTransportSize_, detourPathNum_, pathNumPerPeer_, lengths_);
     HCCL_INFO(
-        "[CcuTempAllReduceMeshDetour1D] Run Init: myRank_[%d], dimSize[%llu], inputAddr[%llu], outputAddr[%llu],"
+        "[CcuTempAllReduceMeshDetour1D] Run Init: myRank_[%d], dimSize[%llu], inputAddr[0x%llx], outputAddr[0x%llx],"
         "sliceSize[%llu], offset[%llu], iterNum[%llu], tailOffset[%llu], tailSize[%llu], singleTransportSize_[%u], "
         "detourPathNum_[%u], pathNumPerPeer_[%u]",
         myRank_, dimSize[0], inputAddr, outputAddr, sliceSize, offset, iterNum, tailOffset, tailSize,

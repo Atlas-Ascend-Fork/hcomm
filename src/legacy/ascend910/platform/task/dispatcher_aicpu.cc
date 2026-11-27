@@ -1603,8 +1603,8 @@ u64 DispatcherAiCpu::CalcDbAddr(u32 dbindex)
     }
 
     HCCL_DEBUG(
-        "%s dbindex:%u, devType:%u, chipId:%lld, dbAddr:%llu", __func__, dbindex, aicpuInfo_.devType, aicpuInfo_.chipId,
-        dbAddr);
+        "%s dbindex:%u, devType:%u, chipId:%lld, dbAddr:0x%llx", __func__, dbindex, aicpuInfo_.devType,
+        aicpuInfo_.chipId, dbAddr);
     return dbAddr;
 }
 

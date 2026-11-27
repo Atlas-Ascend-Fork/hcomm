@@ -93,8 +93,9 @@ HcclResult CcuTempScatterNHRMem2Mem1D::GenExtIns(
     uint64_t repeatNumVar = UINT64_MAX - repeatNum;
 
     HCCL_INFO(
-        "[CcuInstructionScatterNHR1D] dimSize[%llu], die0Size[%llu], die1Size[%llu], inputAddr[%llu], outputAddr[%llu],"
-        "scratchAddr[%llu], repeatNum[%llu]",
+        "[CcuInstructionScatterNHR1D] dimSize[%llu], die0Size[%llu], die1Size[%llu], inputAddr[0x%llx], "
+        "outputAddr[0x%llx],"
+        "scratchAddr[0x%llx], repeatNum[%llu]",
         dimSize[0], die0Size, die1Size, inputAddr, outputAddr, scratchAddr, repeatNum);
 
     if (DataCount == 0) {
@@ -145,8 +146,8 @@ HcclResult CcuTempScatterNHRMem2Mem1D::GenExtIns(
             inputSliceStride, outputSliceStride, inputRepeatStride, outputRepeatStride, repeatNum, repeatNumVar,
             stepInfoVector, indexMap, token, op_, tempVTopo_, isOutputScratch);
         HCCL_INFO(
-            "[CcuTempScatterNHRMem2Mem1D] Run Init: myVirtRankId[%u], myRank_[%d], repeatNum[%u], inputAddr[%llu], "
-            "outputAddr[%llu], inputSliceStride[%llu], outputSliceStride[%llu], "
+            "[CcuTempScatterNHRMem2Mem1D] Run Init: myVirtRankId[%u], myRank_[%d], repeatNum[%u], inputAddr[0x%llx], "
+            "outputAddr[0x%llx], inputSliceStride[%llu], outputSliceStride[%llu], "
             "inputRepeatStride[%llu], outputRepeatStride[%llu], die0Size[%llu], die1Size[%llu], "
             "repeatNumVar[%llu]",
             myVirtRankId, myRank_, repeatNum, inputAddr, outputAddr, inputSliceStride, outputSliceStride,

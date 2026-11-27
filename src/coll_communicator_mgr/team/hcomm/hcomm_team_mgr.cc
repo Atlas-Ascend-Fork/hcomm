@@ -959,7 +959,7 @@ HcommResult HcommTeamMgr::UpdateWindowSelfSlots(WindowEntry* winEntry)
             ret != HCOMM_SUCCESS,
             HCCL_ERROR("[UpdateWindowSelfSlots] hrtMemSyncCopy addr failed, slot[%u] ret[%d]", slot, ret), ret);
         HCCL_INFO(
-            "[UpdateWindowSelfSlots] slot[%u] filled with self mem, addr[%llu] size[%llu]", slot, selfAddr, selfSize);
+            "[UpdateWindowSelfSlots] slot[%u] filled with self mem, addr[0x%llx] size[%llu]", slot, selfAddr, selfSize);
     }
     return HCOMM_SUCCESS;
 }

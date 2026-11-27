@@ -135,8 +135,8 @@ HcclResult CcuTempAllToAllMesh1D::Run(
             static_cast<uint32_t>(myRank_), inputAddr, outputAddr, sliceSize, token, srcOffset, dstOffset, srcStride,
             op_, tempVTopo_, loadFromMem_);
         HCCL_INFO(
-            "[CcuTempAllToAllMesh1D] Run Init: loadFromMem_[%d], myRank_[%d], dimSize[%llu], inputAddr[%llu],"
-            "outputAddr[%llu], sliceSize[%llu], srcOffset[%llu], dstOffset[%llu], loopCnt[%llu]",
+            "[CcuTempAllToAllMesh1D] Run Init: loadFromMem_[%d], myRank_[%d], dimSize[%llu], inputAddr[0x%llx],"
+            "outputAddr[0x%llx], sliceSize[%llu], srcOffset[%llu], dstOffset[%llu], loopCnt[%llu]",
             loadFromMem_, myRank_, dimSize[0], inputAddr, outputAddr, sliceSize, srcOffset, dstOffset, loopCnt);
         //  init links
         std::vector<LinkData> links;

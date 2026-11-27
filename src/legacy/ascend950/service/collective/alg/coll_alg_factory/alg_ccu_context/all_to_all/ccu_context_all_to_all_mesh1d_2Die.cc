@@ -356,7 +356,7 @@ std::vector<uint64_t> CcuContextAllToAllMesh1D2Die::GeneArgs(const CcuTaskArg& a
 
     auto goSize = CalGoSize(sliceSize);
     HCCL_INFO(
-        "[CcuContextAllToAllMesh1D2Die] inputAddr[%llu], outputAddr[%llu], sliceSize[%llu], "
+        "[CcuContextAllToAllMesh1D2Die] inputAddr[0x%llx], outputAddr[0x%llx], sliceSize[%llu], "
         "inputSliceStride[%llu], outputSliceStride[%llu], outBuffBaseOff[%llu].",
         inputAddr, outputAddr, sliceSize, inputSliceStride, outputSliceStride, outBuffBaseOff);
 
