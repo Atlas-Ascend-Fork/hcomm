@@ -20,7 +20,7 @@
 
 ## 功能说明
 
-等待其他Thread发送的同步信号，主要用于多Thread之间的同步等待场景。**使用通过[HcommSetNotifyWaitTimeOut](../communication_operations/HcommSetNotifyWaitTimeOut.md)设置的默认超时时间**，无需手动传入超时参数。
+等待其他Thread发送的同步信号，主要用于多Thread之间的同步等待场景。**使用通过[HcommSetNotifyWaitTimeOut](../communication_operations/HcommSetNotifyWaitTimeOut.md)设置的默认超时时间**，无需手动传入超时参数。Host CPU线程模式下，该接口将等待任务提交至Host CPU线程的任务队列后立即返回，接口返回成功仅表示提交成功。
 
 ## 函数原型
 
