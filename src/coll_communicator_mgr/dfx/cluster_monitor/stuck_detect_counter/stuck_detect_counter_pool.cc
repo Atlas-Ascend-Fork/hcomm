@@ -79,16 +79,16 @@ HcclResult StuckDetectCounterPool::InitLocked()
     return HCCL_SUCCESS;
 }
 
-char* StuckDetectCounterPool::GetSlotBaseLocked(uint32_t slotIdx) const
+uint8_t* StuckDetectCounterPool::GetSlotBaseLocked(uint32_t slotIdx) const
 {
-    return static_cast<char*>(poolMem_) + slotIdx * StuckDetectCounterSlot::SLOT_SIZE;
+    return static_cast<uint8_t*>(poolMem_) + static_cast<std::size_t>(slotIdx) * StuckDetectCounterSlot::SLOT_SIZE;
 }
 
 HcclResult StuckDetectCounterPool::InitSlotLocked(uint32_t slotIdx)
 {
     // slot 可能被复用，分配时必须同时重置 head/tail，并恢复 addOne 常量。
     int32_t initValue[4] = {0, 0, ADD_ONE_INIT_VALUE, 0};
-    void* slotBase = GetSlotBaseLocked(slotIdx);
+    uint8_t* slotBase = GetSlotBaseLocked(slotIdx);
     HcclResult ret = hrtMemSyncCopy(
         slotBase, StuckDetectCounterSlot::SLOT_SIZE, initValue, StuckDetectCounterSlot::SLOT_SIZE,
         HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE);
@@ -103,7 +103,7 @@ HcclResult StuckDetectCounterPool::InitSlotLocked(uint32_t slotIdx)
 void StuckDetectCounterPool::FillCounterAddressLocked(uint32_t slotIdx, StuckDetectCounterAddress& address) const
 {
     // slot 固定 16B，head/tail/addOne 在同一 slot 内，按固定偏移计算设备地址。
-    char* slotBase = GetSlotBaseLocked(slotIdx);
+    uint8_t* slotBase = GetSlotBaseLocked(slotIdx);
     address.headAddr = ToU64(slotBase + StuckDetectCounterSlot::HEAD_OFFSET);
     address.tailAddr = ToU64(slotBase + StuckDetectCounterSlot::TAIL_OFFSET);
     address.addOneAddr = ToU64(slotBase + StuckDetectCounterSlot::ADD_ONE_OFFSET);
@@ -148,7 +148,7 @@ HcclResult StuckDetectCounterPool::ResetSlotLocked(uint32_t slotIdx) const
 
     // addOne 是只读常量，重置时只需要清 head/tail。
     int32_t zeroValue[2] = {0, 0};
-    void* slotBase = GetSlotBaseLocked(slotIdx);
+    uint8_t* slotBase = GetSlotBaseLocked(slotIdx);
     HcclResult ret = hrtMemSyncCopy(
         slotBase, sizeof(zeroValue), zeroValue, sizeof(zeroValue),
         HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE);

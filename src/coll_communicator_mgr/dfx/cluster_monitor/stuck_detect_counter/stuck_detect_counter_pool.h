@@ -70,7 +70,7 @@ private:
     HcclResult InitSlotLocked(uint32_t slotIdx);
 
     // 获取 slot 在设备内存中的起始地址。
-    char* GetSlotBaseLocked(uint32_t slotIdx) const;
+    uint8_t* GetSlotBaseLocked(uint32_t slotIdx) const;
 
     // 根据 slot 下标填充设备地址。
     void FillCounterAddressLocked(uint32_t slotIdx, StuckDetectCounterAddress& address) const;
