@@ -311,11 +311,12 @@ TEST_F(HcclCommDfxTest, Ut_AddTaskInfoCallback_When_CcuTaskAndHandleExist_Expect
     MOCKER_CPP(
         &Hccl::MirrorTaskManager::AddTaskInfo,
         HcclResult(Hccl::MirrorTaskManager::*)(
-            u32, u32, u32, const Hccl::TaskParam&, std::shared_ptr<Hccl::DfxOpInfo>, bool, u32))
+            u32, u32, u32, const Hccl::TaskParam&, std::shared_ptr<Hccl::DfxOpInfo>, bool, u32,
+            std::function<u32(u64)>))
         .stubs()
         .with(
             mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(),
-            mockcpp::any())
+            mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
 
     HcclResult ret = dfx_->AddTaskInfoCallback(1, 1, taskParam, channelHandle);
@@ -325,8 +326,8 @@ TEST_F(HcclCommDfxTest, Ut_AddTaskInfoCallback_When_CcuTaskAndHandleExist_Expect
     HcclCommDfx::channelRemoteRankId_.clear();
 }
 
-// 测试 AddTaskInfoCallback - CCU 路径但 commTag 不存在，覆盖 shared_lock 读路径的提前返回
-TEST_F(HcclCommDfxTest, Ut_AddTaskInfoCallback_When_CcuTaskAndCommTagNotFound_Expect_ParaError)
+// 测试 AddTaskInfoCallback - CCU 路径但 commTag 不存在，改为不阻断 launch，remoteRankId 延迟查表返回 INVALID
+TEST_F(HcclCommDfxTest, Ut_AddTaskInfoCallback_When_CcuTaskAndCommTagNotFound_Expect_Success)
 {
     Hccl::TaskParam taskParam{};
     taskParam.taskType = Hccl::TaskParamType::TASK_CCU;
@@ -337,9 +338,14 @@ TEST_F(HcclCommDfxTest, Ut_AddTaskInfoCallback_When_CcuTaskAndCommTagNotFound_Ex
     ccuDetailInfo->push_back(profInfo);
     taskParam.ccuDetailInfo = ccuDetailInfo;
 
-    // 不添加任何 channelRemoteRankId_ 映射，commTag 查找失败
+    // 不添加任何 channelRemoteRankId_ 映射，commTag 查找失败但不阻断 launch（commTag
+    // 未命中时用到才查表，查不到用默认值降级）
     HcclResult ret = dfx_->AddTaskInfoCallback(1, 1, taskParam, INVALID_U64);
-    EXPECT_EQ(ret, HCCL_E_PARA);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+
+    // 间接验证延迟查表回调依赖：未注册 handle 经 GetChannelRemoteRankId 返回失败 → 回调返回 INVALID_VALUE_RANKID
+    u32 lazyRank = INVALID_UINT;
+    EXPECT_NE(HcclCommDfx::GetChannelRemoteRankId("test_comm", 0x9999, lazyRank), HCCL_SUCCESS);
 
     HcclCommDfx::channelRemoteRankId_.clear();
 }

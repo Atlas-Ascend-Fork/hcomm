@@ -20,6 +20,8 @@
 #include "ccu_kernel.h"
 #include "ccu_rep_loopgroup_bundle_v1.h"
 #include "ccu_rep_base_v1.h"
+#include "ccu_rep_loadarg_v1.h"
+#include "ccu_ins_generator_v1.h"
 #undef private
 #undef protected
 
@@ -27,86 +29,31 @@ using namespace hcomm;
 using namespace hcomm::CcuRep;
 
 namespace {
-// 构造一个 CcuRepLoopGroupBundle，instrId 可由测试设定。
-// Variable(nullptr) 是合法构造（ccu_datatype_v1.h:61，context 默认 nullptr），不会访问外部资源。
 std::shared_ptr<CcuRepLoopGroupBundle> MakeLoopGroupBundle(uint16_t instrId)
 {
     auto bundle = std::make_shared<CcuRepLoopGroupBundle>(nullptr, Variable(nullptr), Variable(nullptr));
     bundle->instrId = instrId;
     return bundle;
 }
-
-// 构造 taskArgs：varId -> argIndex -> taskArgs 下标 -> 值
-struct ArgLayout {
-    uint16_t loopParamId;
-    uint16_t parallelParamId;
-    uint16_t residualId;
-    uint64_t loopParamVal;
-    uint64_t parallelParamVal;
-    uint64_t residualVal;
-};
-
-// 准备 varId2ArgIndexMap（三个 varId 均映射到各自 taskArgs 下标）和 taskArgs 数组。
-// loopParamId -> idx0, parallelParamId -> idx1, residualId -> idx2
-void BuildArgMapsAndArgs(
-    const ArgLayout& layout, std::unordered_map<uint16_t, uint32_t>& varId2ArgIndexMap, std::vector<uint64_t>& taskArgs)
-{
-    varId2ArgIndexMap.clear();
-    varId2ArgIndexMap[layout.loopParamId] = 0;
-    varId2ArgIndexMap[layout.parallelParamId] = 1;
-    varId2ArgIndexMap[layout.residualId] = 2;
-    taskArgs = {layout.loopParamVal, layout.parallelParamVal, layout.residualVal};
-}
 } // namespace
 
 class CollectLoopGroupProfilingTest : public testing::Test {
 protected:
-    void SetUp() override
-    {
-        // 每个用例独立构造 kernel，避免状态污染
-    }
+    void SetUp() override {}
     void TearDown() override {}
 
-    // 填充三容器，使其长度分别为 repN / goN / profN，push 的 GroupInfo/Profiling 内容由调用方给出。
     void FillContainers(
         CcuKernel& kernel, size_t repN, size_t goN, size_t profN, const GroupInfo& infoTemplate = GroupInfo{})
     {
         auto& lgProfInfo = kernel.GetLGProfilingInfo();
         lgProfInfo.lgProfilingReps.assign(repN, nullptr);
         lgProfInfo.ccuProfilingInfos.assign(profN, CcuProfilingInfo{});
-        kernel.groupOpSizeInfo_.assign(goN, infoTemplate);
+        kernel.profiling_.groupOpSizeInfo_.assign(goN, infoTemplate);
     }
 
-    // 在 lgProfilingReps 指定下标放入真实 CcuRepLoopGroupBundle（供 dynamic_cast 分支使用）。
     void SetRep(CcuKernel& kernel, size_t idx, uint16_t instrId)
     {
         kernel.GetLGProfilingInfo().lgProfilingReps[idx] = MakeLoopGroupBundle(instrId);
-    }
-
-    // 构造 ArgLayout 入参并调用 CollectLoopGroupProfilingInfo，期望 SUCCESS。
-    void BuildArgsAndCallKernel(
-        CcuKernel& kernel, uint16_t loopParamId, uint16_t parallelParamId, uint16_t residualId, uint64_t loopParamVal,
-        uint64_t parallelParamVal, uint64_t residualVal)
-    {
-        ArgLayout layout{loopParamId, parallelParamId, residualId, loopParamVal, parallelParamVal, residualVal};
-        std::unordered_map<uint16_t, uint32_t> varId2ArgIndexMap;
-        std::vector<uint64_t> taskArgsVec;
-        BuildArgMapsAndArgs(layout, varId2ArgIndexMap, taskArgsVec);
-        std::unordered_map<uint16_t, uint16_t> varId2VarIdMap;
-        EXPECT_EQ(
-            kernel.CollectLoopGroupProfilingInfo(
-                taskArgsVec.data(), taskArgsVec.size(), varId2ArgIndexMap, varId2VarIdMap),
-            HcclResult::HCCL_SUCCESS);
-    }
-
-    // 构造 parallelParam(repeatNum=3, residual=7) 入参并调用，期望 SUCCESS。
-    // parallelParam 构造：repeatNum 占 [61:55] 共 7 bit，设 repeatNum=3 → parallelParam = 3<<55
-    void
-    SetupParallelParamAndCall(CcuKernel& kernel, uint16_t loopParamId, uint16_t parallelParamId, uint16_t residualId)
-    {
-        kernel.moConfig_.memSlice = 4;
-        uint64_t parallelParam = static_cast<uint64_t>(3) << 55;
-        BuildArgsAndCallKernel(kernel, loopParamId, parallelParamId, residualId, 0, parallelParam, 7);
     }
 };
 
@@ -115,13 +62,13 @@ TEST_F(CollectLoopGroupProfilingTest, Ut_CollectLGProf_When_AllContainersEmpty_E
 {
     CcuKernel kernel;
     FillContainers(kernel, 0, 0, 0);
-    std::unordered_map<uint16_t, uint32_t> varId2ArgIndexMap;
-    std::unordered_map<uint16_t, uint16_t> varId2VarIdMap;
-    uint64_t taskArgs[1] = {0};
-
+    std::vector<uint64_t> taskArgs = {0};
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuStaticInfo;
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuDetailInfo;
     EXPECT_EQ(
-        kernel.CollectLoopGroupProfilingInfo(taskArgs, 1, varId2ArgIndexMap, varId2VarIdMap), HcclResult::HCCL_SUCCESS);
-    EXPECT_TRUE(kernel.allCcuProfilingInfos_.empty());
+        kernel.GetCcuProfilingInfo(taskArgs.data(), taskArgs.size(), ccuStaticInfo, ccuDetailInfo),
+        HcclResult::HCCL_SUCCESS);
+    EXPECT_TRUE(kernel.GetAllCcuProfilingInfo().empty());
 }
 
 // 决策点#1(mismatch): repSize=4 但 goSizeNum=2、profSize=2 → safeSize=2 != repSize=4，触发 warning 分支
@@ -129,15 +76,11 @@ TEST_F(CollectLoopGroupProfilingTest, Ut_CollectLGProf_When_SizeMismatch_Expect_
 {
     CcuKernel kernel;
     FillContainers(kernel, 4, 2, 2);
-    // argSize=0 使循环体内提前返回，聚焦验证 safeSize 截断不越界
-    std::unordered_map<uint16_t, uint32_t> varId2ArgIndexMap;
-    std::unordered_map<uint16_t, uint16_t> varId2VarIdMap;
-    uint64_t taskArgs[1] = {0};
-
-    EXPECT_EQ(
-        kernel.CollectLoopGroupProfilingInfo(taskArgs, 0, varId2ArgIndexMap, varId2VarIdMap), HcclResult::HCCL_SUCCESS);
-    // safeSize=2 → 循环 1 轮(i=0)，但 argSize=0 体内直接返回，无 push
-    EXPECT_TRUE(kernel.allCcuProfilingInfos_.empty());
+    std::vector<uint64_t> taskArgs = {0};
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuStaticInfo;
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuDetailInfo;
+    EXPECT_EQ(kernel.GetCcuProfilingInfo(taskArgs.data(), 0, ccuStaticInfo, ccuDetailInfo), HcclResult::HCCL_SUCCESS);
+    EXPECT_TRUE(kernel.GetAllCcuProfilingInfo().empty());
 }
 
 // 决策点#1(match): 三容器等长，safeSize==repSize，不触发 warning
@@ -145,34 +88,28 @@ TEST_F(CollectLoopGroupProfilingTest, Ut_CollectLGProf_When_SizesEqual_Expect_No
 {
     CcuKernel kernel;
     FillContainers(kernel, 2, 2, 2);
-    std::unordered_map<uint16_t, uint32_t> varId2ArgIndexMap;
-    std::unordered_map<uint16_t, uint16_t> varId2VarIdMap;
-    uint64_t taskArgs[1] = {0};
-
-    // argSize=0 让循环体提前返回，聚焦验证等长路径不异常
-    EXPECT_EQ(
-        kernel.CollectLoopGroupProfilingInfo(taskArgs, 0, varId2ArgIndexMap, varId2VarIdMap), HcclResult::HCCL_SUCCESS);
-    EXPECT_TRUE(kernel.allCcuProfilingInfos_.empty());
+    std::vector<uint64_t> taskArgs = {0};
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuStaticInfo;
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuDetailInfo;
+    EXPECT_EQ(kernel.GetCcuProfilingInfo(taskArgs.data(), 0, ccuStaticInfo, ccuDetailInfo), HcclResult::HCCL_SUCCESS);
+    EXPECT_TRUE(kernel.GetAllCcuProfilingInfo().empty());
 }
-
-// 决策点#3(argSize=0): 已由 Ut_CollectLGProf_When_SizeMismatch 和 Ut_CollectLGProf_When_SizesEqual 覆盖
-// （两者均 argSize=0 触发早返回），此处不再重复。
 
 // 决策点#3(map空): varId2ArgIndexMap 为空，循环体提前返回
 TEST_F(CollectLoopGroupProfilingTest, Ut_CollectLGProf_When_VarIdMapEmpty_Expect_SkipAndSuccess)
 {
     CcuKernel kernel;
     FillContainers(kernel, 2, 2, 2);
-    std::unordered_map<uint16_t, uint32_t> varId2ArgIndexMap; // 空
-    std::unordered_map<uint16_t, uint16_t> varId2VarIdMap;
-    uint64_t taskArgs[1] = {0};
-
+    std::vector<uint64_t> taskArgs = {0};
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuStaticInfo;
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuDetailInfo;
     EXPECT_EQ(
-        kernel.CollectLoopGroupProfilingInfo(taskArgs, 1, varId2ArgIndexMap, varId2VarIdMap), HcclResult::HCCL_SUCCESS);
-    EXPECT_TRUE(kernel.allCcuProfilingInfos_.empty());
+        kernel.GetCcuProfilingInfo(taskArgs.data(), taskArgs.size(), ccuStaticInfo, ccuDetailInfo),
+        HcclResult::HCCL_SUCCESS);
+    EXPECT_TRUE(kernel.GetAllCcuProfilingInfo().empty());
 }
 
-// 决策点#4(true): loopParam!=0 → dataSize 赋值 + push，需要 lgProfilingReps[i] 为真实 bundle
+// 决策点#4(true): loopParam!=0 → dataSize 赋值 + push
 TEST_F(CollectLoopGroupProfilingTest, Ut_CollectLGProf_When_LoopParamNonZero_Expect_DataSizePushed)
 {
     CcuKernel kernel;
@@ -182,17 +119,36 @@ TEST_F(CollectLoopGroupProfilingTest, Ut_CollectLGProf_When_LoopParamNonZero_Exp
     GroupInfo info{loopParamId, parallelParamId, residualId};
     FillContainers(kernel, 2, 2, 2, info);
     SetRep(kernel, 0, 0x1234);
+    kernel.profiling_.moConfig_.loopCount = 2;
+    kernel.profiling_.moConfig_.memSlice = 3;
 
-    // moConfig_ 默认 {0xFF.., 0xFF.., 0xFF..}，为可控断言设小值
-    kernel.moConfig_.loopCount = 2;
-    kernel.moConfig_.memSlice = 3;
+    CcuInsGeneratorV1 insGen;
+    Variable loopVar(nullptr);
+    loopVar.Reset(loopParamId);
+    auto loopLoadArg = std::make_shared<CcuRep::CcuRepLoadArg>(&insGen, loopVar, 0, 0);
+    kernel.GetLGProfilingInfo().loadRep2ArgIdxMap[loopLoadArg] = 0;
 
-    BuildArgsAndCallKernel(kernel, loopParamId, parallelParamId, residualId, 5, 0, 0); // loopParam=5, parallelParam=0
+    Variable parallelVar(nullptr);
+    parallelVar.Reset(parallelParamId);
+    auto parallelLoadArg = std::make_shared<CcuRep::CcuRepLoadArg>(&insGen, parallelVar, 0, 0);
+    kernel.GetLGProfilingInfo().loadRep2ArgIdxMap[parallelLoadArg] = 1;
 
-    ASSERT_EQ(kernel.allCcuProfilingInfos_.size(), 1U);
-    // dataSize = loopParam(5) * loopCount(2) * memSlice(3) = 30
-    EXPECT_EQ(kernel.allCcuProfilingInfos_[0].dataSize, 5ULL * 2ULL * 3ULL);
-    EXPECT_EQ(kernel.allCcuProfilingInfos_[0].instrId, 0x1234U);
+    Variable residualVar(nullptr);
+    residualVar.Reset(residualId);
+    auto residualLoadArg = std::make_shared<CcuRep::CcuRepLoadArg>(&insGen, residualVar, 0, 0);
+    kernel.GetLGProfilingInfo().loadRep2ArgIdxMap[residualLoadArg] = 2;
+
+    std::vector<uint64_t> taskArgs = {5, 0, 0};
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuStaticInfo;
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuDetailInfo;
+    EXPECT_EQ(
+        kernel.GetCcuProfilingInfo(taskArgs.data(), taskArgs.size(), ccuStaticInfo, ccuDetailInfo),
+        HcclResult::HCCL_SUCCESS);
+
+    ASSERT_NE(ccuDetailInfo, nullptr);
+    EXPECT_EQ(ccuDetailInfo->size(), 1U);
+    EXPECT_EQ(ccuDetailInfo->at(0).dataSize, 5ULL * 2ULL * 3ULL);
+    EXPECT_EQ(ccuDetailInfo->at(0).instrId, 0x1234U);
 }
 
 // 决策点#4(false): loopParam=0 → 不进入赋值分支，不 push
@@ -206,8 +162,29 @@ TEST_F(CollectLoopGroupProfilingTest, Ut_CollectLGProf_When_LoopParamZero_Expect
     FillContainers(kernel, 2, 2, 2, info);
     SetRep(kernel, 0, 0x1234);
 
-    BuildArgsAndCallKernel(kernel, loopParamId, parallelParamId, residualId, 0, 0, 0); // 全 0
-    EXPECT_TRUE(kernel.allCcuProfilingInfos_.empty());
+    CcuInsGeneratorV1 insGen;
+    Variable loopVar(nullptr);
+    loopVar.Reset(loopParamId);
+    auto loopLoadArg = std::make_shared<CcuRep::CcuRepLoadArg>(&insGen, loopVar, 0, 0);
+    kernel.GetLGProfilingInfo().loadRep2ArgIdxMap[loopLoadArg] = 0;
+
+    Variable parallelVar(nullptr);
+    parallelVar.Reset(parallelParamId);
+    auto parallelLoadArg = std::make_shared<CcuRep::CcuRepLoadArg>(&insGen, parallelVar, 0, 0);
+    kernel.GetLGProfilingInfo().loadRep2ArgIdxMap[parallelLoadArg] = 1;
+
+    Variable residualVar(nullptr);
+    residualVar.Reset(residualId);
+    auto residualLoadArg = std::make_shared<CcuRep::CcuRepLoadArg>(&insGen, residualVar, 0, 0);
+    kernel.GetLGProfilingInfo().loadRep2ArgIdxMap[residualLoadArg] = 2;
+
+    std::vector<uint64_t> taskArgs = {0, 0, 0};
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuStaticInfo;
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuDetailInfo;
+    EXPECT_EQ(
+        kernel.GetCcuProfilingInfo(taskArgs.data(), taskArgs.size(), ccuStaticInfo, ccuDetailInfo),
+        HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(ccuDetailInfo, nullptr);
 }
 
 // 决策点#5(true)+#6(false): parallelParam!=0 且 i+1<repSize(配对 rep 存在) → push
@@ -219,14 +196,37 @@ TEST_F(CollectLoopGroupProfilingTest, Ut_CollectLGProf_When_ParallelNonZero_Pair
     constexpr uint16_t residualId = 102;
     GroupInfo info{loopParamId, parallelParamId, residualId};
     FillContainers(kernel, 2, 2, 2, info);
-    SetRep(kernel, 1, 0x5678); // i+1=1 处的配对 rep
+    SetRep(kernel, 1, 0x5678);
+    kernel.profiling_.moConfig_.memSlice = 4;
 
-    SetupParallelParamAndCall(kernel, loopParamId, parallelParamId, residualId);
+    CcuInsGeneratorV1 insGen;
+    Variable loopVar(nullptr);
+    loopVar.Reset(loopParamId);
+    auto loopLoadArg = std::make_shared<CcuRep::CcuRepLoadArg>(&insGen, loopVar, 0, 0);
+    kernel.GetLGProfilingInfo().loadRep2ArgIdxMap[loopLoadArg] = 0;
 
-    ASSERT_EQ(kernel.allCcuProfilingInfos_.size(), 1U);
-    // dataSize = repeatNum(3) * memSlice(4) + residual(7) = 19
-    EXPECT_EQ(kernel.allCcuProfilingInfos_[0].dataSize, 3ULL * 4ULL + 7ULL);
-    EXPECT_EQ(kernel.allCcuProfilingInfos_[0].instrId, 0x5678U);
+    Variable parallelVar(nullptr);
+    parallelVar.Reset(parallelParamId);
+    auto parallelLoadArg = std::make_shared<CcuRep::CcuRepLoadArg>(&insGen, parallelVar, 0, 0);
+    kernel.GetLGProfilingInfo().loadRep2ArgIdxMap[parallelLoadArg] = 1;
+
+    Variable residualVar(nullptr);
+    residualVar.Reset(residualId);
+    auto residualLoadArg = std::make_shared<CcuRep::CcuRepLoadArg>(&insGen, residualVar, 0, 0);
+    kernel.GetLGProfilingInfo().loadRep2ArgIdxMap[residualLoadArg] = 2;
+
+    uint64_t parallelParam = static_cast<uint64_t>(3) << 55;
+    std::vector<uint64_t> taskArgs = {0, parallelParam, 7};
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuStaticInfo;
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuDetailInfo;
+    EXPECT_EQ(
+        kernel.GetCcuProfilingInfo(taskArgs.data(), taskArgs.size(), ccuStaticInfo, ccuDetailInfo),
+        HcclResult::HCCL_SUCCESS);
+
+    ASSERT_NE(ccuDetailInfo, nullptr);
+    EXPECT_EQ(ccuDetailInfo->size(), 1U);
+    EXPECT_EQ(ccuDetailInfo->at(0).dataSize, 3ULL * 4ULL + 7ULL);
+    EXPECT_EQ(ccuDetailInfo->at(0).instrId, 0x5678U);
 }
 
 // 决策点#5(true)+#6(true): parallelParam!=0 但 repSize 为奇数 → i+1>=repSize → 跳过不 push
@@ -237,10 +237,144 @@ TEST_F(CollectLoopGroupProfilingTest, Ut_CollectLGProf_When_ParallelNonZero_NoPa
     constexpr uint16_t parallelParamId = 101;
     constexpr uint16_t residualId = 102;
     GroupInfo info{loopParamId, parallelParamId, residualId};
-    // repSize=1(奇数), goSize=1, prof=1 → safeSize=1，循环 i=0 进入
     FillContainers(kernel, 1, 1, 1, info);
+    kernel.profiling_.moConfig_.memSlice = 4;
 
-    SetupParallelParamAndCall(kernel, loopParamId, parallelParamId, residualId);
-    // parallelParam!=0 但 i+1=1 >= repSize=1 → 跳过，无 push；loopParam=0 也不 push
-    EXPECT_TRUE(kernel.allCcuProfilingInfos_.empty());
+    CcuInsGeneratorV1 insGen;
+    Variable loopVar(nullptr);
+    loopVar.Reset(loopParamId);
+    auto loopLoadArg = std::make_shared<CcuRep::CcuRepLoadArg>(&insGen, loopVar, 0, 0);
+    kernel.GetLGProfilingInfo().loadRep2ArgIdxMap[loopLoadArg] = 0;
+
+    Variable parallelVar(nullptr);
+    parallelVar.Reset(parallelParamId);
+    auto parallelLoadArg = std::make_shared<CcuRep::CcuRepLoadArg>(&insGen, parallelVar, 0, 0);
+    kernel.GetLGProfilingInfo().loadRep2ArgIdxMap[parallelLoadArg] = 1;
+
+    Variable residualVar(nullptr);
+    residualVar.Reset(residualId);
+    auto residualLoadArg = std::make_shared<CcuRep::CcuRepLoadArg>(&insGen, residualVar, 0, 0);
+    kernel.GetLGProfilingInfo().loadRep2ArgIdxMap[residualLoadArg] = 2;
+
+    uint64_t parallelParam = static_cast<uint64_t>(3) << 55;
+    std::vector<uint64_t> taskArgs = {0, parallelParam, 7};
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuStaticInfo;
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuDetailInfo;
+    EXPECT_EQ(
+        kernel.GetCcuProfilingInfo(taskArgs.data(), taskArgs.size(), ccuStaticInfo, ccuDetailInfo),
+        HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(ccuDetailInfo, nullptr);
+}
+
+// 验证 GetCcuProfilingInfo 稳态缓存分支
+TEST_F(CollectLoopGroupProfilingTest, Ut_GetCcuProfilingInfo_SteadyState_ReuseCache)
+{
+    CcuKernel kernel;
+    constexpr uint16_t loopParamId = 100;
+    constexpr uint16_t parallelParamId = 101;
+    constexpr uint16_t residualId = 102;
+    GroupInfo info{loopParamId, parallelParamId, residualId};
+
+    CcuProfilingInfo sqeProf;
+    sqeProf.type = static_cast<uint8_t>(CcuProfilinType::CCU_TASK_PROFILING);
+    sqeProf.name = "UnitTestSqe";
+    sqeProf.itemId = 1;
+    kernel.GetProfilingInfo().push_back(sqeProf);
+
+    FillContainers(kernel, 2, 2, 2, info);
+    SetRep(kernel, 0, 0x1234);
+    kernel.profiling_.moConfig_.loopCount = 2;
+    kernel.profiling_.moConfig_.memSlice = 3;
+
+    CcuInsGeneratorV1 insGen;
+    Variable loopVar(nullptr);
+    loopVar.Reset(loopParamId);
+    auto loopLoadArg = std::make_shared<CcuRep::CcuRepLoadArg>(&insGen, loopVar, 0, 0);
+    kernel.GetLGProfilingInfo().loadRep2ArgIdxMap[loopLoadArg] = 0;
+
+    Variable parallelVar(nullptr);
+    parallelVar.Reset(parallelParamId);
+    auto parallelLoadArg = std::make_shared<CcuRep::CcuRepLoadArg>(&insGen, parallelVar, 0, 0);
+    kernel.GetLGProfilingInfo().loadRep2ArgIdxMap[parallelLoadArg] = 1;
+
+    Variable residualVar(nullptr);
+    residualVar.Reset(residualId);
+    auto residualLoadArg = std::make_shared<CcuRep::CcuRepLoadArg>(&insGen, residualVar, 0, 0);
+    kernel.GetLGProfilingInfo().loadRep2ArgIdxMap[residualLoadArg] = 2;
+
+    std::vector<uint64_t> taskArgs = {5, 0, 0};
+
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuStaticInfo1;
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuDetailInfo1;
+    EXPECT_EQ(
+        kernel.GetCcuProfilingInfo(taskArgs.data(), taskArgs.size(), ccuStaticInfo1, ccuDetailInfo1),
+        HcclResult::HCCL_SUCCESS);
+
+    auto& cache1 = kernel.profiling_.cache_;
+    EXPECT_EQ(cache1.sqeWaitCkeSize, 1U);
+    EXPECT_TRUE(cache1.varIdMapsCached);
+    EXPECT_TRUE(cache1.groupArgIndexCached);
+    ASSERT_NE(ccuStaticInfo1, nullptr);
+    EXPECT_EQ(ccuStaticInfo1->size(), 1U);
+    ASSERT_NE(ccuDetailInfo1, nullptr);
+    EXPECT_EQ(ccuDetailInfo1->size(), 1U);
+    EXPECT_EQ(ccuDetailInfo1->at(0).dataSize, 5ULL * 2ULL * 3ULL);
+
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuStaticInfo2;
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuDetailInfo2;
+    EXPECT_EQ(
+        kernel.GetCcuProfilingInfo(taskArgs.data(), taskArgs.size(), ccuStaticInfo2, ccuDetailInfo2),
+        HcclResult::HCCL_SUCCESS);
+
+    auto& cache2 = kernel.profiling_.cache_;
+    EXPECT_EQ(cache2.sqeWaitCkeSize, 1U);
+    EXPECT_EQ(ccuStaticInfo2.get(), ccuStaticInfo1.get());
+    ASSERT_NE(ccuDetailInfo2, nullptr);
+    EXPECT_EQ(ccuDetailInfo2->size(), ccuDetailInfo1->size());
+    EXPECT_EQ(ccuDetailInfo2->at(0).dataSize, ccuDetailInfo1->at(0).dataSize);
+    EXPECT_EQ(kernel.GetAllCcuProfilingInfo().size(), 2U);
+}
+
+TEST_F(CollectLoopGroupProfilingTest, Ut_GetCcuProfilingInfo_When_SqeProfilingExists_Expect_ccuStaticInfoNotNull)
+{
+    CcuKernel kernel;
+    CcuProfilingInfo sqeProf;
+    sqeProf.type = static_cast<uint8_t>(CcuProfilinType::CCU_TASK_PROFILING);
+    sqeProf.name = "UnitTestSqe";
+    sqeProf.itemId = 1;
+    sqeProf.dieId = 1;
+    kernel.GetProfilingInfo().push_back(sqeProf);
+
+    std::vector<uint64_t> taskArgs = {0};
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuStaticInfo;
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuDetailInfo;
+    EXPECT_EQ(
+        kernel.GetCcuProfilingInfo(taskArgs.data(), taskArgs.size(), ccuStaticInfo, ccuDetailInfo),
+        HcclResult::HCCL_SUCCESS);
+
+    ASSERT_NE(ccuStaticInfo, nullptr);
+    EXPECT_EQ(ccuStaticInfo->size(), 1U);
+    EXPECT_EQ((*ccuStaticInfo)[0].type, static_cast<uint8_t>(CcuProfilinType::CCU_TASK_PROFILING));
+    EXPECT_EQ((*ccuStaticInfo)[0].name, "UnitTestSqe");
+    EXPECT_EQ((*ccuStaticInfo)[0].dieId, 1);
+    EXPECT_EQ(kernel.profiling_.cache_.sqeWaitCkeBuilt, true);
+    EXPECT_EQ(kernel.profiling_.cache_.sqeWaitCkeSize, 1U);
+    EXPECT_EQ(ccuDetailInfo, nullptr);
+}
+
+TEST_F(CollectLoopGroupProfilingTest, Ut_GetCcuProfilingInfo_When_NoSqeProfiling_Expect_ccuStaticInfoNull)
+{
+    CcuKernel kernel;
+
+    std::vector<uint64_t> taskArgs = {0};
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuStaticInfo;
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuDetailInfo;
+    EXPECT_EQ(
+        kernel.GetCcuProfilingInfo(taskArgs.data(), taskArgs.size(), ccuStaticInfo, ccuDetailInfo),
+        HcclResult::HCCL_SUCCESS);
+
+    EXPECT_EQ(ccuStaticInfo, nullptr);
+    EXPECT_EQ(kernel.profiling_.cache_.sqeWaitCkeBuilt, true);
+    EXPECT_EQ(kernel.profiling_.cache_.sqeWaitCkeSize, 0U);
+    EXPECT_EQ(ccuDetailInfo, nullptr);
 }

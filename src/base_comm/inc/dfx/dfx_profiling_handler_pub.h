@@ -188,9 +188,17 @@ private:
     bool IsSkipReportTaskType(TaskParamType taskType) const;
 
     HcclResult ReportCcuInfo(const TaskInfo& taskInfo) const;
-    HcclResult GetCcuTaskInfo(const TaskInfo& taskInfo, const CcuProfilingInfo& info) const;
-    HcclResult GetCcuWaitSignalInfo(const TaskInfo& taskInfo, const CcuProfilingInfo& info) const;
-    HcclResult GetCcuGroupInfo(const TaskInfo& taskInfo, const CcuProfilingInfo& info) const;
+    struct CcuReportCtx {
+        uint64_t timeStamp;
+        uint64_t groupName;
+        u32 rankId;
+        u32 ranksize;
+        uint64_t itemId;
+    };
+    HcclResult GetCcuTaskInfo(const TaskInfo& taskInfo, const CcuProfilingInfo& info, const CcuReportCtx& ctx) const;
+    HcclResult
+    GetCcuWaitSignalInfo(const TaskInfo& taskInfo, const CcuProfilingInfo& info, const CcuReportCtx& ctx) const;
+    HcclResult GetCcuGroupInfo(const TaskInfo& taskInfo, const CcuProfilingInfo& info, const CcuReportCtx& ctx) const;
 
     void DumpHCCLReportData(const TaskInfo& taskInfo, const MsprofAdditionalInfo& reporterData) const;
     void DumpCcuGroupInfo(const MsprofCcuGroupInfo& ccuGroupInfo) const;

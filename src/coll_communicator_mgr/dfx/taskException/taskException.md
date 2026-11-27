@@ -227,7 +227,7 @@ sequenceDiagram
     Note over HCCL,MirrorTaskManager: CCU任务下发阶段
 
     HcclCommDfx->>HcclCommDfx: AddTaskInfoCallback
-    Note right of HcclCommDfx: Thread/Channel回调触发<br/>taskType==TASK_CCU时<br/>遍历ccuDetailInfo填充remoteRankId
+    Note right of HcclCommDfx: AddTaskInfoCallback仅登记TaskInfo并注册getRemoteRankByHandle回调<br/>remoteRankId在profiling上报/异常处理消费时惰性填充
     HcclCommDfx->>HcclCommDfx: 创建TaskInfo关联DfxOpInfo
     HcclCommDfx->>MirrorTaskManager: AddTaskInfo
     Note right of MirrorTaskManager: 注册到GlobalMirrorTasks

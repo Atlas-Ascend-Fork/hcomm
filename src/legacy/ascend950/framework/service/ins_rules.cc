@@ -837,7 +837,8 @@ static void ReportAivTaskInfo(const CommunicatorImpl& comm, AivOpArgs& aivOpArgs
                     .dataType    = DataTypeToHcclDataType(aivOpArgs.dataType),
             }
         },
-        .ccuDetailInfo  = nullptr
+        .ccuDetailInfo  = nullptr,
+        .ccuStaticInfo  = nullptr
     };
 
     SaveDfxTaskInfo(comm, taskParam, INVALID_VALUE_RANKID, isMaster);

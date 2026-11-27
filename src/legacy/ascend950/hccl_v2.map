@@ -396,8 +396,7 @@ global:
         "Hccl::LocalUbRmaBuffer::GetTokenValue() const";
         "Hccl::LocalUbRmaBuffer::LocalUbRmaBuffer(std::shared_ptr<Hccl::Buffer>, void*)";
         "Hccl::LocalUbRmaBuffer::LocalUbRmaBuffer(std::shared_ptr<Hccl::Buffer>, void*, Hccl::LocalUbRmaBuffer const&)";
-        "Hccl::MirrorTaskManager::AddTaskInfo(unsigned int, unsigned int, unsigned int, Hccl::TaskParam const&, std::shared_ptr<Hccl::DfxOpInfo>, bool)";
-        "Hccl::MirrorTaskManager::AddTaskInfo(unsigned int, unsigned int, unsigned int, Hccl::TaskParam const&, std::shared_ptr<Hccl::DfxOpInfo>, bool, unsigned int)";
+        "Hccl::MirrorTaskManager::AddTaskInfo(unsigned int, unsigned int, unsigned int, Hccl::TaskParam const&, std::shared_ptr<Hccl::DfxOpInfo>, bool, unsigned int, std::function<unsigned int (unsigned long long)>)";
         "Hccl::MirrorTaskManager::Begin()";
         "Hccl::MirrorTaskManager::End()";
         "Hccl::MirrorTaskManager::GetCurrDfxOpInfo() const";

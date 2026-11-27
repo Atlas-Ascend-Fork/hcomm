@@ -671,3 +671,55 @@ TEST_F(DfxProfilingReporterTest, Ut_ReportAllTasks_When_FirstSlotNullptr_Expect_
     GlobalMockObject::verify();
     EXPECT_FALSE(HasCursor(streamId));
 }
+
+// ===========================================================================
+// TaskInfo::GetRemoteRankId UT
+// 覆盖 task_info.cc:285-291 三条路径：
+//   1. 回调已注册且句柄有效 → 走回调返回回调结果
+//   2. 回调为 nullptr → 不走回调，直接返回 remoteRank_
+//   3. 回调已注册但句柄为 INVALID_U64 → 句柄无效直接返回 remoteRank_
+// 注：hccl_utest_test_dfx_resource target 中 GetRemoteRankId 被 llt_next_orion_stub 空桩覆盖，
+//     本 target 独立链入真实 task_info.cc 源文件以测试真实实现。
+// ===========================================================================
+
+class TaskInfoTest : public testing::Test {
+protected:
+    void SetUp() override
+    {
+        TaskParam taskParam{};
+        taskInfo_ = std::make_unique<TaskInfo>(1, 1, kRemoteRank, taskParam);
+    }
+    void TearDown() override { GlobalMockObject::verify(); }
+
+    static constexpr u32 kRemoteRank = 100;
+    static constexpr u32 kCallbackRank = 42;
+    std::unique_ptr<TaskInfo> taskInfo_;
+};
+
+// 路径1：回调已注册且 channelHandle_ != INVALID_U64 → 返回回调结果
+TEST_F(TaskInfoTest, Ut_GetRemoteRankId_When_CallbackAndHandleValid_Expect_ReturnCallbackResult)
+{
+    taskInfo_->channelHandle_ = 0x1234;
+    taskInfo_->getRemoteRankByHandle_ = [](u64) -> u32 {
+        return kCallbackRank;
+    };
+    EXPECT_EQ(taskInfo_->GetRemoteRankId(), kCallbackRank);
+}
+
+// 路径2：回调为 nullptr → 不走回调，直接返回 remoteRank_
+TEST_F(TaskInfoTest, Ut_GetRemoteRankId_When_CallbackNull_Expect_ReturnRemoteRank)
+{
+    taskInfo_->channelHandle_ = 0x1234;
+    taskInfo_->getRemoteRankByHandle_ = nullptr;
+    EXPECT_EQ(taskInfo_->GetRemoteRankId(), kRemoteRank);
+}
+
+// 路径3：回调已注册但 channelHandle_ == INVALID_U64 → 句柄无效直接返回 remoteRank_
+TEST_F(TaskInfoTest, Ut_GetRemoteRankId_When_HandleInvalid_Expect_ReturnRemoteRank)
+{
+    taskInfo_->channelHandle_ = Hccl::INVALID_U64;
+    taskInfo_->getRemoteRankByHandle_ = [](u64) -> u32 {
+        return kCallbackRank;
+    };
+    EXPECT_EQ(taskInfo_->GetRemoteRankId(), kRemoteRank);
+}

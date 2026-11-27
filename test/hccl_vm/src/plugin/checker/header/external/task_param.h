@@ -53,6 +53,7 @@ struct CcuProfilingInfo {
     uint64_t dataSize;      // 输入数据大小
     uint32_t ckeId;
     uint32_t mask;
+    uint64_t itemId; // profiling itemId，由 GetCcuProfilingInfo 首次构建时预填充，跨 launch 复用
     uint16_t channelId[CCU_MAX_CHANNEL_NUM];    // LoopGroup所包含的搬运指令使用的ChannelId
     uint32_t remoteRankId[CCU_MAX_CHANNEL_NUM]; // LoopGroup所包含的搬运指令的对端
 
@@ -67,7 +68,8 @@ struct CcuProfilingInfo {
           outputDataType(0),
           dataSize(0),
           ckeId(0),
-          mask(0)
+          mask(0),
+          itemId(0)
     {
         (void)memset_s(channelId, sizeof(channelId), INVALID_VALUE_CHANNELID, sizeof(channelId));
         (void)memset_s(remoteRankId, sizeof(remoteRankId), INVALID_RANKID, sizeof(remoteRankId));
@@ -119,6 +121,7 @@ struct TaskParam {
         ParaCcu Ccu;
     } taskPara;
     std::shared_ptr<std::vector<CcuProfilingInfo>> ccuDetailInfo; // taskType为TASK_CCU时，ParaCcu的补充profiling信息
+    std::shared_ptr<std::vector<CcuProfilingInfo>> ccuStaticInfo;
     std::string Describe() const
     {
         return StringFormat(
