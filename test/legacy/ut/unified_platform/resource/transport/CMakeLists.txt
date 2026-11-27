@@ -15,4 +15,5 @@ target_sources(hccl_v2_utest
         ut_ub_transport_lite_impl.cc
         ut_ub_transport_lite_impl_wait_with_timeout.cc
         ut_p2p_transport_lite_impl_wait_with_timeout.cc
+        ut_p2p_transport_lite_impl_read_reduce.cc
 )

@@ -318,18 +318,23 @@ void P2PTransportLiteImpl::BuildP2PReadReduce(
     HCCL_INFO(
         "P2PTransportLiteImpl::ReadReduce remoteBuff[%s] localBuff[%s] reduce[%s]", rmt.Describe().c_str(),
         loc.Describe().c_str(), reduceIn.Describe().c_str());
-    // 传入数据大小不能超过 u32最大值， 需要进行切分
-    u64 u32Max = UINT32_MAX;
-    double countSplitingTimes = static_cast<double>(rmt.GetSize()) / static_cast<double>(u32Max);
-    u64 splitingTimes = static_cast<int>(std::ceil(countSplitingTimes));
+    // 传入数据大小不能超过 u32最大值， 需按元素大小对齐后切分，保证拆分边界不落在元素内部
+    const u64 elemSize = static_cast<u64>(DataTypeSizeGet(reduceIn.dataType));
+    if (UNLIKELY(rmt.GetSize() % elemSize != 0)) {
+        THROW<InvalidParamsException>(StringFormat(
+            "[P2PTransportLiteImpl][%s] data size[%llu] is not aligned to elementSize[%llu] of dataType[%s].", __func__,
+            rmt.GetSize(), elemSize, reduceIn.dataType.Describe().c_str()));
+    }
+    const u64 maxTaskBytes = (static_cast<u64>(UINT32_MAX) / elemSize) * elemSize;
+    const u64 splitingTimes = rmt.GetSize() / maxTaskBytes + ((rmt.GetSize() % maxTaskBytes != 0) ? 1 : 0);
     u64 src = rmt.GetAddr();
     u64 dst = loc.GetAddr();
-    u64 blockSize = u32Max;
-    u64 offset = u32Max;
+    u64 blockSize = maxTaskBytes;
+    u64 offset = maxTaskBytes;
     for (u64 i = 0; i < splitingTimes; i++) {
         // 处理尾块数据
         if (i == splitingTimes - 1) {
-            blockSize = rmt.GetSize() - u32Max * (splitingTimes - 1);
+            blockSize = rmt.GetSize() - maxTaskBytes * (splitingTimes - 1);
             offset = blockSize;
         }
 
