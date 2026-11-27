@@ -23,16 +23,20 @@
 
 using namespace hcomm;
 
+void SaluSleep(u32 usec);
+
 namespace {
-// ===== I* 序列桩：mockcpp returnValue 不写引用出参，进度须 invoke 显式回填 =====
-// g_sentPlan/g_recvPlan 为每次调用的预设进度（0 表示本步零进度返回 E_AGAIN），
-// 计划耗尽后默认全量完成；RECV_SIZE 阶段（size==sizeof(u64)）按 g_remoteSizePlan 回填对端声明尺寸
+constexpr u64 SEND_PLAN_HARD_ERR = ~static_cast<u64>(0); // 错误注入
 static std::vector<u64> g_sentPlan;
 static std::vector<u64> g_recvPlan;
 static size_t g_sentIdx = 0;
 static size_t g_recvIdx = 0;
 static u64 g_remoteSizePlan = 8;
 static int g_tryCallCnt = 0;
+
+// ===== SaluSleep 观测桩 =====
+static int g_sleepCnt = 0;
+static u32 g_lastSleepUs = 0;
 
 static void ResetStubState()
 {
@@ -42,12 +46,24 @@ static void ResetStubState()
     g_recvIdx = 0;
     g_remoteSizePlan = 8;
     g_tryCallCnt = 0;
+    g_sleepCnt = 0;
+    g_lastSleepUs = 0;
+}
+
+static void SaluSleepStub(u32 usec)
+{
+    g_sleepCnt++;
+    g_lastSleepUs = usec;
 }
 
 static HcclResult ISendSeqStub(Hccl::Socket*, const void*, u64 size, u64& sentSize)
 {
     g_tryCallCnt++;
     u64 plan = (g_sentIdx < g_sentPlan.size()) ? g_sentPlan[g_sentIdx++] : size;
+    if (plan == SEND_PLAN_HARD_ERR) { // 硬错误注入：模拟对端断链等场景
+        sentSize = 0;
+        return HCCL_E_INTERNAL;
+    }
     plan = std::min(plan, size);
     if (plan == 0) {
         sentSize = 0;
@@ -61,6 +77,10 @@ static HcclResult IRecvSeqStub(Hccl::Socket*, void* buf, u64 size, u64& recvSize
 {
     g_tryCallCnt++;
     u64 plan = (g_recvIdx < g_recvPlan.size()) ? g_recvPlan[g_recvIdx++] : size;
+    if (plan == SEND_PLAN_HARD_ERR) { // 硬错误注入：模拟对端断链等场景
+        recvSize = 0;
+        return HCCL_E_INTERNAL;
+    }
     plan = std::min(plan, size);
     if (plan == 0) {
         recvSize = 0;
@@ -84,6 +104,7 @@ protected:
         ResetStubState();
         MOCKER_CPP(&Hccl::Socket::ISend).stubs().will(invoke(ISendSeqStub));
         MOCKER_CPP(&Hccl::Socket::IRecv).stubs().will(invoke(IRecvSeqStub));
+        MOCKER(SaluSleep).stubs().will(invoke(SaluSleepStub));
         Hccl::IpAddress localIp("1.0.0.0");
         Hccl::IpAddress remoteIp("2.0.0.0");
         socket = new Hccl::Socket(
@@ -109,7 +130,7 @@ protected:
     StepTransfer transfer;
 };
 
-// 拆步核心语义：部分写出时偏移保留、重入续传整块完成并归零（可复用于下一块）
+// 拆步核心语义：部分写出时进度保留、重入续传整块完成并归零（可复用于下一块）
 TEST_F(StepTransferTest, Ut_StepSend_When_PartialSent_Expect_ProgressKeptAndResume)
 {
     g_sentPlan = {4, 0, 4}; // 部分写出 4 字节 → 零进度 EAGAIN → 剩余 4 字节写完
@@ -117,18 +138,18 @@ TEST_F(StepTransferTest, Ut_StepSend_When_PartialSent_Expect_ProgressKeptAndResu
 
     HcclResult ret1 = transfer.StepSend(socket, buf, sizeof(buf));
     EXPECT_EQ(ret1, HCCL_E_AGAIN);
-    EXPECT_EQ(transfer.sendOff_, 4U); // 部分进度保留
+    EXPECT_EQ(transfer.sentBytes_, 4U); // 部分进度保留
 
     HcclResult ret2 = transfer.StepSend(socket, buf, sizeof(buf));
     EXPECT_EQ(ret2, HCCL_E_AGAIN);
-    EXPECT_EQ(transfer.sendOff_, 4U); // 零进度拍偏移不丢
+    EXPECT_EQ(transfer.sentBytes_, 4U); // 零进度拍进度不丢
 
     HcclResult ret3 = transfer.StepSend(socket, buf, sizeof(buf));
     EXPECT_EQ(ret3, HCCL_SUCCESS);
-    EXPECT_EQ(transfer.sendOff_, 0U); // 整块完成自动归零
+    EXPECT_EQ(transfer.sentBytes_, 0U); // 整块完成自动归零
 }
 
-// 拆步核心语义：接收侧部分读入时偏移保留、重入续传整块完成
+// 拆步核心语义：接收侧部分读入时进度保留、重入续传整块完成
 TEST_F(StepTransferTest, Ut_StepRecv_When_PartialRecv_Expect_ProgressKeptAndResume)
 {
     g_recvPlan = {4, 0, 4};
@@ -136,28 +157,28 @@ TEST_F(StepTransferTest, Ut_StepRecv_When_PartialRecv_Expect_ProgressKeptAndResu
 
     HcclResult ret1 = transfer.StepRecv(socket, buf, sizeof(buf));
     EXPECT_EQ(ret1, HCCL_E_AGAIN);
-    EXPECT_EQ(transfer.recvOff_, 4U);
+    EXPECT_EQ(transfer.recvBytes_, 4U);
 
     HcclResult ret2 = transfer.StepRecv(socket, buf, sizeof(buf));
     EXPECT_EQ(ret2, HCCL_E_AGAIN);
-    EXPECT_EQ(transfer.recvOff_, 4U);
+    EXPECT_EQ(transfer.recvBytes_, 4U);
 
     HcclResult ret3 = transfer.StepRecv(socket, buf, sizeof(buf));
     EXPECT_EQ(ret3, HCCL_SUCCESS);
-    EXPECT_EQ(transfer.recvOff_, 0U);
+    EXPECT_EQ(transfer.recvBytes_, 0U);
 }
 
-// 调用方中途改小 size 的误用：偏移越界返回 E_PARA，不静默吞进度谎报成功（检视意见 #199771816）
+// 调用方中途改小 size 的误用：进度越界返回 E_PARA，不静默吞进度谎报成功
 TEST_F(StepTransferTest, Ut_StepSend_When_OffsetExceedsSize_Expect_EPara)
 {
-    transfer.sendOff_ = 16; // 模拟上一拍遗留偏移大于当前块
+    transfer.sentBytes_ = 16; // 模拟上一拍遗留进度大于当前块
     u8 buf[8] = {0};
     EXPECT_EQ(transfer.StepSend(socket, buf, sizeof(buf)), HCCL_E_PARA);
-    EXPECT_EQ(transfer.sendOff_, 16U); // 越界报错不清偏移，错误状态保留供定位
+    EXPECT_EQ(transfer.sentBytes_, 16U); // 越界报错不清进度，错误状态保留供定位
 
-    transfer.recvOff_ = 16;
+    transfer.recvBytes_ = 16;
     EXPECT_EQ(transfer.StepRecv(socket, buf, sizeof(buf)), HCCL_E_PARA);
-    EXPECT_EQ(transfer.recvOff_, 16U);
+    EXPECT_EQ(transfer.recvBytes_, 16U);
 }
 
 // 四阶段直落：socket 全量进度时单次调用走完 SEND_SIZE→RECV_SIZE→SEND_DATA→RECV_DATA，
@@ -181,7 +202,7 @@ TEST_F(StepTransferTest, Ut_StepExchange_When_SocketFast_Expect_AllPhasesInOneCa
     EXPECT_EQ(transfer.phase_, StepTransfer::ExchangePhase::DONE);
 }
 
-// 四阶段续传：部分进度返回 E_AGAIN，phase_/偏移跨调用保留不回退，直至完成且解包恰一次
+// 四阶段续传：部分进度返回 E_AGAIN，phase_/进度跨调用保留不回退，直至完成且解包恰一次
 TEST_F(StepTransferTest, Ut_StepExchange_When_PartialProgress_Expect_PhaseKeptResume)
 {
     int packCnt = 0;
@@ -325,4 +346,78 @@ TEST_F(StepTransferTest, Ut_StepExchange_When_RemoteSizeExceedLimit_Expect_EPara
     EXPECT_EQ(transfer.recvBuf_.capacity(), 0U);                        // 未按超限值分配
     EXPECT_EQ(transfer.phase_, StepTransfer::ExchangePhase::RECV_SIZE); // 状态不推进
     EXPECT_EQ(unpackCnt, 0);
+}
+
+// 部分进度（不退避、进度推进）→ E_AGAIN 零进度（恰一次 1ms 退避、进度不丢）→
+// 整块完成（归零、无新增退避）
+TEST_F(StepTransferTest, Ut_StepTransfer_When_MixedProgress_Expect_BackoffOnlyOnEAgain)
+{
+    u8 buf[8] = {0};
+
+    // StepSend 序列：部分 4/8 → E_AGAIN 零进度 → 剩余 4/8 完成
+    g_sentPlan = {4, 0, 4};
+    EXPECT_EQ(transfer.StepSend(socket, buf, sizeof(buf)), HCCL_E_AGAIN); // 部分进度：无退避
+    EXPECT_EQ(transfer.sentBytes_, 4U);
+    EXPECT_EQ(g_sleepCnt, 0);
+
+    EXPECT_EQ(transfer.StepSend(socket, buf, sizeof(buf)), HCCL_E_AGAIN); // 零进度：恰一次 1ms 退避
+    EXPECT_EQ(transfer.sentBytes_, 4U);
+    EXPECT_EQ(g_sleepCnt, 1);
+    EXPECT_EQ(g_lastSleepUs, 1000U);
+
+    EXPECT_EQ(transfer.StepSend(socket, buf, sizeof(buf)), HCCL_SUCCESS); // 整块完成：归零、无新增退避
+    EXPECT_EQ(transfer.sentBytes_, 0U);
+    EXPECT_EQ(g_sleepCnt, 1);
+
+    // StepRecv 对称序列：部分 4/8 → E_AGAIN 零进度 → 剩余 4/8 完成
+    g_recvPlan = {4, 0, 4};
+    EXPECT_EQ(transfer.StepRecv(socket, buf, sizeof(buf)), HCCL_E_AGAIN);
+    EXPECT_EQ(transfer.recvBytes_, 4U);
+    EXPECT_EQ(g_sleepCnt, 1); // 发送序列的退避计数延续
+
+    EXPECT_EQ(transfer.StepRecv(socket, buf, sizeof(buf)), HCCL_E_AGAIN);
+    EXPECT_EQ(transfer.recvBytes_, 4U);
+    EXPECT_EQ(g_sleepCnt, 2); // 接收侧 E_AGAIN 恰新增一次
+    EXPECT_EQ(g_lastSleepUs, 1000U);
+
+    EXPECT_EQ(transfer.StepRecv(socket, buf, sizeof(buf)), HCCL_SUCCESS);
+    EXPECT_EQ(transfer.recvBytes_, 0U);
+    EXPECT_EQ(g_sleepCnt, 2);
+}
+
+// socket 硬错误（双向对称）：快速失败原样上抛且不退避（对端断链等场景不拖 1ms）
+TEST_F(StepTransferTest, Ut_StepTransfer_When_SocketError_Expect_FastFailNoSleep)
+{
+    u8 buf[8] = {0};
+
+    g_sentPlan = {SEND_PLAN_HARD_ERR};
+    EXPECT_EQ(transfer.StepSend(socket, buf, sizeof(buf)), HCCL_E_INTERNAL);
+    EXPECT_EQ(transfer.sentBytes_, 0U);
+
+    g_recvPlan = {SEND_PLAN_HARD_ERR};
+    EXPECT_EQ(transfer.StepRecv(socket, buf, sizeof(buf)), HCCL_E_INTERNAL);
+    EXPECT_EQ(transfer.recvBytes_, 0U);
+
+    EXPECT_EQ(g_sleepCnt, 0); // 硬错误路径全程无退避
+}
+
+// 四阶段交换停滞（SEND_SIZE 首步零进度）：单次调用恰一次 1ms 退避，相位不推进——外层轮询循环节流锚点
+TEST_F(StepTransferTest, Ut_StepExchange_When_Idle_Expect_SingleBackoffPerCall)
+{
+    int packCnt = 0;
+    int unpackCnt = 0;
+    std::function<HcclResult(Hccl::BinaryStream&)> packFn;
+    MakePackStub(packCnt, packFn);
+    auto unpackFn = [&unpackCnt](Hccl::BinaryStream&) -> HcclResult {
+        unpackCnt++;
+        return HCCL_SUCCESS;
+    };
+    g_sentPlan = {0}; // SEND_SIZE 首步零进度即停滞
+
+    HcclResult ret = transfer.StepExchange(socket, packFn, unpackFn);
+    EXPECT_EQ(ret, HCCL_E_AGAIN);
+    EXPECT_EQ(transfer.phase_, StepTransfer::ExchangePhase::SEND_SIZE); // 零进度不推进
+    EXPECT_EQ(unpackCnt, 0);
+    EXPECT_EQ(g_sleepCnt, 1);
+    EXPECT_EQ(g_lastSleepUs, 1000U);
 }
