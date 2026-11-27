@@ -24,6 +24,18 @@
 
 namespace Hccl {
 
+inline uint32_t& GetDefaultPiSlot()
+{
+    static uint32_t slot = 0;
+    return slot;
+}
+
+inline uint32_t& GetDefaultCiSlot()
+{
+    static uint32_t slot = 0;
+    return slot;
+}
+
 enum class SlicePosition { ONLY = 0, FIRST = 1, MIDDLE = 2, LAST = 3 };
 struct UbConnLiteParam {
     u32 dieId;
@@ -138,14 +150,26 @@ public:
     uint16_t GetPiAndIncrementSeq(u16& seq)
     {
         seq = dbSendSeq_++;
-        return pi;
+        return GetPi();
+    }
+
+    inline void SetSqPiCi(uint32_t* pi, uint32_t* ci)
+    {
+        // 绑定即重锚：把实体槽位归零，与本次 jetty 的消费起点对齐。
+        // 快恢/复用场景下实体 ubJfs.sqHead/sqTail 可能携带上一段生命周期的残留值
+        // （WQE 环形落位与 doorbell 值都由 pi 推导，残留会导致硬件消费到垃圾 WQE，
+        // CQE error 262402）。正常建链时实体本就是零值，此清零为无操作。
+        piSlot_ = pi;
+        ciSlot_ = ci;
+        *piSlot_ = 0;
+        *ciSlot_ = 0;
     }
 
     // 背景线程调用：批量存入完成的(seqIdx, piValue)，按seqIdx顺序推进ci
     inline void UpdateCi(const std::pair<u16, u16>* slots, size_t count) override
     {
         u16 seqIdx = dbDoneSeq_;
-        u16 lastCi = ci;
+        u16 lastCi = GetCi();
 
         // Phase 1: slots头部大概率从dbDoneSeq_开始连续，直接消费
         size_t i = 0;
@@ -178,7 +202,7 @@ public:
         }
 
         dbDoneSeq_ = seqIdx;
-        ci = lastCi;
+        SetCi(lastCi);
     }
 
     inline bool CheckOverflow(u32 wqeCount) const { return (static_cast<u32>(GetInflight()) + wqeCount) > sqDepth_; }
@@ -186,8 +210,13 @@ public:
     HcclResult MakeSureAvailableSpace(u32 wqeCount) const;
 
 private:
-    u16 pi{0};
-    u16 ci{0};
+    inline u16 GetPi() const { return static_cast<u16>(*piSlot_); }
+    inline u16 GetCi() const { return static_cast<u16>(*ciSlot_); }
+    inline void SetPi(u16 v) { *piSlot_ = v; }
+    inline void SetCi(u16 v) { *ciSlot_ = v; }
+
+    uint32_t* piSlot_{&GetDefaultPiSlot()};
+    uint32_t* ciSlot_{&GetDefaultCiSlot()};
     u32 piDetourCount{0};
     u32 ciDetourCount{0};
     u32 maxReadSize{0};
@@ -241,7 +270,7 @@ private:
         }
     }
 
-    inline u16 GetInflight() const { return pi - ci; }
+    inline u16 GetInflight() const { return GetPi() - GetCi(); }
 };
 } // namespace Hccl
 

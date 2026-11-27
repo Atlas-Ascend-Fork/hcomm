@@ -49,6 +49,9 @@ protected:
     u32 fakeStreamId = 1;
     u32 fakeSqId = 2;
     u8 mockSq[AC_SQE_SIZE * AC_SQE_MAX_CNT]{0};
+    // GetTail/SetTail 直读直写共享槽(sqTailShared_)，未绑定时解引用空指针；
+    // ST 用例统一绑定此本地槽，替代已失效的冻结镜像 sqTail_ 直写
+    uint32_t mockTailSlot{0};
 };
 
 class IsRtsqQueueSpaceSufficientTest : public RtsqA5Test {
@@ -57,19 +60,20 @@ protected:
     {
         RtsqA5Test::SetUp();
         // 初始化测试环境
-        pendingSqeCnt = 5; // 假设pendingSqeCnt为5
+        pendingSqeCnt_ = 5; // 假设pendingSqeCnt_为5
     }
-    u32 pendingSqeCnt; // 模拟pendingSqeCnt的值
+    u32 pendingSqeCnt_; // 模拟pendingSqeCnt_的值
 };
 
 TEST_F(IsRtsqQueueSpaceSufficientTest, Ut_IsRtsqQueueSpaceSufficient_When_HeadEqualTail_ExpectFalse)
 {
     // 准备测试数据
     RtsqA5 fakeRtsqA5(fakedevPhyId, fakeStreamId, fakeSqId);
-    fakeRtsqA5.pendingSqeCnt = pendingSqeCnt;
-    fakeRtsqA5.sqDepth_ = pendingSqeCnt + 1; // 设置availableSpace为pendingSqeCnt + 1
-    fakeRtsqA5.sqHead_ = 0;                  // 设置sqHead_与sqTail为0，使GetTailToHeadDist返回sqDepth
-    fakeRtsqA5.sqTail_ = 0;                  // 以上四个变量控制GetTailToHeadDist方法的输出
+    fakeRtsqA5.SetSqTailShared(&mockTailSlot);
+    fakeRtsqA5.pendingSqeCnt_ = pendingSqeCnt_;
+    fakeRtsqA5.sqDepth_ = pendingSqeCnt_ + 1; // 设置availableSpace为pendingSqeCnt_ + 1
+    fakeRtsqA5.sqHead_ = 0;                   // 设置sqHead_与sqTail为0，使GetTailToHeadDist返回sqDepth
+    fakeRtsqA5.SetTail(0);                    // 以上四个变量控制GetTailToHeadDist方法的输出
 
     // 模拟QuerySqHead方法
     MOCKER_CPP(&RtsqA5::QuerySqHead).stubs().will(returnValue(fakeRtsqA5.sqHead_));
@@ -85,10 +89,11 @@ TEST_F(IsRtsqQueueSpaceSufficientTest, Ut_IsRtsqQueueSpaceSufficient_When_HeadEq
 {
     // 准备测试数据
     RtsqA5 fakeRtsqA5(fakedevPhyId, fakeStreamId, fakeSqId);
-    fakeRtsqA5.pendingSqeCnt = pendingSqeCnt;
-    fakeRtsqA5.sqDepth_ = pendingSqeCnt + 2; // 设置availableSpace为pendingSqeCnt + 2
-    fakeRtsqA5.sqHead_ = 0;                  // 设置sqHead_与sqTail为0，使GetTailToHeadDist返回sqDepth
-    fakeRtsqA5.sqTail_ = 0;                  // 以上四个变量控制GetTailToHeadDist方法的输出
+    fakeRtsqA5.SetSqTailShared(&mockTailSlot);
+    fakeRtsqA5.pendingSqeCnt_ = pendingSqeCnt_;
+    fakeRtsqA5.sqDepth_ = pendingSqeCnt_ + 2; // 设置availableSpace为pendingSqeCnt_ + 2
+    fakeRtsqA5.sqHead_ = 0;                   // 设置sqHead_与sqTail为0，使GetTailToHeadDist返回sqDepth
+    fakeRtsqA5.SetTail(0);                    // 以上四个变量控制GetTailToHeadDist方法的输出
 
     // 模拟QuerySqHead方法
     MOCKER_CPP(&RtsqA5::QuerySqHead).stubs().will(returnValue(fakeRtsqA5.sqHead_));
@@ -103,44 +108,47 @@ TEST_F(IsRtsqQueueSpaceSufficientTest, Ut_IsRtsqQueueSpaceSufficient_When_HeadEq
 TEST_F(RtsqA5Test, launch_task_no_loop_back)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.LaunchTask(); // 没有SQE ，直接返回
 
     u32 oldTail = 0;
     u32 oldHead = 0;
-    rtsq.sqTail_ = oldTail;
+    rtsq.SetTail(oldTail);
     rtsq.sqHead_ = oldHead;
     rtsq.sqDepth_ = AC_SQE_MAX_CNT;
 
     rtsq.RefreshInfo();
-    u32 newTail = (rtsq.sqTail_ + rtsq.pendingSqeCnt) % rtsq.sqDepth_;
+    u32 newTail = (rtsq.GetTail() + rtsq.pendingSqeCnt_) % rtsq.sqDepth_;
     rtsq.LaunchTask();
 
-    EXPECT_EQ(rtsq.sqTail_, newTail);
+    EXPECT_EQ(rtsq.GetTail(), newTail);
 }
 
 TEST_F(RtsqA5Test, launch_task_with_loop_back)
 {
     memset_s(mockSq, sizeof(mockSq), 0, sizeof(mockSq));
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
 
     u32 oldTail = AC_SQE_MAX_CNT - 1;
     u32 oldHead = AC_SQE_MAX_CNT - 2;
-    rtsq.sqTail_ = oldTail;
+    rtsq.SetTail(oldTail);
     rtsq.sqHead_ = oldHead;
     rtsq.sqDepth_ = AC_SQE_MAX_CNT;
 
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(oldHead));
     rtsq.RefreshInfo();
     rtsq.RefreshInfo();
-    u32 newTail = (rtsq.sqTail_ + rtsq.pendingSqeCnt) % rtsq.sqDepth_;
+    u32 newTail = (rtsq.GetTail() + rtsq.pendingSqeCnt_) % rtsq.sqDepth_;
     rtsq.LaunchTask();
 
-    EXPECT_EQ(rtsq.sqTail_, newTail);
+    EXPECT_EQ(rtsq.GetTail(), newTail);
 }
 
 TEST_F(RtsqA5Test, notify_wait)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
 
     u32 fakeNotifyId = 0;
     rtsq.NotifyWait(fakeNotifyId);
@@ -149,6 +157,7 @@ TEST_F(RtsqA5Test, notify_wait)
 TEST_F(RtsqA5Test, notify_record_local)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
 
     u32 fakeNotifyId = 0;
     rtsq.NotifyRecordLoc(fakeNotifyId);
@@ -157,6 +166,7 @@ TEST_F(RtsqA5Test, notify_record_local)
 TEST_F(RtsqA5Test, cnt_1ton_notify_wait)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
 
     u32 fakeNotifyId = 0;
     u32 fakeValue = 1;
@@ -166,6 +176,7 @@ TEST_F(RtsqA5Test, cnt_1ton_notify_wait)
 TEST_F(RtsqA5Test, cnt_1ton_notify_record)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
 
     u32 fakeNotifyId = 0;
     u32 fakeValue = 1;
@@ -175,6 +186,7 @@ TEST_F(RtsqA5Test, cnt_1ton_notify_record)
 TEST_F(RtsqA5Test, cnt_nto1_notify_wait)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
 
     u32 fakeNotifyId = 0;
     u32 fakeValue = 1;
@@ -184,6 +196,7 @@ TEST_F(RtsqA5Test, cnt_nto1_notify_wait)
 TEST_F(RtsqA5Test, cnt_nto1_notify_record)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
 
     u32 fakeNotifyId = 0;
     u32 fakeValue = 1;
@@ -193,6 +206,7 @@ TEST_F(RtsqA5Test, cnt_nto1_notify_record)
 TEST_F(RtsqA5Test, sdma_copy)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
 
     u64 srcAddr = 0x100;
     u64 dstAddr = 0x200;
@@ -204,6 +218,7 @@ TEST_F(RtsqA5Test, sdma_copy)
 TEST_F(RtsqA5Test, sdma_reduce)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
 
     u64 srcAddr = 0x100;
     u64 dstAddr = 0x200;
@@ -216,6 +231,7 @@ TEST_F(RtsqA5Test, sdma_reduce)
 TEST_F(RtsqA5Test, sdma_reduce_failed)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
 
     u64 srcAddr = 0x100;
     u64 dstAddr = 0x200;
@@ -229,6 +245,7 @@ TEST_F(RtsqA5Test, sdma_reduce_failed)
 TEST_F(RtsqA5Test, ub_db_send)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
 
     u32 dieId = 0;
     u32 funcId = 0;
@@ -240,6 +257,7 @@ TEST_F(RtsqA5Test, ub_db_send)
 TEST_F(RtsqA5Test, ub_direct_send)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
 
     u32 dieId = 0;
     u32 funcId = 0;
@@ -252,6 +270,7 @@ TEST_F(RtsqA5Test, ub_direct_send)
 TEST_F(RtsqA5Test, ub_write_value)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
 
     u64 dbAddr = 0;
     u32 piVal = 0;
@@ -261,6 +280,7 @@ TEST_F(RtsqA5Test, ub_write_value)
 TEST_F(RtsqA5Test, query_sq_status_by_type)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
 
     GlobalMockObject::reset();
     MOCKER(halSqCqQuery).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(1));
@@ -270,6 +290,7 @@ TEST_F(RtsqA5Test, query_sq_status_by_type)
 TEST_F(RtsqA5Test, query_sq_base_addr)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
 
     GlobalMockObject::reset();
     MOCKER(halSqCqQuery).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(1));
@@ -279,6 +300,7 @@ TEST_F(RtsqA5Test, query_sq_base_addr)
 TEST_F(RtsqA5Test, config_sq_status_by_type)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
 
     GlobalMockObject::reset();
     MOCKER(halSqCqConfig).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(1));

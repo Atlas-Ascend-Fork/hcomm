@@ -9,6 +9,7 @@
  */
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -36,6 +37,7 @@
 #include "ub_transport_lite_impl.h"
 #include "aicpu_pack_data_helper.h"
 #include "aicpu/aicpu_ts_channel_entity_resources.h"
+#include "aicpu/aicpu_ts_urma_channel.h"
 #include "endpoint_pair/channel/ub_unique_id_pub.h" // UB_UNIQUE_ID_EXT_*：V2 扩展区契约（零依赖薄头）
 
 using namespace hccl;
@@ -209,13 +211,13 @@ TEST_F(AicpuChannelProcessTest, Ut_ParsePackData_WhenUbBlob_RegistersCacheCallba
 {
     Hccl::BinaryStream inner;
     inner << static_cast<u32>(Hccl::TransportType::UB);
-    inner << static_cast<u32>(0); // notifyNum
-    inner << static_cast<u32>(0); // bufferNum
-    inner << static_cast<u32>(0); // rmtbufferNum
-    inner << static_cast<u32>(0); // connNum
+    inner << static_cast<u32>(0);
+    inner << static_cast<u32>(0);
+    inner << static_cast<u32>(0);
+    inner << static_cast<u32>(0);
     inner << UB_UNIQUE_ID_EXT_MAGIC_WORD;
     inner << UB_UNIQUE_ID_EXT_VERSION;
-    inner << static_cast<u64>(0); // devEpMemTablePtr，0=无表
+    inner << static_cast<u64>(0);
     inner << std::vector<char>(); // locNotify
     inner << std::vector<char>(); // rmtNotify
     inner << std::vector<char>(); // locBuffer
@@ -284,14 +286,14 @@ static std::vector<Hccl::ModuleData> BuildEntityResourcesModules(
     }
 
     Hccl::BinaryStream inner;
-    inner << static_cast<uint32_t>(0);                            // transportType
-    inner << static_cast<uint32_t>(notifyData.empty() ? 0U : 1U); // notifyNum
-    inner << static_cast<uint32_t>(0);                            // localBufferNum
-    inner << static_cast<uint32_t>(0);                            // remoteBufferNum
-    inner << static_cast<uint32_t>(1);                            // connectionNum
-    inner << UB_UNIQUE_ID_EXT_MAGIC_WORD;                         // 扩展区头（V2 布局契约）
+    inner << static_cast<uint32_t>(0); // transportType
+    inner << static_cast<uint32_t>(notifyData.empty() ? 0U : 1U);
+    inner << static_cast<uint32_t>(0);    // localBufferNum
+    inner << static_cast<uint32_t>(0);    // remoteBufferNum
+    inner << static_cast<uint32_t>(1);    // connectionNum
+    inner << UB_UNIQUE_ID_EXT_MAGIC_WORD; // 扩展区头（V2 布局契约）
     inner << UB_UNIQUE_ID_EXT_VERSION;
-    inner << static_cast<uint64_t>(0); // devEpMemTablePtr，0=无表
+    inner << static_cast<uint64_t>(0);
     inner << notifyData;
     inner << remoteNotifyData;    // remote notify
     inner << std::vector<char>(); // local buffer
@@ -377,6 +379,7 @@ TEST_F(AicpuChannelProcessTest, Ut_AicpuChannelEntityResourcesBuild_WhenLocalNot
     MOCKER_CPP(&Hccl::AicpuResPackageHelper::ParsePackedData).stubs().with(mockcpp::any()).will(returnValue(modules));
 
     hcomm::AicpuChannelEntityResources resources;
+    EXPECT_EQ(resources.PreAllocSqContexts(), HCCL_SUCCESS);
     ChannelHandle entityHandle = 0;
     EXPECT_EQ(
         resources.Build(
@@ -521,4 +524,81 @@ TEST_F(AicpuChannelProcessTest, Ut_ParsePackData_WhenSameRoceUniqueId_ReusesRegi
     destroyRes3.listNum = 1U;
     EXPECT_EQ(AicpuChannelProcess::AicpuChannelDestroy(&destroyRes3), HCCL_SUCCESS);
     EXPECT_EQ(AicpuChannelProcess::transportMap_.size(), static_cast<size_t>(0));
+}
+
+// ===================== PreAlloc / 填充分模式 UT =====================
+
+namespace {
+void MockDeviceMemAllocAndSyncCopyForPreAlloc()
+{
+    using DeviceMemAllocRetByValue = hccl::DeviceMem (*)(u64, bool);
+    mockcpp::mockAPI<DeviceMemAllocRetByValue>::get(
+        "hccl::DeviceMem::alloc", "EntityResources_DeviceMem_alloc_by_value_PreAlloc",
+        static_cast<DeviceMemAllocRetByValue>(&hccl::DeviceMem::alloc))
+        .stubs()
+        .will(invoke(+[](u64 size, bool) {
+            void* ptr = std::malloc(static_cast<size_t>(size));
+            return hccl::DeviceMem(ptr, size, false);
+        }));
+    MOCKER(hrtMemSyncCopy)
+        .stubs()
+        .will(invoke(+[](void* dst, uint64_t, const void* src, uint64_t count, HcclRtMemcpyKind) {
+            (void)std::memcpy(dst, src, count);
+            return HCCL_SUCCESS;
+        }));
+}
+} // namespace
+
+TEST_F(AicpuChannelProcessTest, Ut_PreAllocSqContexts_Then_BuildFill_Expect_EntityUsesPreallocAddr)
+{
+    MockDeviceMemAllocAndSyncCopyForPreAlloc();
+    auto modules = BuildEntityResourcesModules(std::vector<char>(), BuildConnectionData(0U));
+    MOCKER_CPP(&Hccl::AicpuResPackageHelper::ParsePackedData).stubs().with(mockcpp::any()).will(returnValue(modules));
+
+    hcomm::AicpuChannelEntityResources resources;
+    ASSERT_EQ(resources.PreAllocSqContexts(), HCCL_SUCCESS);
+    const uint64_t preallocAddr = resources.GetSqContextsDevAddr();
+    ASSERT_NE(preallocAddr, 0U);
+
+    ChannelHandle entityHandle = 0;
+    ASSERT_EQ(
+        resources.Build(
+            std::vector<char>(), COMM_ENGINE_AICPU_TS, COMM_PROTOCOL_UB_CTP, static_cast<ChannelHandle>(0x1000U),
+            entityHandle),
+        HCCL_SUCCESS);
+    ASSERT_NE(entityHandle, 0U);
+    auto* entity = reinterpret_cast<ChannelEntity*>(entityHandle);
+    EXPECT_EQ(reinterpret_cast<uint64_t>(entity->sqContextAddr), preallocAddr);
+    EXPECT_EQ(resources.GetSqContextsDevAddr(), preallocAddr);
+}
+
+// ===================== D/G 公共设置函数 fail-loud UT =====================
+
+TEST_F(AicpuChannelProcessTest, Ut_SetSqPiCiByTransport_When_AddrNull_Expect_Internal)
+{
+    // e2a2a8b2 起判空收敛到调用侧:函数只保证 transport 非空且为 UB lite。
+    // null transport 直接返回 E_INTERNAL,不再静默成功。
+    EXPECT_EQ(AicpuChannelProcess::SetSqPiCiByTransport(nullptr, nullptr, 0U), HCCL_E_INTERNAL);
+}
+
+TEST_F(AicpuChannelProcessTest, Ut_SetSqPiCiByTransport_When_TransportNull_Expect_Internal)
+{
+    SqContext sqCtx{};
+    EXPECT_EQ(AicpuChannelProcess::SetSqPiCiByTransport(nullptr, &sqCtx, 0U), HCCL_E_INTERNAL);
+}
+
+TEST_F(AicpuChannelProcessTest, Ut_SetSqPiCiByTransport_When_NonUbTransport_Expect_Internal)
+{
+    std::vector<char> data = BuildRocePackData();
+    ChannelHandle handle = 0ULL;
+    ASSERT_EQ(AicpuChannelProcess::ParsePackData(data, handle), HCCL_SUCCESS);
+    ASSERT_NE(handle, 0ULL);
+    auto* transport = reinterpret_cast<Hccl::BaseTransportLiteImpl*>(handle);
+    SqContext sqCtx{};
+    EXPECT_EQ(AicpuChannelProcess::SetSqPiCiByTransport(transport, &sqCtx, 0U), HCCL_E_INTERNAL);
+
+    HcclChannelUrmaRes destroyRes{};
+    destroyRes.channelList = static_cast<void*>(&handle);
+    destroyRes.listNum = 1U;
+    EXPECT_EQ(AicpuChannelProcess::AicpuChannelDestroy(&destroyRes), HCCL_SUCCESS);
 }

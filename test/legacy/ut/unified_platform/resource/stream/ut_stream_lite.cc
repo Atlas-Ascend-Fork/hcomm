@@ -63,6 +63,8 @@ protected:
     u8 mockSq[AC_SQE_SIZE * AC_SQE_MAX_CNT]{0};
 };
 
+static uint32_t s_utMockTailSlot = 0; // 直接共享账本 mock 槽位
+
 TEST_F(StreamLiteTest, stream_lite_given_uniqueId)
 {
     BinaryStream liteBinaryStream;
@@ -74,6 +76,7 @@ TEST_F(StreamLiteTest, stream_lite_given_uniqueId)
 
     StreamLite stream(uniqueId);
     stream.rtsq = std::make_unique<RtsqA5>(fakedevPhyId, fakeStreamId, fakeSqId);
+    static_cast<RtsqA5*>(stream.rtsq.get())->SetSqTailShared(&s_utMockTailSlot);
     RtsqA5& rtsq = *static_cast<RtsqA5*>(stream.rtsq.get());
     MOCKER_CPP_VIRTUAL(rtsq, &RtsqA5::SdmaCopy)
         .stubs()

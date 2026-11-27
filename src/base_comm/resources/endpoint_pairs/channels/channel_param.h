@@ -70,6 +70,8 @@ struct HcommChannelRes {
     void* channelTypeListAddr{nullptr}; // device 上 listNum 个 u32，每项为 hcomm::HcommChannelKind 数值（见 channel.h）
     HcommDeviceInfo deviceInfo;
     void* ctxList{nullptr}; // device侧ctx指针数组，非null时kernel写ctx->deviceChannel
+    // device侧listNum个void*：每项为对应通道实体SqContext地址；nullptr表示该通道不绑定pi/ci
+    void* entityPiCiAddrList{nullptr};
 };
 
 #endif

@@ -93,6 +93,10 @@ std::vector<uint8_t> MakeSqeArray(Rt91095StarsSqeType sqeType)
 
 class HcommAicpuTsTaskCacheCAdptTest : public testing::Test {
 protected:
+    // 直接共享账本 mock 槽位（GetTail/SetTail 与 GetPi/GetCi 的底层存储）
+    uint32_t mockTailSlot{0};
+    uint32_t mockPiSlot{};
+    uint32_t mockCiSlot{};
     std::unique_ptr<Hccl::RtsqA5> rtsq_;
     Hccl::RtsqA5* rtsqPtr_ = nullptr;
     std::unique_ptr<hccl::AicpuTsThread> aicpuTsThread_;
@@ -116,9 +120,11 @@ protected:
     {
         rtsq_ = std::make_unique<Hccl::RtsqA5>(0, 0, 0);
         rtsqPtr_ = rtsq_.get();
+        rtsq_->SetSqTailShared(&mockTailSlot);
         aicpuTsThread_ = std::make_unique<hccl::AicpuTsThread>(std::string("ut_c_adpt_thread"));
         ubConnLite_ = std::make_unique<Hccl::UbConnLite>(
             Hccl::UbJettyLiteId(0, 0, 0), Hccl::UbJettyLiteAttr(0, 0, TEST_SQ_DEPTH, 0, true), Hccl::Eid{});
+        ubConnLite_->SetSqPiCi(&mockPiSlot, &mockCiSlot);
         emptyUniqueId_ = MakeEmptyUbV2UniqueId();
         ubTransport_ = std::make_unique<Hccl::UbTransportLiteImpl>(emptyUniqueId_);
 
@@ -185,7 +191,7 @@ protected:
         rtsqPtr_->sqDepth_ = TEST_SQ_DEPTH;
         rtsqPtr_->sqHead_ = 0;
         rtsqPtr_->sqTail_ = 0;
-        rtsqPtr_->pendingSqeCnt = 0;
+        rtsqPtr_->pendingSqeCnt_ = 0;
         rtsqPtr_->InitSendTrackingState();
         // 实际执行队列拷贝和计数，仅桩住硬件head查询和doorbell。
         MOCKER_CPP(&Hccl::RtsqBase::QuerySqHead).stubs().will(returnValue(uint32_t{0}));
@@ -311,7 +317,7 @@ TEST_F(HcommAicpuTsTaskCacheCAdptTest, Execute_VParseFailuresPreserveHitAndAllow
         entry->sqeArrayInfos_[0].sqeArray, entry->sqeArrayInfos_[0].sqeArray + Hccl::AC_SQE_SIZE);
     const auto tailBefore = rtsqPtr_->GetTail();
     const auto pendingBefore = rtsqPtr_->GetPendingSqeCnt();
-    const auto piBefore = ubConnLite_->pi;
+    const auto piBefore = ubConnLite_->GetPi();
     void* addrs[] = {(void*)0x30000, (void*)0x40000, (void*)0x30020, (void*)0x40040};
     uint64_t sizes[] = {256, 256, 16, 16};
     const auto expectPreserved = [&]() {
@@ -330,7 +336,7 @@ TEST_F(HcommAicpuTsTaskCacheCAdptTest, Execute_VParseFailuresPreserveHitAndAllow
         EXPECT_EQ(std::memcmp(entry->sqeArrayInfos_[0].sqeArray, templateSqe.data(), templateSqe.size()), 0);
         EXPECT_EQ(rtsqPtr_->GetTail(), tailBefore);
         EXPECT_EQ(rtsqPtr_->GetPendingSqeCnt(), pendingBefore);
-        EXPECT_EQ(ubConnLite_->pi, piBefore);
+        EXPECT_EQ(ubConnLite_->GetPi(), piBefore);
     };
     for (uint64_t count : {uint64_t{5}, uint64_t{2} + 2 * (TASK_CACHE_MAX_RANK_SIZE + 1)}) {
         EXPECT_EQ(
@@ -415,10 +421,10 @@ TEST_F(HcommAicpuTsTaskCacheCAdptTest, Workflow_NonVRemoteRangesReplayZeroBasesW
         for (uint32_t i = 0; i < 4; ++i) {
             addrs[i] = reinterpret_cast<void*>(bases[i]);
         }
-        const auto piBefore = ubConnLite_->pi;
+        const auto piBefore = ubConnLite_->GetPi();
         const auto tailBefore = rtsqPtr_->GetTail();
         ASSERT_EQ(HcommAicpuTsTaskCacheExecute(tag, addrs, sizes, 4), HCCL_SUCCESS);
-        EXPECT_EQ(ubConnLite_->pi, piBefore + 2);
+        EXPECT_EQ(ubConnLite_->GetPi(), piBefore + 2);
         EXPECT_EQ(rtsqPtr_->GetTail(), tailBefore + 2);
         for (uint32_t i = 0; i < tasks.size(); ++i) {
             const auto* launched

@@ -447,6 +447,8 @@ TEST_F(AicpuMc2HandlerTest, Ut_HcclLaunchCcoreWait_When_ValidParams_Expect_Retur
     MOCKER(halSqCqQuery).stubs().with(mockcpp::any(), outBoundP(&queryInfo, sizeof(queryInfo))).will(returnValue(0));
     MOCKER_CPP(&StreamLiteMgr::GetMaster).stubs().with().will(returnValue(&master));
     auto rtsq = static_cast<RtsqA5*>(master.GetRtsq());
+    static uint32_t s_mockTailSlot = 0; // 直接共享账本 mock 槽位
+    rtsq->SetSqTailShared(&s_mockTailSlot);
     MOCKER_CPP_VIRTUAL(*rtsq, &RtsqA5::LaunchTask).stubs().will(ignoreReturnValue());
 
     EXPECT_EQ(HCCL_SUCCESS, handler.HcclLaunchCcoreWait(comm, 0, 0, 0, false));
@@ -482,6 +484,8 @@ TEST_F(AicpuMc2HandlerTest, Ut_HcclLaunchCcorePost_When_ThrowException_Expect_Re
     MOCKER(halSqCqQuery).stubs().with(mockcpp::any(), outBoundP(&queryInfo, sizeof(queryInfo))).will(returnValue(0));
     MOCKER_CPP(&StreamLiteMgr::GetMaster).stubs().with().will(returnValue(&master));
     auto rtsq = static_cast<RtsqA5*>(master.GetRtsq());
+    static uint32_t s_mockTailSlot = 0; // 直接共享账本 mock 槽位
+    rtsq->SetSqTailShared(&s_mockTailSlot);
     MOCKER_CPP_VIRTUAL(*rtsq, &RtsqA5::LaunchTask).stubs().will(ignoreReturnValue());
     MOCKER_CPP_VIRTUAL(*rtsq, &RtsqA5::CCoreNotifyRecord).stubs().will(throws(InternalException("")));
     EXPECT_THROW(handler.HcclLaunchCcorePost(comm, 0, 0, 0), std::exception);
@@ -516,6 +520,8 @@ TEST_F(AicpuMc2HandlerTest, Ut_HcclLaunchCcorePost_When_ValidParams_Expect_Retur
     MOCKER(halSqCqQuery).stubs().with(mockcpp::any(), outBoundP(&queryInfo, sizeof(queryInfo))).will(returnValue(0));
     MOCKER_CPP(&StreamLiteMgr::GetMaster).stubs().with().will(returnValue(&master));
     auto rtsq = static_cast<RtsqA5*>(master.GetRtsq());
+    static uint32_t s_mockTailSlot = 0; // 直接共享账本 mock 槽位
+    rtsq->SetSqTailShared(&s_mockTailSlot);
     MOCKER_CPP_VIRTUAL(*rtsq, &RtsqA5::LaunchTask).stubs().will(ignoreReturnValue());
     EXPECT_EQ(HCCL_SUCCESS, handler.HcclLaunchCcorePost(comm, 0, 0, 0));
 }

@@ -631,6 +631,7 @@ TEST_F(AicpuTsUboeChannelTest, Ut_H2DResPack_RoundTrip_EntityResourcesBuildParse
         }));
 
     AicpuChannelEntityResources resources;
+    EXPECT_EQ(resources.PreAllocSqContexts(), HCCL_SUCCESS);
     ChannelHandle entityHandle = 0;
     EXPECT_EQ(
         resources.Build(out, COMM_ENGINE_RESERVED, COMM_PROTOCOL_UBOE, static_cast<ChannelHandle>(0x1), entityHandle),

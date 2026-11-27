@@ -70,11 +70,13 @@ protected:
     u32 fakeStreamId = 1;
     u32 fakeSqId = 2;
     u8 mockSq[AC_SQE_SIZE * AC_SQE_MAX_CNT]{0};
+    uint32_t mockTailSlot{0};
 };
 
 TEST_F(RtsqA5Test, CCoreWithoutDfxStillSubmitsSqe)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId, false);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.taskId_ = 0x80000400U;
     rtsq.taskIdEnd_ = 0x80000800U;
     const auto taskId = rtsq.GetTaskId();
@@ -89,19 +91,20 @@ protected:
     {
         RtsqA5Test::SetUp();
         // 初始化测试环境
-        pendingSqeCnt = 5; // 假设pendingSqeCnt为5
+        pendingSqeCnt_ = 5; // 假设pendingSqeCnt_为5
     }
-    u32 pendingSqeCnt; // 模拟pendingSqeCnt的值
+    u32 pendingSqeCnt_; // 模拟pendingSqeCnt_的值
 };
 
 TEST_F(IsRtsqQueueSpaceSufficientTest, Ut_IsRtsqQueueSpaceSufficient_When_HeadEqualTail_ExpectFalse)
 {
     // 准备测试数据
     RtsqA5 fakeRtsqA5(fakedevPhyId, fakeStreamId, fakeSqId);
-    fakeRtsqA5.pendingSqeCnt = pendingSqeCnt;
-    fakeRtsqA5.sqDepth_ = pendingSqeCnt + 1; // 设置availableSpace为pendingSqeCnt + 1
-    fakeRtsqA5.sqHead_ = 0;                  // 设置sqHead_与sqTail为0，使GetTailToHeadDist返回sqDepth
-    fakeRtsqA5.sqTail_ = 0;                  // 以上四个变量控制GetTailToHeadDist方法的输出
+    fakeRtsqA5.SetSqTailShared(&mockTailSlot);
+    fakeRtsqA5.pendingSqeCnt_ = pendingSqeCnt_;
+    fakeRtsqA5.sqDepth_ = pendingSqeCnt_ + 1; // 设置availableSpace为pendingSqeCnt_ + 1
+    fakeRtsqA5.sqHead_ = 0;                   // 设置sqHead_与sqTail为0，使GetTailToHeadDist返回sqDepth
+    fakeRtsqA5.SetTail(0);                    // 以上四个变量控制GetTailToHeadDist方法的输出
 
     // 模拟QuerySqHead方法
     MOCKER_CPP(&RtsqA5::QuerySqHead).stubs().will(returnValue(fakeRtsqA5.sqHead_));
@@ -117,10 +120,11 @@ TEST_F(IsRtsqQueueSpaceSufficientTest, Ut_IsRtsqQueueSpaceSufficient_When_HeadEq
 {
     // 准备测试数据
     RtsqA5 fakeRtsqA5(fakedevPhyId, fakeStreamId, fakeSqId);
-    fakeRtsqA5.pendingSqeCnt = pendingSqeCnt;
-    fakeRtsqA5.sqDepth_ = pendingSqeCnt + 2; // 设置availableSpace为pendingSqeCnt + 2
-    fakeRtsqA5.sqHead_ = 0;                  // 设置sqHead_与sqTail为0，使GetTailToHeadDist返回sqDepth
-    fakeRtsqA5.sqTail_ = 0;                  // 以上四个变量控制GetTailToHeadDist方法的输出
+    fakeRtsqA5.SetSqTailShared(&mockTailSlot);
+    fakeRtsqA5.pendingSqeCnt_ = pendingSqeCnt_;
+    fakeRtsqA5.sqDepth_ = pendingSqeCnt_ + 2; // 设置availableSpace为pendingSqeCnt_ + 2
+    fakeRtsqA5.sqHead_ = 0;                   // 设置sqHead_与sqTail为0，使GetTailToHeadDist返回sqDepth
+    fakeRtsqA5.SetTail(0);                    // 以上四个变量控制GetTailToHeadDist方法的输出
 
     // 模拟QuerySqHead方法
     MOCKER_CPP(&RtsqA5::QuerySqHead).stubs().will(returnValue(fakeRtsqA5.sqHead_));
@@ -136,11 +140,12 @@ TEST_F(IsRtsqQueueSpaceSufficientTest, Ut_IsRtsqQueueSpaceSufficient_When_HeadEq
 TEST_F(IsRtsqQueueSpaceSufficientTest, Ut_IsRtsqQueueSpaceSufficient_RecheckCommitsBaseSqHead)
 {
     RtsqA5 fakeRtsqA5(fakedevPhyId, fakeStreamId, fakeSqId);
+    fakeRtsqA5.SetSqTailShared(&mockTailSlot);
     fakeRtsqA5.sqDepth_ = 8;
     fakeRtsqA5.sqHead_ = 3; // 缓存估计: dist(2→3)=1
-    fakeRtsqA5.sqTail_ = 2;
-    fakeRtsqA5.baseSqHead_ = 3;   // 锚点与缓存head对齐
-    fakeRtsqA5.pendingSqeCnt = 1; // 第一级估计1 ≤ 2, 走复核分支
+    fakeRtsqA5.SetTail(2);
+    fakeRtsqA5.baseSqHead_ = 3;    // 锚点与缓存head对齐
+    fakeRtsqA5.pendingSqeCnt_ = 1; // 第一级估计1 ≤ 2, 走复核分支
 
     MOCKER_CPP(&RtsqA5::QuerySqHead).stubs().will(returnValue(7u));
 
@@ -154,45 +159,47 @@ TEST_F(IsRtsqQueueSpaceSufficientTest, Ut_IsRtsqQueueSpaceSufficient_RecheckComm
 TEST_F(RtsqA5Test, launch_task_no_loop_back)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.LaunchTask(); // 没有SQE ，直接返回
 
     u32 oldTail = 0;
     u32 oldHead = 0;
-    rtsq.sqTail_ = oldTail;
+    rtsq.SetTail(oldTail);
     rtsq.sqHead_ = oldHead;
     rtsq.sqDepth_ = AC_SQE_MAX_CNT;
 
     rtsq.RefreshInfo();
-    u32 newTail = (rtsq.sqTail_ + rtsq.pendingSqeCnt) % rtsq.sqDepth_;
+    u32 newTail = (rtsq.GetTail() + rtsq.pendingSqeCnt_) % rtsq.sqDepth_;
     rtsq.LaunchTask();
 
-    EXPECT_EQ(rtsq.sqTail_, newTail);
+    EXPECT_EQ(rtsq.GetTail(), newTail);
 }
 
 TEST_F(RtsqA5Test, launch_task_with_loop_back)
 {
     memset_s(mockSq, sizeof(mockSq), 0, sizeof(mockSq));
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-
+    rtsq.SetSqTailShared(&mockTailSlot);
     u32 oldTail = AC_SQE_MAX_CNT - 1;
     u32 oldHead = AC_SQE_MAX_CNT - 2;
-    rtsq.sqTail_ = oldTail;
+    rtsq.SetTail(oldTail);
     rtsq.sqHead_ = oldHead;
     rtsq.sqDepth_ = AC_SQE_MAX_CNT;
 
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(oldHead));
     rtsq.RefreshInfo();
     rtsq.RefreshInfo();
-    u32 newTail = (rtsq.sqTail_ + rtsq.pendingSqeCnt) % rtsq.sqDepth_;
+    u32 newTail = (rtsq.GetTail() + rtsq.pendingSqeCnt_) % rtsq.sqDepth_;
     rtsq.LaunchTask();
 
-    EXPECT_EQ(rtsq.sqTail_, newTail);
+    EXPECT_EQ(rtsq.GetTail(), newTail);
 }
 
 TEST_F(RtsqA5Test, launch_task_should_dump_generated_sqes_when_task_debug_enabled)
 {
     SetPlfDebugConfigValue(PLF_TASK);
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     MOCKER_CPP(&RtsqA5::QuerySqHead).stubs().will(returnValue(AC_SQE_MAX_CNT - 1));
 
     rtsq.NotifyWait(0);
@@ -205,7 +212,7 @@ TEST_F(RtsqA5Test, launch_task_should_dump_generated_sqes_when_task_debug_enable
 TEST_F(RtsqA5Test, notify_wait)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-
+    rtsq.SetSqTailShared(&mockTailSlot);
     u32 fakeNotifyId = 0;
     rtsq.NotifyWait(fakeNotifyId);
 }
@@ -213,7 +220,7 @@ TEST_F(RtsqA5Test, notify_wait)
 TEST_F(RtsqA5Test, notify_wait_with_timeout)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-
+    rtsq.SetSqTailShared(&mockTailSlot);
     u32 fakeNotifyId = 0;
     u32 fakeTimeout = 68;
     rtsq.NotifyWait(fakeNotifyId, fakeTimeout);
@@ -222,7 +229,7 @@ TEST_F(RtsqA5Test, notify_wait_with_timeout)
 TEST_F(RtsqA5Test, notify_record_local)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-
+    rtsq.SetSqTailShared(&mockTailSlot);
     u32 fakeNotifyId = 0;
     rtsq.NotifyRecordLoc(fakeNotifyId);
 }
@@ -230,7 +237,7 @@ TEST_F(RtsqA5Test, notify_record_local)
 TEST_F(RtsqA5Test, cnt_1ton_notify_wait)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-
+    rtsq.SetSqTailShared(&mockTailSlot);
     u32 fakeNotifyId = 0;
     u32 fakeValue = 1;
     rtsq.Cnt1toNNotifyWait(fakeNotifyId, fakeValue);
@@ -239,7 +246,7 @@ TEST_F(RtsqA5Test, cnt_1ton_notify_wait)
 TEST_F(RtsqA5Test, cnt_1ton_notify_record)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-
+    rtsq.SetSqTailShared(&mockTailSlot);
     u32 fakeNotifyId = 0;
     u32 fakeValue = 1;
     rtsq.Cnt1toNNotifyRecord(fakeNotifyId, fakeValue);
@@ -248,7 +255,7 @@ TEST_F(RtsqA5Test, cnt_1ton_notify_record)
 TEST_F(RtsqA5Test, cnt_nto1_notify_wait)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-
+    rtsq.SetSqTailShared(&mockTailSlot);
     u32 fakeNotifyId = 0;
     u32 fakeValue = 1;
     rtsq.CntNto1NotifyWait(fakeNotifyId, fakeValue);
@@ -257,7 +264,7 @@ TEST_F(RtsqA5Test, cnt_nto1_notify_wait)
 TEST_F(RtsqA5Test, cnt_nto1_notify_record)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-
+    rtsq.SetSqTailShared(&mockTailSlot);
     u32 fakeNotifyId = 0;
     u32 fakeValue = 1;
     rtsq.CntNto1NotifyRecord(fakeNotifyId, fakeValue);
@@ -266,7 +273,7 @@ TEST_F(RtsqA5Test, cnt_nto1_notify_record)
 TEST_F(RtsqA5Test, sdma_copy)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-
+    rtsq.SetSqTailShared(&mockTailSlot);
     u64 srcAddr = 0x100;
     u64 dstAddr = 0x200;
     u32 size = 0x300;
@@ -277,7 +284,7 @@ TEST_F(RtsqA5Test, sdma_copy)
 TEST_F(RtsqA5Test, sdma_reduce)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-
+    rtsq.SetSqTailShared(&mockTailSlot);
     u64 srcAddr = 0x100;
     u64 dstAddr = 0x200;
     u32 size = 0x300;
@@ -289,7 +296,7 @@ TEST_F(RtsqA5Test, sdma_reduce)
 TEST_F(RtsqA5Test, sdma_reduce_failed)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-
+    rtsq.SetSqTailShared(&mockTailSlot);
     u64 srcAddr = 0x100;
     u64 dstAddr = 0x200;
     u32 size = 0x300;
@@ -302,6 +309,7 @@ TEST_F(RtsqA5Test, sdma_reduce_failed)
 TEST_F(RtsqA5Test, ub_db_send)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     u32 dieId = 0;
     u32 funcId = 0;
     UbJettyLiteId jettyId(18, 18, 18);
@@ -312,7 +320,7 @@ TEST_F(RtsqA5Test, ub_db_send)
 TEST_F(RtsqA5Test, ub_direct_send)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-
+    rtsq.SetSqTailShared(&mockTailSlot);
     u32 dieId = 0;
     u32 funcId = 0;
     UbJettyLiteId jettyId(18, 18, 18);
@@ -324,7 +332,7 @@ TEST_F(RtsqA5Test, ub_direct_send)
 TEST_F(RtsqA5Test, ub_write_value)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-
+    rtsq.SetSqTailShared(&mockTailSlot);
     u64 dbAddr = 0;
     u32 piVal = 0;
     rtsq.UbWriteValue(dbAddr, piVal);
@@ -333,7 +341,7 @@ TEST_F(RtsqA5Test, ub_write_value)
 TEST_F(RtsqA5Test, query_sq_status_by_type)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-
+    rtsq.SetSqTailShared(&mockTailSlot);
     GlobalMockObject::reset();
     MOCKER(halSqCqQuery).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(1));
     EXPECT_THROW(rtsq.QuerySqStatusByType(drvSqCqPropType_t::DRV_SQCQ_PROP_SQ_CQE_STATUS), DrvApiException);
@@ -342,7 +350,7 @@ TEST_F(RtsqA5Test, query_sq_status_by_type)
 TEST_F(RtsqA5Test, query_sq_base_addr)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-
+    rtsq.SetSqTailShared(&mockTailSlot);
     GlobalMockObject::reset();
     MOCKER(halSqCqQuery).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(1));
     EXPECT_THROW(rtsq.QuerySqBaseAddr(), DrvApiException);
@@ -351,7 +359,7 @@ TEST_F(RtsqA5Test, query_sq_base_addr)
 TEST_F(RtsqA5Test, config_sq_status_by_type)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-
+    rtsq.SetSqTailShared(&mockTailSlot);
     GlobalMockObject::reset();
     MOCKER(halSqCqConfig).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(1));
     EXPECT_THROW(rtsq.ConfigSqStatusByType(drvSqCqPropType_t::DRV_SQCQ_PROP_SQ_TAIL, 1), DrvApiException);
@@ -360,21 +368,22 @@ TEST_F(RtsqA5Test, config_sq_status_by_type)
 TEST_F(RtsqA5Test, Ut_CopyLocBufToSq_E_INTERNAL)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     MOCKER_CPP(&RtsqA5::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(2));
-    rtsq.sqTail_ = 6;
+    rtsq.SetTail(6);
     rtsq.sqDepth_ = 16;
-    rtsq.pendingSqeCnt = 8;
+    rtsq.pendingSqeCnt_ = 8;
     MOCKER(memcpy_sOptAsm).stubs().with(mockcpp::any()).will(returnValue(1));
     EXPECT_EQ(rtsq.CopySqeBufToSq(rtsq.locBuf), HCCL_E_INTERNAL);
 
-    rtsq.pendingSqeCnt = 11;
+    rtsq.pendingSqeCnt_ = 11;
     MOCKER(memcpy_sOptAsm).stubs().with(mockcpp::any()).will(returnValue(1));
     EXPECT_EQ(rtsq.CopySqeBufToSq(rtsq.locBuf), HCCL_E_INTERNAL);
 
     MOCKER_CPP(&RtsqA5::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(10));
-    rtsq.sqTail_ = 1;
+    rtsq.SetTail(1);
     rtsq.sqDepth_ = 16;
-    rtsq.pendingSqeCnt = 8;
+    rtsq.pendingSqeCnt_ = 8;
     MOCKER(memcpy_sOptAsm).stubs().with(mockcpp::any()).will(returnValue(1));
     EXPECT_EQ(rtsq.CopySqeBufToSq(rtsq.locBuf), HCCL_E_INTERNAL);
 }
@@ -382,36 +391,38 @@ TEST_F(RtsqA5Test, Ut_CopyLocBufToSq_E_INTERNAL)
 TEST_F(RtsqA5Test, Ut_TryLaunchTask_When_PendingSqeCnt_IsZero_Expect_NoAction)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-    rtsq.pendingSqeCnt = 0;
+    rtsq.SetSqTailShared(&mockTailSlot);
+    rtsq.pendingSqeCnt_ = 0;
 
     rtsq.TryLaunchTask();
 
-    EXPECT_EQ(rtsq.pendingSqeCnt, 0);
+    EXPECT_EQ(rtsq.pendingSqeCnt_, 0);
 }
 
 TEST_F(RtsqA5Test, Ut_TryLaunchTask_When_HasEnoughSpace_Expect_LaunchTask)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-
-    rtsq.sqTail_ = 0;
+    rtsq.SetSqTailShared(&mockTailSlot);
+    rtsq.SetTail(0);
     rtsq.sqHead_ = 0;
     rtsq.sqDepth_ = AC_SQE_MAX_CNT;
-    rtsq.pendingSqeCnt = 5;
+    rtsq.pendingSqeCnt_ = 5;
 
     MOCKER_CPP(&RtsqA5::QuerySqHead).stubs().will(returnValue(10));
 
     rtsq.TryLaunchTask();
 
-    EXPECT_EQ(rtsq.pendingSqeCnt, 0);
+    EXPECT_EQ(rtsq.pendingSqeCnt_, 0);
 }
 
 TEST_F(RtsqA5Test, UT_CheckLaunchTaskStatus_CallbackReturnSuspending_Expect_PendingSqeCntResetAndNoThrow)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-    rtsq.sqTail_ = 8;
+    rtsq.SetSqTailShared(&mockTailSlot);
+    rtsq.SetTail(8);
     rtsq.sqHead_ = 16;
     rtsq.sqDepth_ = AC_SQE_MAX_CNT;
-    rtsq.pendingSqeCnt = 16;
+    rtsq.pendingSqeCnt_ = 16;
     rtsq.sqFullTimeout_ = 10;
 
     auto startTime = std::chrono::steady_clock::now();
@@ -421,16 +432,17 @@ TEST_F(RtsqA5Test, UT_CheckLaunchTaskStatus_CallbackReturnSuspending_Expect_Pend
     };
 
     EXPECT_NO_THROW(rtsq.CheckLaunchTaskStatus(startTime, curTime, "Rtsq full"));
-    EXPECT_EQ(rtsq.pendingSqeCnt, 0);
+    EXPECT_EQ(rtsq.pendingSqeCnt_, 0);
 }
 
 TEST_F(RtsqA5Test, UT_CheckLaunchTaskStatus_CallbackReturnSuspendingWithTimeout_Expect_NoThrow)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-    rtsq.sqTail_ = 8;
+    rtsq.SetSqTailShared(&mockTailSlot);
+    rtsq.SetTail(8);
     rtsq.sqHead_ = 16;
     rtsq.sqDepth_ = AC_SQE_MAX_CNT;
-    rtsq.pendingSqeCnt = 16;
+    rtsq.pendingSqeCnt_ = 16;
     rtsq.sqFullTimeout_ = 1;
 
     auto startTime = std::chrono::steady_clock::now() - std::chrono::seconds(10);
@@ -440,13 +452,14 @@ TEST_F(RtsqA5Test, UT_CheckLaunchTaskStatus_CallbackReturnSuspendingWithTimeout_
     };
 
     EXPECT_NO_THROW(rtsq.CheckLaunchTaskStatus(startTime, curTime, "Rtsq full"));
-    EXPECT_EQ(rtsq.pendingSqeCnt, 0);
+    EXPECT_EQ(rtsq.pendingSqeCnt_, 0);
 }
 
 TEST_F(RtsqA5Test, UT_CheckLaunchTaskStatus_CallbackReturnSuspendingZeroPending_Expect_NormalReturn)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-    rtsq.pendingSqeCnt = 0;
+    rtsq.SetSqTailShared(&mockTailSlot);
+    rtsq.pendingSqeCnt_ = 0;
     rtsq.sqFullTimeout_ = 10;
 
     auto startTime = std::chrono::steady_clock::now();
@@ -456,13 +469,14 @@ TEST_F(RtsqA5Test, UT_CheckLaunchTaskStatus_CallbackReturnSuspendingZeroPending_
     };
 
     EXPECT_NO_THROW(rtsq.CheckLaunchTaskStatus(startTime, curTime, "Rtsq full"));
-    EXPECT_EQ(rtsq.pendingSqeCnt, 0);
+    EXPECT_EQ(rtsq.pendingSqeCnt_, 0);
 }
 
 TEST_F(RtsqA5Test, UT_CheckLaunchTaskStatus_CallbackReturnErrorWithNoTimeout_Expect_ThrowException)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-    rtsq.pendingSqeCnt = 16;
+    rtsq.SetSqTailShared(&mockTailSlot);
+    rtsq.pendingSqeCnt_ = 16;
     rtsq.sqFullTimeout_ = 10;
 
     auto startTime = std::chrono::steady_clock::now();
@@ -477,7 +491,8 @@ TEST_F(RtsqA5Test, UT_CheckLaunchTaskStatus_CallbackReturnErrorWithNoTimeout_Exp
 TEST_F(RtsqA5Test, UT_CheckLaunchTaskStatus_CallbackNullWithTimeout_Expect_ThrowException)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-    rtsq.pendingSqeCnt = 16;
+    rtsq.SetSqTailShared(&mockTailSlot);
+    rtsq.pendingSqeCnt_ = 16;
     rtsq.sqFullTimeout_ = 1;
     rtsq.checkExecStatusCallback_ = nullptr;
 
@@ -492,6 +507,7 @@ TEST_F(RtsqA5Test, UT_CheckLaunchTaskStatus_CallbackNullWithTimeout_Expect_Throw
 TEST_F(RtsqA5Test, Ut_RefreshSqeHeaderTaskField_SetsTaskFields)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.taskId_ = 0x00010002U;
 
     std::vector<uint8_t> sqeBuf(AC_SQE_SIZE, 0);
@@ -508,6 +524,7 @@ TEST_F(RtsqA5Test, Ut_RefreshSqeHeaderTaskField_SetsTaskFields)
 TEST_F(RtsqA5Test, Ut_RefreshSqeHeaderTaskField_IncrementsTaskId)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     u32 initialTaskId = rtsq.taskId_;
 
     std::vector<uint8_t> sqeBuf(AC_SQE_SIZE, 0);
@@ -521,6 +538,7 @@ TEST_F(RtsqA5Test, Ut_RefreshSqeHeaderTaskField_IncrementsTaskId)
 TEST_F(RtsqA5Test, Ut_RefreshSqeHeaderTaskField_MultipleCalls_TaskIdIncrementsEachTime)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     u32 initialTaskId = rtsq.taskId_;
 
     std::vector<uint8_t> sqeBuf(AC_SQE_SIZE, 0);
@@ -539,6 +557,7 @@ TEST_F(RtsqA5Test, Ut_RefreshSqeHeaderTaskField_MultipleCalls_TaskIdIncrementsEa
 TEST_F(RtsqA5Test, Ut_RefreshSqeHeaderTaskField_PreservesOtherHeaderFields)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.taskId_ = 0;
 
     std::vector<uint8_t> sqeBuf(AC_SQE_SIZE, 0);
@@ -559,8 +578,9 @@ TEST_F(RtsqA5Test, Ut_RefreshSqeHeaderTaskField_PreservesOtherHeaderFields)
 TEST_F(RtsqA5Test, Ut_LaunchNewTask_PendingSqeCntNotZero_Expect_E_Internal)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-    rtsq.pendingSqeCnt = 5;
-    rtsq.sqTail_ = 0;
+    rtsq.SetSqTailShared(&mockTailSlot);
+    rtsq.pendingSqeCnt_ = 5;
+    rtsq.SetTail(0);
     rtsq.sqHead_ = 0;
     rtsq.sqDepth_ = AC_SQE_MAX_CNT;
 
@@ -571,8 +591,9 @@ TEST_F(RtsqA5Test, Ut_LaunchNewTask_PendingSqeCntNotZero_Expect_E_Internal)
 TEST_F(RtsqA5Test, Ut_LaunchNewTask_Success_UpdatesTailAndResetsPendingSqeCnt)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-    rtsq.pendingSqeCnt = 0;
-    rtsq.sqTail_ = 0;
+    rtsq.SetSqTailShared(&mockTailSlot);
+    rtsq.pendingSqeCnt_ = 0;
+    rtsq.SetTail(0);
     rtsq.sqHead_ = 0;
     rtsq.sqDepth_ = AC_SQE_MAX_CNT;
 
@@ -580,19 +601,20 @@ TEST_F(RtsqA5Test, Ut_LaunchNewTask_Success_UpdatesTailAndResetsPendingSqeCnt)
 
     std::vector<uint8_t> sqeArray(AC_SQE_SIZE * 3, 0);
     u32 sqeCount = 3;
-    u32 expectedTail = (rtsq.sqTail_ + sqeCount) % rtsq.sqDepth_;
+    u32 expectedTail = (rtsq.GetTail() + sqeCount) % rtsq.sqDepth_;
 
     EXPECT_EQ(rtsq.LaunchNewTask(sqeArray.data(), sqeCount), HcclResult::HCCL_SUCCESS);
 
-    EXPECT_EQ(rtsq.sqTail_, expectedTail);
-    EXPECT_EQ(rtsq.pendingSqeCnt, 0U);
+    EXPECT_EQ(rtsq.GetTail(), expectedTail);
+    EXPECT_EQ(rtsq.pendingSqeCnt_, 0U);
 }
 
 TEST_F(RtsqA5Test, Ut_LaunchNewTask_Success_CopiesSqeToSqBuffer)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-    rtsq.pendingSqeCnt = 0;
-    rtsq.sqTail_ = 0;
+    rtsq.SetSqTailShared(&mockTailSlot);
+    rtsq.pendingSqeCnt_ = 0;
+    rtsq.SetTail(0);
     rtsq.sqHead_ = 0;
     rtsq.sqDepth_ = AC_SQE_MAX_CNT;
 
@@ -615,26 +637,28 @@ TEST_F(RtsqA5Test, Ut_LaunchNewTask_Success_CopiesSqeToSqBuffer)
 TEST_F(RtsqA5Test, Ut_LaunchNewTask_WithLoopback_Success)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-    rtsq.pendingSqeCnt = 0;
-    rtsq.sqTail_ = AC_SQE_MAX_CNT - 1; // 255
-    rtsq.sqHead_ = 4;                  // availableSpace = 256 - (255 - 4) = 5 > 3
+    rtsq.SetSqTailShared(&mockTailSlot);
+    rtsq.pendingSqeCnt_ = 0;
+    rtsq.SetTail(AC_SQE_MAX_CNT - 1); // 255
+    rtsq.sqHead_ = 4;                 // availableSpace = 256 - (255 - 4) = 5 > 3
     rtsq.sqDepth_ = AC_SQE_MAX_CNT;
 
     std::vector<uint8_t> sqeArray(AC_SQE_SIZE * 3, 0);
     u32 sqeCount = 3;
-    u32 expectedTail = (rtsq.sqTail_ + sqeCount) % rtsq.sqDepth_;
+    u32 expectedTail = (rtsq.GetTail() + sqeCount) % rtsq.sqDepth_;
 
     EXPECT_EQ(rtsq.LaunchNewTask(sqeArray.data(), sqeCount), HcclResult::HCCL_SUCCESS);
 
-    EXPECT_EQ(rtsq.sqTail_, expectedTail);
-    EXPECT_EQ(rtsq.pendingSqeCnt, 0U);
+    EXPECT_EQ(rtsq.GetTail(), expectedTail);
+    EXPECT_EQ(rtsq.pendingSqeCnt_, 0U);
 }
 
 TEST_F(RtsqA5Test, Ut_LaunchNewTask_SingleSqe_Success)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
-    rtsq.pendingSqeCnt = 0;
-    rtsq.sqTail_ = 0;
+    rtsq.SetSqTailShared(&mockTailSlot);
+    rtsq.pendingSqeCnt_ = 0;
+    rtsq.SetTail(0);
     rtsq.sqHead_ = 0;
     rtsq.sqDepth_ = AC_SQE_MAX_CNT;
 
@@ -646,8 +670,8 @@ TEST_F(RtsqA5Test, Ut_LaunchNewTask_SingleSqe_Success)
 
     EXPECT_EQ(rtsq.LaunchNewTask(sqeArray.data(), 1), HcclResult::HCCL_SUCCESS);
 
-    EXPECT_EQ(rtsq.sqTail_, 1U);
-    EXPECT_EQ(rtsq.pendingSqeCnt, 0U);
+    EXPECT_EQ(rtsq.GetTail(), 1U);
+    EXPECT_EQ(rtsq.pendingSqeCnt_, 0U);
 
     auto* sqHeader = reinterpret_cast<Rt91095StarsSqeHeader*>(mockSq);
     EXPECT_EQ(sqHeader->type, static_cast<uint8_t>(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_RECORD));
@@ -658,6 +682,7 @@ TEST_F(RtsqA5Test, Ut_SqeProfilingDisabled_SqeProfStaysZero)
     Hccl::SetSqeProfilingEnabled(false);
 
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.NotifyWait(0);
 
     auto* header = reinterpret_cast<Rt91095StarsSqeHeader*>(rtsq.locBuf);
@@ -669,6 +694,7 @@ TEST_F(RtsqA5Test, Ut_SqeProfilingEnabled_SqeProfSetToOne)
     Hccl::SetSqeProfilingEnabled(true);
 
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.NotifyWait(0);
 
     auto* header = reinterpret_cast<Rt91095StarsSqeHeader*>(rtsq.locBuf);
@@ -682,6 +708,7 @@ TEST_F(RtsqA5Test, Ut_NotifyWait_WithProfiling_SqeProfSetToOne)
     Hccl::SetSqeProfilingEnabled(true);
 
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.NotifyWait(0);
 
     auto* header = reinterpret_cast<Rt91095StarsSqeHeader*>(rtsq.locBuf);
@@ -695,6 +722,7 @@ TEST_F(RtsqA5Test, Ut_SdmaCopy_WithProfiling_SqeProfSetToOne)
     Hccl::SetSqeProfilingEnabled(true);
 
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.SdmaCopy(0x100, 0x200, 0x300, 0x400);
 
     auto* header = reinterpret_cast<Rt91095StarsSqeHeader*>(rtsq.locBuf);
@@ -708,6 +736,7 @@ TEST_F(RtsqA5Test, Ut_NotifyWait_WithoutProfiling_SqeProfStaysZero)
     Hccl::SetSqeProfilingEnabled(false);
 
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.NotifyWait(0);
 
     auto* header = reinterpret_cast<Rt91095StarsSqeHeader*>(rtsq.locBuf);
@@ -721,6 +750,7 @@ TEST_F(RtsqA5Test, Ut_SqeProfiling_ToggleOffThenBuild_SqeProfStaysZero)
     Hccl::SetSqeProfilingEnabled(false);
 
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.NotifyWait(0);
 
     auto* header = reinterpret_cast<Rt91095StarsSqeHeader*>(rtsq.locBuf);
@@ -730,6 +760,7 @@ TEST_F(RtsqA5Test, Ut_SqeProfiling_ToggleOffThenBuild_SqeProfStaysZero)
 TEST_F(RtsqA5Test, Ut_NotifyWait_EnabledOnOtherThread_SqeProfStaysZero)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     // 开关为线程级变量：其他线程置1不影响本线程，本线程未经报到口开启时读初始值0
     std::thread toggleThread([]() {
         Hccl::SetSqeProfilingEnabled(true);
@@ -851,6 +882,7 @@ TEST_F(RtsqA5Test, Ut_NonInlineBuild_WithoutProfiling_SqeProfStaysZero)
 TEST_F(RtsqA5Test, Ut_RefreshSqHead_NormalAdvance_ExpectBaseUpdated)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.sqDepth_ = 8;
     rtsq.dbSendDepth_ = 16;
     rtsq.baseSqHead_ = 4;
@@ -865,6 +897,7 @@ TEST_F(RtsqA5Test, Ut_RefreshSqHead_NormalAdvance_ExpectBaseUpdated)
 TEST_F(RtsqA5Test, Ut_RefreshSqHead_SqHeadWraparound_ExpectBaseUnwrapped)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.sqDepth_ = 8;
     rtsq.dbSendDepth_ = 16;
     rtsq.baseSqHead_ = 7;
@@ -880,6 +913,7 @@ TEST_F(RtsqA5Test, Ut_RefreshSqHead_SqHeadWraparound_ExpectBaseUnwrapped)
 TEST_F(RtsqA5Test, Ut_RefreshSqHead_ReachMaxSize_ExpectWrapToStart)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.sqDepth_ = 8;
     rtsq.dbSendDepth_ = 16;
     rtsq.baseSqHeadMaxSize_ = 16; // 测试用小上限
@@ -897,6 +931,7 @@ TEST_F(RtsqA5Test, Ut_RefreshSqHead_ReachMaxSize_ExpectWrapToStart)
 TEST_F(RtsqA5Test, UbDbSend_ExpectAllRecordedInOrder)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     UbJettyLiteId jettyId(18, 18, 18);
     UbTransportLiteImpl* fakeKey = reinterpret_cast<UbTransportLiteImpl*>(0x5678);
 
@@ -929,6 +964,7 @@ TEST_F(RtsqA5Test, UbDbSend_ExpectAllRecordedInOrder)
 TEST_F(RtsqA5Test, Ut_UbDbSend_DbSendSlotsFull_Suspending_ExpectSkipRecordOnly)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.sqDepth_ = 8;
     rtsq.dbSendDepth_ = 16;
     rtsq.dbSendSlots_.assign(16, DbSendSlotMeta{});
@@ -941,8 +977,8 @@ TEST_F(RtsqA5Test, Ut_UbDbSend_DbSendSlotsFull_Suspending_ExpectSkipRecordOnly)
     u32 taskIdBefore = rtsq.taskId_;
 
     EXPECT_NO_THROW(rtsq.UbDbSend(UbJettyLiteId(18, 18, 18), 1, 0, nullptr));
-    EXPECT_EQ(15u, rtsq.dbSendTail_);  // 跳过记录, 不推进tail
-    EXPECT_EQ(1u, rtsq.pendingSqeCnt); // SQE照常构建: CheckLaunchTaskStatus清0后RefreshInfo重新计入
+    EXPECT_EQ(15u, rtsq.dbSendTail_);   // 跳过记录, 不推进tail
+    EXPECT_EQ(1u, rtsq.pendingSqeCnt_); // SQE照常构建: CheckLaunchTaskStatus清0后RefreshInfo重新计入
     EXPECT_EQ(taskIdBefore + 1, rtsq.taskId_);
 }
 
@@ -951,6 +987,7 @@ TEST_F(RtsqA5Test, Ut_UbDbSend_DbSendSlotsFull_Suspending_ExpectSkipRecordOnly)
 TEST_F(RtsqA5Test, Ut_UbDbSend_DbSendSlotsFull_ExecError_ExpectThrowAndNoSqeBuilt)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.sqDepth_ = 8;
     rtsq.dbSendDepth_ = 16;
     rtsq.dbSendSlots_.assign(16, DbSendSlotMeta{});
@@ -964,7 +1001,7 @@ TEST_F(RtsqA5Test, Ut_UbDbSend_DbSendSlotsFull_ExecError_ExpectThrowAndNoSqeBuil
 
     EXPECT_THROW(rtsq.UbDbSend(UbJettyLiteId(18, 18, 18), 1, 0, nullptr), Hccl::InternalException);
     EXPECT_EQ(15u, rtsq.dbSendTail_);                    // 记录未写入, tail不推进
-    EXPECT_EQ(0u, rtsq.pendingSqeCnt);                   // SQE未构建入批次: 异常在BuildA5SqeUbDbSend前中止
+    EXPECT_EQ(0u, rtsq.pendingSqeCnt_);                  // SQE未构建入批次: 异常在BuildA5SqeUbDbSend前中止
     EXPECT_EQ(taskIdBefore, rtsq.taskId_);               // taskId未消耗
     EXPECT_EQ(nullptr, rtsq.dbSendSlots_[15].transport); // 槽位未被写入
 }
@@ -972,10 +1009,11 @@ TEST_F(RtsqA5Test, Ut_UbDbSend_DbSendSlotsFull_ExecError_ExpectThrowAndNoSqeBuil
 TEST_F(RtsqA5Test, Ut_RecordDbSendSlot_RecordsWrapSlotIdxAndAdvancesTail)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.sqDepth_ = 8;
     rtsq.dbSendDepth_ = 16;
     rtsq.dbSendSlots_.assign(16, DbSendSlotMeta{});
-    rtsq.sqTail_ = 2;
+    rtsq.SetTail(2);
     rtsq.sqTailTotal_ = 2; // 绝对tail与环内tail对齐(未回绕)
     rtsq.dbSendHead_ = 0;
     rtsq.dbSendTail_ = 0;
@@ -994,6 +1032,7 @@ TEST_F(RtsqA5Test, Ut_RecordDbSendSlot_RecordsWrapSlotIdxAndAdvancesTail)
 TEST_F(RtsqA5Test, Ut_RecordDbSendSlot_DbSendSlotsFull_ExecError_Expect_ReturnErrorCode)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.sqDepth_ = 8;
     rtsq.dbSendDepth_ = 16;
     rtsq.dbSendSlots_.assign(16, DbSendSlotMeta{});
@@ -1012,6 +1051,7 @@ TEST_F(RtsqA5Test, Ut_RecordDbSendSlot_DbSendSlotsFull_ExecError_Expect_ReturnEr
 TEST_F(RtsqA5Test, Ut_RecordDbSendSlot_DbSendSlotsFull_Suspending_ExpectSkipRecord)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.sqDepth_ = 8;
     rtsq.dbSendDepth_ = 16;
     rtsq.dbSendSlots_.assign(16, DbSendSlotMeta{});
@@ -1024,17 +1064,18 @@ TEST_F(RtsqA5Test, Ut_RecordDbSendSlot_DbSendSlotsFull_Suspending_ExpectSkipReco
 
     EXPECT_EQ(HCCL_SUCCESS, rtsq.RecordDbSendSlot(nullptr, 0, 0, 0)); // 挂起跳过记录, 视同成功
     EXPECT_EQ(15u, rtsq.dbSendTail_);
-    EXPECT_EQ(0u, rtsq.pendingSqeCnt); // SUSPENDING时清空挂起SQE
+    EXPECT_EQ(0u, rtsq.pendingSqeCnt_); // SUSPENDING时清空挂起SQE
 }
 
 // 环满等待至后台出队腾出空位: 记录成功写入回绕槽位
 TEST_F(RtsqA5Test, Ut_RecordDbSendSlot_DbSendSlotsFull_WaitUntilDrained_ExpectRecordSuccess)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.sqDepth_ = 8;
     rtsq.dbSendDepth_ = 16;
     rtsq.dbSendSlots_.assign(16, DbSendSlotMeta{});
-    rtsq.sqTail_ = 2;
+    rtsq.SetTail(2);
     rtsq.sqTailTotal_ = 2; // 绝对tail与环内tail对齐(未回绕)
     rtsq.dbSendHead_ = 0;
     rtsq.dbSendTail_ = 15;
@@ -1059,6 +1100,7 @@ TEST_F(RtsqA5Test, Ut_RecordDbSendSlot_DbSendSlotsFull_WaitUntilDrained_ExpectRe
 TEST_F(RtsqA5Test, PollCompletion_ExpectCorrectConsume)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.sqDepth_ = 8;
     rtsq.dbSendDepth_ = 16;
     rtsq.lastHead_ = 4;
@@ -1114,6 +1156,7 @@ TEST_F(RtsqA5Test, PollCompletion_ExpectCorrectConsume)
 TEST_F(RtsqA5Test, PollCompletion_FullLapAdvance_ExpectAllSlotsConsumed)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.sqDepth_ = 8;
     rtsq.dbSendDepth_ = 16;
     rtsq.dbSendSlots_.assign(16, DbSendSlotMeta{});
@@ -1149,6 +1192,7 @@ TEST_F(RtsqA5Test, PollCompletion_FullLapAdvance_ExpectAllSlotsConsumed)
 TEST_F(RtsqA5Test, PollCompletion_TrackingSpaceWraparound_ExpectWrappedAdvanceAndDequeue)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.sqDepth_ = 8;
     rtsq.dbSendDepth_ = 16;
     rtsq.baseSqHeadMaxSize_ = 16; // 测试用小上限, 等价模拟追踪空间回绕点(16即回绕到0)
@@ -1182,6 +1226,7 @@ TEST_F(RtsqA5Test, PollCompletion_TrackingSpaceWraparound_ExpectWrappedAdvanceAn
 TEST_F(RtsqA5Test, PollCompletion_PendingSqeNotPrematurelyDequeued)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.sqDepth_ = 8;
     rtsq.dbSendDepth_ = 16;
     rtsq.dbSendSlots_.assign(16, DbSendSlotMeta{});
@@ -1215,6 +1260,7 @@ TEST_F(RtsqA5Test, PollCompletion_PendingSqeNotPrematurelyDequeued)
 TEST_F(RtsqA5Test, PollCompletion_NotModifySqHeadMember)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.sqDepth_ = 8;
     rtsq.dbSendDepth_ = 16;
     rtsq.dbSendSlots_.assign(16, DbSendSlotMeta{});
@@ -1240,6 +1286,7 @@ TEST_F(RtsqA5Test, PollCompletion_NotModifySqHeadMember)
 TEST_F(RtsqA5Test, PollCompletion_AnchorLagRegression_ExpectSkipAndKeepRecords)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.sqDepth_ = 8;
     rtsq.dbSendDepth_ = 16;
     rtsq.dbSendSlots_.assign(16, DbSendSlotMeta{});
@@ -1279,6 +1326,7 @@ TEST_F(RtsqA5Test, PollCompletion_AnchorLagRegression_ExpectSkipAndKeepRecords)
 TEST_F(RtsqA5Test, PollCompletion_WraparoundAnchorLag_ExpectGuardSkipThenRecover)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.sqDepth_ = 8;
     rtsq.dbSendDepth_ = 16;
     rtsq.baseSqHeadMaxSize_ = 16; // 测试用小上限, 等价模拟追踪空间回绕点16≡0
@@ -1310,11 +1358,71 @@ TEST_F(RtsqA5Test, PollCompletion_WraparoundAnchorLag_ExpectGuardSkipThenRecover
     GlobalMockObject::reset();
 }
 
+/* ---------- UpdateSqTailTotal（写前重锚） ---------- */
+
+// 对齐态: 共享槽值 == sqTailTotal_ % sqDepth_, 账本已对齐, 重锚不动账本
+TEST_F(RtsqA5Test, UpdateSqTailTotal_Aligned_ExpectUnchanged)
+{
+    RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
+    rtsq.sqDepth_ = 8;
+    rtsq.sqTailTotal_ = 13; // 环位 13%8=5
+    mockTailSlot = 5u;      // 共享槽与环位一致
+
+    rtsq.UpdateSqTailTotal();
+
+    EXPECT_EQ(13u, rtsq.sqTailTotal_); // 无他引擎推进, 不重锚
+}
+
+// 前向差重锚: 他引擎推进使共享槽领先环位 delta=3, 账本按 WrapAdd 前向推进
+TEST_F(RtsqA5Test, UpdateSqTailTotal_DriftForward_ExpectAdvanceByDelta)
+{
+    RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
+    rtsq.sqDepth_ = 8;
+    rtsq.sqTailTotal_ = 10; // 环位 2
+    mockTailSlot = 5u;      // 他引擎已推进到环位 5, 前向差 delta=3
+
+    rtsq.UpdateSqTailTotal();
+
+    EXPECT_EQ(13u, rtsq.sqTailTotal_); // 10 + 3, 环位对齐共享槽
+}
+
+// 前向差跨回绕边界: 账本环位 6, 共享槽环位 1, delta=(1+8-6)%8=3, 经 WrapAdd 推进
+TEST_F(RtsqA5Test, UpdateSqTailTotal_DriftAcrossWrap_ExpectWrapAddAdvance)
+{
+    RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
+    rtsq.sqDepth_ = 8;
+    rtsq.baseSqHeadMaxSize_ = 16; // 测试用小上限, 等价模拟追踪空间回绕点
+    rtsq.sqTailTotal_ = 14;       // 环位 6
+    mockTailSlot = 1u;            // 他引擎推进到环位 1(已越过回绕点)
+
+    rtsq.UpdateSqTailTotal();
+
+    EXPECT_EQ(1u, rtsq.sqTailTotal_); // (14+3)%16=1, 越过追踪空间回绕点
+}
+
+// 越界不采信: 共享槽值 >= sqDepth_(未初始化或异常), 维持本引擎账本不重锚
+TEST_F(RtsqA5Test, UpdateSqTailTotal_SharedValueOutOfRange_ExpectKeepLocalLedger)
+{
+    RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
+    rtsq.sqDepth_ = 8;
+    rtsq.sqTailTotal_ = 13;
+    mockTailSlot = 100u; // 越界值
+
+    rtsq.UpdateSqTailTotal();
+
+    EXPECT_EQ(13u, rtsq.sqTailTotal_); // 不采信越界值
+}
+
 /* ---------- Reset ---------- */
 
 TEST_F(RtsqA5Test, Reset_ClearsBackpressureState)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     rtsq.sqDepth_ = 8;
     rtsq.dbSendDepth_ = 16;
     rtsq.lastHead_ = 5;
@@ -1327,6 +1435,8 @@ TEST_F(RtsqA5Test, Reset_ClearsBackpressureState)
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().will(returnValue(3u));
     MOCKER_CPP(&RtsqBase::QuerySqDepth).stubs().will(returnValue(8u));
     MOCKER_CPP(&RtsqBase::QuerySqBaseAddr).stubs().will(returnValue(0u));
+    // 直接共享账本：InitSendTrackingState 读共享槽位(不再读基类镜像)，须以寄存器真值播种
+    mockTailSlot = 3u;
 
     rtsq.Reset(true);
 
@@ -1334,8 +1444,11 @@ TEST_F(RtsqA5Test, Reset_ClearsBackpressureState)
     EXPECT_EQ(0u, rtsq.dbSendTail_);
     EXPECT_EQ(3u, rtsq.lastHead_);
     EXPECT_EQ(3u, rtsq.baseSqHead_);
-    // Reset后绝对tail与baseSqHead_对齐(重置时head==tail, SQ为空)
-    EXPECT_EQ(3u, rtsq.sqTailTotal_);
+    // Reset 将共享槽归零后按新槽值重算: base(3) + (0 + depth - head(3)) % depth = depth
+    EXPECT_EQ(rtsq.sqDepth_, rtsq.sqTailTotal_);
+    // 共享槽同步归零: 消除 Reset 后首 launch 按旧槽值算环位的双源不同步
+    EXPECT_EQ(0u, mockTailSlot);
+    EXPECT_EQ(0u, rtsq.GetTail());
     // Reset按当前sqDepth_重算8倍深度; 用相对断言, 不依赖QuerySqDepth桩与SetUp桩的抢占顺序
     EXPECT_EQ(rtsq.sqDepth_ << 3, rtsq.dbSendDepth_);
     // 同步重算追踪空间上限: u32内sqDepth_最大整数倍再减一个sqDepth_余量
@@ -1351,6 +1464,7 @@ TEST_F(RtsqA5Test, Reset_ClearsBackpressureState)
 TEST_F(RtsqA5Test, RefreshInfo_ResetsCurrentTransportContextAfterSnapshot)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     const u64 nonDefaultHandle = 0x1234ABCDEF5678ULL;
     const u8 nonDefaultLinkType = static_cast<u8>(DfxLinkTypeVal::LINK_ROCE);
     const u8 nonDefaultTransportType = static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_ROCE);
@@ -1369,6 +1483,7 @@ TEST_F(RtsqA5Test, RefreshInfo_ResetsCurrentTransportContextAfterSnapshot)
 TEST_F(RtsqA5Test, RefreshInfo_LocalTaskAfterTransportTaskGetsDefaultContext)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     const u64 nonDefaultHandle = 0x1234ABCDEF5678ULL;
     const u8 nonDefaultLinkType = static_cast<u8>(DfxLinkTypeVal::LINK_ROCE);
     const u8 nonDefaultTransportType = static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_ROCE);
@@ -1388,6 +1503,7 @@ TEST_F(RtsqA5Test, RefreshInfo_LocalTaskAfterTransportTaskGetsDefaultContext)
 TEST_F(RtsqA5Test, DefaultTransportTypeIsLocal)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    rtsq.SetSqTailShared(&mockTailSlot);
     EXPECT_EQ(rtsq.currentTransport_, DFX_INVALID_U64);
     EXPECT_EQ(rtsq.currentLinkType_, static_cast<u8>(DfxLinkTypeVal::LINK_ONCHIP));
     EXPECT_EQ(rtsq.currentTransportType_, static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_LOCAL));

@@ -37,6 +37,8 @@ struct HcclChannelUrmaRes {
     u32 deviceType{0};                   // 基础通信使用
     DevAicpuChannelConfig channelConfig; // 收编channel配置类变量
     void* ctxList{nullptr};              // device侧ctx指针数组，非null时kernel写ctx->deviceChannel
+    // device侧listNum个void*：每项为对应通道实体SqContext地址；nullptr表示该通道不绑定pi/ci
+    void* entityPiCiAddrList{nullptr};
 };
 
 // 用于校验指针的合法性，防止操作到已释放的内存或非法内存

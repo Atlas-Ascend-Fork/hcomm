@@ -110,6 +110,12 @@ public:
     // 按地址 upsert 进 rmtBufferMap：host 侧下发的是当前全量表，重复录入幂等
     HcclResult UpdateMemInfoEntry(const RmaBufEntryLite& entry) override;
 
+    void SetSqPiCi(uint32_t* pi, uint32_t* ci)
+    {
+        auto* ubConn = dynamic_cast<UbConnLite*>(connVec[0]);
+        ubConn->SetSqPiCi(pi, ci);
+    }
+
     HcclResult ExecuteBatchTransfer(
         StreamLite* streamLitePtr, const HcommBatchTransferDesc* transferDescs, uint32_t transferDescNum);
 

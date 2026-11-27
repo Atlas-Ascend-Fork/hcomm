@@ -769,6 +769,44 @@ LaunchKernel(const HcclChannelUrmaRes& channelParam, aclrtBinHandle binHandle, c
     return LaunchKernelDeviceParam(channelParam, binHandle, kernelName);
 }
 
+static bool HasAnyPiCiAddr(const std::vector<void*>& addrList)
+{
+    for (const void* addr : addrList) {
+        if (addr != nullptr) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void CollectPiCiAddrList(const ChannelHandle* hostChannelHandles, uint32_t listNum, std::vector<void*>& out)
+{
+    out.assign(listNum, nullptr);
+    for (uint32_t i = 0; i < listNum; ++i) {
+        auto* channel = ReinterpretAs<Channel*>(hostChannelHandles[i]);
+        if (channel->GetChannelKind() != HcommChannelKind::AICPU_TS_URMA) {
+            continue;
+        }
+        out[i] = ReinterpretAs<void*>(static_cast<AicpuTsUrmaChannel*>(channel)->GetSqContextDevAddr());
+    }
+}
+
+static HcclResult
+StageEntityPiCiAddrList(const std::vector<void*>& addrList, hccl::DeviceMem& piCiAddrListDev, void*& outAddrList)
+{
+    outAddrList = nullptr;
+    if (!HasAnyPiCiAddr(addrList)) {
+        return HCCL_SUCCESS;
+    }
+    piCiAddrListDev = hccl::DeviceMem::alloc(addrList.size() * sizeof(void*));
+    CHK_PTR_NULL(piCiAddrListDev.ptr());
+    CHK_RET(hrtMemSyncCopy(
+        piCiAddrListDev.ptr(), addrList.size() * sizeof(void*), addrList.data(), addrList.size() * sizeof(void*),
+        HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE));
+    outAddrList = static_cast<void*>(piCiAddrListDev.ptr());
+    return HCCL_SUCCESS;
+}
+
 static HcclResult PackAicpuTsChannelH2DRes(ChannelHandle hostChannelHandle, std::vector<char>& hostPackBuffer)
 {
     CHK_PRT_RET(
@@ -862,6 +900,11 @@ HcclResult ChannelProcess::LaunchChannelKernelCommon(
     std::vector<std::vector<char>> hostPackBuffers(listNum);
     HcclChannelUrmaRes channelParam{};
     CHK_SAFETY_FUNC_RET(memset_s(&channelParam, sizeof(channelParam), 0, sizeof(channelParam)));
+
+    std::vector<void*> piCiAddrList;
+    CollectPiCiAddrList(hostChannelHandles, listNum, piCiAddrList);
+    hccl::DeviceMem piCiAddrListDev;
+    CHK_RET(StageEntityPiCiAddrList(piCiAddrList, piCiAddrListDev, channelParam.entityPiCiAddrList));
 
     // 获取host侧序列化的地址
     std::vector<u32> channelSizeVec{};
@@ -1143,6 +1186,23 @@ HcclResult ChannelProcess::ChannelGetDesc(ChannelHandle channelHandle, HcommChan
         *channelDesc = channel.GetChannelDesc();
         return HcclResult::HCCL_SUCCESS;
     });
+}
+
+HcclResult ChannelProcess::PreAllocSqContexts(ChannelHandle hostChannelHandle)
+{
+    void* ch = nullptr;
+    CHK_RET(ChannelGet(hostChannelHandle, &ch));
+    CHK_PTR_NULL(ch);
+    auto* channel = static_cast<Channel*>(ch);
+    if (channel->GetChannelKind() != HcommChannelKind::AICPU_TS_URMA) {
+        return HCCL_SUCCESS;
+    }
+    auto* entity = channel->GetChannelEntity();
+    CHK_PTR_NULL(entity);
+    if (entity->IsDeviceEntityReady()) {
+        return HCCL_SUCCESS;
+    }
+    return static_cast<AicpuTsUrmaChannel*>(channel)->PreAllocSqContexts();
 }
 
 HcclResult ChannelProcess::ChannelIsAicpuTsUrma(ChannelHandle channelHandle, bool& isAicpuTsUrma)
@@ -1496,6 +1556,11 @@ HcclResult ChannelProcess::ChannelUpdateKernelLaunch(
     channelParam.uniqueIdAddr = static_cast<void*>(devicePackBuf.ptr());
     channelParam.uniqueIdSize = totalListNum;
     channelParam.channelSizeAddr = static_cast<void*>(channelSizeAddr.ptr());
+
+    std::vector<void*> piCiAddrList;
+    CollectPiCiAddrList(hostChannelHandles, listNum, piCiAddrList);
+    hccl::DeviceMem piCiAddrListDev;
+    CHK_RET(StageEntityPiCiAddrList(piCiAddrList, piCiAddrListDev, channelParam.entityPiCiAddrList));
 
     // 将 host 侧的 channel handles 拷贝到 device 内存，供内核使用
     hccl::DeviceMem deviceChannelList;

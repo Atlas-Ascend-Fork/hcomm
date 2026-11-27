@@ -118,6 +118,22 @@ HcclResult AicpuChannelProcess::ParsePackData(std::vector<char>& data, ChannelHa
     return HCCL_SUCCESS;
 }
 
+HcclResult AicpuChannelProcess::SetSqPiCiByTransport(
+    Hccl::BaseTransportLiteImpl* transport, void* sqContextAddr, uint32_t channelIndex)
+{
+    // 调用方保证 sqContextAddr 非空（建链/快恢调用点均先做逐元素判空）。
+    auto* ubTransport = dynamic_cast<Hccl::UbTransportLiteImpl*>(transport);
+    CHK_PRT_RET(
+        ubTransport == nullptr,
+        HCCL_ERROR("[AicpuChannelProcess::%s] index[%u] transport is not UB lite transport.", __func__, channelIndex),
+        HCCL_E_INTERNAL);
+    auto* sqCtxBase = static_cast<SqContext*>(sqContextAddr);
+    ubTransport->SetSqPiCi(&sqCtxBase->contextInfo.ubJfs.sqHead, &sqCtxBase->contextInfo.ubJfs.sqTail);
+    HCCL_INFO(
+        "[AicpuChannelProcess::%s] index[%u] set sq pi/ci, sqContext[%p].", __func__, channelIndex, sqContextAddr);
+    return HCCL_SUCCESS;
+}
+
 HcclResult AicpuChannelProcess::InitUrmaChannel(HcclChannelUrmaRes* commParam)
 {
     HCCL_INFO(
@@ -155,6 +171,20 @@ HcclResult AicpuChannelProcess::InitUrmaChannel(HcclChannelUrmaRes* commParam)
         } else {
             ChannelHandle* channelList = ReinterpretAs<ChannelHandle*>(commParam->channelList);
             channelList[index] = channelHandle;
+        }
+
+        if (commParam->entityPiCiAddrList != nullptr) {
+            auto** piCiAddrList = ReinterpretAs<void**>(commParam->entityPiCiAddrList);
+            if (piCiAddrList[index] != nullptr) {
+                auto it = transportMap_.find(channelHandle);
+                CHK_PRT_RET(
+                    it == transportMap_.end(),
+                    HCCL_ERROR(
+                        "[HcclCommAicpu][AicpuChannelProcess::%s] index[%u] transport not found, handle[0x%llx].",
+                        __func__, index, static_cast<unsigned long long>(channelHandle)),
+                    HCCL_E_INTERNAL);
+                CHK_RET(SetSqPiCiByTransport(it->second.get(), piCiAddrList[index], index));
+            }
         }
         HCCL_INFO(
             "[HcclCommAicpu][AicpuChannelProcess::%s] index[%u], currentSrcAddr[%p], channelSizeAddr[%p], "

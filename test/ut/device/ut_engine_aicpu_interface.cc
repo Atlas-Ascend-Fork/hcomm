@@ -37,6 +37,7 @@
 #include "cpu_ts_thread.h"
 #include "thread_entity_resources.h"
 #include "aicpu/aicpu_hccl_sqcq.h"
+#include "rtsq_a5.h"
 #undef private
 #undef protected
 
@@ -102,6 +103,16 @@ protected:
     }
 };
 
+// RtsqA5/RtsqBase 构造函数内联直调弱符号 aicpu::GetSqeId;hccl_llt 里的强定义错编在
+// namespace Hccl 内解析不到,UT 可执行文件必须自带全局强定义(先例 ut_thread_aicpu_mgr.cc:27)。
+namespace aicpu {
+void GetSqeId(const uint32_t num, uint32_t& start, uint32_t& end)
+{
+    start = 1;
+    end = start + num;
+}
+} // namespace aicpu
+
 static drvError_t SetThreadLocalDeviceId(uint32_t, uint32_t* localDevId)
 {
     *localDevId = 7;
@@ -114,7 +125,10 @@ constexpr uint64_t THREAD_TEST_LOCAL_SQ_ADDR = 0x987654321000ULL;
 static std::unique_ptr<Hccl::RtsqBase> MakeInitializedThreadRtsq()
 {
     // 公共 UT 桩的 RTSQ 构造函数为空，显式提供资源恢复后的状态。
-    auto rtsq = std::make_unique<Hccl::RtsqBase>(0, 0, 0);
+    // 生产侧 FillThreadEntityRtsq 已按平台门把 rtsq 静态转换成 RtsqA5 并写入
+    // 共享槽字段（SetSqTailShared/SetTaskIdShared），UT 必须提供 RtsqA5 实体，
+    // 否则静态转换后写入越界（堆破坏）。
+    auto rtsq = std::make_unique<Hccl::RtsqA5>(0, 0, 0);
     rtsq->sqDepth_ = 2048;
     rtsq->sqBaseAddr_ = THREAD_TEST_SQ_BASE_ADDR;
     rtsq->sqHead_ = 13;
@@ -142,6 +156,9 @@ TEST_F(Test_Engine_Aicpu_Interface, test_RunAicpuThreadSupplementNotify)
     std::string supplementStr = aicpuThread.GetUniqueId();
     GlobalMockObject::verify();
 
+    // FillThreadEntityRtsq 播种实体 sqTail(=QuerySqTail)。桩必须设在 verify() 之后:
+    // verify 会重置全部 mock,早设会被清掉。返回镜像值 17,断言才有确定期望。
+    MOCKER_CPP(&Hccl::RtsqBase::QuerySqTail).stubs().will(returnValue(uint32_t{17}));
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
     isDeviceSide = true;
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
@@ -224,8 +241,10 @@ TEST_F(Test_Engine_Aicpu_Interface, test_RunAicpuThreadSupplementNotify)
     EXPECT_EQ(rtsq.contextInfo.rtsqContext.sqDepth, 2048U);
     EXPECT_EQ(rtsq.contextInfo.rtsqContext.sqHead, 13U);
     EXPECT_EQ(rtsq.contextInfo.rtsqContext.sqTail, 17U);
-    EXPECT_EQ(rtsq.contextInfo.rtsqContext.taskId, 0U);
-    EXPECT_EQ(rtsq.contextInfo.rtsqContext.taskIdEnd, 0U);
+    // PR-1 起 FillThreadEntityRtsq 会对耗尽段(taskId>=taskIdEnd)取号:实体初值 0/0
+    // 触发取号,播种 RtsqBase 桩对象已设的 taskId_/taskIdEnd_(73/1024)。
+    EXPECT_EQ(rtsq.contextInfo.rtsqContext.taskId, 73U);
+    EXPECT_EQ(rtsq.contextInfo.rtsqContext.taskIdEnd, 1024U);
     EXPECT_EQ(rtsq.contextInfo.rtsqContext.pendingSqeCnt, 0U);
     rtsq.contextInfo.rtsqContext.sqHead = 19;
     rtsq.contextInfo.rtsqContext.sqTail = 21;
@@ -280,6 +299,9 @@ TEST_F(Test_Engine_Aicpu_Interface, BaseThreadInitPreservesHostFieldsAndRefreshe
     MOCKER(drvGetLocalDevIDByHostDevID).stubs().will(invoke(SetThreadLocalDeviceId));
     auto restoredRtsq = MakeInitializedThreadRtsq();
     MOCKER_CPP(&Hccl::StreamLite::GetRtsq).stubs().will(returnValue(restoredRtsq.get()));
+    // PR-1 起 FillThreadEntityRtsq 用寄存器真值播种实体 sqTail(=QuerySqTail);
+    // llt stub 的 halSqCqQuery 桩值恒为 1,桩返回镜像值 17 断言才有确定期望。
+    MOCKER_CPP(&Hccl::RtsqBase::QuerySqTail).stubs().will(returnValue(uint32_t{17}));
     MOCKER(HcommThreadRegisterDfx).stubs().will(returnValue(0));
     MOCKER_CPP(&AicpuThreadProcess::StopBackGroundThread).stubs();
     ThreadHandle ctxHandle{};
@@ -376,6 +398,9 @@ TEST_F(Test_Engine_Aicpu_Interface, CollectiveMixedThreadsKeepEntityOrderAndNoti
     MOCKER(drvGetLocalDevIDByHostDevID).stubs().will(invoke(SetThreadLocalDeviceId));
     auto restoredRtsq = MakeInitializedThreadRtsq();
     MOCKER_CPP(&Hccl::StreamLite::GetRtsq).stubs().will(returnValue(restoredRtsq.get()));
+    // PR-1 起 FillThreadEntityRtsq 用寄存器真值播种实体 sqTail(=QuerySqTail);
+    // llt stub 的 halSqCqQuery 桩值恒为 1,桩返回镜像值 17 断言才有确定期望。
+    MOCKER_CPP(&Hccl::RtsqBase::QuerySqTail).stubs().will(returnValue(uint32_t{17}));
     // 只有中间的真实线程注册流相关回调；首尾的 Notify 桩线程不能进入轮询列表。
     MOCKER_CPP(&ThreadAicpuMgr::RegisterThreadAddDfxTaskInfo).expects(once()).will(returnValue(HCCL_SUCCESS));
     MOCKER(HcommThreadRegisterCacheCallback).expects(once()).will(returnValue(static_cast<HcommResult>(HCOMM_SUCCESS)));

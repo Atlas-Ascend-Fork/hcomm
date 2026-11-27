@@ -223,6 +223,10 @@ TEST(AddrRefreshInfoTest, SelfAssignment)
 
 class AicpuTaskCacheEntryTest : public testing::Test {
 protected:
+    // 直接共享账本 mock 槽位（GetTail/SetTail 与 GetPi/GetCi 的底层存储）
+    uint32_t mockTailSlot{0};
+    uint32_t mockPiSlot{};
+    uint32_t mockCiSlot{};
     std::unique_ptr<Hccl::RtsqA5> rtsq_;
     Hccl::RtsqA5* rtsqPtr_ = nullptr;
     std::unique_ptr<hccl::AicpuTsThread> aicpuTsThread_;
@@ -240,8 +244,10 @@ protected:
         rtsq_ = std::make_unique<Hccl::RtsqA5>(0, 0, 0);
         rtsqPtr_ = rtsq_.get();
         aicpuTsThread_ = std::make_unique<hccl::AicpuTsThread>(std::string("ut_thread"));
+        rtsq_->SetSqTailShared(&mockTailSlot);
         ubConnLite_ = std::make_unique<Hccl::UbConnLite>(
             Hccl::UbJettyLiteId(0, 0, 0), Hccl::UbJettyLiteAttr(0, 0, TEST_SQ_DEPTH, 0, true), Hccl::Eid{});
+        ubConnLite_->SetSqPiCi(&mockPiSlot, &mockCiSlot);
         emptyUniqueId_ = MakeEmptyUbV2UniqueId();
         ubTransport_ = std::make_unique<Hccl::UbTransportLiteImpl>(emptyUniqueId_);
     }
@@ -419,6 +425,7 @@ TEST_F(AicpuTaskCacheEntryTest, VNotifyFusedRecordRestoresAfterZero)
     ubConnLite_ = std::make_unique<UbConnLite>(
         UbJettyLiteId(0, 0, 0), UbJettyLiteAttr(0, reinterpret_cast<uint64_t>(sqStorage.data()), TEST_SQ_DEPTH, 0),
         Eid{});
+    ubConnLite_->SetSqPiCi(&mockPiSlot, &mockCiSlot);
     AicpuTaskCacheEntry entry;
     PrepareVNotifyEntry(entry, VOpMode::kWrite, true);
     ASSERT_FALSE(HasFatalFailure());
@@ -427,7 +434,7 @@ TEST_F(AicpuTaskCacheEntryTest, VNotifyFusedRecordRestoresAfterZero)
     current.recvCounts.assign(8, 0);
     CheckVNotifyReplay(entry, current, false, false, false, false);
     ASSERT_EQ(entry.LaunchWqeTasks_(entry.wqeTaskArrayInfos_[0]), HCCL_SUCCESS);
-    EXPECT_EQ(ubConnLite_->pi, 3U);
+    EXPECT_EQ(ubConnLite_->GetPi(), 3U);
     for (size_t i = 0; i < 3; ++i) {
         const auto* nop = reinterpret_cast<const UdmaSqeWrite*>(sqStorage.data() + i * 64);
         EXPECT_EQ(static_cast<uint32_t>(nop->comm.opcode), static_cast<uint32_t>(UdmaSqOpcode::UDMA_OPC_NOP));
@@ -2330,9 +2337,9 @@ TEST_F(AicpuTaskCacheEntryTest, LaunchTasksByOrder_VSdmaRestoresTypesAfterRefres
         // 第一条改成PLACE_HOLDER后，让第二条长度溢出，或让下发因pending SQE失败。
         const uint64_t secondCount = failDuringRefresh ? uint64_t{UINT32_MAX} + 1 : 0;
         const VOpInfo failing{{0, secondCount}, {0, secondCount}, {0, 16}, {0, 16}};
-        rtsqPtr_->pendingSqeCnt = failDuringRefresh ? 0 : 1;
+        rtsqPtr_->pendingSqeCnt_ = failDuringRefresh ? 0 : 1;
         const auto result = entry.LaunchTasksByOrder_(baseAddrs, memSizes, 2, false, failing);
-        rtsqPtr_->pendingSqeCnt = 0;
+        rtsqPtr_->pendingSqeCnt_ = 0;
         EXPECT_EQ(result, failDuringRefresh ? HCCL_E_PARA : HCCL_E_INTERNAL);
 
         const auto& arrayInfo = entry.sqeArrayInfos_[0];

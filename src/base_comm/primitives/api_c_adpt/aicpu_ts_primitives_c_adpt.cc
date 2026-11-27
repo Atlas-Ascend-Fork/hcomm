@@ -43,7 +43,6 @@ using Hccl::LogDescsAddrAlignCheck512B;
 using Hccl::PLF_DATA_OP;
 
 using namespace hccl;
-using hcomm::UnwrapChannelHandle;
 thread_local LaunchContext g_threadLaunchCtx;
 
 bool IsBatchLaunchMode() { return g_threadLaunchCtx.IsBatchLaunchMode(); }

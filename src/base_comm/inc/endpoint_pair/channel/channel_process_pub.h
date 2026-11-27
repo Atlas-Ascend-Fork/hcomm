@@ -101,6 +101,8 @@ public:
     static HcclResult LaunchChannelKernel(
         ChannelHandle* channelHandles, ChannelHandle* hostChannelHandles, HcommChannelDesc* hcommDesc, uint32_t listNum,
         aclrtBinHandle binHandle);
+    // 预分配通道实体 SqContext（仅 AICPU_TS_URMA 生效，其余 kind 静默跳过）
+    static HcclResult PreAllocSqContexts(ChannelHandle hostChannelHandle);
     static HcclResult ChannelBuildDeviceEntity(ChannelHandle channelHandle, uint64_t* devChannelEntity);
 
 private:

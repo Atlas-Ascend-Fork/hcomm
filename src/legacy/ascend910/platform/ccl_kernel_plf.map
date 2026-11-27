@@ -590,6 +590,9 @@ global:
         "hrtStreamSetMode(void*, unsigned long)";
         "typeinfo for Hccl::RtsqA5";
         "typeinfo for Hccl::RtsqBase";
+        "typeinfo for Hccl::UbConnLite";
+        "typeinfo for Hccl::RmaConnLite";
+        "typeinfo for Hccl::UbTransportLiteImpl";
         "vtable for Hccl::Buffer";
         "vtable for Hccl::RtsqBase";
     };

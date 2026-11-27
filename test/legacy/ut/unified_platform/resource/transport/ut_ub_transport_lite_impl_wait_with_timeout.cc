@@ -209,6 +209,8 @@ TEST_F(UbTransportLiteImplWaitWithTimeoutTest, UbTransportLiteImpl_WaitWithTimeo
     StreamLite stream(uniqueId);
     stream.rtsq = std::make_unique<RtsqA5>(fakedevPhyId, fakeStreamId, fakeSqId);
     RtsqA5& rtsq = *static_cast<RtsqA5*>(stream.rtsq.get());
+    static uint32_t s_mockTailSlot = 0; // 直接共享账本 mock 槽位
+    rtsq.SetSqTailShared(&s_mockTailSlot);
 
     u32 timeout = 1800;
     EXPECT_NO_THROW(ubTransportLite.WaitWithTimeout(0, stream, timeout));
@@ -243,6 +245,8 @@ TEST_F(UbTransportLiteImplWaitWithTimeoutTest, UbTransportLiteImpl_WaitWithTimeo
     StreamLite stream(uniqueId);
     stream.rtsq = std::make_unique<RtsqA5>(fakedevPhyId, fakeStreamId, fakeSqId);
     RtsqA5& rtsq = *static_cast<RtsqA5*>(stream.rtsq.get());
+    static uint32_t s_mockTailSlot = 0; // 直接共享账本 mock 槽位
+    rtsq.SetSqTailShared(&s_mockTailSlot);
 
     u32 timeout = 0;
     EXPECT_NO_THROW(ubTransportLite.WaitWithTimeout(0, stream, timeout));
@@ -277,6 +281,8 @@ TEST_F(UbTransportLiteImplWaitWithTimeoutTest, UbTransportLiteImpl_WaitWithTimeo
     StreamLite stream(uniqueId);
     stream.rtsq = std::make_unique<RtsqA5>(fakedevPhyId, fakeStreamId, fakeSqId);
     RtsqA5& rtsq = *static_cast<RtsqA5*>(stream.rtsq.get());
+    static uint32_t s_mockTailSlot = 0; // 直接共享账本 mock 槽位
+    rtsq.SetSqTailShared(&s_mockTailSlot);
 
     u32 timeout = 0xFFFFFFFF;
     EXPECT_NO_THROW(ubTransportLite.WaitWithTimeout(0, stream, timeout));

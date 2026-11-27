@@ -47,6 +47,8 @@ public:
 
     HcclResult H2DResPack(std::vector<char>& buffer);
     HcclResult BuildDeviceEntity(ChannelHandle compatChannelHandle, ChannelHandle& entityHandle);
+    HcclResult PreAllocSqContexts();
+    uint64_t GetSqContextDevAddr() const { return entityResources_.GetSqContextsDevAddr(); }
 
     IChannelEntity* GetChannelEntity() override { return &aicpuTsEntity_; }
 

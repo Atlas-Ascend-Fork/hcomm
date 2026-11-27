@@ -24,6 +24,7 @@
 #include "aicpu_res_package_helper.h"
 #include "base_transport_lite_impl.h"
 #include "endpoint_pair/channel/device/aicpu_channel_pub.h"
+#include "aicpu_channel_process.h"
 #include "log.h"
 #include "common/cast_utils_pub.h"
 #include <shared_mutex>
@@ -149,6 +150,13 @@ static HcclResult ResumeChannels(HcclChannelUrmaRes* commParam)
         std::vector<char> transpUniqueId;
         binaryStream >> transpUniqueId;
         CHK_RET(impl->Resume(transpUniqueId));
+
+        if (commParam->entityPiCiAddrList != nullptr) {
+            auto** piCiAddrList = reinterpret_cast<void**>(commParam->entityPiCiAddrList);
+            if (piCiAddrList[i] != nullptr) {
+                CHK_RET(AicpuChannelProcess::SetSqPiCiByTransport(impl, piCiAddrList[i], i));
+            }
+        }
     }
     return HCCL_SUCCESS;
 }

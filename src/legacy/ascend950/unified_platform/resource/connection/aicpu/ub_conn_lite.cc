@@ -61,7 +61,7 @@ HcclResult UbConnLite::FillCommSqe(
 {
     u32 cqeEn = (cfg.cqeEn && (slicePos == SlicePosition::LAST || slicePos == SlicePosition::ONLY)) ? 1 : 0;
     sqe->cqe = cqeEn;
-    sqe->owner = (pi == (sqDepth_ - 1)) ? 1 : 0;
+    sqe->owner = (sqDepth_ != 0 && GetPi() % sqDepth_ == sqDepth_ - 1) ? 1 : 0;
     sqe->opcode = opCode;
     sqe->tpn = tpn_;
 
@@ -276,12 +276,12 @@ HcclResult UbConnLite::LaunchOneWqe(UdmaSqeWrite* sqe, UdmaSqOpcode opCode)
     HCCL_DEBUG("[UbConnLite::%s] start, opCode[%s]", __func__, opCode.Describe().c_str());
 
     // sqOffset是用于计算Ubjetty中下wqe位置的偏移，小于sqDepth
-    u32 sqOffset = pi % sqDepth_;
+    u32 sqOffset = GetPi() % sqDepth_;
     if (sqOffset < sqDepth_ && (sqOffset + 1) >= sqDepth_) {
         piDetourCount++;
     }
     // pi维护用于传入DB Send用于Rtsq 敲door bell，要求u16数据结构并且自然增长
-    pi = pi + 1;
+    SetPi(GetPi() + 1);
 
     // 写wqe到va
     u8* va = ReinterpretAs<u8*>(sqVa_ + sqOffset * SQE_SIZE_64);
@@ -296,7 +296,7 @@ HcclResult UbConnLite::LaunchOneWqe(UdmaSqeWrite* sqe, UdmaSqOpcode opCode)
 
     HCCL_DEBUG(
         "[UbConnLite::%s] end, dieId_[%u], funcId_[%u], jettyId_[%u], pi[%u], ci[%u]", __func__, dieId_, funcId_,
-        jettyId_, pi, ci);
+        jettyId_, GetPi(), GetCi());
     return HCCL_SUCCESS;
 }
 
@@ -337,12 +337,12 @@ HcclResult UbConnLite::LaunchOneWqeWithNotify(UdmaSqeWriteWithNotify* sqe, u32 o
     HCCL_DEBUG("[UbConnLite::%s] start, opCode[%u]", __func__, opCode);
 
     // sqOffset是用于计算Ubjetty中下wqe位置的偏移，小于sqDepth
-    u32 sqOffset = pi % sqDepth_;
+    u32 sqOffset = GetPi() % sqDepth_;
     if (sqOffset < sqDepth_ && (sqOffset + PI_NUM_TWO) >= sqDepth_) {
         piDetourCount++;
     }
     // pi维护用于传入DB Send用于Rtsq 敲door bell，要求u16数据结构并且自然增长
-    pi = pi + PI_NUM_TWO;
+    SetPi(GetPi() + PI_NUM_TWO);
 
     u8* va = ReinterpretAs<u8*>(sqVa_ + sqOffset * SQE_SIZE_64);
     if (!dwqeCacheLocked_) {
@@ -359,7 +359,7 @@ HcclResult UbConnLite::LaunchOneWqeWithNotify(UdmaSqeWriteWithNotify* sqe, u32 o
 
     HCCL_DEBUG(
         "[UbConnLite::%s] end, dieId_[%u], funcId_[%u], jettyId_[%u], pi[%u], ci[%u]", __func__, dieId_, funcId_,
-        jettyId_, pi, ci);
+        jettyId_, GetPi(), GetCi());
     return HCCL_SUCCESS;
 }
 
@@ -396,7 +396,7 @@ HcclResult UbConnLite::Read(
             return HCCL_SUCCESS;
         }));
 
-    out.pi = pi;
+    out.pi = GetPi();
     HCCL_DEBUG("[UbConnLite::%s] end, ConnLiteOperationOut.pi = %u, conn[%s]", __func__, out.pi, Describe().c_str());
     return HCCL_SUCCESS;
 }
@@ -421,7 +421,7 @@ HcclResult UbConnLite::ReadReduce(
         },
         reduceIn.dataType));
 
-    out.pi = pi;
+    out.pi = GetPi();
     HCCL_DEBUG("[UbConnLite::%s] end, ConnLiteOperationOut.pi = %u, conn[%s]", __func__, out.pi, Describe().c_str());
     return HCCL_SUCCESS;
 }
@@ -444,7 +444,7 @@ HcclResult UbConnLite::Write(
             return HCCL_SUCCESS;
         }));
 
-    out.pi = pi;
+    out.pi = GetPi();
     HCCL_DEBUG("[UbConnLite::%s] end, ConnLiteOperationOut.pi = %u, conn[%s]", __func__, out.pi, Describe().c_str());
     return HCCL_SUCCESS;
 }
@@ -484,7 +484,7 @@ HcclResult UbConnLite::InlineWrite(
     // 按需更新wqe tasks
     UpdateWqeTasks(sqe);
 
-    out.pi = pi;
+    out.pi = GetPi();
     HCCL_DEBUG(
         "[UbConnLite::%s] end, ConnLiteOperationOut.pi = %u, ConnLiteOperationOut.datasize = %u, conn[%s]", __func__,
         out.pi, out.dataSize, Describe().c_str());
@@ -533,7 +533,7 @@ HcclResult UbConnLite::WriteReduce(
         },
         dataType));
 
-    out.pi = pi;
+    out.pi = GetPi();
     HCCL_DEBUG("[UbConnLite::%s] end, ConnLiteOperationOut.pi = %u, conn[%s]", __func__, out.pi, Describe().c_str());
     return HCCL_SUCCESS;
 }
@@ -566,7 +566,7 @@ HcclResult UbConnLite::WriteWithNotify(
             return HCCL_SUCCESS;
         }));
 
-    out.pi = pi;
+    out.pi = GetPi();
     HCCL_DEBUG("[UbConnLite::%s] end, ConnLiteOperationOut.pi = %u, conn[%s]", __func__, out.pi, Describe().c_str());
     return HCCL_SUCCESS;
 }
@@ -603,7 +603,7 @@ HcclResult UbConnLite::WriteReduceWithNotify(
         },
         dataType));
 
-    out.pi = pi;
+    out.pi = GetPi();
     HCCL_DEBUG("[UbConnLite::%s] end, ConnLiteOperationOut.pi = %u, conn[%s]", __func__, out.pi, Describe().c_str());
     return HCCL_SUCCESS;
 }
@@ -643,17 +643,16 @@ HcclResult UbConnLite::FillBatchOneWqe(
     (void)stream;
     HCCL_INFO("UbConnLite FillBatchOneWqe start, loc[%s], rmt[%s]", loc.Describe().c_str(), rmt.Describe().c_str());
 
-    u32 sqOffset = pi % sqDepth_;
-    pi = pi + 1;
-    if (UNLIKELY(pi > sqDepth_)) {
-        HCCL_ERROR("[%s]dieId:%u, funcId:%u, jettyId:%u, pi %u", __func__, dieId_, funcId_, jettyId_, pi);
-        pi = pi % sqDepth_;
-    }
+    u32 sqOffset = GetPi() % sqDepth_;
 
     // 写入wqe数据到out.data
     UdmaSqeWrite sqe{};
     sqe.comm.inlineEn = 0;
+    // owner 判定与 sqOffset 须用同一个 pi：先填 SQE 再推进 pi，对齐非 batch 路径
+    // （FillOneSqeWrite 先填、LaunchOneWqe 后增），否则环尾 owner 位错一格
     CHK_RET(FillCommSqe(&(sqe.comm), rmt, cfg, opCode));
+    // pi维护用于传入DB Send用于Rtsq 敲door bell，要求u16数据结构并且自然增长
+    SetPi(GetPi() + 1);
     FillLocalSgeSqe(&(sqe.u.sge), loc);
 
     HCCL_INFO(
@@ -671,7 +670,7 @@ HcclResult UbConnLite::FillBatchOneWqe(
 
     CustomizeSqeByOneSidedComm(&(sqe.comm), isLastWqe);
 
-    HCCL_INFO("UbConnLite BatchWrite cp data to va 0x%llx, pi %u", sqVa_, pi);
+    HCCL_INFO("UbConnLite BatchWrite cp data to va 0x%llx, pi %u", sqVa_, GetPi());
     u8* va = ReinterpretAs<u8*>(sqVa_ + sqOffset * SQE_SIZE_64);
     if (dwqeCacheLocked_ == false) {
         auto ret = memcpy_sp(va, SQE_SIZE_64, &sqe, sizeof(UdmaSqeWrite));
@@ -753,7 +752,7 @@ void UbConnLite::BatchOneSidedRead(
     BatchCommDataProcess(loc, rmt, cfg, maxReadSize, UdmaSqOpcode::UDMA_OPC_READ, stream);
 
     // 更新connlite的输出信息
-    out.pi = pi;
+    out.pi = GetPi();
     HCCL_INFO("UbConnLite BatchRead end, out.pi = %u", out.pi);
 }
 
@@ -765,7 +764,7 @@ void UbConnLite::BatchOneSidedWrite(
     BatchCommDataProcess(loc, rmt, cfg, maxWriteSize, UdmaSqOpcode::UDMA_OPC_WRITE, stream);
 
     // 更新connlite的输出信息
-    out.pi = pi;
+    out.pi = GetPi();
     HCCL_INFO("UbConnLite BatchWrite end, out.pi = %u", out.pi);
 }
 
@@ -775,8 +774,8 @@ std::string UbConnLite::Describe()
         "UbConnLite[dieId=%u, funcId=%u, jettyId=%u, dbAddr=0x%llx, sqVa=0x%llx, sqDepth=%u, "
         "jfcPollMode=%u, tpn=%u, dwqeCacheLocked=%d, locEid=%s, rmtEid=%s, jettyPi=%u, jettyCi=%u, inflight=%u]",
         dieId_, funcId_, jettyId_, dbAddr_, sqVa_, sqDepth_, jfcPollMode_, tpn_, dwqeCacheLocked_,
-        Bytes2hex(locEid_.raw, sizeof(locEid_.raw)).c_str(), Bytes2hex(rmtEid_.raw, sizeof(rmtEid_.raw)).c_str(), pi,
-        ci, GetInflight());
+        Bytes2hex(locEid_.raw, sizeof(locEid_.raw)).c_str(), Bytes2hex(rmtEid_.raw, sizeof(rmtEid_.raw)).c_str(),
+        GetPi(), GetCi(), GetInflight());
 }
 
 constexpr uint32_t UB_WQE_NUM_PER_SQE = 4; // URMA约束每个SQE包含4个WQEBB
@@ -871,16 +870,16 @@ HcclResult UbConnLite::MakeSureAvailableSpace(u32 wqeCount) const
     HCCL_INFO(
         "[%s]jetty SQ overflow wait for available space, dieId:%u, funcId:%u, jettyId:%u, sqDepth:%u, dbSendSeq:%u, "
         "dbDoneSeq:%u, pi:%u, ci:%u, inflight:%u, wqeCount:%u, sqFullTimeout:%u s",
-        __func__, dieId_, funcId_, jettyId_, sqDepth_, dbSendSeq_, dbDoneSeq_, pi, ci, GetInflight(), wqeCount,
-        sqFullTimeout);
+        __func__, dieId_, funcId_, jettyId_, sqDepth_, dbSendSeq_, dbDoneSeq_, GetPi(), GetCi(), GetInflight(),
+        wqeCount, sqFullTimeout);
     while (CheckOverflow(wqeCount)) {
         auto curTime = std::chrono::steady_clock::now();
         if (UNLIKELY(curTime - lastPrintTime >= printInterval)) {
             HCCL_RUN_INFO(
                 "[%s]jetty SQ overflow while loop, dieId:%u, funcId:%u, jettyId:%u, sqDepth:%u, dbSendSeq:%u, "
                 "dbDoneSeq:%u, pi:%u, ci:%u, inflight:%u, wqeCount:%u, sqFullTimeout:%u s",
-                __func__, dieId_, funcId_, jettyId_, sqDepth_, dbSendSeq_, dbDoneSeq_, pi, ci, GetInflight(), wqeCount,
-                sqFullTimeout);
+                __func__, dieId_, funcId_, jettyId_, sqDepth_, dbSendSeq_, dbDoneSeq_, GetPi(), GetCi(), GetInflight(),
+                wqeCount, sqFullTimeout);
             lastPrintTime = curTime;
         }
 
@@ -888,8 +887,8 @@ HcclResult UbConnLite::MakeSureAvailableSpace(u32 wqeCount) const
             HCCL_ERROR(
                 "[%s]jetty SQ overflow wait timeout, dieId:%u, funcId:%u, jettyId:%u, sqDepth:%u, dbSendSeq:%u, "
                 "dbDoneSeq:%u, pi:%u, ci:%u, inflight:%u, wqeCount:%u, sqFullTimeout:%u s",
-                __func__, dieId_, funcId_, jettyId_, sqDepth_, dbSendSeq_, dbDoneSeq_, pi, ci, GetInflight(), wqeCount,
-                sqFullTimeout);
+                __func__, dieId_, funcId_, jettyId_, sqDepth_, dbSendSeq_, dbDoneSeq_, GetPi(), GetCi(), GetInflight(),
+                wqeCount, sqFullTimeout);
             return HCCL_E_INTERNAL;
         }
     }

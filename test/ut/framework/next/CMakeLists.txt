@@ -105,6 +105,7 @@ set(src_to_test_list
     comms/endpoint_pairs/channels/aicpu/ut_aicpu_ts_ub_rtp_channel.cc
     comms/endpoint_pairs/channels/aicpu/ut_aicpu_ts_roce_dev_loc_channel.cc
     comms/endpoint_pairs/channels/aicpu/device/ut_aicpu_channel_process.cc
+    comms/endpoint_pairs/channels/aicpu/device/ut_channel_pici_direct_set.cc
     comms/endpoint_pairs/channels/aicpu/device/ut_dev_ep_mem_table_test.cc
     comms/endpoints/ut_urma_endpoint.cc
     comms/endpoints/ut_aicpu_ts_roce_endpoint.cc

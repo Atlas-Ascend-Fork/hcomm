@@ -11,6 +11,7 @@
 #ifndef AICPU_TS_CHANNEL_ENTITY_RESOURCES_H
 #define AICPU_TS_CHANNEL_ENTITY_RESOURCES_H
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -29,6 +30,12 @@ using DeviceMem = hccl::DeviceMem;
  */
 class AicpuChannelEntityResources {
 public:
+    HcclResult PreAllocSqContexts();
+    uint64_t GetSqContextsDevAddr() const
+    {
+        return static_cast<uint64_t>(reinterpret_cast<uintptr_t>(sqContexts_.ptr()));
+    }
+
     HcclResult Build(
         const std::vector<char>& packedChannelData, CommEngine engine, CommProtocol protocol,
         ChannelHandle originHandle, ChannelHandle& entityHandle);

@@ -1460,6 +1460,8 @@ TEST_F(MyRankTest, Ut_CreateChannels_When_BatchExchangeAndCheckConsistency_Timeo
     MOCKER_CPP(&hccl::MyRank::BatchCreateSockets).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hccl::MyRank::BatchCreateChannels).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MockerFuncs();
+    // 桩掉 BatchCreateChannels 后句柄不在注册表，真实 PreAllocSqContexts 的 ChannelGet 必然 E_NOT_FOUND
+    MOCKER(hcomm::ChannelProcess::PreAllocSqContexts).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hccl::MyRank::CollectDcaPeerInfo).stubs().will(returnValue(HCCL_SUCCESS));
 
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
@@ -1501,6 +1503,8 @@ TEST_F(MyRankTest, Ut_CreateChannels_When_BatchExchangeAndCheckConsistency_Timeo
     MOCKER_CPP(&hccl::MyRank::BatchCreateSockets).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hccl::MyRank::BatchCreateChannels).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MockerFuncs();
+    // 桩掉 BatchCreateChannels 后句柄不在注册表，真实 PreAllocSqContexts 的 ChannelGet 必然 E_NOT_FOUND
+    MOCKER(hcomm::ChannelProcess::PreAllocSqContexts).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hccl::MyRank::CollectDcaPeerInfo).stubs().will(returnValue(HCCL_SUCCESS));
 
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_960)).will(returnValue(HCCL_SUCCESS));
@@ -1684,6 +1688,8 @@ void ResetCreateChannelsRecords()
 // launchNum：DFX 填表 1 次，复用通道有包可推时再加 1 次
 void InstallCreateChannelsLaunchMocks(MyRank* myRank, uint32_t launchNum)
 {
+    // 桩 BatchCreateChannels 后句柄 0x1000 不在注册表，真实 PreAllocSqContexts 的 ChannelGet 必然 E_NOT_FOUND
+    MOCKER(hcomm::ChannelProcess::PreAllocSqContexts).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hccl::MyRank::BatchCreateSockets).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hccl::MyRank::BatchCreateChannels).stubs().will(invoke(StubBatchCreateChannels));
     MOCKER_CPP(&hccl::MyRank::WaitForChannelsReady).stubs().will(returnValue(HCCL_SUCCESS));
@@ -3763,6 +3769,8 @@ TEST_F(MyRankTest, Ut_CreateChannels_When_ExchangeReturnsTcpConnect_Expect_DcaDe
 {
     // 一致性校验返回 E_TCP_CONNECT 时触发 DCA。
     MockerFuncs();
+    // 桩掉 BatchCreateChannels 后句柄不在注册表，真实 PreAllocSqContexts 的 ChannelGet 必然 E_NOT_FOUND
+    MOCKER(hcomm::ChannelProcess::PreAllocSqContexts).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hccl::MyRank::BatchCreateSockets).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hccl::MyRank::BatchCreateChannels).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hccl::EndpointMgr::Get).stubs().will(invoke(GetEndpointStub));

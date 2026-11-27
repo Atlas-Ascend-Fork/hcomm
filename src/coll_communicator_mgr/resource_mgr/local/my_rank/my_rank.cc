@@ -1916,6 +1916,12 @@ HcclResult MyRank::CreateChannels(
         newChannelsSnapshot = newChannels_;
     }
 
+    if (engine == COMM_ENGINE_AICPU_TS) {
+        for (u32 i = 0; i < channelNum; ++i) {
+            CHK_RET(ChannelProcess::PreAllocSqContexts(hostChannelHandleList[i]));
+        }
+    }
+
     if (!newChannelsSnapshot.empty()) {
         HcclResult connRet = WaitForChannelsReady(channelDescs, hostChannelHandleList, channelNum, engine);
         if (connRet == HCCL_E_UNAVAIL && engine == COMM_ENGINE_CCU) {

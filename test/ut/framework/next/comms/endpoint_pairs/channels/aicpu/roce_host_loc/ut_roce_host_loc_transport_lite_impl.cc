@@ -23,12 +23,30 @@
 #include "stream.h"
 #include "stream_lite.h"
 #include "rtsq_base.h"
+#include "rtsq_a5.h"
 #include "sqe.h"
 #include "roce_host_loc_conn_lite.h"
 
 #define private public
 
 using namespace Hccl;
+
+// 直接共享账本适配：StreamLite 构造即建 RtsqA5（sqTailShared_ 未绑定），
+// Write→RdmaDbSend→GetCurrSqeBuffer→GetTail() 会解引用空指针。
+// 统一经此 helper 构造并绑定 mock 槽位。
+namespace {
+struct BoundedStreamGuard {
+    uint32_t mockTailSlot{0};
+    StreamLite stream;
+    explicit BoundedStreamGuard(std::vector<char>& uniqueId) : stream(uniqueId)
+    {
+        auto* rtsqA5 = dynamic_cast<RtsqA5*>(stream.GetRtsq());
+        if (rtsqA5 != nullptr) {
+            rtsqA5->SetSqTailShared(&mockTailSlot);
+        }
+    }
+};
+} // namespace
 
 static const u32 ROCE_TYPE = 1;
 static std::vector<u64> g_writeReduceSliceSizes;
@@ -569,7 +587,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_Write)
     Hccl::Buffer rmtBuf{0x5000, 0x200};
 
     std::vector<char> uniqueId{};
-    StreamLite stream(uniqueId);
+    BoundedStreamGuard streamGuard(uniqueId);
+    StreamLite& stream = streamGuard.stream;
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(static_cast<HcclResult (RoceHostLocConnLite::*)(
@@ -609,7 +628,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_WriteWithNotify)
     Hccl::WithNotifyIn withNotify{Hccl::TransportNotifyType::NORMAL, remoteNotifyIdx};
 
     std::vector<char> uniqueId{};
-    StreamLite stream(uniqueId);
+    BoundedStreamGuard streamGuard(uniqueId);
+    StreamLite& stream = streamGuard.stream;
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(
@@ -647,7 +667,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_Post)
     uint32_t remoteNotifyIdx = 0;
 
     std::vector<char> uniqueId{};
-    StreamLite stream(uniqueId);
+    BoundedStreamGuard streamGuard(uniqueId);
+    StreamLite& stream = streamGuard.stream;
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(static_cast<HcclResult (RoceHostLocConnLite::*)(
@@ -692,7 +713,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_Read)
     RmaBufferLite locBuf(0x4000, 0x200, 0x400, 0);
     Hccl::Buffer rmtBuf{0x5000, 0x200};
     std::vector<char> uniqueId{};
-    StreamLite stream(uniqueId);
+    BoundedStreamGuard streamGuard(uniqueId);
+    StreamLite& stream = streamGuard.stream;
 
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
@@ -724,7 +746,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_WriteReduce)
     Hccl::Buffer rmtBuf{0x5000, 0x200};
     ReduceIn reduceIn(DataType::FP32, ReduceOp::SUM);
     std::vector<char> uniqueId{};
-    StreamLite stream(uniqueId);
+    BoundedStreamGuard streamGuard(uniqueId);
+    StreamLite& stream = streamGuard.stream;
 
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
@@ -763,7 +786,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_WriteReduceWithNot
     ReduceIn reduceIn(DataType::FP32, ReduceOp::MAX);
     Hccl::WithNotifyIn withNotify{Hccl::TransportNotifyType::NORMAL, 0};
     std::vector<char> uniqueId{};
-    StreamLite stream(uniqueId);
+    BoundedStreamGuard streamGuard(uniqueId);
+    StreamLite& stream = streamGuard.stream;
 
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
@@ -854,7 +878,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_WaitWithTimeout)
 {
     RoceHostLocTransportLiteImpl transport(uniqueId_);
     std::vector<char> uniqueId{};
-    StreamLite stream(uniqueId);
+    BoundedStreamGuard streamGuard(uniqueId);
+    StreamLite& stream = streamGuard.stream;
 
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
@@ -868,7 +893,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_Write_PollCqError_
     RmaBufferLite locBuf(0x4000, 0x200, 0x400, 0);
     Hccl::Buffer rmtBuf{0x5000, 0x200};
     std::vector<char> uniqueId{};
-    StreamLite stream(uniqueId);
+    BoundedStreamGuard streamGuard(uniqueId);
+    StreamLite& stream = streamGuard.stream;
 
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
@@ -891,7 +917,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_Write_PollCqTimeou
     RmaBufferLite locBuf(0x4000, 0x200, 0x400, 0);
     Hccl::Buffer rmtBuf{0x5000, 0x200};
     std::vector<char> uniqueId{};
-    StreamLite stream(uniqueId);
+    BoundedStreamGuard streamGuard(uniqueId);
+    StreamLite& stream = streamGuard.stream;
 
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
@@ -939,7 +966,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_WriteReduce_MultiQp_Expect_ElementAl
     Hccl::Buffer rmtBuf{0x5000, 0x200};
     ReduceIn reduceIn(DataType::FP32, ReduceOp::SUM);
     std::vector<char> streamId{};
-    StreamLite stream(streamId);
+    BoundedStreamGuard streamGuard(streamId);
+    StreamLite& stream = streamGuard.stream;
     g_writeReduceSliceSizes.clear();
 
     MOCKER_CPP(static_cast<HcclResult (RoceHostLocConnLite::*)(
@@ -965,7 +993,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_WriteReduce_InvalidElementLength_Exp
     ReduceIn reduceIn(DataType::FP32, ReduceOp::SUM);
     Hccl::WithNotifyIn withNotify{Hccl::TransportNotifyType::NORMAL, 0};
     std::vector<char> streamId{};
-    StreamLite stream(streamId);
+    BoundedStreamGuard streamGuard(streamId);
+    StreamLite& stream = streamGuard.stream;
 
     EXPECT_EQ(transport.WriteReduce(locBuf, rmtBuf, reduceIn, stream), HCCL_E_PARA);
     EXPECT_EQ(transport.WriteReduceWithNotify(locBuf, rmtBuf, reduceIn, withNotify, stream), HCCL_E_PARA);
@@ -979,7 +1008,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_WriteWithNotify_MultiQp_Expect_DataA
     Hccl::Buffer rmtBuf{0x5000, 0x200};
     Hccl::WithNotifyIn withNotify{Hccl::TransportNotifyType::NORMAL, 1};
     std::vector<char> streamId{};
-    StreamLite stream(streamId);
+    BoundedStreamGuard streamGuard(streamId);
+    StreamLite& stream = streamGuard.stream;
 
     MOCKER_CPP(
         static_cast<HcclResult (RoceHostLocConnLite::*)(
@@ -1006,7 +1036,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_Write_DoorbellError_Expect_ErrorProp
     RmaBufferLite locBuf(0x4000, 0x200, 0x400, 0);
     Hccl::Buffer rmtBuf{0x5000, 0x200};
     std::vector<char> streamId{};
-    StreamLite stream(streamId);
+    BoundedStreamGuard streamGuard(streamId);
+    StreamLite& stream = streamGuard.stream;
 
     MOCKER_CPP(static_cast<HcclResult (RoceHostLocConnLite::*)(
                    const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, unsigned long long&,
@@ -1027,7 +1058,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_WriteWithNotify_NotifyOnlyError_Expe
     Hccl::Buffer rmtBuf{0x5000, 0x200};
     Hccl::WithNotifyIn withNotify{Hccl::TransportNotifyType::NORMAL, 1};
     std::vector<char> streamId{};
-    StreamLite stream(streamId);
+    BoundedStreamGuard streamGuard(streamId);
+    StreamLite& stream = streamGuard.stream;
 
     MOCKER_CPP(
         static_cast<HcclResult (RoceHostLocConnLite::*)(
@@ -1051,7 +1083,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_WaitWithTimeout_MultiQp_Expect_OnlyM
     auto multiQpId = BuildTransportUniqueId(6, BUFFER_NUM, 2, 0);
     RoceHostLocTransportLiteImpl transport(multiQpId);
     std::vector<char> streamId{};
-    StreamLite stream(streamId);
+    BoundedStreamGuard streamGuard(streamId);
+    StreamLite& stream = streamGuard.stream;
     g_notifyWaitCalls.clear();
 
     MOCKER_CPP(&RoceHostLocTransportLiteImpl::BuildNotifyWaitTask).expects(exactly(2)).will(invoke(CaptureNotifyWait));
@@ -1081,7 +1114,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_Post_MultiQp_Expect_PerQpNotifyFanou
     auto multiQpId = BuildTransportUniqueId(6, BUFFER_NUM, 2, 0);
     RoceHostLocTransportLiteImpl transport(multiQpId);
     std::vector<char> streamId{};
-    StreamLite stream(streamId);
+    BoundedStreamGuard streamGuard(streamId);
+    StreamLite& stream = streamGuard.stream;
 
     MOCKER_CPP(static_cast<HcclResult (RoceHostLocConnLite::*)(
                    const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, unsigned long long&,
@@ -1101,7 +1135,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_Post_InvalidNotifyIndex_Expect_Param
     auto multiQpId = BuildTransportUniqueId(6, BUFFER_NUM, 2, 0);
     RoceHostLocTransportLiteImpl transport(multiQpId);
     std::vector<char> streamId{};
-    StreamLite stream(streamId);
+    BoundedStreamGuard streamGuard(streamId);
+    StreamLite& stream = streamGuard.stream;
 
     MOCKER_CPP(static_cast<HcclResult (RoceHostLocConnLite::*)(
                    const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, unsigned long long&,
@@ -1119,7 +1154,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_Read_MultiQp_Expect_SlicedAcrossQps)
     RmaBufferLite locBuf(0x4000, 10, 0x400, 0);
     Hccl::Buffer rmtBuf{0x5000, 0x200};
     std::vector<char> streamId{};
-    StreamLite stream(streamId);
+    BoundedStreamGuard streamGuard(streamId);
+    StreamLite& stream = streamGuard.stream;
     g_rwLocSlices.clear();
     g_rwRmtSlices.clear();
 
@@ -1148,7 +1184,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_Write_MultiQp_Expect_SlicedAcrossQps
     RmaBufferLite locBuf(0x4000, 10, 0x400, 0);
     Hccl::Buffer rmtBuf{0x5000, 0x200};
     std::vector<char> streamId{};
-    StreamLite stream(streamId);
+    BoundedStreamGuard streamGuard(streamId);
+    StreamLite& stream = streamGuard.stream;
     g_rwLocSlices.clear();
     g_rwRmtSlices.clear();
 

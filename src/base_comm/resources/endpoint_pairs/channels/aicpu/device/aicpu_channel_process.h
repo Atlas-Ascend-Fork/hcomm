@@ -29,6 +29,8 @@ public:
     static HcclResult AicpuChannelInit(HcclChannelUrmaRes* commParam);
     static HcclResult AicpuChannelDestroy(HcclChannelUrmaRes* commParam);
     static HcclResult InitHcommChannelRes(HcommChannelRes* commParam);
+    static HcclResult
+    SetSqPiCiByTransport(Hccl::BaseTransportLiteImpl* transport, void* sqContextAddr, uint32_t channelIndex);
 
 private:
     friend bool hcomm::IsValidLiteTransportHandle(ChannelHandle handle);

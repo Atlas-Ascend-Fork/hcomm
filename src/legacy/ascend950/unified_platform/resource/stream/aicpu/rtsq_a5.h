@@ -95,13 +95,52 @@ public:
     HcclResult GetLastStreamIdAndTaskId(uint16_t& streamId, uint16_t& taskId) const override;
 
     // 用于aicpu task cache
-    uint32_t GetPendingSqeCnt() const override { return pendingSqeCnt; }
+    uint32_t GetPendingSqeCnt() const override { return pendingSqeCnt_; }
 
     inline HcclResult SetAicpuTsThreadPtr(hccl::AicpuTsThread* threadPtr)
     {
         CHK_PTR_NULL(threadPtr);
         aicpuTsThreadPtr_ = threadPtr;
         return HCCL_SUCCESS;
+    }
+
+    inline u32 GetTail() const { return *sqTailShared_; }
+    inline void SetTail(u32 v) { *sqTailShared_ = v; }
+    inline void SetSqTailShared(uint32_t* p)
+    {
+        sqTailShared_ = p;
+        HCCL_INFO("RtsqA5: SQ_TAIL_DIRECT bind slot[%p]", static_cast<void*>(p));
+    }
+
+    void SetTaskIdShared(uint32_t* next, uint32_t* end)
+    {
+        taskIdSharedNext_ = next;
+        taskIdSharedEnd_ = end;
+        HCCL_INFO(
+            "RtsqA5: TASK_ID_DIRECT bind range[%p, %p)", static_cast<void*>(taskIdSharedNext_),
+            static_cast<void*>(taskIdSharedEnd_));
+    }
+    inline void UpdateTaskId()
+    {
+        if (taskIdSharedNext_ != nullptr) {
+            taskId_ = *taskIdSharedNext_;
+            taskIdEnd_ = *taskIdSharedEnd_;
+        }
+    }
+    inline void IncreaseTaskId()
+    {
+        if (taskIdSharedNext_ != nullptr) {
+            ++taskId_;
+            *taskIdSharedNext_ = taskId_;
+        } else {
+            SetTaskIdBySqeId();
+        }
+    }
+    u32 CurrentTaskId();
+    inline u32 GetTaskId() const
+    {
+        const_cast<RtsqA5*>(this)->UpdateTaskId();
+        return taskId_;
     }
 
     inline HcclResult SetNeedCacheTaskCallback(std::function<bool()> callback)
@@ -133,7 +172,7 @@ public:
     void PollCompletion() override;
 
 private:
-    u32 pendingSqeCnt{0};
+    u32 pendingSqeCnt_{0};
 
     u32 sqFullTimeout_ = RTSQ_FULL_TIMEOUT_DEFAULT;
 
@@ -158,6 +197,9 @@ private:
         const u8*)>
         addSqeArrayCallback_{nullptr};
     hccl::AicpuTsThread* aicpuTsThreadPtr_{nullptr};
+    uint32_t* sqTailShared_{nullptr};
+    uint32_t* taskIdSharedNext_{nullptr};
+    uint32_t* taskIdSharedEnd_{nullptr};
 
     u8* GetCurrSqeBuffer();
 
@@ -176,6 +218,8 @@ private:
     u32 ReadUnwrappedSqHead() const;
 
     u32 WrapAdd(u32 value, u32 step) const;
+
+    void UpdateSqTailTotal();
 
     HcclResult CheckLaunchTaskStatus(
         const std::chrono::steady_clock::time_point& startTime, const std::chrono::steady_clock::time_point& curTime,

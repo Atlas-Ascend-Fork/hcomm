@@ -51,6 +51,8 @@ protected:
     }
 
     u8 mockSq[AC_SQE_SIZE * AC_SQE_MAX_CNT]{0};
+    uint32_t mockPiSlot{};
+    uint32_t mockCiSlot{};
 };
 
 TEST_F(AicpuUbConnLiteTest, test_RmaConnLite)
@@ -76,6 +78,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_construct_by_unique_id)
 {
     std::vector<char> data(57, 0);
     UbConnLite ubConn(data);
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
 }
 
 TEST_F(AicpuUbConnLiteTest, test_UBConnLite_Read)
@@ -89,7 +92,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_Read)
     std::vector<char> uniqueId{};
     StreamLite stream(uniqueId);
     UbConnLite ubConn(id, attr, rmtEid);
-
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
     EXPECT_EQ(1, ubConn.GetUbJettyLiteId().GetDieId());
     EXPECT_EQ(1, ubConn.GetUbJettyLiteAttr().dbAddr_);
     EXPECT_EQ(1, ubConn.GetRmtEid().raw[0]);
@@ -121,7 +124,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_Read_Slice)
     rmtEid.raw[0] = 1;
 
     UbConnLite ubConn(id, attr, rmtEid);
-
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
     EXPECT_EQ(1, ubConn.GetUbJettyLiteId().GetDieId());
     EXPECT_EQ(1, ubConn.GetUbJettyLiteAttr().dbAddr_);
     EXPECT_EQ(1, ubConn.GetRmtEid().raw[0]);
@@ -155,7 +158,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_ReadReduce_Slice)
     rmtEid.raw[0] = 1;
 
     UbConnLite ubConn(id, attr, rmtEid);
-
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
     EXPECT_EQ(1, ubConn.GetUbJettyLiteId().GetDieId());
     EXPECT_EQ(1, ubConn.GetUbJettyLiteAttr().dbAddr_);
     EXPECT_EQ(1, ubConn.GetRmtEid().raw[0]);
@@ -190,7 +193,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_ReadReduce)
     rmtEid.raw[0] = 1;
 
     UbConnLite ubConn(id, attr, rmtEid);
-
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
     EXPECT_EQ(1, ubConn.GetUbJettyLiteId().GetDieId());
     EXPECT_EQ(1, ubConn.GetUbJettyLiteAttr().dbAddr_);
     EXPECT_EQ(1, ubConn.GetRmtEid().raw[0]);
@@ -225,7 +228,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_Write)
     rmtEid.raw[0] = 1;
 
     UbConnLite ubConn(id, attr, rmtEid);
-
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
     EXPECT_EQ(1, ubConn.GetUbJettyLiteId().GetDieId());
     EXPECT_EQ(1, ubConn.GetUbJettyLiteAttr().dbAddr_);
     EXPECT_EQ(1, ubConn.GetRmtEid().raw[0]);
@@ -259,7 +262,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_Write_Slice)
     rmtEid.raw[0] = 1;
 
     UbConnLite ubConn(id, attr, rmtEid);
-
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
     EXPECT_EQ(1, ubConn.GetUbJettyLiteId().GetDieId());
     EXPECT_EQ(1, ubConn.GetUbJettyLiteAttr().dbAddr_);
     EXPECT_EQ(1, ubConn.GetRmtEid().raw[0]);
@@ -293,7 +296,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteReduceWithNotify)
     rmtEid.raw[0] = 1;
 
     UbConnLite ubConn(id, attr, rmtEid);
-
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
     std::cout << ubConn.Describe() << std::endl;
 
     EXPECT_EQ(1, ubConn.GetUbJettyLiteId().GetDieId());
@@ -353,7 +356,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteReduceWithNotify_Slice)
     rmtEid.raw[0] = 1;
 
     UbConnLite ubConn(id, attr, rmtEid);
-
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
     std::cout << ubConn.Describe() << std::endl;
 
     EXPECT_EQ(1, ubConn.GetUbJettyLiteId().GetDieId());
@@ -406,7 +409,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteWithNotify)
     rmtEid.raw[0] = 1;
 
     UbConnLite ubConn(id, attr, rmtEid);
-
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
     EXPECT_EQ(1, ubConn.GetUbJettyLiteId().GetDieId());
     EXPECT_EQ(1, ubConn.GetUbJettyLiteAttr().dbAddr_);
     EXPECT_EQ(1, ubConn.GetRmtEid().raw[0]);
@@ -443,7 +446,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteWithNotify_Detour)
     rmtEid.raw[0] = 1;
 
     UbConnLite ubConn(id, attr, rmtEid);
-
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
     EXPECT_EQ(1, ubConn.GetUbJettyLiteId().GetDieId());
     EXPECT_EQ(1, ubConn.GetUbJettyLiteAttr().dbAddr_);
     EXPECT_EQ(1, ubConn.GetRmtEid().raw[0]);
@@ -462,18 +465,18 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteWithNotify_Detour)
     rmt.GetTokenValue();
     std::vector<char> uniqueId{};
     StreamLite stream(uniqueId);
-    ubConn.ci = 0;
+    ubConn.SetCi(0);
     EXPECT_EQ(ubConn.Write(loc, rmt, cfg, stream, out), HCCL_SUCCESS);
     EXPECT_EQ(ubConn.Write(loc, rmt, cfg, stream, out), HCCL_SUCCESS);
 
-    ubConn.ci = 1;
+    ubConn.SetCi(1);
     MOCKER(memset_s).stubs().with(mockcpp::any()).will(returnValue(0));
     MOCKER(memcpy_s).stubs().with(mockcpp::any()).will(returnValue(0));
     EXPECT_EQ(ubConn.WriteWithNotify(loc, rmt, cfg, out, notify, stream, notifyData), HCCL_SUCCESS);
     EXPECT_EQ(1, ubConn.piDetourCount);
     EXPECT_EQ(0, ubConn.ciDetourCount);
 
-    ubConn.ci = 4;
+    ubConn.SetCi(4);
     ubConn.ciDetourCount = 1;
     EXPECT_EQ(ubConn.WriteWithNotify(loc, rmt, cfg, out, notify, stream, notifyData), HCCL_SUCCESS);
     EXPECT_EQ(2, ubConn.piDetourCount);
@@ -489,7 +492,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteWithNotify_Expect_E_Internal)
     rmtEid.raw[0] = 1;
 
     UbConnLite ubConn(id, attr, rmtEid);
-
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
     EXPECT_EQ(1, ubConn.GetUbJettyLiteId().GetDieId());
     EXPECT_EQ(1, ubConn.GetUbJettyLiteAttr().dbAddr_);
     EXPECT_EQ(1, ubConn.GetRmtEid().raw[0]);
@@ -508,12 +511,12 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteWithNotify_Expect_E_Internal)
     rmt.GetTokenValue();
     std::vector<char> uniqueId{};
     StreamLite stream(uniqueId);
-    ubConn.ci = 0;
+    ubConn.SetCi(0);
     MOCKER(memset_s).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER(memcpy_s).stubs().with(mockcpp::any()).will(returnValue(0));
     EXPECT_EQ(ubConn.WriteWithNotify(loc, rmt, cfg, out, notify, stream, notifyData), HCCL_E_INTERNAL);
 
-    ubConn.ci = 2;
+    ubConn.SetCi(2);
     MOCKER(memset_s).stubs().with(mockcpp::any()).will(returnValue(0));
     MOCKER(memcpy_s).stubs().with(mockcpp::any()).will(returnValue(1));
     EXPECT_EQ(ubConn.WriteWithNotify(loc, rmt, cfg, out, notify, stream, notifyData), HCCL_E_INTERNAL);
@@ -530,7 +533,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteWithNotify_Slice)
     rmtEid.raw[0] = 1;
 
     UbConnLite ubConn(id, attr, rmtEid);
-
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
     EXPECT_EQ(1, ubConn.GetUbJettyLiteId().GetDieId());
     EXPECT_EQ(1, ubConn.GetUbJettyLiteAttr().dbAddr_);
     EXPECT_EQ(1, ubConn.GetRmtEid().raw[0]);
@@ -566,7 +569,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_InlineWrite)
     rmtEid.raw[0] = 1;
 
     UbConnLite ubConn(id, attr, rmtEid);
-
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
     EXPECT_EQ(1, ubConn.GetUbJettyLiteId().GetDieId());
     EXPECT_EQ(1, ubConn.GetUbJettyLiteAttr().dbAddr_);
     EXPECT_EQ(1, ubConn.GetRmtEid().raw[0]);
@@ -602,7 +605,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteReducee)
     rmtEid.raw[0] = 1;
 
     UbConnLite ubConn(id, attr, rmtEid);
-
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
     EXPECT_EQ(1, ubConn.GetUbJettyLiteId().GetDieId());
     EXPECT_EQ(1, ubConn.GetUbJettyLiteAttr().dbAddr_);
     EXPECT_EQ(1, ubConn.GetRmtEid().raw[0]);
@@ -636,7 +639,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteReduce_Slice)
     rmtEid.raw[0] = 1;
 
     UbConnLite ubConn(id, attr, rmtEid);
-
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
     EXPECT_EQ(1, ubConn.GetUbJettyLiteId().GetDieId());
     EXPECT_EQ(1, ubConn.GetUbJettyLiteAttr().dbAddr_);
     EXPECT_EQ(1, ubConn.GetRmtEid().raw[0]);
@@ -670,7 +673,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_BatchOneSidedRead)
     rmtEid.raw[0] = 1;
 
     UbConnLite ubConn(id, attr, rmtEid);
-
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
     u32 dataSize = 400 * 1024 * 1024;
     RmaBufSliceLite loc(0x1111, dataSize, 1, 1);
     RmtRmaBufSliceLite rmt(0x2222, dataSize, 1, 1, 1, UINT32_MAX);
@@ -693,7 +696,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_BatchOneSidedWrite)
     rmtEid.raw[0] = 1;
 
     UbConnLite ubConn(id, attr, rmtEid);
-
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
     u32 dataSize = 400 * 1024 * 1024;
     RmaBufSliceLite loc(0x1111, dataSize, 1, 1);
     RmtRmaBufSliceLite rmt(0x2222, dataSize, 1, 1, 1, UINT32_MAX);
@@ -706,6 +709,80 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_BatchOneSidedWrite)
     ubConn.BatchOneSidedWrite({loc}, {rmt}, cfg, stream, out);
 }
 
+/* ---------- owner 位相位 ---------- */
+
+TEST_F(AicpuUbConnLiteTest, BatchOwnerBit_PhaseAlignedWithRingTailSlot)
+{
+    UbJettyLiteId id(1, 1, 1);
+    alignas(16) u8 sqVa[1024];
+    u64 sqVAaddr = reinterpret_cast<u64>(sqVa);
+    const u32 sqDepth = 4; // 环深4: 落位槽 0..3, 环尾槽 = sqDepth-1 = 3
+    UbJettyLiteAttr attr(1, sqVAaddr, sqDepth, 1, false);
+    Eid rmtEid;
+    rmtEid.raw[0] = 1;
+
+    UbConnLite ubConn(id, attr, rmtEid);
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
+    const u32 seedPi = 1; // 取非零起点，锁定相位而非依赖 pi 从 0 开始
+    ubConn.SetPi(seedPi);
+    ubConn.EnableWqeTasks();
+
+    // 单 slice = 4*256MB + 64B，循环段 4 条 + 尾段 1 条，共 5 条 SQE
+    const u64 dataSize = 4ULL * 256 * 1024 * 1024 + 64;
+    RmaBufSliceLite loc(0x1111, dataSize, 1, 1);
+    RmtRmaBufSliceLite rmt(0x2222, dataSize, 1, 1, 1, UINT32_MAX);
+    SqeConfigLite cfg;
+    ConnLiteOperationOut out;
+    std::vector<char> uniqueId{};
+    StreamLite stream(uniqueId);
+    MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
+    MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
+    ubConn.BatchOneSidedWrite({loc}, {rmt}, cfg, stream, out);
+    EXPECT_EQ(seedPi + 5, static_cast<u32>(ubConn.GetPi()));
+    EXPECT_EQ(ubConn.GetPi(), out.pi);
+
+    // 批量路径物理落位：owner==1 的 SQE 恰在环尾槽 sqDepth-1 上，其余槽位全 0
+    // （旧代码用自增后的 pi 判 owner，会把 owner=1 错置在环尾前一格的槽上）
+    for (u32 slot = 0; slot < sqDepth; slot++) {
+        UdmaSqeWrite* landed = reinterpret_cast<UdmaSqeWrite*>(sqVa + slot * 64);
+        EXPECT_EQ(slot == sqDepth - 1 ? 1u : 0u, static_cast<u32>(landed->comm.owner));
+    }
+
+    // 非 batch 基准路径续写 2 条，与批量路径共用同一条 pi
+    RmaBufSliceLite locSmall(0x3333, 64, 1, 1);
+    RmtRmaBufSliceLite rmtSmall(0x4444, 64, 1, 1, 1, UINT32_MAX);
+    ubConn.SetCi(static_cast<u16>(ubConn.GetPi() - 2)); // 抬 ci 避开 Write 路径的 SQ 满等待
+    MOCKER(memset_s).stubs().with(mockcpp::any()).will(returnValue(0));
+    MOCKER(memcpy_s).stubs().with(mockcpp::any()).will(returnValue(0));
+    EXPECT_EQ(ubConn.Write(locSmall, rmtSmall, cfg, stream, out), HCCL_SUCCESS);
+    EXPECT_EQ(ubConn.Write(locSmall, rmtSmall, cfg, stream, out), HCCL_SUCCESS);
+
+    // 两路径统一相位：第 i 条 SQE 填充时 pi = seedPi+i，owner==1 当且仅当其落位槽为环尾槽
+    const std::vector<WqeTask> tasks = ubConn.GetWqeTasks();
+    ASSERT_EQ(7u, tasks.size()); // 批量 5 条 + 非批量 2 条
+    for (size_t i = 0; i < tasks.size(); i++) {
+        u32 slot = (seedPi + static_cast<u32>(i)) % sqDepth;
+        EXPECT_EQ(slot == sqDepth - 1 ? 1u : 0u, static_cast<u32>(tasks[i].wqeWrite.comm.owner));
+    }
+}
+
+/* ---------- SetPi/SetCi 绑定前默认槽 ---------- */
+
+TEST_F(AicpuUbConnLiteTest, SetPiSetCi_BeforeBind_WriteDefaultSlot)
+{
+    UbJettyLiteId id(1, 1, 1);
+    UbJettyLiteAttr attr(1, 1, 8, 1, false);
+    Eid rmtEid;
+    UbConnLite ubConn(id, attr, rmtEid);
+    EXPECT_EQ(0u, static_cast<u32>(ubConn.GetPi()));
+    EXPECT_EQ(0u, static_cast<u32>(ubConn.GetCi()));
+    // 未绑定时写默认槽并读回，与 pi{0}/ci{0} 初值语义一致
+    ubConn.SetPi(3);
+    ubConn.SetCi(4);
+    EXPECT_EQ(3u, static_cast<u32>(ubConn.GetPi()));
+    EXPECT_EQ(4u, static_cast<u32>(ubConn.GetCi()));
+}
+
 /* ---------- GetInflight / UpdateCi / CheckOverflow (反压新增接口) ---------- */
 
 TEST_F(AicpuUbConnLiteTest, GetInflight_ExpectCorrect)
@@ -714,18 +791,18 @@ TEST_F(AicpuUbConnLiteTest, GetInflight_ExpectCorrect)
     UbJettyLiteAttr attr(1, 1, 8, 1, false);
     Eid rmtEid;
     UbConnLite ubConn(id, attr, rmtEid);
-
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
     // pi > ci: 正常差值
-    ubConn.pi = 20;
-    ubConn.ci = 5;
+    ubConn.SetPi(20);
+    ubConn.SetCi(5);
     EXPECT_EQ(15u, ubConn.GetInflight());
     // pi < ci: u16回绕
-    ubConn.pi = 5;
-    ubConn.ci = 65530;
+    ubConn.SetPi(5);
+    ubConn.SetCi(65530);
     EXPECT_EQ(11u, ubConn.GetInflight());
     // pi == ci: 无inflight
-    ubConn.pi = 100;
-    ubConn.ci = 100;
+    ubConn.SetPi(100);
+    ubConn.SetCi(100);
     EXPECT_EQ(0u, ubConn.GetInflight());
 }
 
@@ -737,30 +814,30 @@ TEST_F(AicpuUbConnLiteTest, UpdateCi_ExpectCorrect)
     UbJettyLiteAttr attr(1, 1, 8, 1, false);
     Eid rmtEid;
     UbConnLite ubConn(id, attr, rmtEid);
-
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
     // 顺序消费: seq 0/1连续, ci推进
     std::vector<std::pair<u16, u16>> slots = {{0, 10}, {1, 20}};
     ubConn.UpdateCi(slots.data(), slots.size());
-    EXPECT_EQ(20u, ubConn.ci);
+    EXPECT_EQ(20u, ubConn.GetCi());
 
     // piValue回绕 + 乱序暂存: seq 2连续消费(65530), seq 4暂存
     slots = {{2, 65530}, {4, 40}};
     ubConn.UpdateCi(slots.data(), slots.size());
-    EXPECT_EQ(65530u, ubConn.ci);
+    EXPECT_EQ(65530u, ubConn.GetCi());
 
     // 补齐后连续出队: seq 3补齐(65535), 乱序的seq 4(40)随之消费
     slots = {{3, 65535}};
     ubConn.UpdateCi(slots.data(), slots.size());
-    EXPECT_EQ(40u, ubConn.ci);
+    EXPECT_EQ(40u, ubConn.GetCi());
 
     // 重复seqIdx: 取第一个值
     slots = {{5, 10}, {5, 99}};
     ubConn.UpdateCi(slots.data(), slots.size());
-    EXPECT_EQ(10u, ubConn.ci);
+    EXPECT_EQ(10u, ubConn.GetCi());
 
     // 空输入: 不变化
     ubConn.UpdateCi(nullptr, 0);
-    EXPECT_EQ(10u, ubConn.ci);
+    EXPECT_EQ(10u, ubConn.GetCi());
 }
 
 /* ---------- CheckOverflow ---------- */
@@ -771,10 +848,10 @@ TEST_F(AicpuUbConnLiteTest, CheckOverflow_ExpectCorrect)
     UbJettyLiteAttr attr(1, 1, 8, 1, false);
     Eid rmtEid;
     UbConnLite ubConn(id, attr, rmtEid);
-
+    ubConn.SetSqPiCi(&mockPiSlot, &mockCiSlot);
     ubConn.sqDepth_ = 8;
-    ubConn.pi = 5;
-    ubConn.ci = 2; // inflight=3
+    ubConn.SetPi(5);
+    ubConn.SetCi(2); // inflight=3
 
     // cache版: 3+3<=8, 3+6>8
     EXPECT_FALSE(ubConn.CheckOverflow(static_cast<u32>(3)));

@@ -219,8 +219,13 @@ TEST_F(UbTransportLiteImplTest, construct_test)
     liteBinaryStream.Dump(uniqueId);
 
     StreamLite stream(uniqueId);
+    static uint32_t s_mockTailSlot = 0; // 直接共享账本 mock 槽位
+    if (auto* rtsqA5 = dynamic_cast<Hccl::RtsqA5*>(stream.GetRtsq()); rtsqA5 != nullptr) {
+        rtsqA5->SetSqTailShared(&s_mockTailSlot);
+    }
     stream.rtsq = std::make_unique<RtsqA5>(fakedevPhyId, fakeStreamId, fakeSqId);
     RtsqA5& rtsq = *static_cast<RtsqA5*>(stream.rtsq.get());
+    rtsq.SetSqTailShared(&s_mockTailSlot);
     MOCKER_CPP_VIRTUAL(rtsq, &RtsqA5::SdmaCopy)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
@@ -301,6 +306,9 @@ TEST_F(UbTransportLiteImplTest, UbConnLiteMgr_AppendCompletedCis_ExpectCiUpdated
     UbJettyLiteAttr attr(1, 1, 8, 1, false);
     Eid rmtEid;
     auto ubConn = std::make_unique<UbConnLite>(id, attr, rmtEid);
+    uint32_t mockPiSlot{};
+    uint32_t mockCiSlot{};
+    ubConn->SetSqPiCi(&mockPiSlot, &mockCiSlot);
 
     UbTransportLiteImpl* fakeKey = reinterpret_cast<UbTransportLiteImpl*>(0x500);
     {
@@ -310,7 +318,7 @@ TEST_F(UbTransportLiteImplTest, UbConnLiteMgr_AppendCompletedCis_ExpectCiUpdated
 
     std::vector<std::pair<u16, u16>> slots = {{0, 10}, {1, 20}};
     UbConnLiteMgr::GetInstance().AppendCompletedCis(fakeKey, slots.data(), slots.size());
-    EXPECT_EQ(20u, ubConn->ci);
+    EXPECT_EQ(20u, ubConn->GetCi());
 
     {
         std::unique_lock<std::shared_mutex> lock(UbConnLiteMgr::GetInstance().mtx_);

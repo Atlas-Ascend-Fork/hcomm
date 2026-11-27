@@ -99,6 +99,8 @@ TEST_F(CCoreDfxRtsqTest, CCoreMarksCurrentOpBeforeFullQueueReport)
     }
     CCoreDfxOwner thread(stream.get());
     RtsqA5 rtsq(0, 126, 7, false);
+    static uint32_t s_mockTailSlot = 0; // 直接共享账本 mock 槽位
+    rtsq.SetSqTailShared(&s_mockTailSlot);
     rtsq.aicpuTsThreadPtr_ = &thread;
     rtsq.taskId_ = 0x80000400U;
     rtsq.taskIdEnd_ = 0x80000800U;
@@ -128,6 +130,8 @@ TEST_F(CCoreDfxRtsqTest, ccore_dfx_records_full_task_id_and_physical_sq)
         return &opInfo;
     });
     auto* rtsq = static_cast<RtsqA5*>(stream.GetRtsq());
+    static uint32_t s_mockTailSlot = 0; // 直接共享账本 mock 槽位
+    rtsq->SetSqTailShared(&s_mockTailSlot);
     ASSERT_EQ(rtsq->SetAicpuTsThreadPtr(&owner), HCCL_SUCCESS);
 
     const u32 waitId = rtsq->GetTaskId();
@@ -157,6 +161,8 @@ TEST_F(CCoreDfxRtsqTest, ccore_dfx_skips_missing_owner_stream_callback_or_op_inf
 {
     StreamLite stream(126, 7, 0, 0);
     auto* rtsq = static_cast<RtsqA5*>(stream.GetRtsq());
+    static uint32_t s_mockTailSlot = 0; // 直接共享账本 mock 槽位
+    rtsq->SetSqTailShared(&s_mockTailSlot);
     rtsq->CCoreNotifyWait(0x1000, 0x2000, false);
     CCoreDfxOwner nullOwner(nullptr);
     ASSERT_EQ(rtsq->SetAicpuTsThreadPtr(&nullOwner), HCCL_SUCCESS);
@@ -194,6 +200,8 @@ TEST_F(CCoreDfxRtsqTest, ccore_dfx_flushes_full_queue_before_reusing_slot)
         return &opInfo;
     });
     auto* rtsq = static_cast<RtsqA5*>(stream.GetRtsq());
+    static uint32_t s_mockTailSlot = 0; // 直接共享账本 mock 槽位
+    rtsq->SetSqTailShared(&s_mockTailSlot);
     ASSERT_EQ(rtsq->SetAicpuTsThreadPtr(&owner), HCCL_SUCCESS);
     rtsq->CCoreNotifyRecord(0x3000, 0x2000);
     EXPECT_EQ(reports, 1U);
@@ -216,6 +224,8 @@ TEST_F(CCoreDfxRtsqTest, ccore_dfx_keeps_original_id_when_refresh_auto_launches)
         return &opInfo;
     });
     auto* rtsq = static_cast<RtsqA5*>(stream.GetRtsq());
+    static uint32_t s_mockTailSlot = 0; // 直接共享账本 mock 槽位
+    rtsq->SetSqTailShared(&s_mockTailSlot);
     ASSERT_EQ(rtsq->SetAicpuTsThreadPtr(&owner), HCCL_SUCCESS);
     MOCKER_CPP(&RtsqA5::QuerySqHead).stubs().will(returnValue(AC_SQE_MAX_CNT - 1));
     for (u32 i = 0; i + 1 < PER_LAUNCH_SQE_CNT; ++i) {

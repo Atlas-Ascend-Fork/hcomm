@@ -55,6 +55,8 @@ public:
 
     inline u32 GetTaskId() const { return taskId_; }
 
+    inline u32 GetTaskIdEnd() const { return taskIdEnd_; }
+
     void SetOpExecStatusCallback(std::function<void()> callback) { checkOpExecStatusCallback_ = callback; }
 
     void

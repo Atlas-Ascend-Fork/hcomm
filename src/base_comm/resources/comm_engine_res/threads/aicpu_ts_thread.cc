@@ -18,6 +18,7 @@
 #include "dtype_common.h"
 #include "unified_platform/pub_inc/config_plf_log_v2.h"
 #include "ub_transport_lite_impl.h"
+#include "rtsq_a5.h"
 #include "aicpu_ts_channel_entity.h"
 #include "launch_context.h"
 #include <atomic>
@@ -80,6 +81,15 @@ HcclResult AicpuTsThread::FillThreadEntityRtsq(HcommThreadEntity& entity)
     sq.contextInfo.rtsqContext.sqDepth = sqDepth;
     sq.contextInfo.rtsqContext.sqHead = sqHead;
     sq.contextInfo.rtsqContext.sqTail = sqTail;
+    // 平台门已保证 950 平台 rtsq 恒为 RtsqA5（全仓唯一子类），直接静态转换。
+    auto* rtsqA5 = static_cast<Hccl::RtsqA5*>(rtsq);
+    sq.contextInfo.rtsqContext.sqTail = rtsq->QuerySqTail();
+    rtsqA5->SetSqTailShared(&sq.contextInfo.rtsqContext.sqTail);
+    if (sq.contextInfo.rtsqContext.taskId >= sq.contextInfo.rtsqContext.taskIdEnd) {
+        sq.contextInfo.rtsqContext.taskId = rtsq->GetTaskId();
+        sq.contextInfo.rtsqContext.taskIdEnd = rtsq->GetTaskIdEnd();
+    }
+    rtsqA5->SetTaskIdShared(&sq.contextInfo.rtsqContext.taskId, &sq.contextInfo.rtsqContext.taskIdEnd);
     return HCCL_SUCCESS;
 }
 

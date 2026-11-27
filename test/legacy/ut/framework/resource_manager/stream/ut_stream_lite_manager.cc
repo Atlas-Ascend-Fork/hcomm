@@ -112,6 +112,8 @@ protected:
     std::unique_ptr<MemTransportLite> transportLite;
 };
 
+static uint32_t s_utMockTailSlot = 0; // 直接共享账本 mock 槽位
+
 TEST_F(StreamLiteManagerTest, parse_packed_data)
 {
     BinaryStream liteBinaryStream;
@@ -155,6 +157,7 @@ TEST_F(StreamLiteManagerTest, update_reset)
 
     StreamLite stream(uniqueId);
     stream.rtsq = std::make_unique<RtsqA5>(fakedevPhyId1, fakeStreamId1, fakeSqId1);
+    static_cast<RtsqA5*>(stream.rtsq.get())->SetSqTailShared(&s_utMockTailSlot);
     RtsqA5& rtsq = *static_cast<RtsqA5*>(stream.rtsq.get());
     MOCKER_CPP_VIRTUAL(rtsq, &RtsqA5::SdmaCopy)
         .stubs()

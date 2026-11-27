@@ -31,6 +31,8 @@
 
 using namespace Hccl;
 
+static uint32_t s_ruleV82MockTailSlot = 0; // 直接共享账本 mock 槽位
+
 class StubTransportLiteImpl : public BaseTransportLiteImpl {
 public:
     StubTransportLiteImpl() : BaseTransportLiteImpl(), stubRmaBuffer(remote_addr, remote_addr_len) {}
@@ -238,6 +240,7 @@ TEST_F(InsToSqeRuleV82Test, Interpret_local_copy)
     StreamLite stream(notifyLite1);
     stream.rtsq = std::make_unique<RtsqA5>(fakedevPhyId, fakeStreamId, fakeSqId);
     RtsqA5& rtsq = *static_cast<RtsqA5*>(stream.rtsq.get());
+    rtsq.SetSqTailShared(&s_ruleV82MockTailSlot);
     MOCKER_CPP_VIRTUAL(rtsq, &RtsqA5::SdmaCopy)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
@@ -259,6 +262,7 @@ TEST_F(InsToSqeRuleV82Test, Interpret_local_copy_extend)
     StreamLite stream(notifyLite1);
     stream.rtsq = std::make_unique<RtsqA5>(fakedevPhyId, fakeStreamId, fakeSqId);
     RtsqA5& rtsq = *static_cast<RtsqA5*>(stream.rtsq.get());
+    rtsq.SetSqTailShared(&s_ruleV82MockTailSlot);
     MOCKER_CPP_VIRTUAL(rtsq, &RtsqA5::SdmaCopy)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
@@ -279,6 +283,7 @@ TEST_F(InsToSqeRuleV82Test, Interpret_LocalReduce)
     StreamLite stream(notifyLite1);
     stream.rtsq = std::make_unique<RtsqA5>(0, 1, 2);
     RtsqA5& rtsq = *static_cast<RtsqA5*>(stream.rtsq.get());
+    rtsq.SetSqTailShared(&s_ruleV82MockTailSlot);
     MOCKER_CPP_VIRTUAL(rtsq, &RtsqA5::SdmaCopy)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
@@ -311,6 +316,7 @@ TEST_F(InsToSqeRuleV82Test, Interpret_AicpuReduce)
     StreamLite stream(notifyLite1);
     stream.rtsq = std::make_unique<RtsqA5>(0, 1, 2);
     RtsqA5& rtsq = *static_cast<RtsqA5*>(stream.rtsq.get());
+    rtsq.SetSqTailShared(&s_ruleV82MockTailSlot);
     MOCKER(&InsAicpuReduce::RunAicpuReduce).stubs();
 
     StubResMgrFetcher mockResMgrFetcher;
@@ -325,6 +331,7 @@ TEST_F(InsToSqeRuleV82Test, Interpret_StreamSync)
     StreamLite stream(notifyLite1);
     stream.rtsq = std::make_unique<RtsqA5>(0, 1, 2);
     RtsqA5& rtsq = *static_cast<RtsqA5*>(stream.rtsq.get());
+    rtsq.SetSqTailShared(&s_ruleV82MockTailSlot);
 
     StubResMgrFetcher mockResMgrFetcher;
     Interpret(insStreamSync, stream, &mockResMgrFetcher);
@@ -341,6 +348,7 @@ TEST_F(InsToSqeRuleV82Test, Interpret_local_copy_extend_err)
     StreamLite stream(notifyLite1);
     stream.rtsq = std::make_unique<RtsqA5>(fakedevPhyId, fakeStreamId, fakeSqId);
     RtsqA5& rtsq = *static_cast<RtsqA5*>(stream.rtsq.get());
+    rtsq.SetSqTailShared(&s_ruleV82MockTailSlot);
     MOCKER_CPP_VIRTUAL(rtsq, &RtsqA5::SdmaCopy)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
@@ -370,6 +378,7 @@ TEST_F(InsToSqeRuleV82Test, Interpret_local_post_to)
     StreamLite stream(streamLite1);
     stream.rtsq = std::make_unique<RtsqA5>(fakedevPhyId, fakeStreamId, fakeSqId);
     RtsqA5& rtsq = *static_cast<RtsqA5*>(stream.rtsq.get());
+    rtsq.SetSqTailShared(&s_ruleV82MockTailSlot);
     MOCKER_CPP_VIRTUAL(rtsq, &RtsqA5::NotifyRecordLoc).stubs().with(mockcpp::any());
 
     StubResMgrFetcher mockResMgrFetcher;
@@ -417,6 +426,7 @@ TEST_F(InsToSqeRuleV82Test, Interpret_local_wait_from)
     StreamLite stream(streamLite1);
     stream.rtsq = std::make_unique<RtsqA5>(fakedevPhyId, fakeStreamId, fakeSqId);
     RtsqA5& rtsq = *static_cast<RtsqA5*>(stream.rtsq.get());
+    rtsq.SetSqTailShared(&s_ruleV82MockTailSlot);
     MOCKER_CPP_VIRTUAL(rtsq, static_cast<void (RtsqA5::*)(u32)>(&RtsqA5::NotifyWait)).stubs().with(mockcpp::any());
     MOCKER_CPP_VIRTUAL(rtsq, static_cast<void (RtsqA5::*)(u32, u32)>(&RtsqA5::NotifyWait)).stubs().with(mockcpp::any());
 
@@ -465,6 +475,7 @@ TEST_F(InsToSqeRuleV82Test, Interpret_local_bcast_post)
     StreamLite stream(streamLite1);
     stream.rtsq = std::make_unique<RtsqA5>(fakedevPhyId, fakeStreamId, fakeSqId);
     RtsqA5& rtsq = *static_cast<RtsqA5*>(stream.rtsq.get());
+    rtsq.SetSqTailShared(&s_ruleV82MockTailSlot);
     MOCKER_CPP_VIRTUAL(rtsq, &RtsqA5::Cnt1toNNotifyRecord).stubs().with(mockcpp::any(), mockcpp::any());
 
     StubResMgrFetcher mockResMgrFetcher;
@@ -493,6 +504,7 @@ TEST_F(InsToSqeRuleV82Test, Interpret_local_wait_group)
     StreamLite stream(streamLite1);
     stream.rtsq = std::make_unique<RtsqA5>(fakedevPhyId, fakeStreamId, fakeSqId);
     RtsqA5& rtsq = *static_cast<RtsqA5*>(stream.rtsq.get());
+    rtsq.SetSqTailShared(&s_ruleV82MockTailSlot);
     MOCKER_CPP_VIRTUAL(rtsq, &RtsqA5::CntNto1NotifyWait).stubs().with(mockcpp::any(), mockcpp::any());
 
     StubResMgrFetcher mockResMgrFetcher;

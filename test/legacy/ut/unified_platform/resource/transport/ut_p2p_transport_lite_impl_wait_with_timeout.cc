@@ -102,6 +102,8 @@ protected:
     u8 mockSq[64];
 };
 
+static uint32_t s_utMockTailSlot = 0; // 直接共享账本 mock 槽位
+
 TEST_F(P2PTransportLiteImplWaitWithTimeoutTest, P2PTransportLiteImpl_WaitWithTimeout_Normal_Success)
 {
     u32 fakeStreamId = 1;
@@ -117,6 +119,7 @@ TEST_F(P2PTransportLiteImplWaitWithTimeoutTest, P2PTransportLiteImpl_WaitWithTim
 
     StreamLite stream(uniqueId);
     stream.rtsq = std::make_unique<RtsqA5>(fakeDevPhyId, fakeStreamId, fakeSqId);
+    static_cast<RtsqA5*>(stream.rtsq.get())->SetSqTailShared(&s_utMockTailSlot);
     RtsqA5& rtsq = *static_cast<RtsqA5*>(stream.rtsq.get());
 
     std::vector<char> p2pUniqueId = BuildP2PTransportUniqueId(fakeDevPhyId);
@@ -147,6 +150,7 @@ TEST_F(P2PTransportLiteImplWaitWithTimeoutTest, P2PTransportLiteImpl_WaitWithTim
 
     StreamLite stream(uniqueId);
     stream.rtsq = std::make_unique<RtsqA5>(fakeDevPhyId, fakeStreamId, fakeSqId);
+    static_cast<RtsqA5*>(stream.rtsq.get())->SetSqTailShared(&s_utMockTailSlot);
     RtsqA5& rtsq = *static_cast<RtsqA5*>(stream.rtsq.get());
 
     std::vector<char> p2pUniqueId = BuildP2PTransportUniqueId(fakeDevPhyId);
@@ -177,6 +181,7 @@ TEST_F(P2PTransportLiteImplWaitWithTimeoutTest, P2PTransportLiteImpl_WaitWithTim
 
     StreamLite stream(uniqueId);
     stream.rtsq = std::make_unique<RtsqA5>(fakeDevPhyId, fakeStreamId, fakeSqId);
+    static_cast<RtsqA5*>(stream.rtsq.get())->SetSqTailShared(&s_utMockTailSlot);
     RtsqA5& rtsq = *static_cast<RtsqA5*>(stream.rtsq.get());
 
     std::vector<char> p2pUniqueId = BuildP2PTransportUniqueId(fakeDevPhyId);

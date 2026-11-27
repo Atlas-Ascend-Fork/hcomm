@@ -245,6 +245,15 @@ HcclResult StageToDevice(const std::vector<T>& source, hcomm::DeviceMem& mem, T*
 
 namespace hcomm {
 
+HcclResult AicpuChannelEntityResources::PreAllocSqContexts()
+{
+    constexpr uint32_t sqContextNum = 1U;
+    sqContexts_ = DeviceMem::alloc(sizeof(SqContext) * sqContextNum);
+    CHK_PRT_RET(!sqContexts_, HCCL_ERROR("[%s] alloc sqContexts failed.", __func__), HCCL_E_MEMORY);
+    HCCL_INFO("[%s] prealloc sqContexts, addr[0x%llx].", __func__, GetSqContextsDevAddr());
+    return HCCL_SUCCESS;
+}
+
 HcclResult AicpuChannelEntityResources::Build(
     const std::vector<char>& packedChannelData, CommEngine engine, CommProtocol protocol, ChannelHandle originHandle,
     ChannelHandle& entityHandle)
@@ -407,7 +416,14 @@ HcclResult AicpuChannelEntityResources::Build(
     CHK_RET(StageToDevice(remoteNotifies, remoteNotifies_, entity.remoteNotifyAddr));
     CHK_RET(StageToDevice(localBuffers, localBuffers_, entity.localBufferAddr));
     CHK_RET(StageToDevice(remoteBuffers, remoteBuffers_, entity.remoteBufferAddr));
-    CHK_RET(StageToDevice(sqContexts, sqContexts_, entity.sqContextAddr));
+    // 未经 CreateChannels 预分配的路径（老 AICPU 引擎/公有直连），Build 内自分配兜底。
+    if (!sqContexts_) {
+        CHK_RET(PreAllocSqContexts());
+    }
+    CHK_RET(hrtMemSyncCopy(
+        sqContexts_.ptr(), sizeof(SqContext) * sqContexts.size(), sqContexts.data(),
+        sizeof(SqContext) * sqContexts.size(), HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE));
+    entity.sqContextAddr = static_cast<SqContext*>(sqContexts_.ptr());
     entity.cqContextAddr = nullptr;
 
     entityMem_ = DeviceMem::alloc(sizeof(ChannelEntity));

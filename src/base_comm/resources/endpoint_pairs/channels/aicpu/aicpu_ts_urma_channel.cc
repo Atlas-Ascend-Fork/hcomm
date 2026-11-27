@@ -266,6 +266,8 @@ HcclResult AicpuTsUrmaChannel::BuildDeviceEntity(ChannelHandle compatChannelHand
     return HCCL_SUCCESS;
 }
 
+HcclResult AicpuTsUrmaChannel::PreAllocSqContexts() { return entityResources_.PreAllocSqContexts(); }
+
 HcclResult AicpuTsUrmaChannel::BuildAttr()
 {
     local_.attr.devicePhyId = local_.ep.loc.device.devPhyId;
