@@ -444,24 +444,24 @@ TEST_F(HccpTest, Ut_NetworkManager_StopAllDeviceNicSockets_StopListenFail)
 TEST_F(HccpTest, Ut_NetworkManager_StopAllDeviceNicSockets_StopSocketFail)
 {
     s32 device_id = 0;
-    u32 port = 16666;
+    // 独占IP避免单例残留的in-use计数污染erase断言; 构造双map同handle状态
+    HcclIpAddress ipAddr("10.77.77.77");
+    auto& mgr = NetworkManager::GetInstance(device_id);
+    SocketHandle fakeHandle = (SocketHandle)0x1234;
+    mgr.raResourceInfo_.nicSocketMap[ipAddr].nicSocketHandle = fakeHandle;
+    mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicSocketHandle = fakeHandle;
 
-    HcclResult ret = NetworkManager::GetInstance(device_id).Init(NICDeployment::NIC_DEPLOYMENT_DEVICE);
-    EXPECT_EQ(ret, HCCL_SUCCESS);
-    ret = NetworkManager::GetInstance(device_id).StartVnic(HcclIpAddress(device_id), port);
-    EXPECT_EQ(ret, HCCL_SUCCESS);
+    // 内部调StopNicsSocketInternal注入失败; 失败分支兜底会真调hrtRaSocketDeInit, 一并mock
+    MOCKER_CPP(&hccl::NetworkManager::StopNicsSocketInternal).stubs().will(returnValue(HCCL_E_NETWORK));
+    MOCKER(hrtRaSocketDeInit).stubs().will(returnValue(HCCL_SUCCESS));
 
-    HcclIpAddress ipAddr("10.21.78.208");
-    ret = NetworkManager::GetInstance(device_id).StartNic(ipAddr, port, false);
-    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(mgr.StopAllDeviceNicSockets(), HCCL_SUCCESS);
+    // 失败分支同步置空host侧副本, 条目留由host侧清理
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap.count(ipAddr), 1U);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicSocketHandle, nullptr);
+    EXPECT_EQ(mgr.raResourceInfo_.nicSocketMap.count(ipAddr), 0U);
 
-    MOCKER_CPP(&hccl::NetworkManager::StopNicsSocket).stubs().will(returnValue(HCCL_E_NETWORK));
-
-    ret = NetworkManager::GetInstance(device_id).StopAllDeviceNicSockets();
-    EXPECT_EQ(ret, HCCL_SUCCESS);
-    ret = NetworkManager::GetInstance(device_id).Destroy();
-    EXPECT_EQ(ret, HCCL_SUCCESS);
-
+    mgr.raResourceInfo_.hostNetSocketMap.erase(ipAddr);
     GlobalMockObject::verify();
 }
 
@@ -604,7 +604,7 @@ TEST_F(HccpTest, Ut_NetworkManager_Destory_HostRaDeinitFail)
     GlobalMockObject::verify();
 }
 
-// 引用计数+守卫+延迟拆除用例(#1035): 直接构造内部状态避免设备依赖, 每用例独立ip避免单例污染
+// #1035: 直接构造内部状态, 每用例独立ip避免单例残留污染
 TEST_F(HccpTest, Ut_NetworkManager_NicSocketUser_AddRemovePaired_EntryLifecycle)
 {
     s32 device_id = 0;
@@ -613,14 +613,11 @@ TEST_F(HccpTest, Ut_NetworkManager_NicSocketUser_AddRemovePaired_EntryLifecycle)
 
     EXPECT_EQ(mgr.AddNicSocketUser(ipAddr), HCCL_SUCCESS);
     EXPECT_EQ(mgr.AddNicSocketUser(ipAddr), HCCL_SUCCESS);
-    // 使用者仍持有期间, in-use查询命中并置位延迟拆除标志
     EXPECT_TRUE(mgr.MarkNicUserPendingStop(ipAddr, true, true));
     EXPECT_TRUE(mgr.nicSocketUserMap_[ipAddr].pendingStop);
     EXPECT_TRUE(mgr.nicSocketUserMap_[ipAddr].pendingRdmaStop);
-    // 非最后一个使用者注销: 不触发拆除, 计数条目保留
     EXPECT_EQ(mgr.RemoveNicSocketUser(ipAddr), HCCL_SUCCESS);
     EXPECT_EQ(mgr.nicSocketUserMap_.count(ipAddr), 1U);
-    // 最后一个使用者注销: 计数归零, 条目清除(无map条目可拆, 延迟拆除为空操作)
     EXPECT_EQ(mgr.RemoveNicSocketUser(ipAddr), HCCL_SUCCESS);
     EXPECT_EQ(mgr.nicSocketUserMap_.count(ipAddr), 0U);
 }
@@ -630,22 +627,229 @@ TEST_F(HccpTest, Ut_NetworkManager_StopNicSocketHandle_InUse_DeferTeardown)
     s32 device_id = 0;
     HcclIpAddress ipAddr("10.0.0.2");
     auto& mgr = NetworkManager::GetInstance(device_id);
-    // 构造业务侧已建socket状态: 双map同handle(PsWorkerRaInit双写场景)
     SocketHandle fakeHandle = (SocketHandle)0x1234;
     mgr.raResourceInfo_.nicSocketMap[ipAddr].nicSocketHandle = fakeHandle;
     mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicSocketHandle = fakeHandle;
 
     EXPECT_EQ(mgr.AddNicSocketUser(ipAddr), HCCL_SUCCESS);
-    // 销毁请求被in-use守卫拦下: 不deinit(handle保留), 条目保留给延迟拆除
     MOCKER(hrtRaSocketDeInit).expects(once()).will(returnValue(HCCL_SUCCESS));
     EXPECT_EQ(mgr.StopNicSocketHandle(ipAddr), HCCL_SUCCESS);
     EXPECT_NE(mgr.raResourceInfo_.nicSocketMap[ipAddr].nicSocketHandle, nullptr);
-    // 最后一个使用者注销触发延迟拆除: deinit恰好一次, 双map同handle同步置空, 条目清除
     EXPECT_EQ(mgr.RemoveNicSocketUser(ipAddr), HCCL_SUCCESS);
     EXPECT_EQ(mgr.raResourceInfo_.nicSocketMap.count(ipAddr), 0U);
     EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicSocketHandle, nullptr);
 
     mgr.raResourceInfo_.hostNetSocketMap.erase(ipAddr);
+    GlobalMockObject::verify();
+}
+
+TEST_F(HccpTest, Ut_NetworkManager_StopNicsSocket_DualMapSameHandle_SyncNullOut)
+{
+    s32 device_id = 0;
+    HcclIpAddress ipAddr("10.0.0.9");
+    auto& mgr = NetworkManager::GetInstance(device_id);
+    SocketHandle fakeSocketHandle = (SocketHandle)0x1234;
+    RdmaHandle fakeRdmaHandle = (RdmaHandle)0x5678;
+    mgr.raResourceInfo_.nicSocketMap[ipAddr].nicSocketHandle = fakeSocketHandle;
+    mgr.raResourceInfo_.nicSocketMap[ipAddr].nicRdmaHandle = fakeRdmaHandle;
+    mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicSocketHandle = fakeSocketHandle;
+    mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicRdmaHandle = fakeRdmaHandle;
+
+    MOCKER(HrtRaRdmaDeInit).expects(once()).will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtRaSocketDeInit).expects(once()).will(returnValue(HCCL_SUCCESS));
+    EXPECT_EQ(mgr.StopNicsSocket(ipAddr), HCCL_SUCCESS);
+    EXPECT_EQ(mgr.raResourceInfo_.nicSocketMap[ipAddr].nicSocketHandle, nullptr);
+    EXPECT_EQ(mgr.raResourceInfo_.nicSocketMap[ipAddr].nicRdmaHandle, nullptr);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap.count(ipAddr), 1U);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicSocketHandle, nullptr);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicRdmaHandle, nullptr);
+
+    mgr.raResourceInfo_.nicSocketMap.erase(ipAddr);
+    mgr.raResourceInfo_.hostNetSocketMap.erase(ipAddr);
+    GlobalMockObject::verify();
+}
+
+TEST_F(HccpTest, Ut_NetworkManager_StopHostNetAndListen_KeepDeviceSideEntry)
+{
+    s32 device_id = 0;
+    u32 port = 16666;
+    HcclIpAddress ipAddr("10.0.0.7");
+    auto& mgr = NetworkManager::GetInstance(device_id);
+    mgr.hostNicInitRef_.Ref();
+    SocketHandle fakeHostHandle = (SocketHandle)0x1234;
+    mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicSocketHandle = fakeHostHandle;
+    mgr.raResourceInfo_.hostNetSocketMap[ipAddr].listenedPort.insert(port);
+    mgr.IPPortListenRefMapHost_[ipAddr][port].Ref();
+    mgr.hostNicSocketClientRef_[ipAddr].Ref();
+    SocketHandle devHandle = (SocketHandle)0x5678;
+    mgr.raResourceInfo_.nicSocketMap[ipAddr].nicSocketHandle = devHandle;
+
+    MOCKER_CPP(&hccl::NetworkManager::StopListenSocket).expects(once()).will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtRaSocketDeInit).expects(once()).will(returnValue(HCCL_SUCCESS));
+    EXPECT_EQ(mgr.StopHostNetAndListen(fakeHostHandle, ipAddr, port), HCCL_SUCCESS);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap.count(ipAddr), 0U);
+    EXPECT_EQ(mgr.raResourceInfo_.nicSocketMap[ipAddr].nicSocketHandle, devHandle);
+
+    mgr.raResourceInfo_.nicSocketMap.erase(ipAddr);
+    mgr.hostNicInitRef_.Clear();
+    GlobalMockObject::verify();
+}
+
+TEST_F(HccpTest, Ut_NetworkManager_StopHostNetAndListen_AfterDeviceSideTeardown)
+{
+    s32 device_id = 0;
+    u32 port = 16666;
+    HcclIpAddress ipAddr("10.0.0.8");
+    auto& mgr = NetworkManager::GetInstance(device_id);
+    mgr.hostNicInitRef_.Ref();
+    SocketHandle fakeHandle = (SocketHandle)0x1234;
+    mgr.raResourceInfo_.nicSocketMap[ipAddr].nicSocketHandle = fakeHandle;
+    mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicSocketHandle = fakeHandle;
+    mgr.raResourceInfo_.hostNetSocketMap[ipAddr].listenedPort.insert(port);
+    mgr.IPPortListenRefMapHost_[ipAddr][port].Ref();
+    mgr.hostNicSocketClientRef_[ipAddr].Ref();
+
+    MOCKER(hrtRaSocketDeInit).expects(once()).will(returnValue(HCCL_SUCCESS));
+    EXPECT_EQ(mgr.StopNicsSocket(ipAddr), HCCL_SUCCESS);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap.count(ipAddr), 1U);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicSocketHandle, nullptr);
+
+    MOCKER_CPP(&hccl::NetworkManager::StopListenSocket).expects(never());
+    EXPECT_EQ(mgr.StopHostNetAndListen(fakeHandle, ipAddr, port), HCCL_SUCCESS);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap.count(ipAddr), 0U);
+    EXPECT_EQ(mgr.raResourceInfo_.nicSocketMap.count(ipAddr), 0U);
+
+    mgr.hostNicInitRef_.Clear();
+    GlobalMockObject::verify();
+}
+
+TEST_F(HccpTest, Ut_NetworkManager_StopHostNet_AfterDeviceSideTeardown)
+{
+    s32 device_id = 0;
+    HcclIpAddress ipAddr("10.0.0.12");
+    auto& mgr = NetworkManager::GetInstance(device_id);
+    mgr.hostNicInitRef_.Ref();
+    SocketHandle fakeHandle = (SocketHandle)0x1234;
+    mgr.raResourceInfo_.nicSocketMap[ipAddr].nicSocketHandle = fakeHandle;
+    mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicSocketHandle = fakeHandle;
+    mgr.hostNicSocketClientRef_[ipAddr].Ref();
+
+    MOCKER(hrtRaSocketDeInit).expects(once()).will(returnValue(HCCL_SUCCESS));
+    EXPECT_EQ(mgr.StopNicsSocket(ipAddr), HCCL_SUCCESS);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap.count(ipAddr), 1U);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicSocketHandle, nullptr);
+
+    MOCKER(hrtRaSocketDeInit).expects(never());
+    EXPECT_EQ(mgr.StopHostNet(fakeHandle, ipAddr), HCCL_SUCCESS);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap.count(ipAddr), 0U);
+    EXPECT_EQ(mgr.raResourceInfo_.nicSocketMap.count(ipAddr), 0U);
+
+    mgr.hostNicInitRef_.Clear();
+    GlobalMockObject::verify();
+}
+
+TEST_F(HccpTest, Ut_NetworkManager_StopHostSocketHandle_AfterDeviceSideTeardown)
+{
+    s32 device_id = 0;
+    u32 port = 16666;
+    HcclIpAddress ipAddr("10.0.0.10");
+    auto& mgr = NetworkManager::GetInstance(device_id);
+    mgr.hostNicInitRef_.Ref();
+    SocketHandle fakeHandle = (SocketHandle)0x1234;
+    mgr.raResourceInfo_.nicSocketMap[ipAddr].nicSocketHandle = fakeHandle;
+    mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicSocketHandle = fakeHandle;
+    mgr.raResourceInfo_.hostNetSocketMap[ipAddr].listenedPort.insert(port);
+    mgr.IPPortListenRefMapHost_[ipAddr][port].Ref();
+    mgr.hostNicSocketClientRef_[ipAddr].Ref();
+
+    MOCKER(hrtRaSocketDeInit).expects(once()).will(returnValue(HCCL_SUCCESS));
+    EXPECT_EQ(mgr.StopNicsSocket(ipAddr), HCCL_SUCCESS);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap.count(ipAddr), 1U);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicSocketHandle, nullptr);
+
+    MOCKER_CPP(&hccl::NetworkManager::StopListenSocket).expects(never());
+    EXPECT_EQ(mgr.StopHostSocketHandle(ipAddr), HCCL_SUCCESS);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap.count(ipAddr), 0U);
+    EXPECT_EQ(mgr.raResourceInfo_.nicSocketMap.count(ipAddr), 0U);
+    EXPECT_EQ(mgr.IPPortListenRefMapHost_[ipAddr][port].Count(), 0);
+
+    mgr.IPPortListenRefMapHost_.erase(ipAddr);
+    mgr.hostNicInitRef_.Clear();
+    GlobalMockObject::verify();
+}
+
+TEST_F(HccpTest, Ut_NetworkManager_StopRdmaHandle_DualMapSameHandle_SyncNullOutDevice)
+{
+    s32 device_id = 0;
+    HcclIpAddress ipAddr("10.0.0.13");
+    auto& mgr = NetworkManager::GetInstance(device_id);
+    RdmaHandle fakeRdmaHandle = (RdmaHandle)0x5678;
+    mgr.raResourceInfo_.nicSocketMap[ipAddr].nicRdmaHandle = fakeRdmaHandle;
+    mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicRdmaHandle = fakeRdmaHandle;
+
+    MOCKER(HrtRaRdmaDeInit).expects(once()).will(returnValue(HCCL_SUCCESS));
+    EXPECT_EQ(mgr.StopRdmaHandle(ipAddr, HcclNetDevDeployment::HCCL_NETDEV_DEPLOYMENT_DEVICE), HCCL_SUCCESS);
+    EXPECT_EQ(mgr.raResourceInfo_.nicSocketMap.count(ipAddr), 0U);
+    // 先断言count再取值: operator[]对缺失key会插入空条目, 掩盖误erase
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap.count(ipAddr), 1U);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicRdmaHandle, nullptr);
+
+    mgr.raResourceInfo_.hostNetSocketMap.erase(ipAddr);
+    GlobalMockObject::verify();
+}
+
+TEST_F(HccpTest, Ut_NetworkManager_StopRdmaHandle_DualMapSameHandle_SyncNullOutHost)
+{
+    s32 device_id = 0;
+    HcclIpAddress ipAddr("10.0.0.14");
+    auto& mgr = NetworkManager::GetInstance(device_id);
+    RdmaHandle fakeRdmaHandle = (RdmaHandle)0x5678;
+    mgr.raResourceInfo_.nicSocketMap[ipAddr].nicRdmaHandle = fakeRdmaHandle;
+    mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicRdmaHandle = fakeRdmaHandle;
+
+    MOCKER(HrtRaRdmaDeInit).expects(once()).will(returnValue(HCCL_SUCCESS));
+    EXPECT_EQ(mgr.StopRdmaHandle(ipAddr, HcclNetDevDeployment::HCCL_NETDEV_DEPLOYMENT_HOST), HCCL_SUCCESS);
+    EXPECT_EQ(mgr.raResourceInfo_.nicSocketMap.count(ipAddr), 0U);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap.count(ipAddr), 0U);
+
+    GlobalMockObject::verify();
+}
+
+TEST_F(HccpTest, Ut_NetworkManager_StopRdmaHandle_KeepEntryWithAliveSocketHandle)
+{
+    s32 device_id = 0;
+    HcclIpAddress ipAddr("10.0.0.15");
+    auto& mgr = NetworkManager::GetInstance(device_id);
+    RdmaHandle fakeRdmaHandle = (RdmaHandle)0x5678;
+    SocketHandle fakeSocketHandle = (SocketHandle)0x1234;
+    mgr.raResourceInfo_.nicSocketMap[ipAddr].nicRdmaHandle = fakeRdmaHandle;
+    mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicRdmaHandle = fakeRdmaHandle;
+    mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicSocketHandle = fakeSocketHandle;
+
+    MOCKER(HrtRaRdmaDeInit).expects(once()).will(returnValue(HCCL_SUCCESS));
+    EXPECT_EQ(mgr.StopRdmaHandle(ipAddr, HcclNetDevDeployment::HCCL_NETDEV_DEPLOYMENT_HOST), HCCL_SUCCESS);
+    EXPECT_EQ(mgr.raResourceInfo_.nicSocketMap.count(ipAddr), 0U);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap.count(ipAddr), 1U);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicRdmaHandle, nullptr);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicSocketHandle, fakeSocketHandle);
+
+    mgr.raResourceInfo_.hostNetSocketMap.erase(ipAddr);
+    GlobalMockObject::verify();
+}
+
+TEST_F(HccpTest, Ut_NetworkManager_StopAllHostNicSockets_EmptyHandle_SkipPhysicalTeardown)
+{
+    s32 device_id = 0;
+    HcclIpAddress ipAddr("10.0.0.11");
+    auto& mgr = NetworkManager::GetInstance(device_id);
+    mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicSocketHandle = nullptr;
+    mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicRdmaHandle = nullptr;
+
+    MOCKER_CPP(&hccl::NetworkManager::StopListenSocket).expects(never());
+    MOCKER(hrtRaSocketDeInit).expects(never());
+    EXPECT_EQ(mgr.StopAllHostNicSockets(), HCCL_SUCCESS);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap.count(ipAddr), 0U);
+
     GlobalMockObject::verify();
 }
 
@@ -655,10 +859,8 @@ TEST_F(HccpTest, Ut_NetworkManager_RemoveNicSocketUser_Underflow_EntryStillClear
     HcclIpAddress ipAddr("10.0.0.3");
     auto& mgr = NetworkManager::GetInstance(device_id);
     EXPECT_EQ(mgr.AddNicSocketUser(ipAddr), HCCL_SUCCESS);
-    // 构造计数为0的残留条目(模拟延迟拆除期间状态异常), 再次Remove触发下溢
     mgr.nicSocketUserMap_[ipAddr].ref.Clear();
     EXPECT_EQ(mgr.RemoveNicSocketUser(ipAddr), HCCL_SUCCESS);
-    // 下溢防护: 计数复位后条目正常清除, 不产生永久残留
     EXPECT_EQ(mgr.nicSocketUserMap_.count(ipAddr), 0U);
 }
 
@@ -668,15 +870,12 @@ TEST_F(HccpTest, Ut_NetworkManager_MarkNicUserPendingStop_FlagsByParameter)
     HcclIpAddress ipAddr("10.0.0.4");
     auto& mgr = NetworkManager::GetInstance(device_id);
     EXPECT_EQ(mgr.AddNicSocketUser(ipAddr), HCCL_SUCCESS);
-    // 仅socket销毁路径: 只置pendingStop, 不动pendingRdmaStop
     EXPECT_TRUE(mgr.MarkNicUserPendingStop(ipAddr, true, false));
     EXPECT_TRUE(mgr.nicSocketUserMap_[ipAddr].pendingStop);
     EXPECT_FALSE(mgr.nicSocketUserMap_[ipAddr].pendingRdmaStop);
-    // 仅rdma销毁路径: 只置pendingRdmaStop
     EXPECT_TRUE(mgr.MarkNicUserPendingStop(ipAddr, false, true));
     EXPECT_TRUE(mgr.nicSocketUserMap_[ipAddr].pendingStop);
     EXPECT_TRUE(mgr.nicSocketUserMap_[ipAddr].pendingRdmaStop);
-    // 使用者全部注销后条目清除, 后续查询返回false
     EXPECT_EQ(mgr.RemoveNicSocketUser(ipAddr), HCCL_SUCCESS);
     EXPECT_FALSE(mgr.MarkNicUserPendingStop(ipAddr, true, true));
 }
@@ -689,7 +888,6 @@ TEST_F(HccpTest, Ut_NetworkManager_HeterogDeinit_InUse_SkipAndKeepRefcount)
     auto& mgr = NetworkManager::GetInstance(device_id);
     EXPECT_EQ(mgr.AddNicSocketUser(ipAddr), HCCL_SUCCESS);
     s32 refBefore = mgr.hostNicInitRef_.Count();
-    // 使用者仍持有时整体Deinit被守卫拦下: 不消耗引用计数, 计数条目保留给延迟拆除
     EXPECT_EQ(mgr.HeterogDeinit(device_id, ipAddr, port), HCCL_SUCCESS);
     EXPECT_EQ(mgr.hostNicInitRef_.Count(), refBefore);
     EXPECT_EQ(mgr.nicSocketUserMap_.count(ipAddr), 1U);
@@ -705,12 +903,35 @@ TEST_F(HccpTest, Ut_NetworkManager_PsWorkerRaDeinit_InUse_SkipAndKeepRefcount)
     EXPECT_EQ(mgr.AddNicSocketUser(ipAddr), HCCL_SUCCESS);
     s32 hostRefBefore = mgr.hostNicInitRef_.Count();
     s32 devRefBefore = mgr.deviceNicInitRef_.Count();
-    // 使用者仍持有时整体Deinit被守卫拦下: 不消耗计数, 不推进isRaInitRepeated_状态机
     EXPECT_EQ(mgr.PsWorkerRaDeinit(device_id, ipAddr, port), HCCL_SUCCESS);
     EXPECT_EQ(mgr.hostNicInitRef_.Count(), hostRefBefore);
     EXPECT_EQ(mgr.deviceNicInitRef_.Count(), devRefBefore);
     EXPECT_EQ(mgr.nicSocketUserMap_.count(ipAddr), 1U);
     EXPECT_EQ(mgr.RemoveNicSocketUser(ipAddr), HCCL_SUCCESS);
+}
+
+TEST_F(HccpTest, Ut_NetworkManager_PsWorkerRaDeinit_EraseBothMaps_HostEntryAbsent)
+{
+    s32 device_id = 0;
+    u32 port = 16666;
+    HcclIpAddress ipAddr("10.88.88.88");
+    auto& mgr = NetworkManager::GetInstance(device_id);
+    mgr.raResourceInfo_.nicSocketMap[ipAddr].nicSocketHandle = (SocketHandle)0x1234;
+    // 计数规整为1, Unref后归0走lastUsed=true完整拆除路径
+    mgr.deviceNicInitRef_.Clear();
+    mgr.deviceNicInitRef_.Ref();
+
+    // mock真实副作用调用, 避免真实监听拆除与子进程关闭
+    MOCKER(hrtRaIsLastUsed).stubs().with(mockcpp::any(), outBound(true)).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hccl::NetworkManager::HeterogStopListenInternal).expects(once()).will(returnValue(HCCL_SUCCESS));
+    MOCKER(HrtRaDeInit).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hccl::NetworkManager::CloseHccpSubProc).expects(once()).will(returnValue(HCCL_SUCCESS));
+
+    EXPECT_EQ(mgr.PsWorkerRaDeinit(device_id, ipAddr, port), HCCL_SUCCESS);
+    EXPECT_EQ(mgr.raResourceInfo_.nicSocketMap.count(ipAddr), 0U);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap.count(ipAddr), 0U);
+
+    GlobalMockObject::verify();
 }
 
 TEST_F(HccpTest, ut_hrtMemcpyAddrAsync_When_FeatureNotSupport_Expect_NotSupport)
