@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <vector>
 #include "../channel.h"
 #include "aicpu_ts_channel_entity.h"
@@ -62,6 +63,8 @@ private:
     HcclResult ResetLocalNotifies();
 
     AicpuChannelEntityResources entityResources_;
+    std::mutex deviceEntityMutex_;
+    ChannelHandle deviceEntityHandle_{0};
     // --------------------- 转换参数 ---------------------
     DevBaseAttr devBaseAttr_{};
     bool devBaseAttrReady_{false};

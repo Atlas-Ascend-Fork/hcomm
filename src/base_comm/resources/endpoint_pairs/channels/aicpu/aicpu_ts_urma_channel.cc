@@ -252,10 +252,18 @@ HcclResult AicpuTsUrmaChannel::H2DResPack(std::vector<char>& buffer)
 
 HcclResult AicpuTsUrmaChannel::BuildDeviceEntity(ChannelHandle compatChannelHandle, ChannelHandle& entityHandle)
 {
+    std::lock_guard<std::mutex> lock(deviceEntityMutex_);
+    if (deviceEntityHandle_ != 0) {
+        entityHandle = deviceEntityHandle_;
+        return HCCL_SUCCESS;
+    }
+
     std::vector<char> packedData;
     CHK_RET(H2DResPack(packedData));
-    return entityResources_.Build(
-        packedData, GetEngine(), channelDesc_.remoteEndpoint.protocol, compatChannelHandle, entityHandle);
+    CHK_RET(entityResources_.Build(
+        packedData, GetEngine(), channelDesc_.remoteEndpoint.protocol, compatChannelHandle, entityHandle));
+    deviceEntityHandle_ = entityHandle;
+    return HCCL_SUCCESS;
 }
 
 HcclResult AicpuTsUrmaChannel::BuildAttr()

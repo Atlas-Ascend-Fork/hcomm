@@ -240,7 +240,6 @@ HcclResult EndpointPair::CreateChannel(
     }
 
     channels[0] = channelHandles_[engine][reuseIdx];
-    // 复用分支补一次 H2D 反查：建链时 CreateChannelsLoop 写的是 host 恒等映射，kernel 回填后覆盖为 device 句柄
     if (ChannelProcess::ResolveHostHandleToDevice(channels[0], deviceChannels[0]) != HCCL_SUCCESS) {
         HCCL_ERROR(
             "EndpointPair::CreateChannel: resolve host handle[0x%llx] to device failed.",

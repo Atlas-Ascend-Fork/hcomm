@@ -131,7 +131,6 @@ HcclResult ChannelProcess::CreateChannelsLoop(
 
             ChannelRegistry().ChannelMap().emplace(handle, std::move(tmpPtr));
             ChannelRegistry().ChannelD2HMap().emplace(key, handle);
-            // 同步维护 H2D 反向映射（host 句柄恒等映射，后续 kernel 回写真实 device 句柄时覆盖）
             DeviceChannelKey h2dKey{deviceId, handle};
             ChannelRegistry().ChannelH2DMap().emplace(h2dKey, handle);
         }
@@ -231,7 +230,6 @@ HcclResult ChannelProcess::ResolveHostHandleToDevice(ChannelHandle hostHandle, C
 
 HcclResult ChannelProcess::ResolveHostHandleToOriginalDevice(ChannelHandle hostHandle, ChannelHandle& deviceHandle)
 {
-    // H2D 会被 entity alias 更新；构建 entity 的兼容句柄必须始终指向原始 device 通道句柄。
     if (hostHandle == 0) {
         return HCCL_E_NOT_FOUND;
     }
@@ -242,16 +240,11 @@ HcclResult ChannelProcess::ResolveHostHandleToOriginalDevice(ChannelHandle hostH
     std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
     const DeviceChannelKey key{deviceId, hostHandle};
     const auto destroyIter = ChannelRegistry().ChannelDestroyHandleMap().find(key);
-    if (destroyIter != ChannelRegistry().ChannelDestroyHandleMap().end()) {
-        deviceHandle = destroyIter->second;
-        return HCCL_SUCCESS;
-    }
-
-    const auto currentIter = ChannelRegistry().ChannelH2DMap().find(key);
-    if (currentIter == ChannelRegistry().ChannelH2DMap().end()) {
+    if (destroyIter == ChannelRegistry().ChannelDestroyHandleMap().end()) {
         return HCCL_E_NOT_FOUND;
     }
-    deviceHandle = currentIter->second;
+
+    deviceHandle = destroyIter->second;
     return HCCL_SUCCESS;
 }
 
@@ -642,7 +635,6 @@ HcclResult ChannelProcess::FillChannelD2HMap(
             deviceId, deviceChannelHandle, hostChannelHandle);
         DeviceChannelKey key{deviceId, deviceChannelHandle};
         ChannelRegistry().ChannelD2HMap()[key] = hostChannelHandle;
-        // 同步维护 H2D 反向映射：host 句柄 -> 用户实际使用的句柄（AIV/AICPU_TS 为 device 句柄）
         DeviceChannelKey h2dKey{deviceId, hostChannelHandle};
         ChannelRegistry().ChannelH2DMap()[h2dKey] = deviceChannelHandle;
     }
@@ -654,6 +646,29 @@ HcclResult ChannelProcess::RegisterChannelD2HMap(
     ChannelHandle* deviceChannelHandles, ChannelHandle* hostChannelHandles, uint32_t listNum)
 {
     return FillChannelD2HMap(deviceChannelHandles, hostChannelHandles, listNum);
+}
+
+HcclResult ChannelProcess::RegisterOriginalChannelHandle(
+    const ChannelHandle* deviceChannelHandles, const ChannelHandle* hostChannelHandles, uint32_t listNum)
+{
+    CHK_PTR_NULL(deviceChannelHandles);
+    CHK_PTR_NULL(hostChannelHandles);
+    CHK_PRT_RET(
+        (listNum == 0), HCCL_ERROR("[ChannelProcess::%s] Invalid listNum, listNum[%u]", __func__, listNum),
+        HCCL_E_PARA);
+
+    int32_t deviceId = 0;
+    CHK_RET(hrtGetDevice(&deviceId));
+
+    std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
+    for (uint32_t idx = 0; idx < listNum; idx++) {
+        if (deviceChannelHandles[idx] == 0 || hostChannelHandles[idx] == 0) {
+            continue;
+        }
+        ChannelRegistry().ChannelDestroyHandleMap()[DeviceChannelKey{deviceId, hostChannelHandles[idx]}]
+            = deviceChannelHandles[idx];
+    }
+    return HCCL_SUCCESS;
 }
 
 HcclResult ChannelProcess::RegisterChannelHandleAlias(ChannelHandle publicHandle, ChannelHandle hostHandle)
@@ -671,6 +686,7 @@ HcclResult ChannelProcess::RegisterChannelHandleAlias(ChannelHandle publicHandle
     const auto oldUserHandle = ChannelRegistry().ChannelH2DMap().find(h2dKey);
     ChannelHandle previousUserHandle = 0;
     if (oldUserHandle != ChannelRegistry().ChannelH2DMap().end() && oldUserHandle->second != 0
+        && oldUserHandle->second != publicHandle
         && ChannelRegistry().ChannelDestroyHandleMap().find(h2dKey)
                == ChannelRegistry().ChannelDestroyHandleMap().end()) {
         previousUserHandle = oldUserHandle->second;

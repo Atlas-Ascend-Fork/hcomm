@@ -764,6 +764,26 @@ TEST_F(TestChannelProcess, Ut_TestLaunchChannelKernelCommon_When_ListNumZero_Ret
     EXPECT_EQ(ret, HCCL_E_PARA);
 }
 
+// --- RegisterOriginalChannelHandle: 参数校验 ---
+TEST_F(TestChannelProcess, Ut_RegisterOriginalChannelHandle_When_DeviceHandlesNullptr_Return_HCCL_E_PTR)
+{
+    ChannelHandle hostHandles[1] = {};
+    EXPECT_EQ(hcomm::ChannelProcess::RegisterOriginalChannelHandle(nullptr, hostHandles, 1), HCCL_E_PTR);
+}
+
+TEST_F(TestChannelProcess, Ut_RegisterOriginalChannelHandle_When_HostHandlesNullptr_Return_HCCL_E_PTR)
+{
+    ChannelHandle deviceHandles[1] = {};
+    EXPECT_EQ(hcomm::ChannelProcess::RegisterOriginalChannelHandle(deviceHandles, nullptr, 1), HCCL_E_PTR);
+}
+
+TEST_F(TestChannelProcess, Ut_RegisterOriginalChannelHandle_When_ListNumZero_Return_HCCL_E_PARA)
+{
+    ChannelHandle deviceHandles[1] = {};
+    ChannelHandle hostHandles[1] = {};
+    EXPECT_EQ(hcomm::ChannelProcess::RegisterOriginalChannelHandle(deviceHandles, hostHandles, 0), HCCL_E_PARA);
+}
+
 // ChannelGetRemoteMems 空指针测试
 TEST_F(TestChannelProcess, Ut_TestChannelGetRemoteMems_When_RemoteMemNullptr_Return_HCCL_E_PTR)
 {
@@ -1250,12 +1270,18 @@ TEST_F(TestChannelEnsureDeviceReady, Ut_EnsureDeviceReady_When_PartiallyReady_Ex
     ASSERT_EQ(hcomm::AicpuTsChannelEntity::EnsureDeviceReady(hostHandles, 2), HCCL_SUCCESS);
     EXPECT_TRUE(ready->IsDeviceEntityReady());
     EXPECT_TRUE(unready->IsDeviceEntityReady());
+
+    // Query/复用路径读取 H2D，应继续返回 Acquire 发布的 ctx 句柄，而不是 transport 句柄。
     ChannelHandle deviceHandle = 0;
     ASSERT_EQ(hcomm::ChannelProcess::ResolveHostHandleToDevice(unreadyHost_, deviceHandle), HCCL_SUCCESS);
-    EXPECT_EQ(deviceHandle, reinterpret_cast<ChannelHandle>(&transport_));
+    EXPECT_EQ(deviceHandle, reinterpret_cast<ChannelHandle>(&ctx_));
+    // 内部路径读取 original 表，应拿到 ctx 回填的真实 transport 句柄。
+    ChannelHandle originalHandle = 0;
+    ASSERT_EQ(hcomm::ChannelProcess::ResolveHostHandleToOriginalDevice(unreadyHost_, originalHandle), HCCL_SUCCESS);
+    EXPECT_EQ(originalHandle, reinterpret_cast<ChannelHandle>(&transport_));
+    // transport 不再登记 D2H；外部输入应使用 ctx/entity，内部原始句柄仅供销毁和 Entity 兼容路径。
     ChannelHandle hostHandle = 0;
-    ASSERT_EQ(hcomm::ChannelProcess::ResolveUserHandleToHost(deviceHandle, hostHandle), HCCL_SUCCESS);
-    EXPECT_EQ(hostHandle, unreadyHost_);
+    EXPECT_EQ(hcomm::ChannelProcess::ResolveUserHandleToHost(originalHandle, hostHandle), HCCL_E_NOT_FOUND);
     ASSERT_EQ(hcomm::ChannelProcess::ResolveHostHandleToDevice(hostHandles[0], deviceHandle), HCCL_SUCCESS);
     EXPECT_EQ(deviceHandle, originalDeviceHandles[0]);
 
@@ -1492,6 +1518,41 @@ TEST_F(TestChannelProcess, Ut_RegisterChannelHandleAlias_When_RepeatedBuildKeepO
     ChannelHandle originalHandle = 0;
     ASSERT_EQ(hcomm::ChannelProcess::ResolveHostHandleToOriginalDevice(hostHandle, originalHandle), HCCL_SUCCESS);
     EXPECT_EQ(originalHandle, deviceHandle);
+}
+
+TEST_F(TestChannelProcess, Ut_ResolveOriginalDevice_When_DestroyHandleMissing_Expect_NotFound)
+{
+    constexpr ChannelHandle hostHandle = 0x1234;
+    constexpr ChannelHandle publicHandle = 0x9abc;
+    const hcomm::DeviceChannelKey hostKey{0, hostHandle};
+    {
+        std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
+        ChannelRegistry().ChannelH2DMap()[hostKey] = publicHandle;
+    }
+
+    ChannelHandle originalHandle = 0;
+    EXPECT_EQ(hcomm::ChannelProcess::ResolveHostHandleToOriginalDevice(hostHandle, originalHandle), HCCL_E_NOT_FOUND);
+}
+
+TEST_F(TestChannelProcess, Ut_RegisterChannelHandleAlias_When_SamePublicHandleRepeated_Expect_KeepDestroyHandle)
+{
+    constexpr ChannelHandle deviceHandle = 0x1234;
+    constexpr ChannelHandle hostHandle = 0x9abc;
+    constexpr ChannelHandle publicHandle = 0x7777;
+
+    hcomm::DeviceChannelKey deviceKey{0, deviceHandle};
+    hcomm::DeviceChannelKey hostKey{0, hostHandle};
+    {
+        std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
+        ChannelRegistry().ChannelD2HMap()[deviceKey] = hostHandle;
+        ChannelRegistry().ChannelH2DMap()[hostKey] = publicHandle;
+    }
+
+    ASSERT_EQ(hcomm::ChannelProcess::RegisterChannelHandleAlias(publicHandle, hostHandle), HCCL_SUCCESS);
+
+    std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
+    EXPECT_EQ(
+        ChannelRegistry().ChannelDestroyHandleMap().find(hostKey), ChannelRegistry().ChannelDestroyHandleMap().end());
 }
 
 // 可配置 GetStatus 返回值的 Fake Channel，用于 ChannelGetStatus 测试

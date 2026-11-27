@@ -109,9 +109,8 @@ private:
     ChannelHandleRegistryProc(const ChannelHandleRegistryProc&) = delete;
     ChannelHandleRegistryProc& operator=(const ChannelHandleRegistryProc&) = delete;
 
-    // 锁声明最前 = 最后死（README R3）：三表析构期（channel 析构经访问器加锁）锁必须仍可用
-    std::mutex channelMapMtx_;                                               // 单锁护三表
-    std::unordered_map<ChannelHandle, std::shared_ptr<Channel>> channelMap_; // 来源：ChannelProcess
+    std::mutex channelMapMtx_;
+    std::unordered_map<ChannelHandle, std::shared_ptr<Channel>> channelMap_;
     std::unordered_map<DeviceChannelKey, ChannelHandle, DeviceChannelKeyHash> channelD2HMap_;
     std::unordered_map<DeviceChannelKey, ChannelHandle, DeviceChannelKeyHash> channelH2DMap_;
     std::unordered_map<DeviceChannelKey, ChannelHandle, DeviceChannelKeyHash> channelDestroyHandleMap_;
