@@ -214,7 +214,7 @@ stateDiagram-v2
 | **开关** | 由`HCCL_DFS_CONFIG`的`stuck_detection:on/off`控制，默认开启；检测关闭时C API返回全0地址。`cluster_heartbeat`关闭时不会建立心跳链路、不会向对端广播，但`ClusterMonitor`监控线程仍可能启动或复用，C API仍可能返回有效地址并参与本地检测。 |
 | **计数池** | 固定128KB，共8192个16B slot；池耗尽或分配失败返回`HCCL_E_MEMORY`。 |
 | **状态语义** | 当前与910一致：`head == tail`且当前采样与上一轮均不推进时进入`FROZEN`；`head != tail`的在途卡死不会进入`FROZEN`。空闲通信域可能误报，在途卡死可能漏报。 |
-| **锁与拷贝** | `CheckProcessStuck`在manager排他锁内执行整池同步D2H（128KB），期间阻塞注册、销毁和Resume；`resize`已用`EXCEPTION_CATCH`防护，失败返回`HCCL_E_MEMORY`。 |
+| **锁与拷贝** | `CheckProcessStuck`在manager排他锁内执行整池同步D2H（128KB），期间阻塞注册、销毁和Resume；通信域注销时`FreeCounter`也在同一排他锁内对同一计数池执行一次整池D2H，只刷新即将析构的通信域；进程退出走`DeInit()`→`PrintActiveCommCounters()`的路径不做D2H，打印的仍是host缓存值。`resize`已用`EXCEPTION_CATCH`防护，失败返回`HCCL_E_MEMORY`。 |
 | **上报与打印** | 上报阈值为`max(2, execTimeout/3*2/60)`轮；连续达到阈值后向`ClusterMonitor`返回`needReportStuck=true`，打印采用指数退避。检测失败不重置轮次；未卡住时重置轮次和打印退避。 |
 | **恢复** | 本模块只返回`needReportStuck`，不负责广播；`ClusterMonitor`恢复时当前仅本地置OK，不向对端广播。 |
 | **地址生命周期** | 返回地址仅在通信域存活期间有效；slot回收后可能被其他通信域复用。 |

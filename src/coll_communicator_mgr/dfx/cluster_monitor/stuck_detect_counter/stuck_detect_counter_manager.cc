@@ -80,7 +80,7 @@ HcclResult StuckDetectCounterManager::AllocCounter(const std::string& commId, St
 
 HcclResult StuckDetectCounterManager::FreeCounter(const std::string& commId)
 {
-    // 锁内只做状态迁移和 slot 回收；计数打印移到锁外，避免日志阻塞控制面。
+    // 锁内完成状态迁移、slot 回收和该通信域的计数刷新；计数打印移到锁外，避免日志阻塞控制面。
     StuckDetectCounterInfo counterInfo;
     {
         std::unique_lock<std::shared_mutex> lock(managerMutex_);
@@ -90,6 +90,11 @@ HcclResult StuckDetectCounterManager::FreeCounter(const std::string& commId)
         }
 
         counterInfo = std::move(iter->second);
+
+        HcclResult refreshRet = RefreshCommCounterLocked(counterInfo);
+        if (refreshRet != HCCL_SUCCESS) {
+            HCCL_WARNING("[%s] copy counters failed, commId[%s], ret[%d].", __func__, commId.c_str(), refreshRet);
+        }
         counterPool_.FreeSlotLocked(counterInfo.slotIdx);
         commId2CounterInfo_.erase(iter);
     }
@@ -165,6 +170,22 @@ HcclResult StuckDetectCounterManager::UpdateCommStatusLocked(
             counterInfo.status = isFrozen ? StuckDetectCommStatus::FROZEN : StuckDetectCommStatus::ACTIVE;
             break;
         }
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult StuckDetectCounterManager::RefreshCommCounterLocked(StuckDetectCounterInfo& counterInfo) const
+{
+    std::vector<int32_t> counterBuf;
+    HcclResult ret = counterPool_.CopyLatestCountersLocked(counterBuf);
+    if (ret != HCCL_SUCCESS) {
+        return ret;
+    }
+
+    const StuckDetectCommStatus prevStatus = counterInfo.status;
+    (void)UpdateCommStatusLocked(counterInfo, counterBuf);
+    if (prevStatus == StuckDetectCommStatus::ACTIVE) {
+        counterInfo.status = StuckDetectCommStatus::ACTIVE;
     }
     return HCCL_SUCCESS;
 }

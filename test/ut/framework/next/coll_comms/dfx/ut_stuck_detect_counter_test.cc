@@ -443,3 +443,58 @@ TEST_F(StuckDetectCounterTest, Ut_StuckDetectCounterManager_DeInit_When_CounterA
     EXPECT_TRUE(manager.commId2CounterInfo_.empty());
     EXPECT_FALSE(manager.counterPool_.IsReadyLocked());
 }
+
+TEST_F(
+    StuckDetectCounterTest,
+    Ut_StuckDetectCounterManager_RefreshCommCounter_When_DeviceCountersAdvanced_Expect_RefreshedActive)
+{
+    StuckDetectCounterManager manager(0);
+    StuckDetectCounterAddress address;
+    ASSERT_EQ(manager.AllocCounter("comm1", address), HCCL_SUCCESS);
+
+    StuckDetectCounterInfo counterInfo = manager.commId2CounterInfo_["comm1"];
+    SetSlotCounter(manager.counterPool_, counterInfo.slotIdx, INITIAL_COUNTER, INITIAL_COUNTER);
+
+    const uint32_t copiesBeforeRefresh = g_hrtMemSyncCopyCount;
+    ASSERT_EQ(manager.RefreshCommCounterLocked(counterInfo), HCCL_SUCCESS);
+    EXPECT_EQ(g_hrtMemSyncCopyCount, copiesBeforeRefresh + 1U);
+    EXPECT_EQ(counterInfo.head, INITIAL_COUNTER);
+    EXPECT_EQ(counterInfo.tail, INITIAL_COUNTER);
+    EXPECT_EQ(counterInfo.status, StuckDetectCommStatus::ACTIVE);
+}
+
+TEST_F(
+    StuckDetectCounterTest, Ut_StuckDetectCounterManager_RefreshCommCounter_When_ActiveNotAdvancing_Expect_KeepActive)
+{
+    StuckDetectCounterManager manager(0);
+    StuckDetectCounterAddress address;
+    ASSERT_EQ(manager.AllocCounter("comm1", address), HCCL_SUCCESS);
+
+    StuckDetectCounterInfo counterInfo = manager.commId2CounterInfo_["comm1"];
+    counterInfo.head = INITIAL_COUNTER;
+    counterInfo.tail = INITIAL_COUNTER;
+    counterInfo.status = StuckDetectCommStatus::ACTIVE;
+    SetSlotCounter(manager.counterPool_, counterInfo.slotIdx, INITIAL_COUNTER, INITIAL_COUNTER);
+
+    ASSERT_EQ(manager.RefreshCommCounterLocked(counterInfo), HCCL_SUCCESS);
+    EXPECT_EQ(counterInfo.status, StuckDetectCommStatus::ACTIVE);
+}
+
+TEST_F(StuckDetectCounterTest, Ut_StuckDetectCounterManager_FreeCounter_When_D2HFails_Expect_SlotRecycled)
+{
+    StuckDetectCounterManager manager(0);
+    StuckDetectCounterAddress address;
+    ASSERT_EQ(manager.AllocCounter("comm1", address), HCCL_SUCCESS);
+    const uint32_t slotIdx = manager.commId2CounterInfo_["comm1"].slotIdx;
+
+    const uint32_t copiesBeforeFree = g_hrtMemSyncCopyCount;
+    g_hrtMemSyncCopyFailAfter = g_hrtMemSyncCopyCount;
+    EXPECT_EQ(manager.FreeCounter("comm1"), HCCL_SUCCESS);
+    EXPECT_EQ(g_hrtMemSyncCopyCount, copiesBeforeFree + 1U);
+    EXPECT_TRUE(manager.commId2CounterInfo_.empty());
+    EXPECT_EQ(manager.counterPool_.freeSlotList_.back(), slotIdx);
+
+    g_hrtMemSyncCopyFailAfter = UINT32_MAX;
+    ASSERT_EQ(manager.AllocCounter("comm2", address), HCCL_SUCCESS);
+    EXPECT_EQ(manager.commId2CounterInfo_["comm2"].slotIdx, slotIdx);
+}

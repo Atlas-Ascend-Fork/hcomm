@@ -67,6 +67,8 @@ private:
     // 根据最新计数更新单个通信域的卡住状态。
     HcclResult
     UpdateCommStatusLocked(StuckDetectCounterInfo& counterInfo, const std::vector<int32_t>& counterBuf) const;
+    // 在持锁状态下刷新单个通信域的计数，仅 D2H 失败时返回错误码。
+    HcclResult RefreshCommCounterLocked(StuckDetectCounterInfo& counterInfo) const;
     // 打印单个通信域的计数和状态。
     void PrintCommCounter(const StuckDetectCounterInfo& counterInfo) const;
 
