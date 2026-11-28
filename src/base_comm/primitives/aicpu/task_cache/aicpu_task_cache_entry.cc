@@ -246,7 +246,7 @@ HcclResult AicpuTaskCacheEntry::AddSqeArray(
     if (isVOp_) {
         sqeArrayInfo.originalTypes.reserve(sqeCount);
         for (size_t i = 0; i < sqeCount; ++i) {
-            const auto* header = reinterpret_cast<const Rt91095StarsSqeHeader*>(sqeArray + i * AC_SQE_SIZE);
+            const auto* header = ReinterpretAs<const Rt91095StarsSqeHeader*>(sqeArray + i * AC_SQE_SIZE);
             sqeArrayInfo.originalTypes.push_back(header->type);
         }
     }
@@ -494,8 +494,7 @@ HcclResult AicpuTaskCacheEntry::SubmitVNotifyRefreshInfo_()
         arrayInfo.notifyRefreshInfos.resize(arrayInfo.sqeCount);
         entryBytes_ += sizeof(NotifyRefreshInfo) * arrayInfo.notifyRefreshInfos.size();
         for (size_t i = 0; i < arrayInfo.sqeCount; ++i) {
-            const auto* sqe
-                = reinterpret_cast<const Hccl::Rt91095StarsNotifySqe*>(arrayInfo.sqeArray + i * AC_SQE_SIZE);
+            const auto* sqe = ReinterpretAs<const Hccl::Rt91095StarsNotifySqe*>(arrayInfo.sqeArray + i * AC_SQE_SIZE);
             if (sqe->header.type != static_cast<uint8_t>(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT)) {
                 continue;
             }
@@ -560,11 +559,11 @@ inline HcclResult AicpuTaskCacheEntry::SubmitSqeAddrRefreshInfo_()
 HcclResult AicpuTaskCacheEntry::UpdateVOpMode_(
     const uint8_t* sqePtr, const AddrRefreshInfo& srcAddrInfo, const AddrRefreshInfo& dstAddrInfo)
 {
-    const auto* header = reinterpret_cast<const Rt91095StarsSqeHeader*>(sqePtr);
+    const auto* header = ReinterpretAs<const Rt91095StarsSqeHeader*>(sqePtr);
     if (static_cast<Rt91095StarsSqeType>(header->type) != Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA) {
         return HCCL_SUCCESS;
     }
-    const auto* sdmaSqe = reinterpret_cast<const Rt91095StarsMemcpySqe*>(sqePtr);
+    const auto* sdmaSqe = ReinterpretAs<const Rt91095StarsMemcpySqe*>(sqePtr);
     if (sdmaSqe->opcode != SDMA_OPCODE_MEMCPY) {
         return HCCL_SUCCESS;
     }
