@@ -339,6 +339,7 @@ namespace {
         RankTableInfo inputTable = rankTable;
         logicRet = SetLogicSuperPodId(inputTable, topoPath);
         if (logicRet != HCCL_SUCCESS) {
+            HCCL_ERROR("[%s] SetLogicSuperPodId failed, myRank[%d], ret[%d]", __func__, myRank, logicRet);
             return nullptr;
         }
         return rankGraphBuilder.Build(inputTable, topoPath, myRank);
