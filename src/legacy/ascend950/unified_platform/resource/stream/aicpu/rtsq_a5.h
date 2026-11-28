@@ -176,6 +176,8 @@ private:
 
     u32 sqFullTimeout_ = RTSQ_FULL_TIMEOUT_DEFAULT;
 
+    std::chrono::steady_clock::time_point lastPrintTime_{}; // MakeSureAvailableSpace循环日志限流
+
     bool isPreStreamSync = false;
 
     bool launchFlag_ = false;

@@ -162,7 +162,6 @@ HcclResult RtsqA5::MakeSureAvailableSpace()
     sqFullTimeout_ = PlfGetSqFullTimeOut();
 #endif
     const std::chrono::seconds printInterval(PRINT_INTERVAL); // 打印间隔30s
-    auto lastPrintTime = std::chrono::steady_clock::now() - printInterval;
     HCCL_INFO(
         "[%s]sqId:%u, sqFullTimeout_: %u s, sqHead:%u, sqTail:%u, pendingSqeCnt_:%u, dbSendHead:%u, dbSendTail:%u",
         __func__, sqId_, sqFullTimeout_, sqHead_, GetTail(), pendingSqeCnt_, dbSendHead_, dbSendTail_);
@@ -175,13 +174,13 @@ HcclResult RtsqA5::MakeSureAvailableSpace()
         }
 
         auto curTime = std::chrono::steady_clock::now();
-        if (UNLIKELY(curTime - lastPrintTime >= printInterval)) {
+        if (UNLIKELY(curTime - lastPrintTime_ >= printInterval)) {
             HCCL_RUN_INFO(
                 "[%s]while loop, sqId:%u, sqHead:%u, sqTail:%u, availableSpace:%u, pendingSqeCnt_:%u, dbSendHead:%u, "
                 "dbSendTail:%u, sqFullTimeout_:%u s",
                 __func__, sqId_, sqHead_, GetTail(), availableSpace, pendingSqeCnt_, dbSendHead_, dbSendTail_,
                 sqFullTimeout_);
-            lastPrintTime = curTime;
+            lastPrintTime_ = curTime;
         }
 
         TRY_CATCH_RETURN(CheckLaunchTaskStatus(startTime, curTime, "Rtsq full"););
