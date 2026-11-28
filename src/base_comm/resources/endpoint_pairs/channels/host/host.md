@@ -622,11 +622,11 @@ classDiagram
 | `PostRdmaOpAllQps` | 私有 | [in] `caller`、`opcode`、`localAddr`、`remoteAddr`、`len`、`immData` | `HcclResult` | 第一级按QP划分数据并逐QP调用`PostRdmaMemOp` |
 | `PostRdmaMemOp` | 私有 | [in] `caller`、`opcode`、`qpRef`、`localAddr`、`remoteAddr`、`len`、`immData` | `HcclResult` | 第二级按`maxMsgSize_`切片并逐WR下发；`qpRef`复用`PostRdmaOpAllQps`已取的QP句柄，避免每QP重复`GetQpInfos()` |
 | `PostAndCheckSend` | 私有 | [in] `qp`、`qpIdx`、`caller`、`wr`、`signaled` | `HcclResult` | 封装`ibv_post_send`；仅在`signaled`为true时累加`wqeNums_` |
-| `PrepareReduceWrResource` | 私有 | [in] `dst`、`src`、`len`、`withNotify`、`dpuNotifyId`、`localIdx`、`rmtIdx`、[out] `reduceWr` | `HcclResult` | 构造inline-reduce WR：尾片（`withNotify`）用`WRITE_WITH_IMM`并编码notify imm且置`SIGNALED\|FENCE`；中间片为普通`WRITE`、无完成标志 |
-| `PostReduceOp` | 私有 | [in] `ctx`（`ReduceOpCtx`：caller/qpRef/地址/len/elemSize/reduce映射/notifyId/buffer索引/anyPosted） | `HcclResult` | 在单QP内按`maxReduceChunk`元素对齐切片并逐WR通过`PostAndCheckSendExt`下发；`elemSize==0`前置校验 |
+| `PrepareReduceWrResource` | 私有 | [in] `dst`、`src`、`len`、`withNotify`、`dpuNotifyId`、`lkey`、`rmtIdx`、[out] `reduceWr` | `HcclResult` | 构造inline-reduce WR：尾片（`withNotify`）用`WRITE_WITH_IMM`并编码notify imm且置`SIGNALED\|FENCE`；中间片为普通`WRITE`、无完成标志 |
+| `PostReduceOp` | 私有 | [in] `ctx`（`ReduceOpCtx`：caller/qpRef/地址/len/elemSize/reduce映射/notifyId/lkey/rmtIdx/anyPosted） | `HcclResult` | 在单QP内按`maxReduceChunk`元素对齐切片并逐WR通过`PostAndCheckSendExt`下发；`elemSize==0`前置校验 |
 | `PostAndCheckSendExt` | 私有 | [in] `qp`、`qpIdx`、`caller`、`wr`、`attr`（`PostExtAttr`：`reduceOp`/`reduceType`/`signaled`） | `HcclResult` | 按 `PostExtAttr` 携带 inline-reduce 属性经 `ExtPostSend` 下发；`ENOMEM`→`HCCL_E_AGAIN`，其他失败→`HCCL_E_NETWORK`；仅在 `attr.signaled` 为 true（尾片）时累加 `wqeNums_` |
 | `ExtPostSend` | 私有 | [in] `qp`、`wr`、`mappedReduceOp`、`mappedReduceType`；[out] `badWr`、`driverRet` | `HcclResult` | 懒加载 `ibv_ext_post_send` 并携带 `ibv_post_send_ext_attr` 下发；符号不可用返回 `HCCL_E_NOT_SUPPORT`，驱动原始返回值经 `driverRet` 透传；抽为成员函数便于 UT 打桩 |
-| `BuildRdmaWr` | 私有 | [in] `caller`、`opcode`、`localAddr`、`remoteAddr`、`len`、`localIdx`、`rmtIdx`、`sendFlags`、`immData`、[out] `wr`、[out] `sg` | 无 | 填充单个`ibv_send_wr`与`ibv_sge` |
+| `BuildRdmaWr` | 私有 | [in] `caller`、`opcode`、`localAddr`、`remoteAddr`、`len`、`localKey`、`rmtIdx`、`sendFlags`、`immData`、[out] `wr`、[out] `sg` | 无 | 填充单个`ibv_send_wr`与`ibv_sge` |
 | `WaitForWqeCompletion`/`WaitForSingleQpWqeCompletion` | 私有 | 见实现 | `HcclResult` | 按`wqeNums_`轮询每个QP的`sendCq` |
 | `FindLocalBuffer` | 私有 | [in] `addr`、`len`、[out] `buffer`（`std::shared_ptr<Hccl::LocalRdmaRmaBuffer>`） | `HcclResult` | 经`local_.epPtr->FindLocalBuffer`查询endpoint本地注册账本，定位整段覆盖`[addr, addr+len)`的注册内存；未注册/已注销返回`HCCL_E_NOT_FOUND`，建链后新注册内存对已建channel立即可见 |
 | `FindRemoteBuffer` | 私有 | [in] `addr`、`len`、[out] `targetIdx` | `HcclResult` | 在`rmtRmaBuffers_`中定位整段地址范围，未命中返回`HCCL_E_NOT_FOUND` |

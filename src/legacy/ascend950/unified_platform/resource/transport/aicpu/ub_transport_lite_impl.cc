@@ -96,7 +96,7 @@ void UbTransportLiteImpl::Init(std::vector<char>& uniqueId)
             "check producer/consumer format coherence",
             extMagic, extVersion, UB_UNIQUE_ID_EXT_MAGIC_WORD, UB_UNIQUE_ID_EXT_VERSION));
     }
-    binaryStream >> devEpMemTablePtr_; // endpoint 活账本表指针；0=无表（版本化生产端声明的值语义）
+    binaryStream >> devEpMemTablePtr_;
     linkType_ = (theType == static_cast<u32>(TransportType::UB)) ? DfxLinkType::UB : DfxLinkType::UBoE;
 
     std::vector<char> notifyUniqueIds;
