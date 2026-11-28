@@ -11,7 +11,6 @@
 #ifndef HCCL_ROOT_HANDLE_V2_H
 #define HCCL_ROOT_HANDLE_V2_H
 
-#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -77,7 +76,7 @@ struct NetLayerCheckInfo {
             *this = {};
             return HCCL_SUCCESS;
         }
-        constexpr size_t HEADER_SIZE = sizeof(MAGIC) + sizeof(VERSION);
+        constexpr auto HEADER_SIZE = sizeof(MAGIC) + sizeof(VERSION);
         if (tail.size() < HEADER_SIZE) {
             HCCL_ERROR(
                 "[NetLayerCheckInfo::Deserialize] truncated header, size[%zu], minimum[%zu]", tail.size(), HEADER_SIZE);
@@ -96,7 +95,7 @@ struct NetLayerCheckInfo {
                 "[NetLayerCheckInfo::Deserialize] unsupported version[%u], supported[%u]", parsed.version, VERSION);
             return HCCL_E_NOT_SUPPORT;
         }
-        constexpr size_t FRAME_SIZE = 5 * sizeof(u32);
+        constexpr auto FRAME_SIZE = 5 * sizeof(u32);
         if (tail.size() != FRAME_SIZE) {
             HCCL_ERROR(
                 "[NetLayerCheckInfo::Deserialize] invalid frame size[%zu], expected[%zu]", tail.size(), FRAME_SIZE);
