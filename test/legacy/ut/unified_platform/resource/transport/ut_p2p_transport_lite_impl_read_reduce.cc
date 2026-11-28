@@ -26,6 +26,8 @@
 
 using namespace Hccl;
 
+static uint32_t s_utMockTailSlot = 0;
+
 class P2PTransportLiteImplReadReduceTest : public testing::Test {
 protected:
     struct ReduceCall {
@@ -118,6 +120,7 @@ protected:
         liteBinaryStream.Dump(uniqueId);
         std::unique_ptr<StreamLite> stream = std::make_unique<StreamLite>(uniqueId);
         stream->rtsq = std::make_unique<RtsqA5>(fakeDevPhyId, fakeStreamId, fakeSqId);
+        static_cast<RtsqA5*>(stream->rtsq.get())->SetSqTailShared(&s_utMockTailSlot);
         return stream;
     }
 
