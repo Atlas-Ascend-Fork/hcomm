@@ -10,12 +10,7 @@
 
 #include "ccu_rep_v1.h"
 #include "ccu_datatype_v1.h"
-#include "ccu_funcblock_v1.h"
 #include "ccu_funccall_v1.h"
-#include "ccu_loopblock_v1.h"
-#include "ccu_loopcall_v1.h"
-#include "ccu_condition_v1.h"
-#include "ccu_repeat_v1.h"
 #include "ccu_interface_assist_v1.h"
 #include "ccu_ins_generator_v1.h"
 #include "ccu_ins_generator_v2.h"
@@ -168,18 +163,6 @@ namespace CcuRep {
             EXPECT_NE(block2, nullptr);
         }
 
-        TEST_F(CcuRepInterfaceTest, FuncBlock_ConstructorAndDestructor)
-        {
-            CcuRepContext context;
-            {
-                FuncBlock funcBlock(&context, "testFunc", 1);
-                auto currentBlock = CurrentBlock(&context);
-                EXPECT_NE(currentBlock, nullptr);
-            }
-            auto blockAfter = CurrentBlock(&context);
-            EXPECT_NE(blockAfter, nullptr);
-        }
-
         TEST_F(CcuRepInterfaceTest, FuncCall_ConstructorWithLabel)
         {
             CcuRepContext context;
@@ -203,25 +186,6 @@ namespace CcuRep {
 
             auto reps = context.GetRepSequence();
             EXPECT_EQ(reps.size(), 1);
-        }
-
-        TEST_F(CcuRepInterfaceTest, LoopBlock_ConstructorAndDestructor)
-        {
-            CcuRepContext context;
-            {
-                LoopBlock loopBlock(&context, "testLoop");
-                auto currentBlock = CurrentBlock(&context);
-                EXPECT_NE(currentBlock, nullptr);
-            }
-            EXPECT_THROW(CurrentBlock(&context), Hccl::CcuApiException);
-        }
-
-        TEST_F(CcuRepInterfaceTest, LoopCall_ConstructorAndAppend)
-        {
-            CcuRepContext context;
-            LoopCall loopCall(&context, "testLoopCall");
-
-            EXPECT_EQ(loopCall.GetLabel(), "testLoopCall");
         }
 
         TEST_F(CcuRepInterfaceTest, CcuRepContext_SetAndGetDieId)
@@ -289,18 +253,6 @@ namespace CcuRep {
             EXPECT_EQ(rel.type, CcuRelationalOperatorType::EQUAL);
         }
 
-        TEST_F(CcuRepInterfaceTest, FuncBlock_OperatorParentheses)
-        {
-            CcuRepContext context;
-            FuncBlock funcBlock(&context, "testFunc", 1);
-        }
-
-        TEST_F(CcuRepInterfaceTest, LoopBlock_OperatorParentheses)
-        {
-            CcuRepContext context;
-            LoopBlock loopBlock(&context, "testLoop");
-        }
-
         TEST_F(CcuRepInterfaceTest, FuncCall_OperatorParentheses)
         {
             CcuRepContext context;
@@ -308,12 +260,6 @@ namespace CcuRep {
             context.SetInsGenerater(&insGen);
             FuncCall funcCall(&context, "testCall");
             funcCall();
-        }
-
-        TEST_F(CcuRepInterfaceTest, LoopCall_OperatorParentheses)
-        {
-            CcuRepContext context;
-            LoopCall loopCall(&context, "testLoopCall");
         }
 
         TEST_F(CcuRepInterfaceTest, Condition_EQ_RelationalOperator)

@@ -19,7 +19,11 @@
 #include "ccu_ins_generator_v2.h"
 #include "ccu_rep_mul_v1.h"
 #include "ccu_rep_sub_v1.h"
+#include "ccu_rep_and.h"
+#include "ccu_rep_or.h"
+#include "ccu_rep_xor.h"
 #include <gtest/gtest.h>
+#include <cstring>
 #include <string>
 
 namespace hcomm {
@@ -941,6 +945,116 @@ namespace CcuRep {
 
             CcuRepSub s4(&insGen, varC, addrA, uint16_t(10));
             EXPECT_TRUE(s4.Translate(nullptr, instrPtr, instrId, dep));
+        }
+
+        class CcuRepLogicV2Test : public ::testing::Test {
+        protected:
+            CcuInstr instr{};
+            uint16_t instrId{0};
+            TransDep dep{};
+            CcuInsGeneratorV2 insGen{};
+
+            void SetUp() override { memset(&instr, 0, sizeof(instr)); }
+
+            // 翻译出 1 条逻辑运算指令：code 为操作码，xd = xn op xm
+            void ExpectLogicInstr(
+                bool result, const CcuInstr* instrPtr, uint16_t code, uint16_t xdId, uint16_t xnId, uint16_t xmId)
+            {
+                EXPECT_TRUE(result);
+                EXPECT_EQ(instrPtr, &instr + 1);
+                EXPECT_EQ(instr.header.type, 0x0);
+                EXPECT_EQ(instr.header.code, code);
+                EXPECT_EQ(instr.v2.operate.xdId, xdId);
+                EXPECT_EQ(instr.v2.operate.xnId, xnId);
+                EXPECT_EQ(instr.v2.operate.xmId, xmId);
+            }
+        };
+
+        TEST_F(CcuRepLogicV2Test, Translate_VarAndVarToVar)
+        {
+            Variable varC, varA, varB;
+            varC.Reset(5);
+            varA.Reset(6);
+            varB.Reset(7);
+            CcuRepAnd rep(&insGen, varC, varA, varB);
+            EXPECT_EQ(rep.GetSubType(), AndSubType::VAR_AND_VAR_TO_VAR);
+
+            CcuInstr* instrPtr = &instr;
+            bool result = rep.Translate(nullptr, instrPtr, instrId, dep);
+
+            ExpectLogicInstr(result, instrPtr, 0x10, 5, 6, 7);
+        }
+
+        TEST_F(CcuRepLogicV2Test, Translate_VarOrVarToVar)
+        {
+            Variable varC, varA, varB;
+            varC.Reset(5);
+            varA.Reset(6);
+            varB.Reset(7);
+            CcuRepOr rep(&insGen, varC, varA, varB);
+            EXPECT_EQ(rep.GetSubType(), OrSubType::VAR_OR_VAR_TO_VAR);
+
+            CcuInstr* instrPtr = &instr;
+            bool result = rep.Translate(nullptr, instrPtr, instrId, dep);
+
+            ExpectLogicInstr(result, instrPtr, 0x11, 5, 6, 7);
+        }
+
+        TEST_F(CcuRepLogicV2Test, Translate_VarXorVarToVar)
+        {
+            Variable varC, varA, varB;
+            varC.Reset(5);
+            varA.Reset(6);
+            varB.Reset(7);
+            CcuRepXor rep(&insGen, varC, varA, varB);
+            EXPECT_EQ(rep.GetSubType(), XorSubType::VAR_XOR_VAR_TO_VAR);
+
+            CcuInstr* instrPtr = &instr;
+            bool result = rep.Translate(nullptr, instrPtr, instrId, dep);
+
+            ExpectLogicInstr(result, instrPtr, 0x13, 5, 6, 7);
+        }
+
+        TEST_F(CcuRepLogicV2Test, Translate_SelfAndVar)
+        {
+            Variable varC, varB;
+            varC.Reset(5);
+            varB.Reset(7);
+            CcuRepAnd rep(&insGen, varC, varB);
+            EXPECT_EQ(rep.GetSubType(), AndSubType::SELF_AND_VAR_VARIABLE);
+
+            CcuInstr* instrPtr = &instr;
+            bool result = rep.Translate(nullptr, instrPtr, instrId, dep);
+
+            ExpectLogicInstr(result, instrPtr, 0x10, 5, 5, 7);
+        }
+
+        TEST_F(CcuRepLogicV2Test, Translate_SelfOrVar)
+        {
+            Variable varC, varB;
+            varC.Reset(5);
+            varB.Reset(7);
+            CcuRepOr rep(&insGen, varC, varB);
+            EXPECT_EQ(rep.GetSubType(), OrSubType::SELF_OR_VAR_VARIABLE);
+
+            CcuInstr* instrPtr = &instr;
+            bool result = rep.Translate(nullptr, instrPtr, instrId, dep);
+
+            ExpectLogicInstr(result, instrPtr, 0x11, 5, 5, 7);
+        }
+
+        TEST_F(CcuRepLogicV2Test, Translate_SelfXorVar)
+        {
+            Variable varC, varB;
+            varC.Reset(5);
+            varB.Reset(7);
+            CcuRepXor rep(&insGen, varC, varB);
+            EXPECT_EQ(rep.GetSubType(), XorSubType::SELF_XOR_VAR_VARIABLE);
+
+            CcuInstr* instrPtr = &instr;
+            bool result = rep.Translate(nullptr, instrPtr, instrId, dep);
+
+            ExpectLogicInstr(result, instrPtr, 0x13, 5, 5, 7);
         }
 
     } // namespace

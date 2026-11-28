@@ -118,13 +118,6 @@ namespace CcuRep {
             const TransDep& dep) override;
 
         // loop
-        HcclResult
-        CcuRepLoopTranslate(CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepLoop* loopPtr) override;
-        HcclResult CcuRepLoopCallTranslate(
-            CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepLoopCall* loopCallPtr,
-            const TransDep& dep) override;
-        HcclResult CcuRepSetLoopTranslate(
-            CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepSetLoop* setLoopPtr) override;
         HcclResult CcuRepLoopGroupBundleTranslate(
             CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepLoopGroupBundle* bundlePtr,
             const TransDep& dep) override;
@@ -188,7 +181,6 @@ namespace CcuRep {
         void LoadFuncCallOutArgs(
             CcuInstr* instr, uint32_t offset, std::vector<CcuRepArg>& outArgs, CcuRepReferenceManager* funcManager,
             uint16_t reserveXnId) const;
-        HcclResult LoadLoopCallArg(CcuInstr*& instr, const CcuRepArg& inArg, const CcuRepArg& blkArg) const;
         HcclResult PrepareLoadConstValue(CcuRepBase* repPtr, const TransDep& dep, CcuKernel* ccuKernel) const;
         HcclResult PrepareLoadVarConstValue(CcuRepBase* repPtr, const TransDep& dep, CcuKernel* ccuKernel) const;
         HcclResult PrepareStoreConstValue(CcuRepBase* repPtr, const TransDep& dep, CcuKernel* ccuKernel) const;
@@ -249,9 +241,7 @@ namespace CcuRep {
                {CcuRepType::JUMP, 2},
                {CcuRepType::JUMP_NE, 3},
                {CcuRepType::JUMP_EQ, 3},
-               {CcuRepType::LOOP, 1},
                {CcuRepType::LOOPGROUP, 1},
-               {CcuRepType::SET_LOOP, 1},
 
                {CcuRepType::LOAD, 3},
                {CcuRepType::LOAD_VAR, 3},

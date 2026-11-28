@@ -18,9 +18,9 @@
 #include "ccu_rep_mul_v1.h"
 #include "ccu_rep_sub_v1.h"
 
-#include "ccu_rep_setloop_v1.h"
-#include "ccu_rep_loop_v1.h"
-#include "ccu_rep_loopcall_v1.h"
+#include "ccu_rep_jump_v1.h"
+#include "ccu_rep_jumplabel_v1.h"
+
 #include "ccu_rep_loopgroup_bundle_v1.h"
 
 #include "ccu_rep_loc_record_event.h"
@@ -50,10 +50,6 @@
 #include "ccu_rep_addr_funcblock_v1.h"
 #include "ccu_rep_addr_funccall_v1.h"
 
-#include "ccu_condition_v1.h"
-#include "ccu_repeat_v1.h"
-#include "ccu_loopblock_v1.h"
-#include "ccu_funcblock_v1.h"
 #include "ccu_funccall_v1.h"
 
 #include "ccu_interface_assist_v1.h"

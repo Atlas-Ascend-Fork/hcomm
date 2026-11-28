@@ -18,6 +18,7 @@
 #include "../../../ccu_device/ccu_res_specs.h"
 
 #include <iostream>
+#include <optional>
 
 namespace hcomm {
 
@@ -46,25 +47,6 @@ namespace CcuRep {
         constexpr uint64_t LOOP_FIELD_MASK = 0x7FULL;
         constexpr uint64_t LSX_NUM_GUARD_JMP_OFFSET = 2; // 护栏跳距: 从 Jump 跳过陷阱 Wait 落到 lsx
 
-        template <typename T>
-        void LoadAddrArg(CcuInstr*& instr, const T& dst, const T& src)
-        {
-            CcuV2::Assign(instr++, dst.addr.Id(), src.addr.Id());
-            CcuV2::Assign(instr++, dst.token.Id(), src.token.Id());
-        }
-
-        template <typename T>
-        HcclResult LoadAddrListArg(CcuInstr*& instr, const std::vector<T>& dst, const std::vector<T>& src)
-        {
-            if (src.size() != dst.size()) {
-                HCCL_ERROR("Mismatched Arg Size: srcSize[%u], dstSize[%u]", src.size(), dst.size());
-                return HCCL_E_PARA;
-            }
-            for (uint32_t j = 0; j < src.size(); j++) {
-                LoadAddrArg(instr, dst[j], src[j]);
-            }
-            return HcclResult::HCCL_SUCCESS;
-        }
         HcclResult GetUrmaChannel(ChannelHandle channelHandle, CcuUrmaChannel*& channelImpl)
         {
             void* channelPtr{nullptr};
@@ -82,6 +64,106 @@ namespace CcuRep {
             CHK_RET(channelImpl->GetRmtCcuBufferTokenInfo(rmtTokenId, rmtTokenValue));
             rmtToken = CcuRep::GetToken(rmtTokenId, rmtTokenValue, 1);
             return HcclResult::HCCL_SUCCESS;
+        }
+
+        struct RmtPostInfo {
+            uint32_t channelId{0};
+            uint64_t rmtSignalAddr{0};
+            uint64_t rmtVarAddr{0};
+            uint64_t rmtToken{0};
+        };
+
+        // RemPost 的 Prepare 与 Translate 共用，保证登记常量与取用常量的查询一致；
+        // paramIndex 为空时（Sem）不查询远端 var 地址。caller 用于保持原日志中的函数名
+        HcclResult GetRmtPostInfo(
+            ChannelHandle channel, uint16_t semIndex, std::optional<uint16_t> paramIndex, const char* caller,
+            RmtPostInfo& info)
+        {
+            CcuUrmaChannel* channelImpl{nullptr};
+            CHK_RET(GetUrmaChannel(channel, channelImpl));
+            info.channelId = channelImpl->GetChannelId();
+            CHK_PRT_RET(
+                channelImpl->GetRmtSignalAddrByIndex(semIndex, info.rmtSignalAddr) != HcclResult::HCCL_SUCCESS,
+                HCCL_ERROR(
+                    "[CcuInsGeneratorV2][%s] failed to get remote signal addr, channelHandle[0x%llx].", caller,
+                    channel),
+                HCCL_E_INTERNAL);
+            if (paramIndex.has_value()) {
+                CHK_PRT_RET(
+                    channelImpl->GetRmtVarAddrByIndex(*paramIndex, info.rmtVarAddr) != HcclResult::HCCL_SUCCESS,
+                    HCCL_ERROR(
+                        "[CcuInsGeneratorV2][%s] failed to get remote var addr, channelHandle[0x%llx].", caller,
+                        channel),
+                    HCCL_E_INTERNAL);
+            }
+            return GetRmtToken(channelImpl, info.rmtToken);
+        }
+
+        // And、Or、Xor 共用：下标为 subtype 枚举值。lhsIsDst 为 true 时左操作数取目标 VarC，否则取 VarA
+        struct LogicOperandSpec {
+            bool valid;
+            bool lhsIsDst;
+        };
+
+        constexpr LogicOperandSpec LOGIC_OPERAND_TABLE[] = {
+            {false, false}, // INVALID
+            {true, false},  // VAR_AND_VAR_TO_VAR、VAR_OR_VAR_TO_VAR、VAR_XOR_VAR_TO_VAR
+            {true, true},   // SELF_AND_VAR_VARIABLE、SELF_OR_VAR_VARIABLE、SELF_XOR_VAR_VARIABLE
+        };
+        static_assert(
+            static_cast<size_t>(AndSubType::VAR_AND_VAR_TO_VAR) == 1
+                && static_cast<size_t>(AndSubType::SELF_AND_VAR_VARIABLE) == 2,
+            "LOGIC_OPERAND_TABLE rows must match AndSubType values");
+        static_assert(
+            static_cast<size_t>(OrSubType::VAR_OR_VAR_TO_VAR) == 1
+                && static_cast<size_t>(OrSubType::SELF_OR_VAR_VARIABLE) == 2,
+            "LOGIC_OPERAND_TABLE rows must match OrSubType values");
+        static_assert(
+            static_cast<size_t>(XorSubType::VAR_XOR_VAR_TO_VAR) == 1
+                && static_cast<size_t>(XorSubType::SELF_XOR_VAR_VARIABLE) == 2,
+            "LOGIC_OPERAND_TABLE rows must match XorSubType values");
+
+        template <typename SubType>
+        const LogicOperandSpec* FindLogicOperandSpec(SubType subType)
+        {
+            const auto index = static_cast<size_t>(subType);
+            if (index >= sizeof(LOGIC_OPERAND_TABLE) / sizeof(LOGIC_OPERAND_TABLE[0])
+                || !LOGIC_OPERAND_TABLE[index].valid) {
+                return nullptr;
+            }
+            return &LOGIC_OPERAND_TABLE[index];
+        }
+
+        // ShL、ShR 共用：下标为 ShiftSubType 枚举值。目标取 AddressD 或 VarD，lhsIsDst 为 true 时左操作数取目标，否则取
+        // VarN
+        struct ShiftOperandSpec {
+            bool valid;
+            bool dstIsAddress;
+            bool lhsIsDst;
+        };
+
+        constexpr ShiftOperandSpec SHIFT_OPERAND_TABLE[] = {
+            {false, false, false}, // INVALID
+            {true, false, false},  // VAR_EQUALS_VAR_SHIFT_VAR
+            {true, false, true},   // VAR_SHIFT_ASSIGN_VAR
+            {true, true, false},   // ADDR_EQUALS_VAR_SHIFT_VAR
+            {true, true, true},    // ADDR_SHIFT_ASSIGN_VAR
+        };
+        static_assert(
+            static_cast<size_t>(ShiftSubType::VAR_EQUALS_VAR_SHIFT_VAR) == 1
+                && static_cast<size_t>(ShiftSubType::VAR_SHIFT_ASSIGN_VAR) == 2
+                && static_cast<size_t>(ShiftSubType::ADDR_EQUALS_VAR_SHIFT_VAR) == 3
+                && static_cast<size_t>(ShiftSubType::ADDR_SHIFT_ASSIGN_VAR) == 4,
+            "SHIFT_OPERAND_TABLE rows must match ShiftSubType values");
+
+        const ShiftOperandSpec* FindShiftOperandSpec(ShiftSubType subType)
+        {
+            const auto index = static_cast<size_t>(subType);
+            if (index >= sizeof(SHIFT_OPERAND_TABLE) / sizeof(SHIFT_OPERAND_TABLE[0])
+                || !SHIFT_OPERAND_TABLE[index].valid) {
+                return nullptr;
+            }
+            return &SHIFT_OPERAND_TABLE[index];
         }
     } // namespace
 
@@ -322,21 +404,11 @@ namespace CcuRep {
         }
 
         if (ccuRepBufReduce->GetOpType() == CCU_REDUCE_SUM) {
-            if (ccuRepBufReduce->GetOutputDataType() == 1) { // 1是fp16
-                CcuV2::ReduceAdd(
-                    instr++, msId, ccuRepBufReduce->GetCount(), ccuRepBufReduce->GetOutputDataType(),
-                    ccuRepBufReduce->GetDataType(), ccuRepBufReduce->GetSem().Id(), ccuRepBufReduce->GetMask(),
-                    ccuRepBufReduce->GetXnIdLength().Id());
-            } else if (ccuRepBufReduce->GetOutputDataType() == 2) { // 2是bf16
-                CcuV2::ReduceAdd(
-                    instr++, msId, ccuRepBufReduce->GetCount(), ccuRepBufReduce->GetOutputDataType(),
-                    ccuRepBufReduce->GetDataType(), ccuRepBufReduce->GetSem().Id(), ccuRepBufReduce->GetMask(),
-                    ccuRepBufReduce->GetXnIdLength().Id());
-            } else {
-                CcuV2::ReduceAdd(
-                    instr++, msId, ccuRepBufReduce->GetCount(), 0, ccuRepBufReduce->GetDataType(),
-                    ccuRepBufReduce->GetSem().Id(), ccuRepBufReduce->GetMask(), ccuRepBufReduce->GetXnIdLength().Id());
-            }
+            const uint16_t outType = ccuRepBufReduce->GetOutputDataType();
+            const uint16_t castEn = (outType == 1 || outType == 2) ? outType : 0; // 1是fp16，2是bf16
+            CcuV2::ReduceAdd(
+                instr++, msId, ccuRepBufReduce->GetCount(), castEn, ccuRepBufReduce->GetDataType(),
+                ccuRepBufReduce->GetSem().Id(), ccuRepBufReduce->GetMask(), ccuRepBufReduce->GetXnIdLength().Id());
         } else if (ccuRepBufReduce->GetOpType() == CCU_REDUCE_MAX) {
             CcuV2::ReduceMax(
                 instr++, msId, ccuRepBufReduce->GetCount(), ccuRepBufReduce->GetDataType(),
@@ -419,38 +491,20 @@ namespace CcuRep {
     {
         CHK_PTR_NULL(ccuRepRemPostVar);
         CHK_PTR_NULL(ccuKernel);
-        CcuUrmaChannel* channelImpl{nullptr};
-        CHK_RET(GetUrmaChannel(ccuRepRemPostVar->GetChannel(), channelImpl));
-
-        uint32_t channelId = channelImpl->GetChannelId();
-        uint64_t rmtSignalAddr{0};
-        uint64_t rmtVarAddr{0};
-        CHK_PRT_RET(
-            channelImpl->GetRmtSignalAddrByIndex(ccuRepRemPostVar->GetSemIndex(), rmtSignalAddr)
-                != HcclResult::HCCL_SUCCESS,
-            HCCL_ERROR(
-                "[CcuInsGeneratorV2][%s] failed to get remote signal addr, channelHandle[0x%llx].", __func__,
-                ccuRepRemPostVar->GetChannel()),
-            HCCL_E_INTERNAL);
-        CHK_PRT_RET(
-            channelImpl->GetRmtVarAddrByIndex(ccuRepRemPostVar->GetParamIndex(), rmtVarAddr)
-                != HcclResult::HCCL_SUCCESS,
-            HCCL_ERROR(
-                "[CcuInsGeneratorV2][%s] failed to get remote var addr, channelHandle[0x%llx].", __func__,
-                ccuRepRemPostVar->GetChannel()),
-            HCCL_E_INTERNAL);
-        uint64_t rmtToken{};
-        CHK_RET(GetRmtToken(channelImpl, rmtToken));
+        RmtPostInfo info{};
+        CHK_RET(GetRmtPostInfo(
+            ccuRepRemPostVar->GetChannel(), ccuRepRemPostVar->GetSemIndex(), ccuRepRemPostVar->GetParamIndex(),
+            __func__, info));
 
         const auto& constValue2VarMap = ccuKernel->GetConstValue2VarMap();
         CcuV2::TransMemNotifyInfo notify = {};
-        notify.xnId = constValue2VarMap.at(rmtSignalAddr).Id();
-        notify.xntId = constValue2VarMap.at(rmtToken).Id();
+        notify.xnId = constValue2VarMap.at(info.rmtSignalAddr).Id();
+        notify.xntId = constValue2VarMap.at(info.rmtToken).Id();
         notify.value = ccuRepRemPostVar->GetMask();
 
         SyncWtX(
-            instr++, constValue2VarMap.at(rmtVarAddr).Id(), constValue2VarMap.at(rmtToken).Id(),
-            ccuRepRemPostVar->GetParam().Id(), constValue2VarMap.at(channelId).Id(), notify, 0, 0);
+            instr++, constValue2VarMap.at(info.rmtVarAddr).Id(), constValue2VarMap.at(info.rmtToken).Id(),
+            ccuRepRemPostVar->GetParam().Id(), constValue2VarMap.at(info.channelId).Id(), notify, 0, 0);
 
         return HcclResult::HCCL_SUCCESS;
     }
@@ -461,28 +515,17 @@ namespace CcuRep {
     {
         CHK_PTR_NULL(ccuRepRemPostSem);
         CHK_PTR_NULL(ccuKernel);
-        CcuUrmaChannel* channelImpl{nullptr};
-        CHK_RET(GetUrmaChannel(ccuRepRemPostSem->GetChannel(), channelImpl));
-
-        uint64_t rmtSignalAddr{0};
-        uint32_t channelId = channelImpl->GetChannelId();
-        CHK_PRT_RET(
-            channelImpl->GetRmtSignalAddrByIndex(ccuRepRemPostSem->GetSemIndex(), rmtSignalAddr)
-                != HcclResult::HCCL_SUCCESS,
-            HCCL_ERROR(
-                "[CcuInsGeneratorV2][%s] failed to get remote signal addr, channelHandle[0x%llx].", __func__,
-                ccuRepRemPostSem->GetChannel()),
-            HCCL_E_INTERNAL);
-        uint64_t rmtToken{};
-        CHK_RET(GetRmtToken(channelImpl, rmtToken));
+        RmtPostInfo info{};
+        CHK_RET(GetRmtPostInfo(
+            ccuRepRemPostSem->GetChannel(), ccuRepRemPostSem->GetSemIndex(), std::nullopt, __func__, info));
 
         const auto& constValue2VarMap = ccuKernel->GetConstValue2VarMap();
         CcuV2::TransMemNotifyInfo notify = {};
-        notify.xnId = constValue2VarMap.at(rmtSignalAddr).Id();
-        notify.xntId = constValue2VarMap.at(rmtToken).Id();
+        notify.xnId = constValue2VarMap.at(info.rmtSignalAddr).Id();
+        notify.xntId = constValue2VarMap.at(info.rmtToken).Id();
         notify.value = ccuRepRemPostSem->GetMask();
 
-        CcuV2::SyncWtX(instr++, notify, constValue2VarMap.at(channelId).Id(), 0, 0);
+        CcuV2::SyncWtX(instr++, notify, constValue2VarMap.at(info.channelId).Id(), 0, 0);
 
         return HcclResult::HCCL_SUCCESS;
     }
@@ -710,22 +753,13 @@ namespace CcuRep {
         [[maybe_unused]] const TransDep& dep)
     {
         CHK_PTR_NULL(ccuRepAnd);
-        switch (ccuRepAnd->GetSubType()) {
-            case AndSubType::VAR_AND_VAR_TO_VAR: {
-                CcuV2::And(
-                    instr++, ccuRepAnd->GetVarC().Id(), ccuRepAnd->GetVarA().Id(), ccuRepAnd->GetVarB().Id(), 0, 0);
-                break;
-            }
-            case AndSubType::SELF_AND_VAR_VARIABLE: {
-                CcuV2::And(
-                    instr++, ccuRepAnd->GetVarC().Id(), ccuRepAnd->GetVarC().Id(), ccuRepAnd->GetVarB().Id(), 0, 0);
-                break;
-            }
-            default: {
-                HCCL_ERROR("Invalid And, subType[%d]", static_cast<int>(ccuRepAnd->GetSubType()));
-                return HCCL_E_PARA;
-            }
+        const LogicOperandSpec* spec = FindLogicOperandSpec(ccuRepAnd->GetSubType());
+        if (spec == nullptr) {
+            HCCL_ERROR("Invalid And, subType[%d]", static_cast<int>(ccuRepAnd->GetSubType()));
+            return HCCL_E_PARA;
         }
+        const uint16_t lhsId = spec->lhsIsDst ? ccuRepAnd->GetVarC().Id() : ccuRepAnd->GetVarA().Id();
+        CcuV2::And(instr++, ccuRepAnd->GetVarC().Id(), lhsId, ccuRepAnd->GetVarB().Id(), 0, 0);
         return HcclResult::HCCL_SUCCESS;
     }
 
@@ -752,20 +786,13 @@ namespace CcuRep {
         [[maybe_unused]] const TransDep& dep)
     {
         CHK_PTR_NULL(ccuRepOr);
-        switch (ccuRepOr->GetSubType()) {
-            case OrSubType::VAR_OR_VAR_TO_VAR: {
-                CcuV2::Or(instr++, ccuRepOr->GetVarC().Id(), ccuRepOr->GetVarA().Id(), ccuRepOr->GetVarB().Id(), 0, 0);
-                break;
-            }
-            case OrSubType::SELF_OR_VAR_VARIABLE: {
-                CcuV2::Or(instr++, ccuRepOr->GetVarC().Id(), ccuRepOr->GetVarC().Id(), ccuRepOr->GetVarB().Id(), 0, 0);
-                break;
-            }
-            default: {
-                HCCL_ERROR("Invalid Or, subType[%d]", static_cast<int>(ccuRepOr->GetSubType()));
-                return HCCL_E_PARA;
-            }
+        const LogicOperandSpec* spec = FindLogicOperandSpec(ccuRepOr->GetSubType());
+        if (spec == nullptr) {
+            HCCL_ERROR("Invalid Or, subType[%d]", static_cast<int>(ccuRepOr->GetSubType()));
+            return HCCL_E_PARA;
         }
+        const uint16_t lhsId = spec->lhsIsDst ? ccuRepOr->GetVarC().Id() : ccuRepOr->GetVarA().Id();
+        CcuV2::Or(instr++, ccuRepOr->GetVarC().Id(), lhsId, ccuRepOr->GetVarB().Id(), 0, 0);
         return HcclResult::HCCL_SUCCESS;
     }
 
@@ -774,22 +801,13 @@ namespace CcuRep {
         [[maybe_unused]] const TransDep& dep)
     {
         CHK_PTR_NULL(ccuRepXor);
-        switch (ccuRepXor->GetSubType()) {
-            case XorSubType::VAR_XOR_VAR_TO_VAR: {
-                CcuV2::Xor(
-                    instr++, ccuRepXor->GetVarC().Id(), ccuRepXor->GetVarA().Id(), ccuRepXor->GetVarB().Id(), 0, 0);
-                break;
-            }
-            case XorSubType::SELF_XOR_VAR_VARIABLE: {
-                CcuV2::Xor(
-                    instr++, ccuRepXor->GetVarC().Id(), ccuRepXor->GetVarC().Id(), ccuRepXor->GetVarB().Id(), 0, 0);
-                break;
-            }
-            default: {
-                HCCL_ERROR("Invalid Xor, subType[%d]", static_cast<int>(ccuRepXor->GetSubType()));
-                return HCCL_E_PARA;
-            }
+        const LogicOperandSpec* spec = FindLogicOperandSpec(ccuRepXor->GetSubType());
+        if (spec == nullptr) {
+            HCCL_ERROR("Invalid Xor, subType[%d]", static_cast<int>(ccuRepXor->GetSubType()));
+            return HCCL_E_PARA;
         }
+        const uint16_t lhsId = spec->lhsIsDst ? ccuRepXor->GetVarC().Id() : ccuRepXor->GetVarA().Id();
+        CcuV2::Xor(instr++, ccuRepXor->GetVarC().Id(), lhsId, ccuRepXor->GetVarB().Id(), 0, 0);
         return HcclResult::HCCL_SUCCESS;
     }
 
@@ -798,39 +816,18 @@ namespace CcuRep {
         [[maybe_unused]] const TransDep& dep)
     {
         CHK_PTR_NULL(ccuRepShL);
-        if (ccuRepShL->GetShiftType() == ShiftType::LOGICAL_SHIFT) {
-            switch (ccuRepShL->GetShiftSubType()) {
-                case ShiftSubType::VAR_EQUALS_VAR_SHIFT_VAR: {
-                    CcuV2::SLL(
-                        instr++, ccuRepShL->GetVarD().Id(), ccuRepShL->GetVarN().Id(), ccuRepShL->GetVarM().Id(), 0, 0);
-                    break;
-                }
-                case ShiftSubType::VAR_SHIFT_ASSIGN_VAR: {
-                    CcuV2::SLL(
-                        instr++, ccuRepShL->GetVarD().Id(), ccuRepShL->GetVarD().Id(), ccuRepShL->GetVarM().Id(), 0, 0);
-                    break;
-                }
-                case ShiftSubType::ADDR_EQUALS_VAR_SHIFT_VAR: {
-                    CcuV2::SLL(
-                        instr++, ccuRepShL->GetAddressD().Id(), ccuRepShL->GetVarN().Id(), ccuRepShL->GetVarM().Id(), 0,
-                        0);
-                    break;
-                }
-                case ShiftSubType::ADDR_SHIFT_ASSIGN_VAR: {
-                    CcuV2::SLL(
-                        instr++, ccuRepShL->GetAddressD().Id(), ccuRepShL->GetAddressD().Id(),
-                        ccuRepShL->GetVarM().Id(), 0, 0);
-                    break;
-                }
-                default: {
-                    HCCL_ERROR("Invalid Shift left, shiftSubType[%d]", static_cast<int>(ccuRepShL->GetShiftSubType()));
-                    return HCCL_E_PARA;
-                }
-            }
-        } else {
+        if (ccuRepShL->GetShiftType() != ShiftType::LOGICAL_SHIFT) {
             HCCL_ERROR("Invalid Shift left, shiftType[%d]", static_cast<int>(ccuRepShL->GetShiftType()));
             return HCCL_E_PARA;
         }
+        const ShiftOperandSpec* spec = FindShiftOperandSpec(ccuRepShL->GetShiftSubType());
+        if (spec == nullptr) {
+            HCCL_ERROR("Invalid Shift left, shiftSubType[%d]", static_cast<int>(ccuRepShL->GetShiftSubType()));
+            return HCCL_E_PARA;
+        }
+        const uint16_t dstId = spec->dstIsAddress ? ccuRepShL->GetAddressD().Id() : ccuRepShL->GetVarD().Id();
+        const uint16_t lhsId = spec->lhsIsDst ? dstId : ccuRepShL->GetVarN().Id();
+        CcuV2::SLL(instr++, dstId, lhsId, ccuRepShL->GetVarM().Id(), 0, 0);
         return HcclResult::HCCL_SUCCESS;
     }
 
@@ -839,39 +836,18 @@ namespace CcuRep {
         [[maybe_unused]] const TransDep& dep)
     {
         CHK_PTR_NULL(ccuRepShR);
-        if (ccuRepShR->GetShiftType() == ShiftType::LOGICAL_SHIFT) {
-            switch (ccuRepShR->GetShiftSubType()) {
-                case ShiftSubType::VAR_EQUALS_VAR_SHIFT_VAR: {
-                    CcuV2::SRL(
-                        instr++, ccuRepShR->GetVarD().Id(), ccuRepShR->GetVarN().Id(), ccuRepShR->GetVarM().Id(), 0, 0);
-                    break;
-                }
-                case ShiftSubType::VAR_SHIFT_ASSIGN_VAR: {
-                    CcuV2::SRL(
-                        instr++, ccuRepShR->GetVarD().Id(), ccuRepShR->GetVarD().Id(), ccuRepShR->GetVarM().Id(), 0, 0);
-                    break;
-                }
-                case ShiftSubType::ADDR_EQUALS_VAR_SHIFT_VAR: {
-                    CcuV2::SRL(
-                        instr++, ccuRepShR->GetAddressD().Id(), ccuRepShR->GetVarN().Id(), ccuRepShR->GetVarM().Id(), 0,
-                        0);
-                    break;
-                }
-                case ShiftSubType::ADDR_SHIFT_ASSIGN_VAR: {
-                    CcuV2::SRL(
-                        instr++, ccuRepShR->GetAddressD().Id(), ccuRepShR->GetAddressD().Id(),
-                        ccuRepShR->GetVarM().Id(), 0, 0);
-                    break;
-                }
-                default: {
-                    HCCL_ERROR("Invalid Shift right, shiftSubType[%d]", static_cast<int>(ccuRepShR->GetShiftSubType()));
-                    return HCCL_E_PARA;
-                }
-            }
-        } else {
+        if (ccuRepShR->GetShiftType() != ShiftType::LOGICAL_SHIFT) {
             HCCL_ERROR("Invalid Shift right, shiftType[%d]", static_cast<int>(ccuRepShR->GetShiftType()));
             return HCCL_E_PARA;
         }
+        const ShiftOperandSpec* spec = FindShiftOperandSpec(ccuRepShR->GetShiftSubType());
+        if (spec == nullptr) {
+            HCCL_ERROR("Invalid Shift right, shiftSubType[%d]", static_cast<int>(ccuRepShR->GetShiftSubType()));
+            return HCCL_E_PARA;
+        }
+        const uint16_t dstId = spec->dstIsAddress ? ccuRepShR->GetAddressD().Id() : ccuRepShR->GetVarD().Id();
+        const uint16_t lhsId = spec->lhsIsDst ? dstId : ccuRepShR->GetVarN().Id();
+        CcuV2::SRL(instr++, dstId, lhsId, ccuRepShR->GetVarM().Id(), 0, 0);
         return HcclResult::HCCL_SUCCESS;
     }
 
@@ -1125,6 +1101,17 @@ namespace CcuRep {
         }
     }
 
+    namespace {
+        // 相对跳转：instr 写入偏移，instr + 1 写入 Jump，Jump 以写入偏移的 Xn 作为相对目标，两条须紧邻
+        void EmitRelJump(
+            CcuInstr* instr, uint16_t targetXnId, uint64_t offset, uint16_t conditionXnId, uint16_t expectedXnId,
+            ConditionType condType)
+        {
+            CcuV2::LoadImdToXn(instr, targetXnId, offset, 0, 0);
+            CcuV2::Jump(instr + 1, targetXnId, conditionXnId, expectedXnId, static_cast<uint16_t>(condType));
+        }
+    } // namespace
+
     HcclResult CcuInsGeneratorV2::CcuRepJumpTranslate(
         [[maybe_unused]] CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepJump* jumpPtr,
         const TransDep& dep)
@@ -1137,10 +1124,8 @@ namespace CcuRep {
         std::shared_ptr<CcuRepJumpLabel> jumpLabel = jumpPtr->GetJumpLabel();
         CHK_PTR_NULL(jumpLabel);
         uint16_t instrIdOffset = GetRelativeInstrId(jumpPtr->StartInstrId() + 1, jumpLabel->StartInstrId());
-        CcuV2::LoadImdToXn(jumpPtr->GetInstr() + 0, jumpPtr->GetTargetInstrId().Id(), instrIdOffset, 0, 0);
         //  无条件跳转
-        CcuV2::Jump(
-            jumpPtr->GetInstr() + 1, jumpPtr->GetTargetInstrId().Id(), 0, 0, static_cast<int>(ConditionType::DEFAULT));
+        EmitRelJump(jumpPtr->GetInstr(), jumpPtr->GetTargetInstrId().Id(), instrIdOffset, 0, 0, ConditionType::DEFAULT);
 
         return HcclResult::HCCL_SUCCESS;
     }
@@ -1161,14 +1146,10 @@ namespace CcuRep {
         if (jumpBasePtr->IsComparedWithImmd()) {
             CcuV2::LoadImdToXn(instr + 0, expectedVar.Id(), expected, 0, 0);
             uint16_t instrIdOffset = GetRelativeInstrId(instrId + 2, jumpLabel->StartInstrId()); // 2: jump指令偏移
-            CcuV2::LoadImdToXn(instr + 1, targetInstrId.Id(), instrIdOffset, 0, 0);
-            CcuV2::Jump(
-                instr + 2, targetInstrId.Id(), condition.Id(), expectedVar.Id(), // 2: jump指令偏移
-                static_cast<int>(condType));
+            EmitRelJump(instr + 1, targetInstrId.Id(), instrIdOffset, condition.Id(), expectedVar.Id(), condType);
         } else {
             uint16_t instrIdOffset = GetRelativeInstrId(instrId + 1, jumpLabel->StartInstrId());
-            CcuV2::LoadImdToXn(instr + 0, targetInstrId.Id(), instrIdOffset, 0, 0);
-            CcuV2::Jump(instr + 1, targetInstrId.Id(), condition.Id(), expectedVar.Id(), static_cast<int>(condType));
+            EmitRelJump(instr, targetInstrId.Id(), instrIdOffset, condition.Id(), expectedVar.Id(), condType);
         }
 
         return HcclResult::HCCL_SUCCESS;
@@ -1238,98 +1219,6 @@ namespace CcuRep {
         return CcuRepJumpTranslateV2Base(
             instr, curInstrId, jumpLTPtr, jumpLTPtr->GetExpectedNum(), jumpLTPtr->GetCondition(),
             jumpLTPtr->GetExpectedVar(), ConditionType::LESS_THAN);
-    }
-
-    HcclResult CcuInsGeneratorV2::CcuRepLoopTranslate(
-        [[maybe_unused]] CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepLoop* loopPtr)
-    {
-        (void)curInstrId;
-        CHK_PTR_NULL(loopPtr);
-        auto loopBlock = loopPtr->GetLoopBlock();
-        CHK_PTR_NULL(loopBlock);
-        CcuV2::Loop(
-            instr++, loopBlock->StartInstrId(), loopBlock->StartInstrId() + loopBlock->InstrCount() - 1,
-            loopPtr->GetLoopIterNum().Id(), loopPtr->GetLoopGsaOffset().Id(), loopPtr->GetLoopParam()->Id());
-        return HcclResult::HCCL_SUCCESS;
-    }
-
-    HcclResult
-    CcuInsGeneratorV2::LoadLoopCallArg(CcuInstr*& instr, const CcuRepArg& inArg, const CcuRepArg& blkArg) const
-    {
-        switch (inArg.type) {
-            case CcuArgType::VARIABLE:
-                CcuV2::Assign(instr++, blkArg.var.Id(), inArg.var.Id());
-                break;
-            case CcuArgType::VARIABLE_LIST:
-                if (inArg.varList.size() != blkArg.varList.size()) {
-                    HCCL_ERROR(
-                        "Mismatched Arg Size, inArg.varList.size[%zu], blkArg.varList.size[%zu]", inArg.varList.size(),
-                        blkArg.varList.size());
-                    return HCCL_E_PARA;
-                }
-                for (uint32_t j = 0; j < inArg.varList.size(); j++) {
-                    CcuV2::Assign(instr++, blkArg.varList[j].Id(), inArg.varList[j].Id());
-                }
-                break;
-            case CcuArgType::MEMORY:
-                LoadAddrArg(instr, blkArg.mem, inArg.mem);
-                break;
-            case CcuArgType::LOCAL_ADDR:
-                LoadAddrArg(instr, blkArg.localAddr, inArg.localAddr);
-                break;
-            case CcuArgType::REMOTE_ADDR:
-                LoadAddrArg(instr, blkArg.remoteAddr, inArg.remoteAddr);
-                break;
-            case CcuArgType::MEMORY_LIST:
-                CHK_RET(LoadAddrListArg(instr, blkArg.memList, inArg.memList));
-                break;
-            case CcuArgType::LOCAL_ADDR_LIST:
-                CHK_RET(LoadAddrListArg(instr, blkArg.localAddrList, inArg.localAddrList));
-                break;
-            case CcuArgType::REMOTE_ADDR_LIST:
-                CHK_RET(LoadAddrListArg(instr, blkArg.remoteAddrList, inArg.remoteAddrList));
-                break;
-            default:
-                HCCL_ERROR("Mismatched Arg Type, inArg.type[%d]", static_cast<int>(inArg.type));
-                return HCCL_E_PARA;
-        }
-        return HcclResult::HCCL_SUCCESS;
-    }
-
-    HcclResult CcuInsGeneratorV2::CcuRepLoopCallTranslate(
-        [[maybe_unused]] CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepLoopCall* loopCallPtr,
-        const TransDep& dep)
-    {
-        (void)curInstrId;
-        (void)dep;
-        CHK_PTR_NULL(loopCallPtr);
-        std::vector<CcuRepArg>& inArgs = loopCallPtr->GetInArgs();
-        auto loopBlock = loopCallPtr->GetLoopBlock();
-        CHK_PTR_NULL(loopBlock);
-
-        for (uint32_t i = 0; i < inArgs.size(); i++) {
-            const CcuRepArg& inArg = inArgs[i];
-            const CcuRepArg& blkArg = loopBlock->GetArg(i);
-            if (inArg.type != blkArg.type) {
-                HCCL_ERROR(
-                    "Mismatched Arg Type, inArg.type[%d], blkArg.type[%d]", static_cast<int>(inArg.type),
-                    static_cast<int>(blkArg.type));
-                return HCCL_E_PARA;
-            }
-            CHK_RET(LoadLoopCallArg(instr, inArg, blkArg));
-        }
-
-        return HcclResult::HCCL_SUCCESS;
-    }
-
-    HcclResult CcuInsGeneratorV2::CcuRepSetLoopTranslate(
-        [[maybe_unused]] CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepSetLoop* setLoopPtr)
-    {
-        (void)curInstrId;
-        CHK_PTR_NULL(setLoopPtr);
-        // CCU V121 将executorId赋值给loop指令的Xp，上层计算的loopContextId实际上没有用
-        CcuV2::LoadImdToXn(instr++, setLoopPtr->loopParam.Id(), setLoopPtr->executor.Id());
-        return HcclResult::HCCL_SUCCESS;
     }
 
     HcclResult CcuInsGeneratorV2::CcuRepLoadTranslate(
@@ -1673,20 +1562,11 @@ namespace CcuRep {
     {
         CcuRepRemPostSem* repRemPostSemPtr = dynamic_cast<CcuRepRemPostSem*>(repPtr);
         CHK_PTR_NULL(repRemPostSemPtr);
-        CcuUrmaChannel* channelImpl{};
-        CHK_RET(GetUrmaChannel(repRemPostSemPtr->GetChannel(), channelImpl));
-        uint64_t rmtSignalAddr{0};
-        CHK_PRT_RET(
-            channelImpl->GetRmtSignalAddrByIndex(repRemPostSemPtr->GetSemIndex(), rmtSignalAddr)
-                != HcclResult::HCCL_SUCCESS,
-            HCCL_ERROR(
-                "[CcuInsGeneratorV2][%s] failed to get remote signal addr, channelHandle[0x%llx].", __func__,
-                repRemPostSemPtr->GetChannel()),
-            HCCL_E_INTERNAL);
-        uint64_t rmtToken{};
-        CHK_RET(GetRmtToken(channelImpl, rmtToken));
-        std::vector<uint64_t> values = {channelImpl->GetChannelId(), rmtSignalAddr, rmtToken};
-        return ccuKernel->Add2ConstValue2VarMap(values, {rmtToken});
+        RmtPostInfo info{};
+        CHK_RET(GetRmtPostInfo(
+            repRemPostSemPtr->GetChannel(), repRemPostSemPtr->GetSemIndex(), std::nullopt, __func__, info));
+        std::vector<uint64_t> values = {info.channelId, info.rmtSignalAddr, info.rmtToken};
+        return ccuKernel->Add2ConstValue2VarMap(values, {info.rmtToken});
     }
 
     HcclResult CcuInsGeneratorV2::PrepareRemPostVarConstValue(
@@ -1694,28 +1574,12 @@ namespace CcuRep {
     {
         CcuRepRemPostVar* repRemPostVarPtr = dynamic_cast<CcuRepRemPostVar*>(repPtr);
         CHK_PTR_NULL(repRemPostVarPtr);
-        CcuUrmaChannel* channelImpl{};
-        CHK_RET(GetUrmaChannel(repRemPostVarPtr->GetChannel(), channelImpl));
-        uint64_t rmtSignalAddr{0};
-        uint64_t rmtVarAddr{0};
-        CHK_PRT_RET(
-            channelImpl->GetRmtSignalAddrByIndex(repRemPostVarPtr->GetSemIndex(), rmtSignalAddr)
-                != HcclResult::HCCL_SUCCESS,
-            HCCL_ERROR(
-                "[CcuInsGeneratorV2][%s] failed to get remote signal addr, channelHandle[0x%llx].", __func__,
-                repRemPostVarPtr->GetChannel()),
-            HCCL_E_INTERNAL);
-        CHK_PRT_RET(
-            channelImpl->GetRmtVarAddrByIndex(repRemPostVarPtr->GetParamIndex(), rmtVarAddr)
-                != HcclResult::HCCL_SUCCESS,
-            HCCL_ERROR(
-                "[CcuInsGeneratorV2][%s] failed to get remote var addr, channelHandle[0x%llx].", __func__,
-                repRemPostVarPtr->GetChannel()),
-            HCCL_E_INTERNAL);
-        uint64_t rmtToken{};
-        CHK_RET(GetRmtToken(channelImpl, rmtToken));
-        std::vector<uint64_t> values = {channelImpl->GetChannelId(), rmtSignalAddr, rmtToken, rmtVarAddr};
-        return ccuKernel->Add2ConstValue2VarMap(values, {rmtToken});
+        RmtPostInfo info{};
+        CHK_RET(GetRmtPostInfo(
+            repRemPostVarPtr->GetChannel(), repRemPostVarPtr->GetSemIndex(), repRemPostVarPtr->GetParamIndex(),
+            __func__, info));
+        std::vector<uint64_t> values = {info.channelId, info.rmtSignalAddr, info.rmtToken, info.rmtVarAddr};
+        return ccuKernel->Add2ConstValue2VarMap(values, {info.rmtToken});
     }
 
     HcclResult CcuInsGeneratorV2::PrepareWriteConstValue(
@@ -1900,10 +1764,9 @@ namespace CcuRep {
         const uint16_t loopCount = static_cast<uint16_t>(loops.size());
         const uint16_t jumpInstrId = curInstrId + 1;
         const uint16_t targetInstrId = curInstrId + 2 + loopCount; // 跳转目的为loop指令后额外2条
-        CcuV2::LoadImdToXn(instr++, dep.commXn[0], GetRelativeInstrId(jumpInstrId, targetInstrId));
-        curInstrId++;
-        CcuV2::Jump(instr++, dep.commXn[0], 0, 0, static_cast<int>(ConditionType::DEFAULT));
-        curInstrId++;
+        EmitRelJump(instr, dep.commXn[0], GetRelativeInstrId(jumpInstrId, targetInstrId), 0, 0, ConditionType::DEFAULT);
+        instr += 2;      // 2: LoadImdToXn + Jump
+        curInstrId += 2; // 2: LoadImdToXn + Jump
 
         for (const auto& loop : loops) {
             const auto& block = loop.repLoopBlock;

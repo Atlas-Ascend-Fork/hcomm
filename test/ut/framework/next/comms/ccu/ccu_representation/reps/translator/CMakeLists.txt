@@ -12,6 +12,7 @@ set(src_to_test_list
     main.cc
     ut_ccu_rep_translator_test.cc
     ut_ccu_ins_generator_v2_halfrtt_test.cc
+    ut_ccu_ins_generator_v2_rempost_test.cc
     ${HCCL_CODE_ROOT}/src/base_comm/resources/ccu/ccu_representation/reps/translator/ccu_ins_generator_v2.cc
 )
 

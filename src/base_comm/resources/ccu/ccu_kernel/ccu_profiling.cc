@@ -107,7 +107,7 @@ namespace {
 
 } // anonymous namespace
 
-HcclResult CcuKernelProfiling::SetupProfilingInfo(const char* kernelFuncName)
+HcclResult CcuProfiling::SetupProfilingInfo(const char* kernelFuncName)
 {
     if (kernelFuncName == nullptr || strlen(kernelFuncName) == 0) {
         name_ = std::string("CCU_KERNEL"); // 默认名称
@@ -129,7 +129,7 @@ HcclResult CcuKernelProfiling::SetupProfilingInfo(const char* kernelFuncName)
     return HcclResult::HCCL_SUCCESS;
 }
 
-HcclResult CcuKernelProfiling::UpdateProfilingDieId(uint32_t dieId)
+HcclResult CcuProfiling::UpdateProfilingDieId(uint32_t dieId)
 {
     if (dieId == 0) {
         return HcclResult::HCCL_SUCCESS;
@@ -146,7 +146,7 @@ HcclResult CcuKernelProfiling::UpdateProfilingDieId(uint32_t dieId)
     return HcclResult::HCCL_SUCCESS;
 }
 
-HcclResult CcuKernelProfiling::ResolveArgIndex(
+HcclResult CcuProfiling::ResolveArgIndex(
     const std::unordered_map<uint16_t, uint16_t>& varId2VarIdMap,
     const std::unordered_map<uint16_t, uint32_t>& varId2ArgIndexMap, uint16_t varId, uint32_t& argIndex)
 {
@@ -173,7 +173,7 @@ HcclResult CcuKernelProfiling::ResolveArgIndex(
     return HCCL_SUCCESS;
 }
 
-HcclResult CcuKernelProfiling::ResolveArgIndex(
+HcclResult CcuProfiling::ResolveArgIndex(
     const std::unordered_map<uint16_t, uint16_t>& varId2VarIdMap,
     const std::unordered_map<uint16_t, uint32_t>& varId2ArgIndexMap, const uint64_t* taskArgs, uint32_t argSize,
     uint16_t varId, uint64_t& argValue)
@@ -192,7 +192,7 @@ HcclResult CcuKernelProfiling::ResolveArgIndex(
     return HCCL_SUCCESS;
 }
 
-HcclResult CcuKernelProfiling::CollectSqeAndWaitCkeProfilingInfo(uint32_t instrId)
+HcclResult CcuProfiling::CollectSqeAndWaitCkeProfilingInfo(uint32_t instrId)
 {
     auto& vec = *cache_.workVec;
     auto& ccuProfilingCache = repCtx_.GetProfilingInfo();
@@ -228,11 +228,11 @@ HcclResult CcuKernelProfiling::CollectSqeAndWaitCkeProfilingInfo(uint32_t instrI
     return HCCL_SUCCESS;
 }
 
-HcclResult CcuKernelProfiling::BuildLoopGroupVarIdMaps(
+HcclResult CcuProfiling::BuildLoopGroupVarIdMaps(
     std::unordered_map<uint16_t, uint32_t>& varId2ArgIndexMap, std::unordered_map<uint16_t, uint16_t>& varId2VarIdMap)
 {
     auto& lgProfInfo = repCtx_.GetLGProfilingInfo();
-    HCCL_INFO("[%s] create varId2ArgIndexMap start. size=%lu", __func__, lgProfInfo.loadRep2ArgIdxMap.size());
+    HCCL_INFO("[%s] create varId2ArgIndexMap start. size=%zu", __func__, lgProfInfo.loadRep2ArgIdxMap.size());
     for (auto& iter : lgProfInfo.loadRep2ArgIdxMap) {
         if (iter.first.get() == nullptr) {
             HCCL_ERROR("[%s] loadRep is nullptr.", __func__);
@@ -246,7 +246,7 @@ HcclResult CcuKernelProfiling::BuildLoopGroupVarIdMaps(
         varId2ArgIndexMap[loadRep->GetVarId()] = iter.second;
     }
 
-    HCCL_INFO("[%s] create varId2VarIdMap start. size=%lu", __func__, lgProfInfo.assignProfilingReps.size());
+    HCCL_INFO("[%s] create varId2VarIdMap start. size=%zu", __func__, lgProfInfo.assignProfilingReps.size());
     for (auto& iter : lgProfInfo.assignProfilingReps) {
         if (iter.get() == nullptr) {
             HCCL_ERROR("[%s] assignRep is nullptr.", __func__);
@@ -262,7 +262,7 @@ HcclResult CcuKernelProfiling::BuildLoopGroupVarIdMaps(
     return HCCL_SUCCESS;
 }
 
-HcclResult CcuKernelProfiling::CollectSingleLoopGroupProfiling(
+HcclResult CcuProfiling::CollectSingleLoopGroupProfiling(
     uint32_t i, size_t repSize, const uint64_t* taskArgs, uint32_t argSize,
     const std::unordered_map<uint16_t, uint32_t>& varId2ArgIndexMap,
     const std::unordered_map<uint16_t, uint16_t>& varId2VarIdMap)
@@ -358,14 +358,14 @@ HcclResult CcuKernelProfiling::CollectSingleLoopGroupProfiling(
     return HCCL_SUCCESS;
 }
 
-HcclResult CcuKernelProfiling::CollectLoopGroupProfilingInfo(
+HcclResult CcuProfiling::CollectLoopGroupProfilingInfo(
     const uint64_t* taskArgs, uint32_t argSize, const std::unordered_map<uint16_t, uint32_t>& varId2ArgIndexMap,
     const std::unordered_map<uint16_t, uint16_t>& varId2VarIdMap)
 {
     auto& lgProfInfo = repCtx_.GetLGProfilingInfo();
     HCCL_INFO(
         "[%s] process loop group profiling start: "
-        "lgsize(%lu), goSize(%lu)",
+        "lgsize(%zu), goSize(%zu)",
         __func__, lgProfInfo.lgProfilingReps.size(), groupOpSizeInfo_.size());
     size_t repSize = lgProfInfo.lgProfilingReps.size();
     size_t goSizeNum = groupOpSizeInfo_.size();
@@ -395,7 +395,7 @@ HcclResult CcuKernelProfiling::CollectLoopGroupProfilingInfo(
  * 第一次 launch 构建 SQE/WaitCKE + varId映射 + argIndex预解析 + SQE/WaitCKE 缓存；
  * 第二次起只 resize 截掉 loopGroup 尾部、跳过映射构建、直接共享 SQE/WaitCKE 缓存不再重建。
  */
-HcclResult CcuKernelProfiling::GetCcuProfilingInfo(
+HcclResult CcuProfiling::GetCcuProfilingInfo(
     const uint64_t* taskArgs, uint32_t argSize, std::shared_ptr<std::vector<CcuProfilingInfo>>& ccuStaticInfo,
     std::shared_ptr<std::vector<CcuProfilingInfo>>& ccuDetailInfo, uint32_t instrId)
 {
@@ -489,7 +489,7 @@ HcclResult CcuKernelProfiling::GetCcuProfilingInfo(
     return HCCL_SUCCESS;
 }
 
-HcclResult CcuKernelProfiling::ConstructProfilingInfo(
+HcclResult CcuProfiling::ConstructProfilingInfo(
     const uint64_t* taskArgs, uint32_t argNum, CcuDfxResult& result, bool isSaveProfilingData, uint32_t instrId)
 {
     if (!isSaveProfilingData) {
@@ -509,7 +509,7 @@ HcclResult CcuKernelProfiling::ConstructProfilingInfo(
     return HcclResult::HCCL_SUCCESS;
 }
 
-HcclResult CcuKernelProfiling::AddProfilingInfo(
+HcclResult CcuProfiling::AddProfilingInfo(
     const ChannelHandle* channels, uint32_t channelNum, HcclDataType dataType, HcclDataType outputDataType,
     HcclReduceOp opType, const std::string& opName)
 {
@@ -552,7 +552,7 @@ HcclResult CcuKernelProfiling::AddProfilingInfo(
     return HCCL_SUCCESS;
 }
 
-HcclResult CcuKernelProfiling::AddCcuProfiling(
+HcclResult CcuProfiling::AddCcuProfiling(
     GroupInfo groupInfo, const std::vector<ChannelHandle>& channelHandle, HcclDataType dataType,
     HcclDataType outputDataType, HcclReduceOp opType, const std::string& opName)
 {
@@ -561,7 +561,7 @@ HcclResult CcuKernelProfiling::AddCcuProfiling(
     return HCCL_SUCCESS;
 }
 
-HcclResult CcuKernelProfiling::AddCcuProfiling(
+HcclResult CcuProfiling::AddCcuProfiling(
     const ChannelHandle* channels, uint32_t channelNum, HcclDataType dataType, HcclDataType outputDataType,
     HcclReduceOp opType, const std::string& opName)
 {

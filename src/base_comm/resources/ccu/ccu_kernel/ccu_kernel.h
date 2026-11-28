@@ -27,7 +27,6 @@
 #include "ccu_rep_context_v1.h"
 
 #include "ccu_funccall_v1.h"
-#include "ccu_loopcall_v1.h"
 
 #include "hccl_types.h"
 #include "hcomm_primitives.h"
@@ -37,14 +36,12 @@
 #include "ccu_res_repo.h"
 #include "ccu_dev_mgr_imp.h" // CcuVersion
 
-// 暂时引用方便算法开发
-#include "ccu_repeat_v1.h"
-#include "ccu_condition_v1.h"
+#include "ccu_rep_jump_v1.h"
+#include "ccu_rep_jumplabel_v1.h"
+#include "ccu_rep_loopblock_v1.h"
 #include "ccu_rep_funcblock_v1.h"
 #include "ccu_rep_addr_funcblock_v1.h"
 #include "ccu_rep_addr_funccall_v1.h"
-#include "ccu_loopblock_v1.h"
-#include "ccu_loopcall_v1.h"
 #include "ccu_assist_pub.h"
 
 #ifndef CCU_PROFILING // 和hccl仓兼容性使用
@@ -52,6 +49,7 @@
 #endif
 #include "ccu_types.h"
 #include "ccu_profiling.h"
+#include "ccu_rep_handle_repo.h"
 
 namespace hcomm {
 
@@ -121,19 +119,6 @@ public:
         return profiling_.AddProfilingInfo(channels, channelNum, dataType, outputDataType, opType, opName);
     }
 
-    HcclResult AddCcuProfiling(
-        GroupInfo groupInfo, const std::vector<ChannelHandle>& channelHandle, HcclDataType dataType,
-        HcclDataType outputDataType, HcclReduceOp opType, const std::string& opName)
-    {
-        return profiling_.AddCcuProfiling(groupInfo, channelHandle, dataType, outputDataType, opType, opName);
-    }
-    HcclResult AddCcuProfiling(
-        const ChannelHandle* channels, uint32_t channelNum, HcclDataType dataType, HcclDataType outputDataType,
-        HcclReduceOp opType, const std::string& opName)
-    {
-        return profiling_.AddCcuProfiling(channels, channelNum, dataType, outputDataType, opType, opName);
-    }
-
     // 双路 profiling 收集：ccuStaticInfo 为 SQE/WaitCKE 静态部分（shared_ptr 0 拷贝共享），
     // ccuDetailInfo 为 LoopGroup 动态部分（深拷贝）；空时为 nullptr。
     HcclResult GetCcuProfilingInfo(
@@ -145,7 +130,7 @@ public:
 
     // 按 isSaveProfilingData 开关决定是否收集（为 false 时直接返回不收集）
     HcclResult ConstructProfilingInfo(
-        const uint64_t* taskArgs, uint32_t argNum, CcuKernelProfiling::CcuDfxResult& result, bool isSaveProfilingData)
+        const uint64_t* taskArgs, uint32_t argNum, CcuProfiling::CcuDfxResult& result, bool isSaveProfilingData)
     {
         return profiling_.ConstructProfilingInfo(taskArgs, argNum, result, isSaveProfilingData, GetInstrId());
     }
@@ -169,6 +154,17 @@ public:
     const std::vector<PinnedGroupEntry>& GetPinnedRegGroups() const { return pinnedRegGroups_; }
     void AddPinnedRegGroup(const CcuRep::Variable& baseVar, uint16_t count);
 
+    // 句柄表：构造 rep 时经此解析句柄，登记仍由本类的 Alloc 接口完成
+    CcuRepHandleRepo& Repo() { return repo_; }
+
+    // 供 ccu_arithmetic、ccu_trans、ccu_sync、ccu_load 的自由函数构造 rep 时调用。
+    // module-internal，非 Kernel 公共 API。
+    CcuRep::Variable CreateVariableForRepBuild();
+    CcuRep::LocalNotify CreateLocalNotifyForRepBuild();
+    CcuResult LatchBodyErrorForRepBuild(CcuResult err);
+    void AddChannelForRepBuild(ChannelHandle channel);
+    void AddLoadArgUsedForRepBuild(uint32_t argId);
+
 public:
     // Alloc 相关接口
     CcuResult VariableAlloc(CcuVariableHandle* varHandle);
@@ -186,119 +182,8 @@ public:
     CcuResult VariableCreateByAcquire(CcuVariableHandle acqHandle, uint32_t index, CcuVariableHandle* varHandle);
     CcuResult EventCreateByAcquire(CcuEventHandle acqHandle, uint32_t index, CcuEventHandle* eventHandle);
 
-    // 参数加载类 相关接口
-    CcuResult LoadArg(CcuVariableHandle varHandle, uint32_t argId);
     // 在锁内填充 Kernel 查询信息；当前包含 maxTaskArgsNum。
     CcuResult GetCcuKernelInfo(CcuKernelInfo& info) const;
-    CcuResult LoadVar(uint64_t addr, CcuVariableHandle varHandle, uint32_t num);
-    CcuResult CcuLoadVarFromVarAddr(CcuVariableHandle addrHandle, CcuVariableHandle varHandle, uint32_t num);
-    CcuResult LoadAddImm(
-        CcuVariableHandle varHandle, uint16_t srcNum, CcuVariableHandle offsetHandle, uint16_t immAddValue,
-        CcuVariableHandle dstHandle);
-    CcuResult AddImmStore(
-        CcuVariableHandle varHandle, uint16_t dstNum, CcuVariableHandle offsetHandle, uint16_t immAddValue,
-        CcuVariableHandle srcHandle);
-    CcuResult StoreVar(uint64_t addr, CcuVariableHandle varHandle, uint32_t num);
-    CcuResult CcuStoreVarToVarAddr(CcuVariableHandle addrHandle, CcuVariableHandle varHandle, uint32_t num);
-
-    // Event信号同步类 相关接口
-    //  mask 由调用方独立传入（与 Event 句柄解耦），不再设独立的 SetEventMask 接口。
-    CcuResult EventRecord(CcuEventHandle eventHandle, uint32_t mask);
-    CcuResult EventWait(CcuEventHandle eventHandle, uint32_t mask);
-    CcuResult NotifyRecord(const ChannelHandle channel, uint32_t remoteNotifyIdx, uint32_t mask);
-    CcuResult NotifyWait(const ChannelHandle channel, uint32_t localNotifyIdx, uint32_t mask);
-    CcuResult WriteVariableWithNotify(
-        const ChannelHandle channel, CcuVariableHandle varHandle, uint32_t remoteVarIdx, uint32_t remoteNotifyIdx,
-        uint32_t mask);
-    CcuResult CascCntWait(HcommCcuCascCntHandle cntHandle, uint64_t tgtValue);
-    CcuResult CascCntClear(HcommCcuCascCntHandle cntHandle, CcuEventHandle eventHandle, uint32_t mask);
-    // 本地（同 device 内跨 core）通知同步：用 notifyTag 字符串作为对端标识，
-    // 由调用方约定生产者/消费者使用相同的 tag 字符串完成配对。
-    // 与 NotifyRecord/Wait（用 ChannelHandle 标识跨 rank 通道）的对偶。
-    // 必须 public：C API ccu_primitives_impl.cc 直接调用。
-    CcuResult LocalNotifyRecord(const char* notifyTag, const uint32_t mask);
-    CcuResult LocalNotifyWait(const char* notifyTag, const uint32_t mask);
-    // 本地数据拷贝 相关接口
-    CcuResult LocalCopyMemToBuffer(
-        CcuBufferHandle dstHandle, CcuLocalAddrHandle srcHandle, CcuVariableHandle lenHandle,
-        CcuEventHandle eventHandle, uint32_t mask);
-    CcuResult LocalCopyBufferToMem(
-        CcuLocalAddrHandle dstHandle, CcuBufferHandle srcHandle, CcuVariableHandle lenHandle,
-        CcuEventHandle eventHandle, uint32_t mask);
-    CcuResult LocalCopyMemToMem(
-        CcuLocalAddrHandle dstHandle, CcuLocalAddrHandle srcHandle, CcuVariableHandle lenHandle,
-        CcuEventHandle eventHandle, uint32_t mask);
-
-    // 本地reduce 相关接口
-    CcuResult LocalMemReduce(
-        CcuLocalAddrHandle dstHandle, CcuLocalAddrHandle srcHandle, CcuVariableHandle lenHandle, HcclDataType dataType,
-        HcclReduceOp opType, CcuEventHandle eventHandle, uint32_t mask);
-    CcuResult LocalBufferReduce(
-        CcuBufferHandle* bufHandles, uint32_t count, HcclDataType dataType, HcclDataType outputDataType,
-        HcclReduceOp opType, CcuVariableHandle lenHandle, CcuEventHandle eventHandle, uint32_t mask);
-
-    // 运算重载 相关接口
-    CcuResult VariableAssignImm(CcuVariableHandle varHandle, uint64_t immediate);
-    CcuResult VariableAssignVar(CcuVariableHandle varHandle, CcuVariableHandle varA);
-    CcuResult
-    VariableAddVarToVar(CcuVariableHandle varHandle, CcuVariableHandle varAHandle, CcuVariableHandle varBHandle);
-    CcuResult
-    VariableSubVarToVar(CcuVariableHandle varHandle, CcuVariableHandle varAHandle, CcuVariableHandle varBHandle);
-    CcuResult
-    VariableMulVarToVar(CcuVariableHandle varHandle, CcuVariableHandle varAHandle, CcuVariableHandle varBHandle);
-    CcuResult VariableAddImmToVar(CcuVariableHandle varHandle, CcuVariableHandle varAHandle, uint16_t immediate);
-    CcuResult VariableSubImmToVar(CcuVariableHandle varHandle, CcuVariableHandle varAHandle, uint16_t immediate);
-    CcuResult VariableMulImmToVar(CcuVariableHandle varHandle, CcuVariableHandle varAHandle, uint16_t immediate);
-    CcuResult
-    VariableAndVarToVar(CcuVariableHandle varHandle, CcuVariableHandle varAHandle, CcuVariableHandle varBHandle);
-    CcuResult
-    VariableOrVarToVar(CcuVariableHandle varHandle, CcuVariableHandle varAHandle, CcuVariableHandle varBHandle);
-    CcuResult
-    VariableXorVarToVar(CcuVariableHandle varHandle, CcuVariableHandle varAHandle, CcuVariableHandle varBHandle);
-    CcuResult VariableNotVar(CcuVariableHandle varHandle, CcuVariableHandle varAHandle);
-    CcuResult
-    VariableShlVarToVar(CcuVariableHandle varHandle, CcuVariableHandle varAHandle, CcuVariableHandle varBHandle);
-    CcuResult
-    VariableShrVarToVar(CcuVariableHandle varHandle, CcuVariableHandle varAHandle, CcuVariableHandle varBHandle);
-    CcuResult AddressAssignImm(CcuAddressHandle addrHandle, uint64_t immediate);
-    CcuResult AddressAssignVar(CcuAddressHandle addrHandle, CcuVariableHandle varHandle);
-    CcuResult AddressAssignAddr(CcuAddressHandle dstAddrHandle, CcuAddressHandle srcAddrHandle);
-    CcuResult
-    AddressAddVarToAddr(CcuAddressHandle resAddrHandle, CcuAddressHandle lhsAddrHandle, CcuVariableHandle rhsVarHandle);
-    CcuResult
-    AddressAddAddrToAddr(CcuAddressHandle resAddrHandle, CcuAddressHandle addrAHandle, CcuAddressHandle addrBHandle);
-    CcuResult AddressAddAssignVar(CcuAddressHandle addrHandle, CcuVariableHandle varHandle);
-    CcuResult AddressAddAssignAddr(CcuAddressHandle addrHandle, CcuAddressHandle otherHandle);
-    CcuResult AddressAddImmToAddr(CcuAddressHandle resAddrHandle, CcuAddressHandle addrAHandle, uint16_t imm);
-
-    // 远端数据传输操作
-
-    CcuResult ReadMemToMem(
-        ChannelHandle channel, CcuLocalAddrHandle localHandle, CcuRemoteAddrHandle remoteHandle,
-        CcuVariableHandle lenHandle, CcuEventHandle eventHandle, uint32_t mask);
-    CcuResult ReadMemToBuffer(
-        ChannelHandle channel, CcuBufferHandle localHandle, CcuRemoteAddrHandle remoteHandle,
-        CcuVariableHandle lenHandle, CcuEventHandle eventHandle, uint32_t mask);
-    CcuResult ReadMemToMemReduce(
-        ChannelHandle channel, CcuLocalAddrHandle localHandle, CcuRemoteAddrHandle remoteHandle,
-        CcuVariableHandle lenHandle, HcclDataType dataType, HcclReduceOp opType, CcuEventHandle eventHandle,
-        uint32_t mask);
-    CcuResult WriteMemToMem(
-        ChannelHandle channel, CcuRemoteAddrHandle remoteHandle, CcuLocalAddrHandle localHandle,
-        CcuVariableHandle lenHandle, CcuEventHandle eventHandle, uint32_t mask);
-    CcuResult WriteBufferToMem(
-        ChannelHandle channel, CcuRemoteAddrHandle remoteHandle, CcuBufferHandle localHandle,
-        CcuVariableHandle lenHandle, CcuEventHandle eventHandle, uint32_t mask);
-    CcuResult WriteMemToMemReduce(
-        ChannelHandle channel, CcuRemoteAddrHandle remoteHandle, CcuLocalAddrHandle localHandle,
-        CcuVariableHandle lenHandle, HcclDataType dataType, HcclReduceOp opType, CcuEventHandle eventHandle,
-        uint32_t mask);
-    CcuResult WriteVarAtomicAdd(
-        CcuVariableHandle channelIdHandle, CcuRemoteAddrHandle varAddrHandle, CcuVariableHandle addValueHandle,
-        CcuEventHandle eventHandle, uint32_t mask);
-    CcuResult WriteWithCascCntInc(
-        CcuVariableHandle channelIdHandle, CcuRemoteAddrHandle remoteHandle, CcuLocalAddrHandle localHandle,
-        CcuVariableHandle lenHandle, CcuRemoteAddrHandle inCntAddrHandle);
 
     CcuResult IfBegin(CcuVariableHandle varHandle, uint64_t immediate, CcuConditionType condType, const char* label);
     CcuResult
@@ -360,9 +245,6 @@ public:
     void UpdateAddressableFuncPreludeCount();
 
 private:
-    CcuResult GetVariableByHandle(CcuVariableHandle varHandle, CcuRep::Variable** variable);
-    CcuResult GetEventByHandle(CcuEventHandle eventHandle, CcuRep::CompletedEvent** event);
-    CcuResult LatchBodyError(CcuResult err);
     CcuResult EnsureLoopEnginePool(uint32_t maxLoopNum);
     // 登记一个要走 Addr 共享传参的调用点或命名 func 入口，入参个数超上限直接失败。
     CcuResult RegisterAddrUser(uint32_t numIn);
@@ -372,26 +254,6 @@ private:
     CcuResult ValidateTaskArgs(const uint64_t* taskArgs, uint32_t argsNum) const;
     CcuResult FillTaskParam(
         CcuTaskParam& param, uint32_t index, uint32_t seqNum, const uint64_t* taskArgs, uint32_t argsNum) const;
-
-    CcuResult ResolveBufRemoteLenEvent(
-        CcuBufferHandle bufHandle, CcuRemoteAddrHandle remoteHandle, CcuVariableHandle lenHandle,
-        CcuEventHandle eventHandle, CcuRep::CcuBuf** buf, CcuRep::RemoteAddr** remote, CcuRep::Variable** len,
-        CcuRep::CompletedEvent** event);
-
-    CcuResult ResolveLocalRemoteLenEvent(
-        CcuLocalAddrHandle localHandle, CcuRemoteAddrHandle remoteHandle, CcuVariableHandle lenHandle,
-        CcuEventHandle eventHandle, CcuRep::LocalAddr** local, CcuRep::RemoteAddr** remote, CcuRep::Variable** len,
-        CcuRep::CompletedEvent** event);
-
-    CcuResult ResolveRemoteLocalLenEvent(
-        CcuRemoteAddrHandle remoteHandle, CcuLocalAddrHandle localHandle, CcuVariableHandle lenHandle,
-        CcuEventHandle eventHandle, CcuRep::RemoteAddr** remote, CcuRep::LocalAddr** local, CcuRep::Variable** len,
-        CcuRep::CompletedEvent** event);
-
-    // 校验从 varHandle 起的 num 个 Variable 句柄对应的内部变量 Id 连续递增，
-    // 用于 LoadVar/StoreVar 等接口对“连续变量块”的前置校验。
-    CcuResult CheckContinuousVariables(
-        CcuVariableHandle varHandle, uint32_t num, const CcuRep::Variable& baseVar, const char* tag);
 
     CcuRep::Variable CreateJumpTargetVar();
 
@@ -426,104 +288,25 @@ private:
         std::shared_ptr<CcuRep::CcuRepJumpLabel> beginLabel;
     };
 
-    std::unordered_map<CcuVariableHandle, CcuRep::Variable> ccuVarMap_{};
-
     std::unordered_map<std::string, PendingIfContext> pendingIfCtx_{};
     std::unordered_map<std::string, PendingWhileContext> pendingWhileCtx_{};
     std::unordered_map<std::string, PendingDoWhileContext> pendingDoWhileCtx_{};
-
-    std::unordered_map<CcuEventHandle, CcuRep::CompletedEvent> ccuEventMap_{};
-
-    CcuResult GetBufferByHandle(CcuBufferHandle bufferHandle, CcuRep::CcuBuf** buffer);
-    std::unordered_map<CcuBufferHandle, CcuRep::CcuBuf> ccuBufferMap_{};
-
-    CcuResult GetAddressByHandle(CcuAddressHandle addrHandle, CcuRep::Address** address);
-    std::unordered_map<CcuAddressHandle, CcuRep::Address> ccuAddrMap_{};
-
-    CcuResult GetLocalAddrByHandle(CcuLocalAddrHandle handle, CcuRep::LocalAddr** localAddr);
-    std::unordered_map<CcuLocalAddrHandle, CcuRep::LocalAddr> ccuLocalAddrMap_{};
-
-    CcuResult GetRemoteAddrByHandle(CcuRemoteAddrHandle handle, CcuRep::RemoteAddr** remoteAddr);
-    std::unordered_map<CcuRemoteAddrHandle, CcuRep::RemoteAddr> ccuRemoteAddrMap_{};
 
     std::unordered_set<uint32_t> loadArgUsedSet_{};
 
 protected:
     // 使用channel中的Variable
     HcclResult CreateVariable(const ChannelHandle channel, uint32_t varIndex, CcuRep::Variable* var);
-    CcuRep::Variable CreateVariable();
     CcuRep::Variable CreateExpectVar();
-    CcuRep::Variable CreateContinuousVariable();
     CcuRep::LocalAddr CreateLocalAddr();
     CcuRep::RemoteAddr CreateRemoteAddr();
-    CcuRep::RemoteAddr GetRemoteAddr(const ChannelHandle channel, const uint32_t index);
-    CcuRep::LocalNotify CreateLocalNotify();
-    CcuRep::CompletedEvent CreateCompletedEvent();
-    CcuRep::CcuBuf CreateCcuBuf();
-    CcuRep::Executor CreateExecutor();
 
-    HcclResult CreateBlockCcuBuf(const uint32_t count, CcuRep::CcuBuf* ccuBufs);
     HcclResult CreateBlockExecutor(const uint32_t count, CcuRep::Executor* ccuExes);
-    HcclResult CreateBlockCompletedEvent(const uint32_t count, CcuRep::CompletedEvent* ccuEvents);
 
-    // 内部 *Nb / RecordEvent / WaitEvent 系列：mask 由调用方独立传入，
-    // 不再从 CompletedEvent 上读取。
-    HcclResult RecordEvent(CcuRep::CompletedEvent event, uint32_t mask);
-    HcclResult WaitEvent(CcuRep::CompletedEvent event, uint32_t mask);
-
-    // 数据操作
-    HcclResult WriteNb(
-        const ChannelHandle channel, const CcuRep::RemoteAddr& rem, const CcuRep::LocalAddr& loc,
-        const CcuRep::Variable& len, CcuRep::CompletedEvent event, uint32_t mask);
-    HcclResult WriteNb(
-        const ChannelHandle channel, const CcuRep::RemoteAddr& rem, const CcuRep::CcuBuf& loc,
-        const CcuRep::Variable& len, CcuRep::CompletedEvent event, uint32_t mask);
-
-    HcclResult ReadNb(
-        const ChannelHandle channel, const CcuRep::LocalAddr& loc, const CcuRep::RemoteAddr& rem,
-        const CcuRep::Variable& len, CcuRep::CompletedEvent event, uint32_t mask);
-    HcclResult ReadNb(
-        const ChannelHandle channel, const CcuRep::CcuBuf& loc, const CcuRep::RemoteAddr& rem,
-        const CcuRep::Variable& len, CcuRep::CompletedEvent event, uint32_t mask);
-
-    HcclResult WriteReduceNb(
-        const ChannelHandle channel, const CcuRep::RemoteAddr& rem, const CcuRep::LocalAddr& loc,
-        const CcuRep::Variable& len, HcclDataType dataType, HcclReduceOp opType, CcuRep::CompletedEvent event,
-        uint32_t mask);
-    HcclResult ReadReduceNb(
-        const ChannelHandle channel, const CcuRep::LocalAddr& loc, const CcuRep::RemoteAddr& rem,
-        const CcuRep::Variable& len, HcclDataType dataType, HcclReduceOp opType, CcuRep::CompletedEvent event,
-        uint32_t mask);
-
-    HcclResult LocalCopyNb(
-        const CcuRep::LocalAddr& dst, const CcuRep::LocalAddr& src, const CcuRep::Variable& len,
-        CcuRep::CompletedEvent event, uint32_t mask); // dst和src是否都是local
-    HcclResult LocalCopyNb(
-        const CcuRep::CcuBuf& dst, const CcuRep::LocalAddr& src, const CcuRep::Variable& len,
-        CcuRep::CompletedEvent event, uint32_t mask);
-    HcclResult LocalCopyNb(
-        const CcuRep::LocalAddr& dst, const CcuRep::CcuBuf& src, const CcuRep::Variable& len,
-        CcuRep::CompletedEvent event, uint32_t mask);
-
-    HcclResult LocalReduceNb(
-        const CcuRep::LocalAddr& dst, const CcuRep::LocalAddr& src, const CcuRep::Variable& len, HcclDataType dataType,
-        HcclReduceOp opType, CcuRep::CompletedEvent event, uint32_t mask);
-    HcclResult LocalReduceNb(
-        const CcuRep::CcuBuf* bufs, uint32_t count, HcclDataType dataType, HcclDataType outputDataType,
-        HcclReduceOp opType, const CcuRep::Variable& len, CcuRep::CompletedEvent event, uint32_t mask);
-
-    // 参数操作
-    void Load(const CcuRep::Variable& var);
-
-    // Variable src中存放内存地址，从地址中加载数据到Variable var中
-    void LoadVariable(const CcuRep::Variable& src, const CcuRep::Variable& var);
-
-    void StoreVariable(const CcuRep::Variable& var, uint64_t addr);
     // 控制逻辑
     // 宏定义IF、WHILE
     CcuRep::FuncCall Func(const std::string& label);
     CcuRep::FuncCall Func(const CcuRep::Variable& funcAddr);
-    CcuRep::LoopCall Loop(const std::string& label);
 
 private:
     CcuRep::Address CreateAddress();
@@ -538,6 +321,7 @@ private:
 private:
     CcuRepResource res_{};
     CcuResRepository resRepo_{};
+    CcuRepHandleRepo repo_{};
 
     std::mutex cascCntBlockMutex_;
     std::unordered_map<HcommCcuCascCntHandle, CntXnBlock> cascCntBlocks_{};
@@ -551,8 +335,6 @@ private:
 
     CcuRep::CcuInstrInfo instrInfo_{};
 
-    uint32_t loadArgIndex_{0};
-
     CcuVersion ccuVersion_{CcuVersion::CCU_INVALID};
 
     // A5(CCU_V1) 专用：CCU_IF,CCU_ELSE 跳转共用一个 Xn；当前仅CCU_IF和CCU_ELSE复用，While和DoWhile暂未复用
@@ -562,8 +344,6 @@ private:
 
     CcuSharedResource exportedRes_{};
     CcuSharedResource importedRes_{};
-    CcuKernelProfiling profiling_{*this};
-
     // 记录每个kernel所需常量，适用于A6场景
     std::unordered_map<uint64_t, CcuRep::Variable> constValue2VarMap;
     // 记录常量表中属于敏感信息(token)的值，装载到寄存器时用于打 secFlag 标记
@@ -628,6 +408,8 @@ private:
 
     std::unordered_map<CcuLoopExecutors, std::vector<CcuRep::Executor>> loopEnginePools_;
     uint32_t loopEnginePoolCounter_{0};
+
+    CcuProfiling profiling_{*this};
 };
 
 CcuResult GetChannelIdByHandle(ChannelHandle channel, uint32_t& channelId);

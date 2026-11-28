@@ -3813,7 +3813,7 @@ namespace CcuSim {
             return CcuResult::CCU_E_PTR;
         }
         if (IsInsideLoopBody("while-begin")) {
-            return CcuResult::CCU_E_INTERNAL; // 对齐真身 LatchBodyError(CCU_E_INTERNAL)
+            return CcuResult::CCU_E_INTERNAL; // 对齐真身 LatchBodyErrorForRepBuild(CCU_E_INTERNAL)
         }
         const std::string labelStr((label != nullptr) ? label : "");
         if (ctx->whileOpenLabels.count(labelStr) != 0U) {

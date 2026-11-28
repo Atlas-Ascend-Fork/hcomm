@@ -29,7 +29,6 @@ namespace CcuRep {
         ADD,
         MUL,
         SUB,
-        SET_LOOP,
 
         AND,
         OR,
@@ -53,7 +52,6 @@ namespace CcuRep {
         ADDRESSABLE_FUNC_BLOCK,
         ADDR_FUNC_CALL,
 
-        LOOP_CALL,
         LOOP,
         LOOPGROUP,
         LOOP_BLOCK,

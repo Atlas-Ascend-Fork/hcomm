@@ -259,7 +259,7 @@ namespace CcuRep {
             dep.memTokenInfo = tokenValue;
 
             // 登记路径: PrepareLoadConstValue 登记 {addr, memToken, size} 并把 memToken 挑进敏感集合
-            CcuRepLoad rep(&insGen, addr, kernel.CreateVariable(), 2);
+            CcuRepLoad rep(&insGen, addr, kernel.CreateVariableForRepBuild(), 2);
             EXPECT_EQ(insGen.PrepareConstValue(&rep, dep, &kernel), HcclResult::HCCL_SUCCESS);
             EXPECT_EQ(kernel.GetConstValue2VarMap().size(), 3u);
             EXPECT_TRUE(kernel.IsSecConstValue(tokenValue));
@@ -314,7 +314,7 @@ namespace CcuRep {
             {
                 CcuKernel kernel;
                 kernel.SetDieId(0);
-                CcuRepLoad rep(&insGen, 0x1000, kernel.CreateVariable(), 1);
+                CcuRepLoad rep(&insGen, 0x1000, kernel.CreateVariableForRepBuild(), 1);
                 EXPECT_EQ(insGen.PrepareConstValue(&rep, dep, &kernel), HcclResult::HCCL_SUCCESS);
                 EXPECT_TRUE(kernel.IsSecConstValue(tokenValue));
                 EXPECT_EQ(kernel.GetConstValue2VarMap().size(), 3u);
@@ -323,7 +323,7 @@ namespace CcuRep {
             {
                 CcuKernel kernel;
                 kernel.SetDieId(0);
-                CcuRepLoadVar rep(&insGen, kernel.CreateVariable(), kernel.CreateVariable(), 1);
+                CcuRepLoadVar rep(&insGen, kernel.CreateVariableForRepBuild(), kernel.CreateVariableForRepBuild(), 1);
                 EXPECT_EQ(insGen.PrepareConstValue(&rep, dep, &kernel), HcclResult::HCCL_SUCCESS);
                 EXPECT_TRUE(kernel.IsSecConstValue(tokenValue));
             }
@@ -331,7 +331,7 @@ namespace CcuRep {
             {
                 CcuKernel kernel;
                 kernel.SetDieId(0);
-                CcuRepStore rep(&insGen, kernel.CreateVariable(), 0x2000, 1);
+                CcuRepStore rep(&insGen, kernel.CreateVariableForRepBuild(), 0x2000, 1);
                 EXPECT_EQ(insGen.PrepareConstValue(&rep, dep, &kernel), HcclResult::HCCL_SUCCESS);
                 EXPECT_TRUE(kernel.IsSecConstValue(tokenValue));
             }
@@ -339,7 +339,8 @@ namespace CcuRep {
             {
                 CcuKernel kernel;
                 kernel.SetDieId(0);
-                CcuRepStoreVar rep(&insGen, kernel.CreateVariable(), kernel.CreateVariable(), 1, false);
+                CcuRepStoreVar rep(
+                    &insGen, kernel.CreateVariableForRepBuild(), kernel.CreateVariableForRepBuild(), 1, false);
                 EXPECT_EQ(insGen.PrepareConstValue(&rep, dep, &kernel), HcclResult::HCCL_SUCCESS);
                 EXPECT_TRUE(kernel.IsSecConstValue(tokenValue));
             }
@@ -347,7 +348,8 @@ namespace CcuRep {
             {
                 CcuKernel kernel;
                 kernel.SetDieId(0);
-                CcuRepStoreVar rep(&insGen, kernel.CreateVariable(), kernel.CreateVariable(), 1, true);
+                CcuRepStoreVar rep(
+                    &insGen, kernel.CreateVariableForRepBuild(), kernel.CreateVariableForRepBuild(), 1, true);
                 EXPECT_EQ(insGen.PrepareConstValue(&rep, dep, &kernel), HcclResult::HCCL_SUCCESS);
                 EXPECT_FALSE(kernel.IsSecConstValue(tokenValue));
             }

@@ -322,7 +322,7 @@ HcommCcuKernelLaunch(ThreadHandle threadHandle, CcuKernelHandle kernelHandle, co
     bool isCached = Hccl::DfxProfilingHandler::GetInstance().GetCachedFlag();
     bool isSaveProfilingData = isProfilingEnabledL1 || isCached;
 
-    hcomm::CcuKernelProfiling::CcuDfxResult dfxResult;
+    hcomm::CcuProfiling::CcuDfxResult dfxResult;
     CCU_CHK_RET(
         kernel->ConstructProfilingInfo(static_cast<const uint64_t*>(taskArgs), argNum, dfxResult, isSaveProfilingData));
     LogCcuTaskInfo(taskParams, kernelHandle);

@@ -12,6 +12,11 @@ set(src_list
     ccu_kernel.cc
     ccu_kernel_mgr.cc
     ccu_profiling.cc
+    ccu_rep_handle_repo.cc
+    ccu_load.cc
+    ccu_sync.cc
+    ccu_trans.cc
+    ccu_arithmetic.cc
 )
 
 if(TARGET hcomm_base_obj)

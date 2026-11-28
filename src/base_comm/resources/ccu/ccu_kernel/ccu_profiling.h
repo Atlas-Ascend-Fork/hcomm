@@ -38,11 +38,11 @@ struct GroupOpConfig {
 
 // kernel 执行期 profiling 数据的采集与整理。只读写基类 CcuRepContext，不依赖 CcuKernel；
 // 由 CcuKernel 按值持有，对外入口仍在 CcuKernel 上并转发到这里。
-class CcuKernelProfiling {
+class CcuProfiling {
 public:
-    explicit CcuKernelProfiling(CcuRep::CcuRepContext& repCtx) : repCtx_(repCtx) {}
-    CcuKernelProfiling(const CcuKernelProfiling&) = delete;
-    CcuKernelProfiling& operator=(const CcuKernelProfiling&) = delete;
+    explicit CcuProfiling(CcuRep::CcuRepContext& repCtx) : repCtx_(repCtx) {}
+    CcuProfiling(const CcuProfiling&) = delete;
+    CcuProfiling& operator=(const CcuProfiling&) = delete;
 
     HcclResult SetupProfilingInfo(const char* kernelFuncName);
     // 选定 die 之后刷新已采集的 profiling 信息中的 dieId。

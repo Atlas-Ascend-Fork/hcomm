@@ -17,10 +17,8 @@
 #include "log.h"
 #include "ccu_log.h"
 #include "ccu_api_exception.h"
-#include "ccu_rep_loopcall_v1.h"
 #include "ccu_rep_funccall_v1.h"
 #include "ccu_rep_type_v1.h"
-#include "ccu_rep_loop_v1.h"
 #include "ccu_rep_loadarg_v1.h"
 #include "ccu_assist_v1.h"
 
@@ -219,10 +217,6 @@ namespace CcuRep {
             // Addr 链路的调用点按 pc 跳转、不按 label 解析，故无需 SetRefBlock；funcManager 仅用于翻译 func body
             auto funcBlock = std::static_pointer_cast<CcuRepAddressableFuncBlock>(rep);
             funcBlock->SetFuncManager(refManager.get());
-        } else if (repType == CcuRepType::LOOP_CALL) {
-            CCU_CHK_RET((BuildReference<CcuRepLoopCall, CcuRepLoopBlock>(rep)));
-        } else if (repType == CcuRepType::LOOP) {
-            CCU_CHK_RET((BuildReference<CcuRepLoop, CcuRepLoopBlock>(rep)));
         }
         return CCU_SUCCESS;
     }

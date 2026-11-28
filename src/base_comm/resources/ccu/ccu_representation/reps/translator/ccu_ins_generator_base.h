@@ -148,16 +148,6 @@ namespace CcuRep {
             = 0;
 
         // loop
-        virtual HcclResult
-        CcuRepLoopTranslate(CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepLoop* loopPtr)
-            = 0;
-        virtual HcclResult CcuRepLoopCallTranslate(
-            CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepLoopCall* loopCallPtr,
-            const TransDep& dep)
-            = 0;
-        virtual HcclResult
-        CcuRepSetLoopTranslate(CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepSetLoop* setLoopPtr)
-            = 0;
         virtual HcclResult CcuRepLoopGroupBundleTranslate(
             CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepLoopGroupBundle* bundlePtr,
             const TransDep& dep)

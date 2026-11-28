@@ -43,6 +43,7 @@
 #include "ccu_launch.h"
 #include "ccu_res.h"
 #include "ccu_var_event_res_mgr.h"
+#include "base_comm_node_accessors.h"
 
 #include "mocks/ccu_device_mock_utils.h"
 #include "mocks/ccu_channel_mock_utils.h"
@@ -409,6 +410,107 @@ inline void RegisterLaunchAndCleanupSingleArgKernel(
     EXPECT_EQ(HcommCcuKernelLaunch(fakeThreadHandle, kernelHandle, fakeTaskArgs, fakeArgNum), CcuResult::CCU_SUCCESS);
 
     DestroyCcuChannelInsAndDescs(handlePair, insHandle, resDescs);
+}
+
+// 依赖 ChannelHandle 的接口需要一条已建链的通道, 用例把通道句柄经 kernelArg 传进 kernel func。
+struct CcuChannelKernelArg {
+    ChannelHandle channel{0};
+};
+
+// 建 V1 实例 + 建链 -> 以通道句柄为 kernelArg 注册 kernel -> 统一销毁。
+inline void RunKernelWithChannel(const char* kernelFuncName, CcuResult (*kernelFunc)(CcuKernelArg))
+{
+    constexpr uint32_t fakeDevId = MAX_MODULE_DEVICE_NUM - 2;
+    HcommCcuResDescHandle resDescs[hcomm::CCU_MAX_IODIE_NUM] = {0, 0};
+    CcuInsHandle insHandle{0};
+    SetupV1CcuInstance(resDescs, insHandle, fakeDevId);
+
+    const auto& handlePair = MockCcuChannelConnectDefault(fakeDevId, CommEngine::COMM_ENGINE_CCU);
+    EXPECT_EQ(HcommCcuKernelRegisterStart(insHandle), CcuResult::CCU_SUCCESS);
+
+    CcuChannelKernelArg demoArg{handlePair.second};
+    const void* kernelArgs[] = {static_cast<CcuKernelArg>(&demoArg)};
+    RegisterAndCleanupSingleArgKernel(
+        insHandle, const_cast<char*>(kernelFuncName), reinterpret_cast<void*>(kernelFunc), kernelArgs, handlePair,
+        resDescs);
+}
+
+// 逐个核对 CCU 编程接口的 rep 产物。在 kernel func 内构造, 记下当前 rep 数作为标记;
+// 每调用一个接口后用 Expect* 断言本次新增的 rep, 断言完把标记推进到当前位置。
+class CcuRepCursor {
+public:
+    CcuRepCursor()
+    {
+        kernel_ = hcomm::GetCcuKernelMgr(HcclGetThreadDeviceId()).GetCurrentKernel();
+        EXPECT_NE(kernel_, nullptr);
+        mark_ = RepNum();
+    }
+
+    // 断言新增且只新增一个 expect 类型的 rep。
+    void ExpectOne(hcomm::CcuRep::CcuRepType expect)
+    {
+        const size_t now = RepNum();
+        EXPECT_EQ(now, mark_ + 1);
+        if (now == mark_ + 1) {
+            EXPECT_EQ(kernel_->CurrentBlock()->GetReps()[mark_]->Type(), expect);
+        }
+        mark_ = now;
+    }
+
+    // 同 ExpectOne, 并把该 rep 返回给调用方核对操作数:
+    // 句柄类型全是 uint64_t, 接口内部把 local / remote / len 等实参写串时只能靠核对 rep 操作数发现。
+    std::shared_ptr<hcomm::CcuRep::CcuRepBase> ExpectOneAndTake(hcomm::CcuRep::CcuRepType expect)
+    {
+        const size_t idx = mark_;
+        ExpectOne(expect);
+        if (kernel_ == nullptr || idx >= RepNum()) {
+            return nullptr;
+        }
+        return kernel_->CurrentBlock()->GetReps()[idx];
+    }
+
+    hcomm::CcuKernel* Kernel() const { return kernel_; }
+
+    // 断言接口失败后没有留下任何 rep。
+    void ExpectNone()
+    {
+        const size_t now = RepNum();
+        EXPECT_EQ(now, mark_);
+        mark_ = now;
+    }
+
+private:
+    size_t RepNum() const { return kernel_ == nullptr ? 0 : kernel_->CurrentBlock()->GetReps().size(); }
+
+    hcomm::CcuKernel* kernel_{nullptr};
+    size_t mark_{0};
+};
+
+constexpr uint64_t INVALID_HANDLE = 0xFFFFFFFFFFFFFFFFULL;
+constexpr CcuResult OK = CcuResult::CCU_SUCCESS;
+constexpr CcuResult NOT_FOUND = CcuResult::CCU_E_NOT_FOUND;
+
+// 同 CcuRepCursor::ExpectOneAndTake, 并转成具体 rep 子类供核对操作数。
+template <typename RepT>
+inline std::shared_ptr<RepT> TakeRep(CcuRepCursor& reps, hcomm::CcuRep::CcuRepType expect)
+{
+    auto rep = std::dynamic_pointer_cast<RepT>(reps.ExpectOneAndTake(expect));
+    EXPECT_NE(rep, nullptr);
+    return rep;
+}
+
+inline uint16_t VariableIdOf(hcomm::CcuKernel* kernel, CcuVariableHandle handle)
+{
+    hcomm::CcuRep::Variable* var{nullptr};
+    EXPECT_EQ(kernel->Repo().ResolveVariable(handle, &var), OK);
+    return var == nullptr ? 0 : var->Id();
+}
+
+inline uint16_t EventIdOf(hcomm::CcuKernel* kernel, CcuEventHandle handle)
+{
+    hcomm::CcuRep::CompletedEvent* event{nullptr};
+    EXPECT_EQ(kernel->Repo().ResolveEvent(handle, &event), OK);
+    return event == nullptr ? 0 : event->Id();
 }
 
 #define CCU_FUNC_KERNEL_TEST(testName, demoFunc, expectRegisterSuccess)                                               \

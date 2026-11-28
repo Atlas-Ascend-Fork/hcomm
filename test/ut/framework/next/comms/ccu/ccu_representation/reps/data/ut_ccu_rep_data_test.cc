@@ -19,6 +19,7 @@
 #include "ccu_rep_remMem_v1.h"
 #include "ccu_api_exception.h"
 #include "ccu_ins_generator_v1.h"
+#include "ccu_ins_generator_v2.h"
 
 #include "hcomm_c_adpt.h"
 
@@ -145,11 +146,56 @@ namespace CcuRep {
             void TearDown() override {}
         };
 
+        constexpr uint16_t SUM_DATA_TYPE = 3;
+
+        // 以给定输出类型翻译一个 SUM 的 BufReduce，校验只生成 1 条 reduce 指令
+        void TranslateSumBufReduce(CcuInsGeneratorBase* insGen, uint16_t outputDataType, CcuInstr& instr)
+        {
+            CcuRepContext context;
+            std::vector<CcuBuf> mem = {CcuBuf{&context}, CcuBuf{&context}, CcuBuf{&context}, CcuBuf{&context}};
+            Variable len{&context};
+            CompletedEvent sem{&context};
+
+            CcuRepBufReduce rep(insGen, mem, 4, SUM_DATA_TYPE, outputDataType, 0, sem, len, 1);
+            CcuInstr* instrPtr = &instr;
+            uint16_t instrId = 0;
+            TransDep dep = {};
+
+            bool result = rep.Translate(nullptr, instrPtr, instrId, dep);
+            EXPECT_TRUE(result);
+            EXPECT_EQ(instrPtr, &instr + 1);
+            EXPECT_EQ(instr.header.type, 0x3);
+            EXPECT_EQ(instr.header.code, 0x0);
+        }
+
         class CcuRepBufReduceTest : public ::testing::Test {
         protected:
             void SetUp() override {}
             void TearDown() override {}
             CcuInsGeneratorV1 insGen{};
+
+            void ExpectSumCastEn(uint16_t outputDataType, uint16_t castEn)
+            {
+                CcuInstr instr{};
+                TranslateSumBufReduce(&insGen, outputDataType, instr);
+                EXPECT_EQ(instr.v1.add.castEn, castEn);
+                EXPECT_EQ(instr.v1.add.dataType, SUM_DATA_TYPE);
+            }
+        };
+
+        class CcuRepBufReduceV2Test : public ::testing::Test {
+        protected:
+            void SetUp() override {}
+            void TearDown() override {}
+            CcuInsGeneratorV2 insGen{};
+
+            void ExpectSumCastEn(uint16_t outputDataType, uint16_t castEn)
+            {
+                CcuInstr instr{};
+                TranslateSumBufReduce(&insGen, outputDataType, instr);
+                EXPECT_EQ(instr.v2.reduce.castEn, castEn);
+                EXPECT_EQ(instr.v2.reduce.dataType, SUM_DATA_TYPE);
+            }
         };
 
         class CcuRepLocCpyTest : public ::testing::Test {
@@ -578,6 +624,22 @@ namespace CcuRep {
             TransDep dep = {};
 
             EXPECT_THROW({ rep.Translate(nullptr, instrPtr, instrId, dep); }, Hccl::CcuApiException);
+        }
+
+        // SUM 输出 fp16(1)、bf16(2) 时 castEn 透传输出类型，其他类型时为 0
+        TEST_F(CcuRepBufReduceTest, Translate_Sum_CastEnByOutputType)
+        {
+            ExpectSumCastEn(1, 1);
+            ExpectSumCastEn(2, 2);
+            ExpectSumCastEn(3, 0);
+        }
+
+        // SUM 输出 fp16(1)、bf16(2) 时 castEn 透传输出类型，其他类型时为 0
+        TEST_F(CcuRepBufReduceV2Test, Translate_Sum_CastEnByOutputType)
+        {
+            ExpectSumCastEn(1, 1);
+            ExpectSumCastEn(2, 2);
+            ExpectSumCastEn(3, 0);
         }
 
         TEST_F(CcuRepLocCpyTest, Constructor_Basic)

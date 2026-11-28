@@ -32,6 +32,36 @@
 
 #include "base_comm_node_accessors.h"
 
+#include <vector>
+
+#include "ccu_kernel.h"
+
+// 注册时 CcuKernelMgr 已用函数名调用 SetupProfilingInfo。这里只核对 kernel 把 GetInstrId()
+// 转发进 CcuProfiling，并带回已登记的 kernel 名。
+CcuResult CcuProfilingForwardDemoKernel(CcuKernelArg arg)
+{
+    (void)arg;
+    auto* kernel = hcomm::GetCcuKernelMgr(HcclGetThreadDeviceId()).GetCurrentKernel();
+    EXPECT_NE(kernel, nullptr);
+    if (kernel == nullptr) {
+        return CcuResult::CCU_E_PTR;
+    }
+
+    constexpr uint32_t instrId = 4321;
+    kernel->SetInstrId(instrId);
+
+    std::shared_ptr<std::vector<hcomm::CcuProfilingInfo>> ccuStaticInfo;
+    std::shared_ptr<std::vector<hcomm::CcuProfilingInfo>> ccuDetailInfo;
+    EXPECT_EQ(kernel->GetCcuProfilingInfo(nullptr, 0, ccuStaticInfo, ccuDetailInfo), HcclResult::HCCL_SUCCESS);
+    const auto& out = kernel->GetAllCcuProfilingInfo();
+    EXPECT_EQ(out.size(), 1U);
+    if (out.size() == 1U) {
+        EXPECT_EQ(out[0].name, "CcuProfilingForwardDemoKernel");
+        EXPECT_EQ(out[0].instrId, static_cast<uint16_t>(instrId));
+    }
+    return CcuResult::CCU_SUCCESS;
+}
+
 CCU_FUNC_KERNEL_TEST(Ut_FuncCallBasic_Expect_Success, CcuFuncCallBasicDemoKernel, true)
 CCU_FUNC_KERNEL_TEST(Ut_FuncCallReuse_Expect_Success, CcuFuncCallReuseDemoKernel, true)
 CCU_FUNC_KERNEL_TEST(Ut_FuncCallMultiArg_Expect_Success, CcuFuncCallMultiArgDemoKernel, true)
@@ -61,6 +91,8 @@ CCU_FUNC_KERNEL_V2_TEST(Ut_AddImmStore_Expect_Success, CcuAddImmStoreDemoKernel,
 CCU_FUNC_KERNEL_V2_TEST(Ut_WriteVarAtomicAdd_Expect_Success, CcuWriteVarAtomicAddDemoKernel, true)
 CCU_FUNC_KERNEL_V2_TEST(Ut_WriteWithCascCntInc_Expect_Success, CcuWriteWithCascCntIncDemoKernel, true)
 CCU_FUNC_KERNEL_V2_TEST(Ut_WriteWithCascCntIncOverLimit_Expect_Success, CcuWriteWithCascCntIncOverLimitDemoKernel, true)
+CCU_FUNC_KERNEL_V2_TEST(
+    Ut_GetCcuProfilingInfo_When_KernelForward_Expect_NameAndInstrId, CcuProfilingForwardDemoKernel, true)
 
 namespace {
 void SetupCascCntTest(

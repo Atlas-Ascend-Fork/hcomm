@@ -57,7 +57,7 @@ namespace CcuRep {
         if (ctx == nullptr) {
             Hccl::THROW<Hccl::CcuApiException>("Invalid context");
         }
-        return ctx->CreateVariable();
+        return ctx->CreateVariableForRepBuild();
     }
 
 }; // namespace CcuRep
