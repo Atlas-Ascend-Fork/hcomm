@@ -92,7 +92,9 @@ string RdmaLocalNotify::Describe() const
 
 std::unique_ptr<Serializable> RdmaLocalNotify::GetExchangeDto()
 {
-    std::unique_ptr<ExchangeRdmaBufferDto> dto = make_unique<ExchangeRdmaBufferDto>(addr, size, rkey, "RdmaNotify");
+    // notify 内存来自设备侧资源（HrtGetDevResAddress），类型固定为 DEVICE
+    std::unique_ptr<ExchangeRdmaBufferDto> dto
+        = make_unique<ExchangeRdmaBufferDto>(addr, size, rkey, HcclMemType::HCCL_MEM_TYPE_DEVICE, "RdmaNotify");
     return std::unique_ptr<Serializable>(dto.release());
 }
 

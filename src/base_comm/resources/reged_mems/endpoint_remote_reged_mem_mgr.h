@@ -18,6 +18,7 @@
 #include <unordered_map>
 #include <utility>
 #include "common/cast_utils_pub.h"
+#include "common/mem_type_convert_pub.h"
 #include "hccl_common.h"
 #include "log.h"
 #include "reged_mem_mgr.h"
@@ -195,11 +196,16 @@ private:
 // ---- RoCE 族适配：memDesc 解析 + 远端缓冲构造 ----
 inline HcclResult ParseRoceMemDesc(
     const void* memDesc, uint32_t descLen, RemoteMemOwnerKey& ownerKey, hccl::BufferKey<uintptr_t, u64>& bufferKey,
-    CommMemType&, std::shared_ptr<Hccl::Serializable>& dto)
+    CommMemType& memType, std::shared_ptr<Hccl::Serializable>& dto)
 {
-    // RoCE 历史 memDesc 不携带内存类型，不返回 memType，保持修改前的行为。
     auto roceDto = std::make_shared<Hccl::ExchangeRdmaBufferDto>();
     CHK_RET(ParseMemDesc(memDesc, descLen, ownerKey.desc, ownerKey.pid, *roceDto));
+    // 复用公共类型映射（common/mem_type_convert_pub.h），避免仓内多处内联映射漂移
+    memType = hccl::ConvertHcclToCommMemType(roceDto->memType);
+    if (memType == COMM_MEM_TYPE_INVALID) {
+        HCCL_ERROR("[ParseRoceMemDesc] invalid memory type[%d].", static_cast<int32_t>(roceDto->memType));
+        return HCCL_E_PARA;
+    }
     bufferKey = hccl::BufferKey<uintptr_t, u64>(static_cast<uintptr_t>(roceDto->addr), roceDto->size);
     dto = std::move(roceDto);
     return HCCL_SUCCESS;

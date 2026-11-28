@@ -14,6 +14,7 @@
 #include <string>
 #include "serializable.h"
 #include "orion_adapter_hccp.h"
+#include "hccl_mem_defs.h"
 namespace Hccl {
 
 class ExchangeRdmaBufferDto : public Serializable { // RDMA RMA Buffer / Notify  需要交换的DTO
@@ -27,18 +28,30 @@ public:
           memInfo(memInfo)
     {}
 
-    void Serialize(Hccl::BinaryStream& stream) override { stream << addr << size << rkey << memInfo; }
+    ExchangeRdmaBufferDto(u64 addr, u64 size, u32 rkey, HcclMemType memType, const char* memInfo)
+        : addr(addr),
+          size(size),
+          rkey(rkey),
+          memType(memType),
+          memInfo(memInfo)
+    {}
 
-    void Deserialize(Hccl::BinaryStream& stream) override { stream >> addr >> size >> rkey >> memInfo; }
+    void Serialize(Hccl::BinaryStream& stream) override { stream << addr << size << rkey << memType << memInfo; }
+
+    void Deserialize(Hccl::BinaryStream& stream) override { stream >> addr >> size >> rkey >> memType >> memInfo; }
 
     std::string Describe() const override
     {
-        return StringFormat("ExchangeRdmaBufferDto[addr=0x%llx, size=0x%llx, memInfo=%s]", addr, size, memInfo.c_str());
+        return StringFormat(
+            "ExchangeRdmaBufferDto[addr=0x%llx, size=0x%llx, memType=%d, memInfo=%s]", addr, size,
+            static_cast<int32_t>(memType), memInfo.c_str());
     }
 
     u64 addr{0};
     u64 size{0};
     u32 rkey{0};
+    // 默认无效哨兵值：未显式传入类型时保持无效，漏传处以 COMM_MEM_TYPE_INVALID 暴露而非伪装成 DEVICE
+    HcclMemType memType{HcclMemType::HCCL_MEM_TYPE_NUM};
     std::string memInfo{""};
 };
 

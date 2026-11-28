@@ -191,8 +191,11 @@ RemoteRdmaRmaBuffer::RemoteRdmaRmaBuffer(RdmaHandle rdmaHandle, const Serializab
     addr = dto.addr;
     size = dto.size;
     rkey = dto.rkey;
+    memType = dto.memType;
     memInfo = dto.memInfo;
-    HCCL_INFO("[RemoteRdmaRmaBuffer]addr = 0x%llx; size = 0x%llx; memInfo = %s", addr, size, memInfo.c_str());
+    HCCL_INFO(
+        "[RemoteRdmaRmaBuffer]addr = 0x%llx; size = 0x%llx; memType = %d; memInfo = %s", addr, size,
+        static_cast<int32_t>(memType), memInfo.c_str());
 }
 
 RemoteRdmaRmaBuffer::~RemoteRdmaRmaBuffer()

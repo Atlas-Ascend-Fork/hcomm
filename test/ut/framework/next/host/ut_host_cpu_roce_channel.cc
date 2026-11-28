@@ -757,7 +757,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_GetRemoteMems_When_RemoteMemExists_Expect_Succ
     // Init
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     RdmaHandle rdmaHandle = (void*)0x1000000;
-    Hccl::ExchangeRdmaBufferDto rmtBufDto(0x2000000, 1024, 1000, "tag1");
+    Hccl::ExchangeRdmaBufferDto rmtBufDto(0x2000000, 1024, 1000, HcclMemType::HCCL_MEM_TYPE_HOST, "tag1");
     auto rmtBuf = std::make_unique<Hccl::RemoteRdmaRmaBuffer>(rdmaHandle, rmtBufDto);
     impl_->rmtRmaBuffers_.emplace_back(std::move(rmtBuf));
     Hccl::ExchangeRdmaBufferDto rmtBufDto2(0x3000000, 2048, 1000, "tag2");
@@ -771,6 +771,9 @@ TEST_F(HostCpuRoceChannelTest, Ut_GetRemoteMems_When_RemoteMemExists_Expect_Succ
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(memNum, 2);
     ASSERT_NE(remoteMem, nullptr);
+    // 显式携带类型的 DTO 返回 desc 类型；4 参构造（默认哨兵值）返回 INVALID
+    EXPECT_EQ(remoteMem[0].type, COMM_MEM_TYPE_HOST);
+    EXPECT_EQ(remoteMem[1].type, COMM_MEM_TYPE_INVALID);
 }
 
 TEST_F(HostCpuRoceChannelTest, Ut_When_Rdma_Conn_Failed_Expect_ERROR)
