@@ -131,7 +131,7 @@ base_comm 内不得再新增 Meyers 单例 / 函数级 static 对象 / 文件级
   探测性转换 quiet 变体，为存量 static `GetDeviceIndexByPhyId(...)` 与同源拆出的
   `GetDevicePhyIdByIndex(...)` 的薄包装、无新实现逻辑；
   VM/缺卡场景转换失败是预期路径，非 quiet 版在 legacy 内部 return 前刷 ERROR、
-  外层封装拦不住，故必须以 quiet 变体新增接口；符号以默认可见性导出。
+  外层封装拦不住，故必须以 quiet 变体新增接口；符号沿用既有 .map 导出机制。
   属仓根 AGENTS.md「禁止在 src/legacy/ 新增接口」约束的登记例外，
   二期推动 legacy 提供正式 quiet 变体后回收；
 - host 侧存量 static（均编入 hcomm_base_obj，析构不经窄访问器、不触树，无 R10 UB 路径，

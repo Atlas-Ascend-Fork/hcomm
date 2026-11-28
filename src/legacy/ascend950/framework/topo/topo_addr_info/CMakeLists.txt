@@ -38,6 +38,12 @@ target_link_options(topoaddrinfo PRIVATE
     $<$<BOOL:${BUILD_OPEN_PROJECT}>:-Wl,--no-undefined>
 )
 
+# 符号隐藏: 仅导出白名单符号; 非 release 模式依赖动态符号, 不挂载
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    target_link_options(topoaddrinfo PRIVATE "-Wl,--version-script=${CMAKE_CURRENT_LIST_DIR}/topoaddrinfo.map")
+    set_property(TARGET topoaddrinfo APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/topoaddrinfo.map")
+endif()
+
 target_include_directories(topoaddrinfo PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${HCOMM_DIR}/src/legacy/ascend910/pub_inc

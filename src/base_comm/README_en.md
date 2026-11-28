@@ -160,7 +160,7 @@ Exceptions (require review and registration in this README):
   Conversion failure on VM / missing-card setups is an expected path, and the
   non-quiet variant logs ERROR inside legacy before returning, which an outer
   wrapper cannot suppress — so the interface has to be added as a quiet variant;
-  symbols are exported with default visibility. Registered exception to the
+  symbols follow the existing .map export mechanism. Registered exception to the
   repo-root AGENTS.md rule "no new interfaces under src/legacy/"; to be reclaimed
   in phase 2 once legacy provides a formal quiet variant;
 - Host-side pre-existing statics (all compiled into hcomm_base_obj; their destructors

@@ -293,6 +293,14 @@ if(TARGET json)
     add_dependencies(hcomm_cpu_ub_plugin json)
 endif()
 
+# 符号隐藏: 仅导出 nic_plugin.map 的 3 个 dlsym 入口; 非 release 模式依赖动态符号, 不挂载
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    target_link_options(hcomm_cpu_roce_plugin PRIVATE "-Wl,--version-script=${CMAKE_CURRENT_LIST_DIR}/nic_plugin.map")
+    set_property(TARGET hcomm_cpu_roce_plugin APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/nic_plugin.map")
+    target_link_options(hcomm_cpu_ub_plugin PRIVATE "-Wl,--version-script=${CMAKE_CURRENT_LIST_DIR}/nic_plugin.map")
+    set_property(TARGET hcomm_cpu_ub_plugin APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/nic_plugin.map")
+endif()
+
 install(TARGETS hcomm_cpu_roce_plugin hcomm_cpu_ub_plugin
     LIBRARY DESTINATION hcomm_plugin ${INSTALL_OPTIONAL}
     COMPONENT hcomm

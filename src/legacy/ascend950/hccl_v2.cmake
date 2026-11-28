@@ -17,7 +17,7 @@ target_sources(hccl_v2 PRIVATE
 )
 
 # L2 JSON 解析实现：legacy 的 diff_rank_updater 直接调用 ParseChangedRankInfoJson，
-# 将实现编入 hccl_v2，避免做跨库符号导出。
+# 将实现编入 hccl_v2，避免通过 hcomm.map 做跨库导出。
 set(HCOMM_JSON_L2_SRC
     ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/json/json_api.cc
     ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/json/ranktable/rank_table_reader.cc
@@ -290,6 +290,12 @@ target_include_directories(hccl_v2 PRIVATE
     # 外部依赖
     ${HCOMM_DIR}/external_depends/tsch
 )
+
+# 符号隐藏: 仅导出白名单符号; 非 release 模式依赖动态符号, 不挂载
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    target_link_options(hccl_v2 PRIVATE "-Wl,--version-script=${CMAKE_CURRENT_LIST_DIR}/hccl_v2.map")
+    set_property(TARGET hccl_v2 APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/hccl_v2.map")
+endif()
 
 # 将hccl编译出的动态库加入CANN的安装包
 install(TARGETS hccl_v2

@@ -152,6 +152,12 @@ target_include_directories(ccl_dpu PRIVATE
     ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/socket
 )
 
+# 符号隐藏: 仅导出白名单符号; 非 release 模式依赖动态符号, 不挂载
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    target_link_options(ccl_dpu PRIVATE "-Wl,--version-script=${CMAKE_CURRENT_LIST_DIR}/ccl_dpu.map")
+    set_property(TARGET ccl_dpu APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/ccl_dpu.map")
+endif()
+
 # 指定 ccl_dpu 构建完成后安装到指定的目标位置
 install(TARGETS ccl_dpu
     LIBRARY DESTINATION ${INSTALL_LIBRARY_DIR} ${INSTALL_OPTIONAL}
