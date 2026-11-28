@@ -24,9 +24,10 @@ using namespace hcomm;
 namespace {
 
 // 构造 memDesc：DTO 序列化 + EndpointDesc + u64 pid（与 GetMemDesc 写入布局一致）
-std::vector<char> BuildMemDesc(uintptr_t addr, uint64_t size, const EndpointDesc& ep, uint64_t pid)
+std::vector<char> BuildMemDesc(
+    uintptr_t addr, uint64_t size, const EndpointDesc& ep, uint64_t pid, HcclMemType memType = HCCL_MEM_TYPE_DEVICE)
 {
-    Hccl::ExchangeRdmaBufferDto dto(addr, size, 42U, "ut");
+    Hccl::ExchangeRdmaBufferDto dto(addr, size, 42U, memType, "ut");
     Hccl::BinaryStream stream;
     dto.Serialize(stream);
     std::vector<char> desc;
@@ -92,14 +93,18 @@ TEST_F(EndpointRemoteMemMgrTest, Ut_MemoryImport_When_OldFormatDesc_Expect_Retur
     EXPECT_EQ(mgr.MemoryImport(buf, sizeof(EndpointDesc), &out), HCCL_E_INTERNAL);
 }
 
-// 长度达标的旧格式 desc（无 pid）会被 DTO 回读校验拦截，验证不会错位解析成错误归属键
+// 长度达标的旧格式 desc（无 pid 且 DTO 不含 memType 字段）会被 DTO 回读校验拦截，验证不会错位解析成错误归属键
 TEST_F(EndpointRemoteMemMgrTest, Ut_MemoryImport_When_OldFormatDescLongEnough_Expect_Return_Internal)
 {
     EndpointRemoteRegedMemMgr mgr(nullptr, ParseRoceMemDesc, CreateRoceRemoteBuffer);
     EndpointDesc ep{};
-    Hccl::ExchangeRdmaBufferDto dto(0x1000, 0x100, 42U, "ut-mem-info");
+    // 手写历史版本 DTO 字节流：仅 addr/size/rkey/memInfo 四字段，不含 memType
     Hccl::BinaryStream stream;
-    dto.Serialize(stream);
+    u64 addr = 0x1000;
+    u64 size = 0x100;
+    u32 rkey = 42U;
+    std::string memInfo = "ut-mem-info";
+    stream << addr << size << rkey << memInfo;
     std::vector<char> desc;
     stream.Dump(desc);
     std::vector<char> epTail(sizeof(EndpointDesc));
@@ -130,15 +135,68 @@ TEST_F(EndpointRemoteMemMgrTest, Ut_MemoryImport_When_SameDescTwice_Expect_Idemp
     EXPECT_EQ(bufferMgr->Begin()->second.ref, 2U);
 }
 
-TEST_F(EndpointRemoteMemMgrTest, Ut_MemoryImport_When_RoceDescHasNoMemType_Expect_KeepCallerType)
+// RoCE desc 携带内存类型：out.type 返回 desc 中的类型，覆盖调用者传入的初值
+TEST_F(EndpointRemoteMemMgrTest, Ut_MemoryImport_When_RoceDescMemTypeValid_Expect_Return_DescriptorMemType)
+{
+    struct TestCase {
+        HcclMemType hcclType;
+        CommMemType expectedType;
+        uintptr_t addr;
+    };
+    const TestCase cases[] = {
+        {HCCL_MEM_TYPE_DEVICE, COMM_MEM_TYPE_DEVICE, 0x5800},
+        {HCCL_MEM_TYPE_HOST, COMM_MEM_TYPE_HOST, 0x5900},
+    };
+
+    EndpointRemoteRegedMemMgr mgr(nullptr, ParseRoceMemDesc, CreateRoceRemoteBuffer);
+    EndpointDesc ep{};
+    for (const auto& testCase : cases) {
+        auto desc = BuildMemDesc(testCase.addr, 0x100, ep, 1234U, testCase.hcclType);
+
+        HcommMem out{COMM_MEM_TYPE_INVALID, nullptr, 0};
+        ASSERT_EQ(mgr.MemoryImport(desc.data(), static_cast<uint32_t>(desc.size()), &out), HCCL_SUCCESS);
+        EXPECT_EQ(out.type, testCase.expectedType);
+        EXPECT_EQ(out.addr, reinterpret_cast<void*>(testCase.addr));
+        EXPECT_EQ(out.size, 0x100U);
+    }
+}
+
+// RoCE desc 内存类型非法（如默认哨兵值 NUM）：拒绝导入并复位出参
+TEST_F(EndpointRemoteMemMgrTest, Ut_MemoryImport_When_RoceMemTypeInvalid_Expect_Return_ParaAndResetOutput)
 {
     EndpointRemoteRegedMemMgr mgr(nullptr, ParseRoceMemDesc, CreateRoceRemoteBuffer);
     EndpointDesc ep{};
-    auto desc = BuildMemDesc(0x5800, 0x100, ep, 1234U);
+    auto desc = BuildMemDesc(0x8800, 0x100, ep, 1234U, HCCL_MEM_TYPE_NUM);
 
-    HcommMem out{COMM_MEM_TYPE_HOST, nullptr, 0};
-    ASSERT_EQ(mgr.MemoryImport(desc.data(), static_cast<uint32_t>(desc.size()), &out), HCCL_SUCCESS);
-    EXPECT_EQ(out.type, COMM_MEM_TYPE_HOST);
+    HcommMem out{COMM_MEM_TYPE_HOST, reinterpret_cast<void*>(0x1), 1U};
+    EXPECT_EQ(mgr.MemoryImport(desc.data(), static_cast<uint32_t>(desc.size()), &out), HCCL_E_PARA);
+    EXPECT_EQ(out.type, COMM_MEM_TYPE_INVALID);
+    EXPECT_EQ(out.addr, nullptr);
+    EXPECT_EQ(out.size, 0U);
+    EXPECT_TRUE(mgr.remoteRmaBufferMgrs_.empty());
+}
+
+// 同一 RoCE 内存重复导入且 desc 类型冲突：拒绝并保持首次导入的引用计数
+TEST_F(EndpointRemoteMemMgrTest, Ut_MemoryImport_When_ReusedRoceMemTypeMismatch_Expect_Return_ParaAndKeepRef)
+{
+    EndpointRemoteRegedMemMgr mgr(nullptr, ParseRoceMemDesc, CreateRoceRemoteBuffer);
+    EndpointDesc ep{};
+    auto deviceDesc = BuildMemDesc(0x9800, 0x100, ep, 1234U, HCCL_MEM_TYPE_DEVICE);
+    auto hostDesc = BuildMemDesc(0x9800, 0x100, ep, 1234U, HCCL_MEM_TYPE_HOST);
+
+    HcommMem out{};
+    ASSERT_EQ(mgr.MemoryImport(deviceDesc.data(), static_cast<uint32_t>(deviceDesc.size()), &out), HCCL_SUCCESS);
+    EXPECT_EQ(out.type, COMM_MEM_TYPE_DEVICE);
+
+    EXPECT_EQ(mgr.MemoryImport(hostDesc.data(), static_cast<uint32_t>(hostDesc.size()), &out), HCCL_E_PARA);
+    EXPECT_EQ(out.type, COMM_MEM_TYPE_INVALID);
+    EXPECT_EQ(out.addr, nullptr);
+    EXPECT_EQ(out.size, 0U);
+
+    auto& bufferMgr = mgr.remoteRmaBufferMgrs_.begin()->second;
+    ASSERT_NE(bufferMgr, nullptr);
+    ASSERT_EQ(bufferMgr->size(), 1U);
+    EXPECT_EQ(bufferMgr->Begin()->second.ref, 1U);
 }
 
 TEST_F(EndpointRemoteMemMgrTest, Ut_MemoryImport_When_UbDeviceOrHost_Expect_Return_DescriptorMemType)

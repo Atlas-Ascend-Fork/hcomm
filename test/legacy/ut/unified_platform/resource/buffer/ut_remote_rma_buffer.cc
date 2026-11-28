@@ -79,13 +79,38 @@ TEST_F(RemoteRmaBufferTest, remoterdmarmabuffer_construct_with_dto)
     dto.addr = 0x114;
     dto.size = 0x514;
     dto.rkey = 1919;
+    dto.memType = HcclMemType::HCCL_MEM_TYPE_HOST;
     dto.memInfo = "testTag";
     RdmaHandle rdmaHandle = (RdmaHandle)0x1000000;
     RemoteRdmaRmaBuffer buffer(rdmaHandle, dto);
     EXPECT_EQ(dto.addr, buffer.GetAddr());
     EXPECT_EQ(dto.size, buffer.GetSize());
     EXPECT_EQ(dto.rkey, buffer.GetRkey());
+    EXPECT_EQ(dto.memType, buffer.GetMemType());
     EXPECT_STREQ(dto.memInfo.c_str(), buffer.GetMemInfo().c_str());
+};
+
+TEST_F(RemoteRmaBufferTest, exchangerdmabufferdto_serialize_roundtrip)
+{
+    // 显式携带类型：序列化往返后保持
+    ExchangeRdmaBufferDto srcDto(0x114, 0x514, 1919, HcclMemType::HCCL_MEM_TYPE_HOST, "testTag");
+    BinaryStream stream;
+    srcDto.Serialize(stream);
+    ExchangeRdmaBufferDto dstDto;
+    dstDto.Deserialize(stream);
+    EXPECT_EQ(dstDto.addr, 0x114);
+    EXPECT_EQ(dstDto.size, 0x514);
+    EXPECT_EQ(dstDto.rkey, 1919U);
+    EXPECT_EQ(dstDto.memType, HcclMemType::HCCL_MEM_TYPE_HOST);
+    EXPECT_STREQ(dstDto.memInfo.c_str(), "testTag");
+
+    // 4 参构造默认哨兵值：往返后保持无效，漏传处以 INVALID 暴露
+    ExchangeRdmaBufferDto defaultDto(0x200, 0x100, 42, "defaultTag");
+    BinaryStream defaultStream;
+    defaultDto.Serialize(defaultStream);
+    ExchangeRdmaBufferDto parsedDto;
+    parsedDto.Deserialize(defaultStream);
+    EXPECT_EQ(parsedDto.memType, HcclMemType::HCCL_MEM_TYPE_NUM);
 };
 
 TEST_F(RemoteRmaBufferTest, remoteubrmabuffer_construct_error)

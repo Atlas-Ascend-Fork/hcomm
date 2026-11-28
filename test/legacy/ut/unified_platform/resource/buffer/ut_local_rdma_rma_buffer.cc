@@ -11,8 +11,10 @@
 #include "gtest/gtest.h"
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>
+#include <string.h>
 #include "hccp.h"
 #include "dev_buffer.h"
+#include "exchange_rdma_buffer_dto.h"
 #include "local_rdma_rma_buffer_v2.h"
 #include "remote_rma_buffer.h"
 
@@ -66,6 +68,31 @@ TEST_F(LocalRdmaRmaBufferTest, Ut_When_Serialize_Expect_Success)
     LocalRdmaRmaBuffer localRdmaRmaBuffer(devBuf, rdmaHandle);
     std::string msg = localRdmaRmaBuffer.Describe();
     EXPECT_NE(0, msg.length());
+};
+
+// 导出链路回归：Buffer.memType 是交换 DTO 的唯一类型来源，断言 GetExchangeDto 透传不丢
+TEST_F(LocalRdmaRmaBufferTest, Ut_When_GetExchangeDto_Expect_MemTypeTransferred)
+{
+    RdmaHandle rdmaHandle = reinterpret_cast<RdmaHandle>(0x4000000);
+    void* fakeMrHandle = reinterpret_cast<void*>(0xDEAD0003);
+    const u32 fakeLkey = 1919U;
+    const u32 fakeRkey = 810U;
+    // HOST 非 DTO 默认值，可同时防住"漏传回落默认"与"类型字段接错"两类回归
+    auto hostBuf = std::make_shared<Buffer>(0x70000000, 0x100, HcclMemType::HCCL_MEM_TYPE_HOST, "utMemTypeExport");
+    LocalRdmaRmaBuffer alias(hostBuf, rdmaHandle, fakeLkey, fakeRkey, fakeMrHandle);
+    EXPECT_TRUE(alias.IsAlias());
+
+    std::unique_ptr<Serializable> serializable = alias.GetExchangeDto();
+    ASSERT_NE(serializable, nullptr);
+    const auto* dto = dynamic_cast<const ExchangeRdmaBufferDto*>(serializable.get());
+    ASSERT_NE(dto, nullptr);
+    EXPECT_EQ(dto->memType, HcclMemType::HCCL_MEM_TYPE_HOST);
+    EXPECT_EQ(dto->addr, hostBuf->GetAddr());
+    EXPECT_EQ(dto->size, hostBuf->GetSize());
+    EXPECT_EQ(dto->rkey, fakeRkey);
+    // memInfo 用前缀断言：Buffer::SetMemInfo 走 snprintf_s，CI 与本地 securec 对 count
+    // 参数的终止符语义存在版本差异（CI 侧写入 count-1 字符），完整等值断言不可移植
+    EXPECT_EQ(dto->memInfo.compare(0, strlen("utMemTypeEx"), "utMemTypeEx"), 0);
 };
 
 TEST_F(LocalRdmaRmaBufferTest, Ut_When_AliasDestructBeforeCountedOwner_Expect_DeregisterOnlyAtOwner)

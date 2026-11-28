@@ -17,6 +17,7 @@
 #include "buffer.h"
 #include "dev_buffer.h"
 #include "local_ub_rma_buffer.h"
+#include "exchange_rdma_buffer_dto.h"
 #include "socket_handle_manager.h"
 #include "base_config_legacy.h"
 #include "env_config_v2.h"
@@ -844,9 +845,9 @@ RemoteRdmaRmaBuffer::RemoteRdmaRmaBuffer(RdmaHandle rdmaHandle)
       keyValidLen(RDMA_MEM_KEY_LEN_ROCE)
 {}
 
-// 桩对齐真实构造（remote_rma_buffer.cc）：从 DTO 拷贝 addr/size/rkey/memInfo，供 UT 侧
-// FindRemoteBuffer 窗口查找与 WR rkey 断言消费；static_cast 免跨 so RTTI（UT 二进制与桩 TU 各持一份
-// 类定义，dynamic_cast 不可靠，先例见 HostCpuRoceChannel::FindLocalBuffer 注释）
+// 桩对齐真实构造（remote_rma_buffer.cc）：从 DTO 拷贝 addr/size/rkey/memType/memInfo，供 UT 侧
+// FindRemoteBuffer 窗口查找、WR rkey 断言与 GetRemoteMems 类型映射消费；static_cast 免跨 so RTTI（UT 二进制与桩 TU
+// 各持一份 类定义，dynamic_cast 不可靠，先例见 HostCpuRoceChannel::FindLocalBuffer 注释）
 RemoteRdmaRmaBuffer::RemoteRdmaRmaBuffer(RdmaHandle rdmaHandle, const Serializable& rmtDto)
     : RemoteRmaBuffer(RmaType::RDMA),
       rdmaHandle(rdmaHandle)
@@ -855,6 +856,7 @@ RemoteRdmaRmaBuffer::RemoteRdmaRmaBuffer(RdmaHandle rdmaHandle, const Serializab
     addr = dto.addr;
     size = dto.size;
     rkey = dto.rkey;
+    memType = dto.memType;
     memInfo = dto.memInfo;
 }
 
