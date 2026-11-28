@@ -30,10 +30,10 @@ void CollServiceBase::RegisterOpBufToBufMgr(CollOperator& op)
 
 void CollServiceBase::RegisterCclLocRmaBuffer() const // 注册CCL buffer
 {
+    CHECK_NULLPTR(comm, "[CollServiceBase::RegisterCclLocRmaBuffer] comm is nullptr!");
     if (comm->GetRankSize() == 1) {
         return;
     }
-    CHECK_NULLPTR(comm, "[CollServiceBase::RegisterCclLocRmaBuffer] comm is nullptr!");
     CHECK_NULLPTR(comm->GetRankGraph(), "[CollServiceBase::RegisterCclLocRmaBuffer] comm->newVirtualTopo is nullptr!");
     auto myself = comm->GetRankGraph()->GetPeer(comm->GetMyRank());
     if (myself == nullptr) {
