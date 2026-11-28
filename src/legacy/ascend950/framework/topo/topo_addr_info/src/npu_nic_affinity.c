@@ -726,7 +726,7 @@ static TopoAddrResult NameToIp(const char* name, NpuNicIp* out)
     }
     TopoAddrResult ret = HcaToIp(name, out);
     if (ret != TOPO_SUCCESS) {
-        TOPO_ERR("NameToIp: cannot resolve IP for %s (eth+HCA)", name);
+        TOPO_WARN("NameToIp: cannot resolve IP for %s (eth+HCA)", name);
     }
     return ret;
 }
