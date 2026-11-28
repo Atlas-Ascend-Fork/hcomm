@@ -17,7 +17,7 @@
 #include "externalinput.h"
 #include "opexecounter_pub.h"
 #include "hccl_communicator.h"
-#include "task_exception_handler_pub.h"
+#include "task_exception_handler_pub_legacy910.h"
 #include "comm_configer.h"
 #include "snapshot_control.h"
 #include "network_manager_pub.h"

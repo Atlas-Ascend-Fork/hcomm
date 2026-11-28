@@ -96,7 +96,7 @@ hccl::NewRankInfo BuildExpectedRankInfo(bool includeOptionalFields)
         rankInfo.hostPort = 7777;
     }
 
-    RankLevelInfo rankLevelInfo;
+    hccl::RankLevelInfo rankLevelInfo;
     rankLevelInfo.netLayer = 0;
     rankLevelInfo.netInstId = "superPod0-rack3";
     rankLevelInfo.netType = NetType::TOPO_FILE_DESC;
@@ -115,12 +115,13 @@ void ExpectAddressInfoEqual(const hccl::AddressInfo& expected, const hccl::Addre
 }
 
 void ExpectRankLevelInfosEqual(
-    const std::vector<RankLevelInfo>& expectedRankLevelInfos, const std::vector<RankLevelInfo>& actualRankLevelInfos)
+    const std::vector<hccl::RankLevelInfo>& expectedRankLevelInfos,
+    const std::vector<hccl::RankLevelInfo>& actualRankLevelInfos)
 {
     ASSERT_EQ(expectedRankLevelInfos.size(), actualRankLevelInfos.size());
     for (std::size_t levelIndex = 0; levelIndex < expectedRankLevelInfos.size(); ++levelIndex) {
-        const RankLevelInfo& expected = expectedRankLevelInfos[levelIndex];
-        const RankLevelInfo& actual = actualRankLevelInfos[levelIndex];
+        const hccl::RankLevelInfo& expected = expectedRankLevelInfos[levelIndex];
+        const hccl::RankLevelInfo& actual = actualRankLevelInfos[levelIndex];
         EXPECT_EQ(expected.netLayer, actual.netLayer);
         EXPECT_EQ(expected.netInstId, actual.netInstId);
         EXPECT_EQ(expected.netType, actual.netType);

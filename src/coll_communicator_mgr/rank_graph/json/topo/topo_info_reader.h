@@ -28,11 +28,11 @@ public:
 
     // 子结构入口：供本类内部复用，也供单测直接验证。
     HcclResult ReadPeer(const nlohmann::json& peerInfoJson, PeerInfo& out) const;
-    HcclResult ReadEdge(const nlohmann::json& edgeInfoJson, Hccl::EdgeInfo& out) const;
+    HcclResult ReadEdge(const nlohmann::json& edgeInfoJson, EdgeInfo& out) const;
 
 private:
-    HcclResult ReadProtocol(const nlohmann::json& edgeInfoJson, Hccl::EdgeInfo& out) const;
-    HcclResult ReadEndpoint(const nlohmann::json& edgeInfoJson, Hccl::EdgeInfo& out) const;
+    HcclResult ReadProtocol(const nlohmann::json& edgeInfoJson, EdgeInfo& out) const;
+    HcclResult ReadEndpoint(const nlohmann::json& edgeInfoJson, EdgeInfo& out) const;
     HcclResult
     ReadPort(const nlohmann::json& edgeInfoJson, const std::string& propName, std::set<std::string>& ports) const;
 };
@@ -56,7 +56,7 @@ inline HcclResult ReadJson<PeerInfo>(const nlohmann::json& json, PeerInfo& info)
 }
 
 template <>
-inline HcclResult ReadJson<Hccl::EdgeInfo>(const nlohmann::json& json, Hccl::EdgeInfo& info)
+inline HcclResult ReadJson<EdgeInfo>(const nlohmann::json& json, EdgeInfo& info)
 {
     TopoInfoReader reader;
     return reader.ReadEdge(json, info);

@@ -73,7 +73,7 @@ HcclResult UpdaterFor64Plus1::UpdateNetInstance(
         HCCL_ERROR("[UpdaterFor64Plus1][%s] netInstance is nullptr", __func__);
         return HCCL_E_PTR;
     }
-    auto phyTopoGraph = PhyTopo::GetInstance()->GetTopoGraph(0);
+    auto phyTopoGraph = hccl::PhyTopo::GetInstance()->GetTopoGraph(0);
     if (phyTopoGraph == nullptr) {
         HCCL_ERROR("[UpdaterFor64Plus1][%s] phyTopoGraph is nullptr", __func__);
         return HCCL_E_PTR;
@@ -94,7 +94,8 @@ HcclResult UpdaterFor64Plus1::UpdateNetInstance(
         if (!IsSameX(peer->GetLocalId(), replacedLocalId) && !IsSameY(peer->GetLocalId(), replacedLocalId)) {
             continue;
         }
-        if (!phyTopoGraph->HasEdge(PhyTopo::Peer::GetId(peer->GetLocalId()), PhyTopo::Peer::GetId(replacedLocalId))) {
+        if (!phyTopoGraph->HasEdge(
+                hccl::PhyTopo::Peer::GetId(peer->GetLocalId()), hccl::PhyTopo::Peer::GetId(replacedLocalId))) {
             continue;
         }
         backupLinkedPeers.emplace_back(peer);
@@ -111,11 +112,11 @@ HcclResult UpdaterFor64Plus1::AddPeer2BackupLinks(
     shared_ptr<NetInstance::Peer> peer, shared_ptr<NetInstance::Peer> backupPeer, LocalId replacedLocalId,
     NetInstance* netInstance, [[maybe_unused]] const RankTableInfo* rankTable) const
 {
-    auto phyTopoGraph = PhyTopo::GetInstance()->GetTopoGraph(0);
+    auto phyTopoGraph = hccl::PhyTopo::GetInstance()->GetTopoGraph(0);
 
     std::unordered_map<u64, u64> fabricIds;
     auto peer2AllPlaneEdges
-        = phyTopoGraph->GetEdges(PhyTopo::Peer::GetId(backupPeer->GetLocalId()), PhyTopo::Fabric::GetId());
+        = phyTopoGraph->GetEdges(hccl::PhyTopo::Peer::GetId(backupPeer->GetLocalId()), hccl::PhyTopo::Fabric::GetId());
     for (auto edge : peer2AllPlaneEdges) {
         auto topoInstId = edge->GetTopoInstId();
         auto fabricId = static_cast<u64>(topoInstId) | (static_cast<u64>(1) << 32);
@@ -133,9 +134,9 @@ HcclResult UpdaterFor64Plus1::AddPeer2BackupLinks(
     // 先获取phyTopoGraph中备份面和备份D的连接，因为只有一个fabric，所以会获取到全量16条备份面和备份D的连接
     // Edges中可能包含多个连接，但是在phytopo中保存为一条连接，内部有多个连接的端口
     // 拿到物理边后，根据backupPlaneId匹配，选择对应的一条物理边
-    std::shared_ptr<PhyTopo::Link> backD2PlaneEdges;
+    std::shared_ptr<hccl::PhyTopo::Link> backD2PlaneEdges;
     TRY_CATCH_RETURN(backD2PlaneEdges = GetPeer2PlaneEdges(backupPlaneId, backupPeer, phyTopoGraph););
-    std::shared_ptr<PhyTopo::Link> peer2PlaneEdges;
+    std::shared_ptr<hccl::PhyTopo::Link> peer2PlaneEdges;
     TRY_CATCH_RETURN(peer2PlaneEdges = GetPeer2PlaneEdges(backupPlaneId, peer, phyTopoGraph););
 
     const auto backD2PlaneIface = backD2PlaneEdges->GetSourceIFace();
@@ -216,13 +217,13 @@ HcclResult UpdaterFor64Plus1::AddPeer2BackupLinks(
     return HCCL_SUCCESS;
 }
 
-std::shared_ptr<PhyTopo::Link> UpdaterFor64Plus1::GetPeer2PlaneEdges(
+std::shared_ptr<hccl::PhyTopo::Link> UpdaterFor64Plus1::GetPeer2PlaneEdges(
     u32 backupPlaneId, shared_ptr<NetInstance::Peer> peer,
-    std::shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>> phyTopoGraph) const
+    std::shared_ptr<hccl::Graph<hccl::PhyTopo::Node, hccl::PhyTopo::Link>> phyTopoGraph) const
 {
-    std::shared_ptr<PhyTopo::Link> peer2PlaneEdges = nullptr;
+    std::shared_ptr<hccl::PhyTopo::Link> peer2PlaneEdges = nullptr;
     auto peer2AllPlaneEdges
-        = phyTopoGraph->GetEdges(PhyTopo::Peer::GetId(peer->GetLocalId()), PhyTopo::Fabric::GetId());
+        = phyTopoGraph->GetEdges(hccl::PhyTopo::Peer::GetId(peer->GetLocalId()), hccl::PhyTopo::Fabric::GetId());
     if (peer2AllPlaneEdges.size() != BACKUP_PLANE_NUM) {
         THROW<InvalidParamsException>("[UpdaterFor64Plus1][%s] BackupPlane num error", __func__);
     }

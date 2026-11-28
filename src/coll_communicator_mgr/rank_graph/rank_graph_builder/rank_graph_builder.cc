@@ -111,10 +111,12 @@ unique_ptr<RankGraph> RankGraphBuilder::Build(const RankTableInfo& ranktable, co
     return std::move(rankGraph_);
 }
 
-const RankLevelInfo& RankGraphBuilder::GetRankLevelInfoByNetLayer(const hccl::NewRankInfo& rankInfo, u32 netLayer) const
+const hccl::RankLevelInfo&
+RankGraphBuilder::GetRankLevelInfoByNetLayer(const hccl::NewRankInfo& rankInfo, u32 netLayer) const
 {
     auto it = std::find_if(
-        rankInfo.rankLevelInfos.begin(), rankInfo.rankLevelInfos.end(), [netLayer](const RankLevelInfo& levelInfo) {
+        rankInfo.rankLevelInfos.begin(), rankInfo.rankLevelInfos.end(),
+        [netLayer](const hccl::RankLevelInfo& levelInfo) {
             return levelInfo.netLayer == netLayer;
         });
     CHK_PRT_THROW(
@@ -127,18 +129,18 @@ const RankLevelInfo& RankGraphBuilder::GetRankLevelInfoByNetLayer(const hccl::Ne
     return *it;
 }
 
-std::vector<shared_ptr<PhyTopo::Link>> GetPeer2NetPhyLinks(u32 netLayer, LocalId localId)
+std::vector<shared_ptr<hccl::PhyTopo::Link>> GetPeer2NetPhyLinks(u32 netLayer, LocalId localId)
 {
-    const shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>> phyGraph
-        = PhyTopo::GetInstance()->GetTopoGraph(netLayer);
+    const shared_ptr<hccl::Graph<hccl::PhyTopo::Node, hccl::PhyTopo::Link>> phyGraph
+        = hccl::PhyTopo::GetInstance()->GetTopoGraph(netLayer);
     CHK_PRT_THROW(
         phyGraph == nullptr,
         HCCL_ERROR(
             "[RankGraphBuilder][GetPhyLink] localId[%d] is not level[%u] in topo.json, not match rankTable.", localId,
             netLayer),
         InvalidParamsException, "phyGraph is nullptr, localId not in topo");
-    std::vector<shared_ptr<PhyTopo::Link>> links;
-    phyGraph->TraverseEdge(PhyTopo::Peer::GetId(localId), [&links](shared_ptr<PhyTopo::Link> link) {
+    std::vector<shared_ptr<hccl::PhyTopo::Link>> links;
+    phyGraph->TraverseEdge(hccl::PhyTopo::Peer::GetId(localId), [&links](shared_ptr<hccl::PhyTopo::Link> link) {
         if (link != nullptr) {
             links.push_back(link);
         }
@@ -153,9 +155,9 @@ std::vector<shared_ptr<PhyTopo::Link>> GetPeer2NetPhyLinks(u32 netLayer, LocalId
 
 void RankGraphBuilder::AddPeer2NetLink(
     const u32 netLayer, const string& netInstId, RankId rankId, const hccl::AddressInfo& addrInfo,
-    const shared_ptr<NetInstance::Fabric>& fabNode, const vector<shared_ptr<PhyTopo::Link>>& links)
+    const shared_ptr<NetInstance::Fabric>& fabNode, const vector<shared_ptr<hccl::PhyTopo::Link>>& links)
 {
-    for (shared_ptr<PhyTopo::Link> link : links) {
+    for (shared_ptr<hccl::PhyTopo::Link> link : links) {
         if (link->GetSourceIFace() == nullptr) {
             continue;
         }
@@ -222,7 +224,7 @@ HcclResult RankGraphBuilder::AddFabricInfo(u32 netLayer)
     }
     set<RankId> inRanks = netInst->GetRankIds();
     string netInstId = netInst->GetNetInstId();
-    const RankLevelInfo* myLevelInfoPtr = nullptr;
+    const hccl::RankLevelInfo* myLevelInfoPtr = nullptr;
     TRY_CATCH_RETURN(myLevelInfoPtr = &GetRankLevelInfoByNetLayer(rankTable_->ranks[myRank_], netLayer););
     // 根据planeId确认Fabric个数，每个fabricId对应一个planeId
     std::map<PlaneId, FabricId> planeId2Node = GetFabricsFromAddrInfo(myLevelInfoPtr->rankAddrs);
@@ -236,14 +238,14 @@ HcclResult RankGraphBuilder::AddFabricInfo(u32 netLayer)
 
     // 遍历每一个rankId，每个rankId都增加 peer2net 和 net2peer 两条链路
     for (RankId srcRankId : inRanks) {
-        const RankLevelInfo* srcLevelInfoPtr = nullptr;
+        const hccl::RankLevelInfo* srcLevelInfoPtr = nullptr;
         TRY_CATCH_RETURN(srcLevelInfoPtr = &GetRankLevelInfoByNetLayer(rankTable_->ranks[srcRankId], netLayer););
         const vector<hccl::AddressInfo>& addrs = srcLevelInfoPtr->rankAddrs;
         // rankId对应的物理逻辑localId
         LocalId localId;
         TRY_CATCH_RETURN(localId = rankGraph_->GetLocalId(srcRankId););
         // 从物理拓扑图中找出 localId在 netLayer 中所有的peer2Net的边。
-        std::vector<shared_ptr<PhyTopo::Link>> links;
+        std::vector<shared_ptr<hccl::PhyTopo::Link>> links;
         TRY_CATCH_RETURN(links = GetPeer2NetPhyLinks(netLayer, localId););
         // 遍历ranktable中的addr，有几个addr就有几条peer2net的边
         for (hccl::AddressInfo addrInfo : addrs) {
@@ -278,7 +280,7 @@ HcclResult RankGraphBuilder::AddFabricInfo(u32 netLayer)
 HcclResult RankGraphBuilder::AddTopoDescFabricInfo()
 {
     // 1. 获取物理拓扑图
-    auto phyTopoGraph = PhyTopo::GetInstance()->GetTopoGraph(0);
+    auto phyTopoGraph = hccl::PhyTopo::GetInstance()->GetTopoGraph(0);
     if (phyTopoGraph == nullptr) {
         HCCL_ERROR("[RankGraphBuilder][%s] phyTopoGraph is nullptr", __func__);
         return HCCL_E_PTR;
@@ -296,7 +298,7 @@ HcclResult RankGraphBuilder::AddTopoDescFabricInfo()
     std::set<RankId> rankIds = innerNetInstance->GetRankIds();
 
     // 普通链路使用 RankTable planeId，PCIe 使用保留的 pcie:<topoInstId> 平面。
-    const RankLevelInfo* myLevelInfo = nullptr;
+    const hccl::RankLevelInfo* myLevelInfo = nullptr;
     TRY_CATCH_RETURN(myLevelInfo = &GetRankLevelInfoByNetLayer(rankTable_->ranks[myRank_], 0););
     std::map<PlaneId, FabricId> planeId2Node = GetFabricsFromAddrInfo(myLevelInfo->rankAddrs);
     vector<shared_ptr<NetInstance::Fabric>> fabNodes(planeId2Node.size(), nullptr);
@@ -306,7 +308,7 @@ HcclResult RankGraphBuilder::AddTopoDescFabricInfo()
     for (RankId rankId : rankIds) {
         LocalId localId;
         TRY_CATCH_RETURN(localId = rankGraph_->GetLocalId(rankId););
-        const RankLevelInfo* levelInfo = nullptr;
+        const hccl::RankLevelInfo* levelInfo = nullptr;
         TRY_CATCH_RETURN(levelInfo = &GetRankLevelInfoByNetLayer(rankTable_->ranks[rankId], 0););
         for (const auto& addrInfo : levelInfo->rankAddrs) {
             CHK_PRT_RET(
@@ -314,7 +316,7 @@ HcclResult RankGraphBuilder::AddTopoDescFabricInfo()
                 HCCL_ERROR("[AddTopoDescFabricInfo] planeId[%s] uses reserved PCIe prefix", addrInfo.planeId.c_str()),
                 HCCL_E_PARA);
         }
-        auto peer2netEdges = phyTopoGraph->GetEdges(localId, PhyTopo::Fabric::GetId());
+        auto peer2netEdges = phyTopoGraph->GetEdges(localId, hccl::PhyTopo::Fabric::GetId());
 
         HCCL_RUN_INFO(
             "[RankGraphBuilder][AddTopoDescFabricInfo] Processing rank %d (localId: %u), found %zu peer2net edges",
@@ -381,7 +383,7 @@ HcclResult RankGraphBuilder::AddTopoDescFabricInfo()
                         addrInfo.planeId.c_str(), fabId);
                 }
 
-                const vector<shared_ptr<PhyTopo::Link>> matchedLinks = {link};
+                const vector<shared_ptr<hccl::PhyTopo::Link>> matchedLinks = {link};
                 AddPeer2NetLink(0, netInstId, rankId, addrInfo, fabNode, matchedLinks);
             }
         }
@@ -405,7 +407,7 @@ std::map<PlaneId, FabricId> GetFabricsFromAddrInfo(const std::vector<hccl::Addre
 HcclResult RankGraphBuilder::CheckNetLayerFromPhyTopo(const u32 netLayer) const
 {
     // 校验待构建层的物理拓扑；选层过滤不改变该层原有的构图要求。
-    if (!PhyTopo::GetInstance()->IsNetLayerExisted(netLayer)) {
+    if (!hccl::PhyTopo::GetInstance()->IsNetLayerExisted(netLayer)) {
         HCCL_ERROR("[RankGraphBuilder][%s] netLayer[%u] not exist in topo.", __func__, netLayer);
         return HCCL_E_PARA;
     }
@@ -485,8 +487,8 @@ void RankGraphBuilder::RestoreSymmetricLevel0View()
     // 识别拆层形态: 每个rank都有level0(TOPO_FILE_DESC)与level1(CLOS)条目
     bool layered = true;
     for (const auto& rankInfo : rankTable_->ranks) {
-        const RankLevelInfo* l0 = nullptr;
-        const RankLevelInfo* l1 = nullptr;
+        const hccl::RankLevelInfo* l0 = nullptr;
+        const hccl::RankLevelInfo* l1 = nullptr;
         for (const auto& levelInfo : rankInfo.rankLevelInfos) {
             if (levelInfo.netLayer == 0) {
                 l0 = &levelInfo;
@@ -532,8 +534,8 @@ void RankGraphBuilder::RestoreSymmetricLevel0View()
 
     // 对称: 把level1的clos rankAddrs并入level0, 删除level1条目, 恢复基线单层形态
     for (auto& rankInfo : rankTable_->ranks) {
-        RankLevelInfo* l0 = nullptr;
-        RankLevelInfo* l1 = nullptr;
+        hccl::RankLevelInfo* l0 = nullptr;
+        hccl::RankLevelInfo* l1 = nullptr;
         for (auto& levelInfo : rankInfo.rankLevelInfos) {
             if (levelInfo.netLayer == 0) {
                 l0 = &levelInfo;
@@ -559,7 +561,7 @@ void RankGraphBuilder::RestoreSymmetricLevel0View()
         infos.erase(
             std::remove_if(
                 infos.begin(), infos.end(),
-                [](const RankLevelInfo& info) {
+                [](const hccl::RankLevelInfo& info) {
                     return info.netLayer == 1 && info.netType == NetType::CLOS;
                 }),
             infos.end());
@@ -674,7 +676,7 @@ HcclResult RankGraphBuilder::SetEndpointDesc()
     return HCCL_SUCCESS;
 }
 
-std::shared_ptr<NetInstance> RankGraphBuilder::GetNetInstance(const RankLevelInfo& levelInfo)
+std::shared_ptr<NetInstance> RankGraphBuilder::GetNetInstance(const hccl::RankLevelInfo& levelInfo)
 {
     auto it = tempNetInsts_[levelInfo.netLayer].find(levelInfo.netInstId);
     if (it == tempNetInsts_[levelInfo.netLayer].end()) {
@@ -691,7 +693,7 @@ std::shared_ptr<NetInstance> RankGraphBuilder::GetNetInstance(const RankLevelInf
     return it->second;
 }
 
-std::shared_ptr<NetInstance> RankGraphBuilder::CreateNetInstance(const RankLevelInfo& levelInfo)
+std::shared_ptr<NetInstance> RankGraphBuilder::CreateNetInstance(const hccl::RankLevelInfo& levelInfo)
 {
     std::shared_ptr<NetInstance> netInst;
     if (levelInfo.netType == NetType::TOPO_FILE_DESC) {
@@ -708,7 +710,7 @@ std::shared_ptr<NetInstance> RankGraphBuilder::CreateNetInstance(const RankLevel
 // 从phytopo和ranktable中读取数据共同构建peer2peer的边。
 HcclResult RankGraphBuilder::BuildPeer2PeerLinks()
 {
-    auto phyTopoGraph = PhyTopo::GetInstance()->GetTopoGraph(0);
+    auto phyTopoGraph = hccl::PhyTopo::GetInstance()->GetTopoGraph(0);
     if (phyTopoGraph == nullptr) {
         HCCL_ERROR("[RankGraphBuilder][%s] phyTopoGraph is nullptr", __func__);
         return HCCL_E_PTR;
@@ -739,14 +741,14 @@ HcclResult RankGraphBuilder::BuildPeer2PeerLinks()
                 continue;
             }
 
-            std::vector<shared_ptr<PhyTopo::Link>> phyLinks
+            std::vector<shared_ptr<hccl::PhyTopo::Link>> phyLinks
                 = GetPeer2PeerPhyLinks(phyTopoGraph, srcLocalId, dstLocalId);
             // 根据ports在ranktable找对对应的地址，几个地址就有几条link。
 
             shared_ptr<NetInstance::Peer> srcPeer = peers_.at(srcRankId);
             shared_ptr<NetInstance::Peer> dstPeer = peers_.at(dstRankId);
 
-            for (shared_ptr<PhyTopo::Link> phyLink : phyLinks) {
+            for (shared_ptr<hccl::PhyTopo::Link> phyLink : phyLinks) {
                 const ConnIfaceBuildCtx ctx{localDeviceId, std::nullopt, std::nullopt, &vnicIpCache_};
                 auto sourceIfaces = ConstructConnIFromPhyTopoConnIAndPortMap(
                     phyLink->GetSourceIFace(), srcPeer->GetPortAddrMapLayer0(), phyLink->GetTopoType(),
@@ -859,7 +861,7 @@ HcclResult RankGraphBuilder::UpdateTopoInstForMyRankOnly()
 
     auto netInstId = innerNetInstance->GetNetInstId();
     set<RankId> rankIds = innerNetInstance->GetRankIds();
-    auto phyTopoGraph = PhyTopo::GetInstance()->GetTopoGraph(0);
+    auto phyTopoGraph = hccl::PhyTopo::GetInstance()->GetTopoGraph(0);
     if (phyTopoGraph == nullptr) {
         HCCL_ERROR("[RankGraphBuilder][%s] phyTopoGraph is nullptr", __func__);
         return HCCL_E_PTR;
@@ -891,10 +893,10 @@ HcclResult RankGraphBuilder::UpdateTopoInstForMyRankOnly()
             LocalId dstLocalId;
             TRY_CATCH_RETURN(dstLocalId = rankGraph_->GetLocalId(dstRankId););
 
-            std::vector<shared_ptr<PhyTopo::Link>> phyLinks
+            std::vector<shared_ptr<hccl::PhyTopo::Link>> phyLinks
                 = GetPeer2PeerPhyLinks(phyTopoGraph, srcLocalId, dstLocalId);
 
-            for (shared_ptr<PhyTopo::Link> phyLink : phyLinks) {
+            for (shared_ptr<hccl::PhyTopo::Link> phyLink : phyLinks) {
                 u32 topoInstId = phyLink->GetTopoInstId();
                 auto topoType = phyLink->GetTopoType();
                 tempNetInsts_[0][netInstId]->UpdateTopoInst(topoInstId, topoType, dstRankId);
@@ -905,7 +907,7 @@ HcclResult RankGraphBuilder::UpdateTopoInstForMyRankOnly()
 }
 
 std::vector<std::shared_ptr<NetInstance::ConnInterface>> ConstructConnIFromPhyTopoConnIAndPortMap(
-    std::shared_ptr<PhyTopo::ConnInterface> phyConnIFace,
+    std::shared_ptr<hccl::PhyTopo::ConnInterface> phyConnIFace,
     const std::map<std::string, std::vector<IpAddress>>& portAddrMap, const TopoType topoType, const u32 topoInstId,
     const ConnIfaceBuildCtx& ctx)
 {
@@ -972,7 +974,7 @@ std::vector<std::shared_ptr<NetInstance::ConnInterface>> ConstructConnIFromPhyTo
 std::vector<shared_ptr<NetInstance::Link>> ConstructLinks(
     shared_ptr<NetInstance::Peer> srcPeer, shared_ptr<NetInstance::Peer> dstPeer,
     std::vector<std::shared_ptr<NetInstance::ConnInterface>> sourceIfaces,
-    std::vector<std::shared_ptr<NetInstance::ConnInterface>> targetIfaces, shared_ptr<PhyTopo::Link> phyLink)
+    std::vector<std::shared_ptr<NetInstance::ConnInterface>> targetIfaces, shared_ptr<hccl::PhyTopo::Link> phyLink)
 {
     std::vector<shared_ptr<NetInstance::Link>> links;
     for (auto sourceIFace : sourceIfaces) {
@@ -985,10 +987,11 @@ std::vector<shared_ptr<NetInstance::Link>> ConstructLinks(
     return links;
 }
 
-std::vector<std::shared_ptr<PhyTopo::Link>> GetPeer2PeerPhyLinks(
-    std::shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>> phyTopoGraph, LocalId srcLocalId, LocalId dstLocalId)
+std::vector<std::shared_ptr<hccl::PhyTopo::Link>> GetPeer2PeerPhyLinks(
+    std::shared_ptr<hccl::Graph<hccl::PhyTopo::Node, hccl::PhyTopo::Link>> phyTopoGraph, LocalId srcLocalId,
+    LocalId dstLocalId)
 {
-    std::vector<shared_ptr<PhyTopo::Link>> links;
+    std::vector<shared_ptr<hccl::PhyTopo::Link>> links;
     if (!phyTopoGraph->HasNode(srcLocalId) || !phyTopoGraph->HasNode(dstLocalId)) {
         HCCL_WARNING(
             "[RankGraphBuilder][BuildFromPhytopo] srcLocalId[%u] dstLocalId[%u] not exist in phyTopoGraph.", srcLocalId,
@@ -996,10 +999,10 @@ std::vector<std::shared_ptr<PhyTopo::Link>> GetPeer2PeerPhyLinks(
         return links;
     }
     // 得到phyTopoGraph对应的NodeId
-    NodeId srcNodeId = PhyTopo::Peer::GetId(srcLocalId);
-    NodeId dstNodeId = PhyTopo::Peer::GetId(dstLocalId);
+    NodeId srcNodeId = hccl::PhyTopo::Peer::GetId(srcLocalId);
+    NodeId dstNodeId = hccl::PhyTopo::Peer::GetId(dstLocalId);
 
-    phyTopoGraph->TraverseEdge(srcNodeId, dstNodeId, [&links](shared_ptr<PhyTopo::Link> link) {
+    phyTopoGraph->TraverseEdge(srcNodeId, dstNodeId, [&links](shared_ptr<hccl::PhyTopo::Link> link) {
         if (link != nullptr) {
             links.push_back(link);
         }

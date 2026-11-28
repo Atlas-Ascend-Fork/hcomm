@@ -3138,7 +3138,7 @@ TEST_F(CommunicatorImplTest, Ut_GetLinks_When_netLayer064Plus1_InputValue_Expect
     HcclCommConfig config;
     CommParams params;
 
-    PhyTopo::GetInstance()->Clear();
+    hccl::PhyTopo::GetInstance()->Clear();
     RankGraphBuilder rankGraphBuilder;
     string topoFilePath{HCOMM_CODE_ROOT_DIR "/test/legacy/ut/framework/communicator/topo64plus1.json"};
     comm.rankGraph = rankGraphBuilder.Build(RANK_TABLE_4P_REPLACE_RANK1, topoFilePath, 0);
@@ -4092,7 +4092,7 @@ class LogicSuperPodRecoveryTest : public testing::Test {
 protected:
     void SetUp() override
     {
-        PhyTopo::GetInstance()->Clear();
+        hccl::PhyTopo::GetInstance()->Clear();
         char path[] = "/tmp/hcomm_logic_recovery_XXXXXX";
         const int fd = mkstemp(path);
         ASSERT_GE(fd, 0);
@@ -4136,7 +4136,7 @@ protected:
         if (!changePath_.empty()) {
             std::remove(changePath_.c_str());
         }
-        PhyTopo::GetInstance()->Clear();
+        hccl::PhyTopo::GetInstance()->Clear();
         GlobalMockObject::verify();
     }
 
@@ -4227,7 +4227,7 @@ TEST_F(LogicSuperPodRecoveryTest, Ut_LogicSuperPod_When_ServerReplaced_Expect_Re
         EXPECT_FALSE(recovered.rankGraph->GetPaths(layer, 0, layer == 0 ? 1 : 2).empty());
         EXPECT_TRUE(recovered.rankGraph->GetPaths(layer, 0, 4).empty());
         EXPECT_FALSE(recovered.rankGraph->GetPaths(2, 0, 4).empty());
-        PhyTopo::GetInstance()->Clear();
+        hccl::PhyTopo::GetInstance()->Clear();
     }
 }
 
@@ -4244,7 +4244,7 @@ TEST_F(LogicSuperPodRecoveryTest, Ut_LogicSuperPod_When_NotEnabled_Expect_KeepOr
 TEST_F(LogicSuperPodRecoveryTest, Ut_LogicSuperPod_When_ReplacementIdTooLong_Expect_RejectWithoutUpdatingSnapshot)
 {
     SetSplitLayer(1);
-    change_["rank_list"][0]["level_list"][1]["net_instance_id"] = std::string(MAX_VALUE_NETID, 'x');
+    change_["rank_list"][0]["level_list"][1]["net_instance_id"] = std::string(hccl::MAX_VALUE_NETID, 'x');
     ASSERT_TRUE(WriteChange());
     EXPECT_EQ(DiffRankUpdater(changePath_.c_str(), table_), HCCL_E_PARA);
     EXPECT_EQ(table_.ranks[0].devicePort, hccl::DEFAULT_VALUE_TCPPORT);

@@ -63,7 +63,7 @@
 #include "kernel_tiling/kernel_tiling.h"
 #include "exception_handler.h"
 #include "plugin_runner_pub.h"
-#include "task_exception_handler_pub.h"
+#include "task_exception_handler_pub_legacy910.h"
 #include "topoinfo_exchange_dispatcher.h"
 #include "heartbeat.h"
 #include <dirent.h>

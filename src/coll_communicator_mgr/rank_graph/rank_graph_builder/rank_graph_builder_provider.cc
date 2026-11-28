@@ -70,7 +70,7 @@ namespace {
         }
 
         const auto level = std::find_if(
-            rankInfo.rankLevelInfos.begin(), rankInfo.rankLevelInfos.end(), [layer](const RankLevelInfo& info) {
+            rankInfo.rankLevelInfos.begin(), rankInfo.rankLevelInfos.end(), [layer](const hccl::RankLevelInfo& info) {
                 return info.netLayer == layer;
             });
         if (level == rankInfo.rankLevelInfos.end()) {

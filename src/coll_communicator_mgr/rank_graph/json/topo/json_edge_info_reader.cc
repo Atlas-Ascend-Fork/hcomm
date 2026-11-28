@@ -20,9 +20,9 @@
 
 namespace hccl {
 
-HcclResult TopoInfoReader::ReadEdge(const nlohmann::json& edgeInfoJson, Hccl::EdgeInfo& out) const
+HcclResult TopoInfoReader::ReadEdge(const nlohmann::json& edgeInfoJson, EdgeInfo& out) const
 {
-    out = Hccl::EdgeInfo{};
+    out = EdgeInfo{};
     out.localA = 0;
     out.localB = 0;
     out.localAPorts.clear();
@@ -33,15 +33,15 @@ HcclResult TopoInfoReader::ReadEdge(const nlohmann::json& edgeInfoJson, Hccl::Ed
         Hccl::ReportJsonConfigError(edgeInfoJson, "net_layer", "0 ~ UINT32_MAX", Hccl::RankTableSource::RANKTABLE);
         return ret;
     }
-    if (out.netLayer > Hccl::MAX_VALUE_LEVEL) {
+    if (out.netLayer > MAX_VALUE_LEVEL) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
             std::vector<std::string>(
-                {std::to_string(out.netLayer), "net_layer", "[0, " + std::to_string(Hccl::MAX_VALUE_LEVEL) + "]"}));
+                {std::to_string(out.netLayer), "net_layer", "[0, " + std::to_string(MAX_VALUE_LEVEL) + "]"}));
         HCCL_ERROR(
             "[%s][%s] errNo[0x%016llx] net_layer[%u] is out of range [0, %u]", LOG_KEYWORDS_INIT_GROUP.c_str(),
             LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), out.netLayer,
-            Hccl::MAX_VALUE_LEVEL);
+            MAX_VALUE_LEVEL);
         return HCCL_E_PARA;
     }
 
@@ -77,7 +77,7 @@ HcclResult TopoInfoReader::ReadEdge(const nlohmann::json& edgeInfoJson, Hccl::Ed
     return HCCL_SUCCESS;
 }
 
-HcclResult TopoInfoReader::ReadProtocol(const nlohmann::json& edgeInfoJson, Hccl::EdgeInfo& out) const
+HcclResult TopoInfoReader::ReadProtocol(const nlohmann::json& edgeInfoJson, EdgeInfo& out) const
 {
     nlohmann::json jsonProtocols;
     HcclResult ret = GetJsonPropertyList(edgeInfoJson, "protocols", jsonProtocols);
@@ -108,7 +108,7 @@ HcclResult TopoInfoReader::ReadProtocol(const nlohmann::json& edgeInfoJson, Hccl
     return HCCL_SUCCESS;
 }
 
-HcclResult TopoInfoReader::ReadEndpoint(const nlohmann::json& edgeInfoJson, Hccl::EdgeInfo& out) const
+HcclResult TopoInfoReader::ReadEndpoint(const nlohmann::json& edgeInfoJson, EdgeInfo& out) const
 {
     std::string linkTypeStr;
     HcclResult ret = GetJsonProperty(edgeInfoJson, "link_type", true, linkTypeStr);
@@ -193,20 +193,20 @@ HcclResult TopoInfoReader::ReadPort(
         Hccl::ReportJsonConfigError(edgeInfoJson, propName.c_str(), "array", Hccl::RankTableSource::RANKTABLE);
         return ret;
     }
-    if (jsonPorts.empty() || jsonPorts.size() > Hccl::MAX_PORTS_SIZE) {
+    if (jsonPorts.empty() || jsonPorts.size() > MAX_PORTS_SIZE) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
             std::vector<std::string>(
-                {std::to_string(jsonPorts.size()), propName, "[1, " + std::to_string(Hccl::MAX_PORTS_SIZE) + "]"}));
+                {std::to_string(jsonPorts.size()), propName, "[1, " + std::to_string(MAX_PORTS_SIZE) + "]"}));
         HCCL_ERROR(
             "[%s][%s] errNo[0x%016llx] ports[%s] size[%zu] out of range [1, %u]", LOG_KEYWORDS_INIT_GROUP.c_str(),
             LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName.c_str(),
-            jsonPorts.size(), Hccl::MAX_PORTS_SIZE);
+            jsonPorts.size(), MAX_PORTS_SIZE);
         return HCCL_E_PARA;
     }
     for (auto& portEle : jsonPorts) {
         std::string port = portEle.get<std::string>();
-        if (!port.empty() && port.size() <= Hccl::PORT_MAX_LENGTH) {
+        if (!port.empty() && port.size() <= PORT_MAX_LENGTH) {
             if (ports.count(port) == 0) {
                 ports.emplace(port);
             } else {
@@ -215,11 +215,11 @@ HcclResult TopoInfoReader::ReadPort(
         } else {
             RPT_INPUT_ERR(
                 true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
-                std::vector<std::string>({port, "port", "length [1, " + std::to_string(Hccl::PORT_MAX_LENGTH) + "]"}));
+                std::vector<std::string>({port, "port", "length [1, " + std::to_string(PORT_MAX_LENGTH) + "]"}));
             HCCL_ERROR(
                 "[%s][%s] errNo[0x%016llx] invalid port[%s], length[%zu] out of range [1, %u]",
                 LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
-                HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), port.c_str(), port.size(), Hccl::PORT_MAX_LENGTH);
+                HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), port.c_str(), port.size(), PORT_MAX_LENGTH);
             return HCCL_E_PARA;
         }
     }

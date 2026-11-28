@@ -83,7 +83,7 @@ protected:
     static void PrepareMockedTopoFile(const std::shared_ptr<hccl::TopoInfo>& topo)
     {
         // 只替代文件加载，物理图和返回元数据始终使用同一输入。
-        PhyTopo::GetInstance()->Clear();
+        hccl::PhyTopo::GetInstance()->Clear();
         ASSERT_EQ(HCCL_SUCCESS, hccl::PhyTopoBuilder::GetInstance().RecoverBuild(*topo));
         MOCKER_CPP(&hccl::PhyTopoBuilder::Build).stubs().will(returnValue(HCCL_SUCCESS));
         MOCKER_CPP(&hccl::PhyTopoBuilder::GetTopoInfo).stubs().will(returnValue(topo));
@@ -170,13 +170,13 @@ protected:
         std::cout << "A Test case in RankGraphBuilderTest SetUP" << std::endl;
         setenv("HCCL_DFS_CONFIG", "task_exception:on", 1);
         GlobalMockObject::reset();
-        PhyTopo::GetInstance()->Clear();
+        hccl::PhyTopo::GetInstance()->Clear();
         savedUbxClosSplit_ = hccl::PhyTopoBuilder::ubxClosSplit_;
     }
 
     virtual void TearDown()
     {
-        PhyTopo::GetInstance()->Clear();
+        hccl::PhyTopo::GetInstance()->Clear();
         hccl::PhyTopoBuilder::ubxClosSplit_ = savedUbxClosSplit_;
         GlobalMockObject::verify();
         GlobalMockObject::reset();
@@ -190,7 +190,7 @@ TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_UbFabric_Expect_Peer
     const std::set<std::string> ports = {"port0", "port1"};
     const std::set<LinkProtocol> protocols = {LinkProtocol::UB_CTP};
     auto phyIface
-        = std::make_shared<PhyTopo::ConnInterface>(ports, AddrPosition::DEVICE, LinkType::PEER2NET, protocols);
+        = std::make_shared<hccl::PhyTopo::ConnInterface>(ports, AddrPosition::DEVICE, LinkType::PEER2NET, protocols);
     const IpAddress addr("192.168.1.1");
     const std::map<std::string, std::vector<IpAddress>> portAddrMap = {{"port0", {addr}}, {"port1", {addr}}};
 
@@ -209,7 +209,7 @@ TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_UbPeer_Expect_Peer2P
     const std::set<std::string> ports = {"port0"};
     const std::set<LinkProtocol> protocols = {LinkProtocol::UB_CTP};
     auto phyIface
-        = std::make_shared<PhyTopo::ConnInterface>(ports, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols);
+        = std::make_shared<hccl::PhyTopo::ConnInterface>(ports, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols);
     const IpAddress addr("192.168.1.1");
     const std::map<std::string, std::vector<IpAddress>> portAddrMap = {{"port0", {addr}}};
 
@@ -226,7 +226,7 @@ TEST_F(RankGraphBuilderTest, Ut_RecoverBuild_When_LayersShareEid_Expect_Endpoint
     const std::set<LinkProtocol> protocols = {LinkProtocol::UB_CTP, LinkProtocol::UB_MEM};
     const std::vector<std::string> eids = {"000000000000002000100000df001007", "000000000000002000100000df001008"};
     std::vector<hccl::NewRankInfo> ranks;
-    std::vector<EdgeInfo> edges;
+    std::vector<hccl::EdgeInfo> edges;
     for (u32 rankId = 0; rankId < eids.size(); ++rankId) {
         hccl::AddressInfo address;
         address.addr = IpAddress(IpAddress::StrToEID(eids[rankId]));
@@ -347,7 +347,7 @@ TEST_F(RankGraphBuilderTest, Ut_SelectedBuild_When_UbxRestore_Expect_SelectFinal
             topo.edgeCount -= topo.edges[3].size();
             topo.edges.erase(3);
         }
-        PhyTopo::GetInstance()->Clear();
+        hccl::PhyTopo::GetInstance()->Clear();
         hccl::PhyTopoBuilder::ubxClosSplit_ = shape.split;
         auto baseline = BuildGraph("", ranks, topo);
         ASSERT_NE(nullptr, baseline);
@@ -846,7 +846,7 @@ TEST_F(RankGraphBuilderTest, Ut_SelectedBuild_When_ExtendedLayers_Expect_Default
     // 与前述0/1/2用例共同覆盖0～7，默认候选层不限定为连续层。
     for (u32 layer = 3; layer < MAX_NET_LAYER; ++layer) {
         SCOPED_TRACE(layer);
-        PhyTopo::GetInstance()->Clear();
+        hccl::PhyTopo::GetInstance()->Clear();
         auto rankTable = test::MakeRankTable4pForBuilder();
         auto topo = test::MakeFourPeerBuilderTopo();
         auto edges = topo.edges.at(2);
@@ -1162,7 +1162,7 @@ TEST_F(RankGraphBuilderTest, Ut_BuilderBridge_When_ConfiguredBuildAndRecovery_Ex
 
 TEST_F(RankGraphBuilderTest, Ut_Build_When_Normal_Expect_Success)
 {
-    PhyTopo::GetInstance()->Clear();
+    hccl::PhyTopo::GetInstance()->Clear();
     RankGraphBuilder rankGraphBuilder;
     hccl::TopoInfo topoInfo = test::MakeTwoPeerClosTopo();
     std::unique_ptr<RankGraph> rankGraph = rankGraphBuilder.RecoverBuild(test::MakeRankTable2p(), topoInfo, 0);
@@ -1230,7 +1230,7 @@ TEST_F(RankGraphBuilderTest, Ut_Build_When_TopoInfoNull_Expect_WarningSkipAndZer
 // RecoverBuild（快照恢复主链路）成功后的全量 Dump 同样受日志级别门控，DEBUG 未开启时跳过
 TEST_F(RankGraphBuilderTest, Ut_RecoverBuild_When_LogLevelNotDebug_Expect_DumpSkipped)
 {
-    PhyTopo::GetInstance()->Clear();
+    hccl::PhyTopo::GetInstance()->Clear();
     MOCKER(HcclCheckLogLevel).stubs().will(returnValue(false));
     MOCKER_CPP(&RankGraph::Dump).expects(never()); // DEBUG未开启时全量Dump必须被跳过
 
@@ -1243,7 +1243,7 @@ TEST_F(RankGraphBuilderTest, Ut_RecoverBuild_When_LogLevelNotDebug_Expect_DumpSk
 // 无UB兜底场景：rank table中本rank level0带pcie_fallback显式标记时，Build将标志持久化进RankGraph
 TEST_F(RankGraphBuilderTest, Ut_Build_When_Level0PcieFallback_Expect_FlagPersistedInRankGraph)
 {
-    PhyTopo::GetInstance()->Clear();
+    hccl::PhyTopo::GetInstance()->Clear();
     RankGraphBuilder rankGraphBuilder;
     RankTableInfo rankTable = test::MakeRankTable2p();
     // 模拟rank_info_detect_client插入兜底level0时写入的pcie_fallback显式标记（本rank即rank0）
@@ -1256,7 +1256,7 @@ TEST_F(RankGraphBuilderTest, Ut_Build_When_Level0PcieFallback_Expect_FlagPersist
 // 常规场景：rank table无pcie_fallback标记时，构建出的RankGraph标志保持false
 TEST_F(RankGraphBuilderTest, Ut_Build_When_Level0NotPcieFallback_Expect_FlagFalse)
 {
-    PhyTopo::GetInstance()->Clear();
+    hccl::PhyTopo::GetInstance()->Clear();
     RankGraphBuilder rankGraphBuilder;
     std::unique_ptr<RankGraph> rankGraph
         = rankGraphBuilder.RecoverBuild(test::MakeRankTable2p(), test::MakeTwoPeerClosTopo(), 0);
@@ -1290,7 +1290,7 @@ TEST_F(RankGraphBuilderTest, Ut_BuildRankGraph_When_Normal_Expect_Success)
 
 TEST_F(RankGraphBuilderTest, Ut_Build_When_1pRankTable_Expect_Success)
 {
-    PhyTopo::GetInstance()->Clear();
+    hccl::PhyTopo::GetInstance()->Clear();
     RankGraphBuilder rankGraphBuilder;
     std::unique_ptr<RankGraph> rankGraph
         = rankGraphBuilder.RecoverBuild(test::MakeRankTable1p(), test::MakeOnePeerTopo(true), 0);
@@ -1307,11 +1307,11 @@ TEST_F(RankGraphBuilderTest, Ut_Build_When_1pRankTable_Expect_Success)
 
 TEST_F(RankGraphBuilderTest, Ut_Build_When_OnePTopoFileWithoutEdge_Expect_Success)
 {
-    PhyTopo::GetInstance()->Clear();
-    auto graph = std::make_shared<hccl::Graph<PhyTopo::Node, PhyTopo::Link>>();
-    graph->AddNode(PhyTopo::Peer::GetId(0), std::make_shared<PhyTopo::Peer>(0));
-    (void)PhyTopo::GetInstance()->AddTopoGraph(0, graph);
-    PhyTopo::GetInstance()->InitFinish();
+    hccl::PhyTopo::GetInstance()->Clear();
+    auto graph = std::make_shared<hccl::Graph<hccl::PhyTopo::Node, hccl::PhyTopo::Link>>();
+    graph->AddNode(hccl::PhyTopo::Peer::GetId(0), std::make_shared<hccl::PhyTopo::Peer>(0));
+    (void)hccl::PhyTopo::GetInstance()->AddTopoGraph(0, graph);
+    hccl::PhyTopo::GetInstance()->InitFinish();
     RankGraphBuilder rankGraphBuilder;
     std::unique_ptr<RankGraph> rankGraph
         = rankGraphBuilder.RecoverBuild(test::MakeRankTable1p(), test::MakeOnePeerTopo(false), 0);
@@ -1348,7 +1348,7 @@ TEST_F(RankGraphBuilderTest, Ut_BuildFromRankTable_When_NetLayerInconsistent_Exp
 
 TEST_F(RankGraphBuilderTest, ut_Build_When_4pRankTable_Expect_Success)
 {
-    PhyTopo::GetInstance()->Clear();
+    hccl::PhyTopo::GetInstance()->Clear();
     RankGraphBuilder rankGraphBuilder;
     std::unique_ptr<RankGraph> rankGraph
         = rankGraphBuilder.RecoverBuild(test::MakeRankTable4pForBuilder(), test::MakeFourPeerBuilderTopo(), 0);
@@ -1408,7 +1408,7 @@ TEST_F(RankGraphBuilderTest, Ut_RankGraphBuilderRecoverBuild_When_Invalid_Expect
 
 TEST_F(RankGraphBuilderTest, Ut_RecoverBuild_When_SameTopoInstHasDifferentPlanes_Expect_CreateFabricByPlaneId)
 {
-    PhyTopo::GetInstance()->Clear();
+    hccl::PhyTopo::GetInstance()->Clear();
     const std::string rankTableString = R"({
         "version": "2.0",
         "rank_count": 1,
@@ -1509,7 +1509,7 @@ TEST_F(RankGraphBuilderTest, Ut_RecoverBuild_When_TwoRanksHaveNoPcieRankAddress_
 
     // 分别从两张物理卡建图，校验查询使用物理 deviceId，且只打桩硬件 VNIC 查询。
     for (u32 myRank = 0; myRank < 2; ++myRank) {
-        PhyTopo::GetInstance()->Clear();
+        hccl::PhyTopo::GetInstance()->Clear();
         for (u32 rank = 0; rank < 2; ++rank) {
             MOCKER(HrtRaSocketGetVnicIpInfos)
                 .expects(once())
@@ -1619,7 +1619,7 @@ TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_PcieRemoteRank_Expec
 {
     const IpAddress vnicIp("192.168.100.2");
     MOCKER(HrtRaSocketGetVnicIpInfos).expects(once()).with(eq(0U), mockcpp::any(), eq(1U), outBound(vnicIp));
-    auto phyIface = std::make_shared<PhyTopo::ConnInterface>(
+    auto phyIface = std::make_shared<hccl::PhyTopo::ConnInterface>(
         std::set<std::string>{"d2h"}, AddrPosition::DEVICE, LinkType::PEER2NET,
         std::set<LinkProtocol>{LinkProtocol::PCIE});
     auto ifaces = ConstructConnIFromPhyTopoConnIAndPortMap(
@@ -1645,7 +1645,7 @@ RankTableInfo MakeSuperpodTable(const std::map<RankId, std::string>& logicIds = 
     std::vector<hccl::NewRankInfo> ranks;
     for (u32 rankId = 0; rankId < 4; ++rankId) {
         const std::string ip = "192.0.2." + std::to_string(10 + rankId);
-        std::vector<RankLevelInfo> levels = {
+        std::vector<hccl::RankLevelInfo> levels = {
             test::MakeRankLevel(
                 0, rankId < 2 ? "srv_0" : "srv_1", NetType::TOPO_FILE_DESC, {test::MakeAddress(ip, {"0/0"})}),
             test::MakeRankLevel(TARGET_LAYER, TARGET_INST_ID, NetType::CLOS, {test::MakeAddress(ip, {"1/0"})}),
@@ -1664,7 +1664,7 @@ RankTableInfo MakeSuperpodTable(const std::map<RankId, std::string>& logicIds = 
 // 配套topo：L0框内直连(UB)、L1超节点层(UB)、L2跨超层(RoCE)
 hccl::TopoInfo MakeSuperpodTopo(bool withInterRoce = true)
 {
-    std::vector<EdgeInfo> edges = {
+    std::vector<hccl::EdgeInfo> edges = {
         test::MakeEdge(0, LinkType::PEER2PEER, 0, {"0/0"}, 1, {"0/0"}, LinkProtocol::UB_CTP),
         test::MakeEdge(0, LinkType::PEER2PEER, 2, {"0/0"}, 3, {"0/0"}, LinkProtocol::UB_CTP),
     };
@@ -1761,10 +1761,10 @@ class TableRewriteBuildTest : public testing::Test {
 protected:
     static void SetUpTestCase() {}
     static void TearDownTestCase() {}
-    virtual void SetUp() { PhyTopo::GetInstance()->Clear(); }
+    virtual void SetUp() { hccl::PhyTopo::GetInstance()->Clear(); }
     virtual void TearDown()
     {
-        PhyTopo::GetInstance()->Clear();
+        hccl::PhyTopo::GetInstance()->Clear();
         GlobalMockObject::verify();
     }
 };
@@ -1775,7 +1775,7 @@ protected:
     static void TearDownTestCase() {}
     virtual void SetUp()
     {
-        PhyTopo::GetInstance()->Clear();
+        hccl::PhyTopo::GetInstance()->Clear();
         char path[] = "/tmp/hcomm_logic_superpod_XXXXXX";
         const int fd = mkstemp(path);
         ASSERT_GE(fd, 0);
@@ -1787,7 +1787,7 @@ protected:
         if (!topoPath_.empty()) {
             std::remove(topoPath_.c_str());
         }
-        PhyTopo::GetInstance()->Clear();
+        hccl::PhyTopo::GetInstance()->Clear();
         GlobalMockObject::verify();
     }
     std::string topoPath_;
@@ -1934,7 +1934,7 @@ TEST_F(SetLogicSuperPodIdTest, Ut_LogicSuperPod_When_ServerUnconfigured_Expect_D
         bridge->recoverBuild(RankTableInfo(table), MakeSuperpodTopo(false), RANK_0, false, "", baseline), HCCL_SUCCESS);
     ASSERT_NE(baseline.rankGraph, nullptr);
     ASSERT_FALSE(baseline.rankGraph->GetPaths(TARGET_LAYER, RANK_0, RANK_2).empty());
-    PhyTopo::GetInstance()->Clear();
+    hccl::PhyTopo::GetInstance()->Clear();
 
     RankGraphBuildResult built;
     ASSERT_EQ(bridge->buildFromRankTable(table, topoPath_, RANK_0, "", built), HCCL_SUCCESS);
@@ -1988,7 +1988,7 @@ TEST_F(SetLogicSuperPodIdTest, Ut_LogicSuperPod_When_ServerMissingSplitLayer_Exp
     ASSERT_FALSE(baseline.rankGraph->GetPaths(TARGET_LAYER, RANK_0, RANK_2).empty());
     const auto interPaths = baseline.rankGraph->GetPaths(interLayer, RANK_0, RANK_2);
     ASSERT_FALSE(interPaths.empty());
-    PhyTopo::GetInstance()->Clear();
+    hccl::PhyTopo::GetInstance()->Clear();
 
     RankGraphBuildResult built;
     ASSERT_EQ(bridge->buildFromRankTable(table, topoPath_, RANK_0, "", built), HCCL_SUCCESS);
@@ -2044,7 +2044,7 @@ TEST_F(RewriteSuperPodTableTest, Ut_RewriteTable_When_RanksShareMapping_Expect_L
 // 追加后超过1024字节返回PARA，不截断且不留下部分更新
 TEST_F(RewriteSuperPodTableTest, Ut_RewriteTable_When_AppendedIdExceeds1024_Expect_ParaWithoutPartialUpdate)
 {
-    const std::string longId(MAX_VALUE_NETID - 1, 'a'); // 1023 + "_" + "A" = 1025
+    const std::string longId(hccl::MAX_VALUE_NETID - 1, 'a'); // 1023 + "_" + "A" = 1025
     RankTableInfo table = MakeSuperpodTable({{RANK_0, "A"}, {RANK_1, "A"}, {RANK_2, "B"}, {RANK_3, "B"}});
     // 最后一个rank超长，前面的rank已生成新ID，但也不能提前写回。
     for (auto& level : table.ranks.back().rankLevelInfos) {
@@ -2232,7 +2232,7 @@ TEST_F(TableRewriteBuildTest, Ut_Build_When_TwoPhysicalSuperpods_Expect_BothRewr
     std::vector<hccl::NewRankInfo> ranks;
     for (u32 rankId = 0; rankId < 4; ++rankId) {
         const std::string ip = "192.0.2." + std::to_string(10 + rankId);
-        std::vector<RankLevelInfo> levels = {
+        std::vector<hccl::RankLevelInfo> levels = {
             test::MakeRankLevel(
                 0, rankId < 2 ? "srv_0" : "srv_1", NetType::TOPO_FILE_DESC, {test::MakeAddress(ip, {"0/0"})}),
             test::MakeRankLevel(
@@ -2340,7 +2340,7 @@ TEST_F(SetLogicSuperPodIdTest, Ut_Apply_When_TopoFileMissing_Expect_ErrorPropaga
 TEST_F(RankGraphBuilderTest, Ut_BuildAndRecover_When_SourceChanges_Expect_GroupingPolicyAndPhysicalTopology)
 {
     std::vector<hccl::NewRankInfo> ranks;
-    std::vector<EdgeInfo> edges;
+    std::vector<hccl::EdgeInfo> edges;
     for (u32 rank = 0; rank < 4; ++rank) {
         const auto addr = test::MakeAddress("192.168.0." + std::to_string(rank + 1), {"0/6"});
         ranks.push_back(test::MakeRankInfo(
@@ -2379,7 +2379,7 @@ TEST_F(RankGraphBuilderTest, Ut_BuildAndRecover_When_SourceChanges_Expect_Groupi
     MOCKER_CPP(&hccl::PhyTopoBuilder::GetTopoInfo).stubs().will(returnValue(std::make_shared<hccl::TopoInfo>(topo)));
     for (u32 mode = 0; mode < 4; ++mode) {
         const bool enabled = (mode % 2 != 0);
-        PhyTopo::GetInstance()->Clear();
+        hccl::PhyTopo::GetInstance()->Clear();
         RankGraphBuilder builder;
         std::unique_ptr<RankGraph> graph;
         if (mode < 2) {
@@ -2438,7 +2438,7 @@ TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_PcieMultiPort_Expect
 {
     const IpAddress vnicIp("192.168.100.2");
     MOCKER(HrtRaSocketGetVnicIpInfos).expects(once()).with(eq(0U), mockcpp::any(), eq(1U), outBound(vnicIp));
-    auto phyIface = std::make_shared<PhyTopo::ConnInterface>(
+    auto phyIface = std::make_shared<hccl::PhyTopo::ConnInterface>(
         std::set<std::string>{"d2h", "d2h2"}, AddrPosition::DEVICE, LinkType::PEER2NET,
         std::set<LinkProtocol>{LinkProtocol::PCIE});
     auto ifaces = ConstructConnIFromPhyTopoConnIAndPortMap(
@@ -2450,7 +2450,7 @@ TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_PcieMultiPort_Expect
 
 TEST_F(RankGraphBuilderTest, Ut_Build_When_PcieFallbackMultiRank_Expect_VnicQueryOncePerDevice)
 {
-    PhyTopo::GetInstance()->Clear();
+    hccl::PhyTopo::GetInstance()->Clear();
     const std::vector<IpAddress> vnicIps = {
         IpAddress("192.168.200.0"), IpAddress("192.168.200.1"), IpAddress("192.168.200.2"), IpAddress("192.168.200.3")};
     for (u32 deviceId = 0; deviceId < vnicIps.size(); ++deviceId) {
@@ -2498,7 +2498,7 @@ TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_CachePassed_Expect_Q
 {
     const IpAddress vnicIp("192.168.100.2");
     MOCKER(HrtRaSocketGetVnicIpInfos).expects(once()).with(eq(0U), mockcpp::any(), eq(1U), outBound(vnicIp));
-    auto phyIface = std::make_shared<PhyTopo::ConnInterface>(
+    auto phyIface = std::make_shared<hccl::PhyTopo::ConnInterface>(
         std::set<std::string>{"d2h", "d2h2"}, AddrPosition::DEVICE, LinkType::PEER2NET,
         std::set<LinkProtocol>{LinkProtocol::PCIE});
     std::map<std::uint64_t, IpAddress> vnicIpCache;
@@ -2544,8 +2544,8 @@ TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_PortMissing_Expect_S
 {
     const std::set<std::string> phyPorts = {"portMissing"};
     const std::set<LinkProtocol> protocols = {LinkProtocol::UB_CTP};
-    auto phyIface
-        = std::make_shared<PhyTopo::ConnInterface>(phyPorts, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols);
+    auto phyIface = std::make_shared<hccl::PhyTopo::ConnInterface>(
+        phyPorts, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols);
     const std::map<std::string, std::vector<IpAddress>> portAddrMap = {{"otherPort", {IpAddress("192.168.1.1")}}};
 
     std::vector<std::shared_ptr<NetInstance::ConnInterface>> ifaces;
@@ -2587,7 +2587,7 @@ TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_EmptyProtocols_Expec
 {
     const IpAddress addr("192.168.1.1");
     const std::map<std::string, std::vector<IpAddress>> portAddrMap = {{"port0", {addr}}};
-    auto phyIface = std::make_shared<PhyTopo::ConnInterface>(
+    auto phyIface = std::make_shared<hccl::PhyTopo::ConnInterface>(
         std::set<std::string>{"port0"}, AddrPosition::DEVICE, LinkType::PEER2PEER, std::set<LinkProtocol>{});
 
     std::vector<std::shared_ptr<NetInstance::ConnInterface>> ifaces;
@@ -2600,7 +2600,7 @@ TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_EmptyProtocols_Expec
 
 TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_EmptyProtocolsAndPorts_Expect_EmptyNoCrash)
 {
-    auto phyIface = std::make_shared<PhyTopo::ConnInterface>(
+    auto phyIface = std::make_shared<hccl::PhyTopo::ConnInterface>(
         std::set<std::string>{}, AddrPosition::DEVICE, LinkType::PEER2PEER, std::set<LinkProtocol>{});
 
     std::vector<std::shared_ptr<NetInstance::ConnInterface>> ifaces;
@@ -2612,7 +2612,7 @@ TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_EmptyProtocolsAndPor
 
 TEST_F(RankGraphBuilderTest, Ut_RecoverBuild_When_RvalueRankTable_Expect_BuildSuccess)
 {
-    PhyTopo::GetInstance()->Clear();
+    hccl::PhyTopo::GetInstance()->Clear();
     RankGraphBuilder builder;
     RankTableInfo rankTable = test::MakeRankTable2p();
     ASSERT_FALSE(rankTable.ranks.empty());
@@ -2624,7 +2624,7 @@ TEST_F(RankGraphBuilderTest, Ut_RecoverBuild_When_RvalueRankTable_Expect_BuildSu
 
 TEST_F(RankGraphBuilderTest, Ut_RecoverBuild_When_LvalueRankTable_Expect_SourceIntact)
 {
-    PhyTopo::GetInstance()->Clear();
+    hccl::PhyTopo::GetInstance()->Clear();
     RankGraphBuilder builder;
     RankTableInfo rankTable = test::MakeRankTable2p();
     const size_t rankNum = rankTable.ranks.size();
@@ -2736,7 +2736,7 @@ std::shared_ptr<NetInstance::Peer> FindPeerByLocalId(NetInstance* netInst, Local
 std::shared_ptr<NetInstance::Peer>
 FindPeerLinkedToReplaced(const UpdaterFor64Plus1& updater, NetInstance* netInst, LocalId replacedLocalId)
 {
-    auto phyGraph = PhyTopo::GetInstance()->GetTopoGraph(0);
+    auto phyGraph = hccl::PhyTopo::GetInstance()->GetTopoGraph(0);
     if (phyGraph == nullptr) {
         return nullptr;
     }
@@ -2748,7 +2748,7 @@ FindPeerLinkedToReplaced(const UpdaterFor64Plus1& updater, NetInstance* netInst,
         if (!updater.IsSameX(localId, replacedLocalId) && !updater.IsSameY(localId, replacedLocalId)) {
             continue;
         }
-        if (!phyGraph->HasEdge(PhyTopo::Peer::GetId(localId), PhyTopo::Peer::GetId(replacedLocalId))) {
+        if (!phyGraph->HasEdge(hccl::PhyTopo::Peer::GetId(localId), hccl::PhyTopo::Peer::GetId(replacedLocalId))) {
             continue;
         }
         return it.second;
@@ -2780,7 +2780,7 @@ TEST_F(RankGraphBuilderTest, Ut_AddPeer2BackupLinks_When_SourceIfaceValid_Expect
     ASSERT_NE(rankGraph, nullptr);
     NetInstance* netInst = rankGraph->GetNetInstanceByNetInstId(0, "az0-rack0");
     ASSERT_NE(netInst, nullptr);
-    ASSERT_NE(PhyTopo::GetInstance()->GetTopoGraph(0), nullptr);
+    ASSERT_NE(hccl::PhyTopo::GetInstance()->GetTopoGraph(0), nullptr);
 
     UpdaterFor64Plus1 updater;
     constexpr LocalId replacedLocalId = 1U;
@@ -2801,7 +2801,7 @@ TEST_F(RankGraphBuilderTest, Ut_AddPeer2BackupLinks_When_SourceIfaceMissing_Expe
     ASSERT_NE(rankGraph, nullptr);
     NetInstance* netInst = rankGraph->GetNetInstanceByNetInstId(0, "az0-rack0");
     ASSERT_NE(netInst, nullptr);
-    auto phyGraph = PhyTopo::GetInstance()->GetTopoGraph(0);
+    auto phyGraph = hccl::PhyTopo::GetInstance()->GetTopoGraph(0);
     ASSERT_NE(phyGraph, nullptr);
 
     UpdaterFor64Plus1 updater;
@@ -2838,7 +2838,7 @@ TEST_F(RankGraphBuilderTest, Ut_AddPeer2BackupLinks_When_BackupPortMissing_Expec
     ASSERT_NE(rankGraph, nullptr);
     NetInstance* netInst = rankGraph->GetNetInstanceByNetInstId(0, "az0-rack0");
     ASSERT_NE(netInst, nullptr);
-    ASSERT_NE(PhyTopo::GetInstance()->GetTopoGraph(0), nullptr);
+    ASSERT_NE(hccl::PhyTopo::GetInstance()->GetTopoGraph(0), nullptr);
 
     UpdaterFor64Plus1 updater;
     constexpr LocalId replacedLocalId = 1U;
@@ -2862,7 +2862,7 @@ TEST_F(RankGraphBuilderTest, Ut_AddPeer2BackupLinks_When_PeerPortMissing_Expect_
     ASSERT_NE(rankGraph, nullptr);
     NetInstance* netInst = rankGraph->GetNetInstanceByNetInstId(0, "az0-rack0");
     ASSERT_NE(netInst, nullptr);
-    ASSERT_NE(PhyTopo::GetInstance()->GetTopoGraph(0), nullptr);
+    ASSERT_NE(hccl::PhyTopo::GetInstance()->GetTopoGraph(0), nullptr);
 
     UpdaterFor64Plus1 updater;
     constexpr LocalId replacedLocalId = 1U;

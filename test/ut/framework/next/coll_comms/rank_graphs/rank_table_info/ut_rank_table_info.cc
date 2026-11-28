@@ -64,18 +64,18 @@ TEST_F(RankTableInfoParserTest, Ut_BuildLogicSuperPodNetInstId_When_EmptyOrRawId
 
 TEST_F(RankTableInfoParserTest, Ut_BuildLogicSuperPodNetInstId_When_LengthBoundary_Expect_CheckBeforeWriting)
 {
-    const std::string originNetInstId(MAX_VALUE_NETID - 2, 'a');
+    const std::string originNetInstId(hccl::MAX_VALUE_NETID - 2, 'a');
     std::string newNetInstId;
 
     ASSERT_EQ(RankTableInfo::BuildLogicSuperPodNetInstId(originNetInstId, "A", newNetInstId), HCCL_SUCCESS);
     EXPECT_EQ(newNetInstId, originNetInstId + "_A");
-    EXPECT_EQ(newNetInstId.size(), MAX_VALUE_NETID);
+    EXPECT_EQ(newNetInstId.size(), hccl::MAX_VALUE_NETID);
 
     newNetInstId = "unchanged";
     EXPECT_EQ(RankTableInfo::BuildLogicSuperPodNetInstId(originNetInstId, "AB", newNetInstId), HCCL_E_PARA);
     EXPECT_EQ(newNetInstId, "unchanged");
 
-    const std::string maxLengthOrigin(MAX_VALUE_NETID, 'a');
+    const std::string maxLengthOrigin(hccl::MAX_VALUE_NETID, 'a');
     EXPECT_EQ(RankTableInfo::BuildLogicSuperPodNetInstId(maxLengthOrigin, "A", newNetInstId), HCCL_E_PARA);
     EXPECT_EQ(newNetInstId, "unchanged");
 
@@ -97,14 +97,14 @@ TEST_F(RankTableInfoParserTest, Ut_LogicSuperPod_When_JsonReparsed_Expect_ResetS
 
     hccl::RankTableReader reader(RankTableSource::ROOTINFO);
     ASSERT_EQ(reader.ReadJson(json, table), HCCL_SUCCESS);
-    EXPECT_EQ(table.logicSuperPodSplitLayer, MAX_VALUE_NETLAYER + 1);
+    EXPECT_EQ(table.logicSuperPodSplitLayer, hccl::MAX_VALUE_NETLAYER + 1);
     EXPECT_TRUE(table.logicSuperPodGroupIds.empty());
     EXPECT_EQ(table.GetSource(), RankTableSource::ROOTINFO);
 
     table.logicSuperPodSplitLayer = 1;
     table.logicSuperPodGroupIds[0] = "A";
     ASSERT_EQ(hccl::RankTableReader::ReadStringFast(json.dump(), table), HCCL_SUCCESS);
-    EXPECT_EQ(table.logicSuperPodSplitLayer, MAX_VALUE_NETLAYER + 1);
+    EXPECT_EQ(table.logicSuperPodSplitLayer, hccl::MAX_VALUE_NETLAYER + 1);
     EXPECT_TRUE(table.logicSuperPodGroupIds.empty());
     EXPECT_EQ(table.GetSource(), RankTableSource::RANKTABLE);
 }
@@ -226,7 +226,7 @@ TEST_F(RankTableInfoParserTest, Ut_SerializeAllowEmpty_When_CustomSplitLayer_Exp
 {
     RankTableInfo emptyTable;
     emptyTable.detour = true;
-    emptyTable.logicSuperPodSplitLayer = 3; // 非缺省（缺省 MAX_VALUE_NETLAYER+1=8）
+    emptyTable.logicSuperPodSplitLayer = 3; // 非缺省（缺省 hccl::MAX_VALUE_NETLAYER+1=8）
     BinaryStream binStream;
     EXPECT_EQ(emptyTable.SerializeAllowEmpty(binStream), HCCL_SUCCESS);
 
@@ -244,7 +244,7 @@ TEST_F(RankTableInfoParserTest, Ut_SerializeAllowEmpty_When_NonEmpty_Expect_Dele
     table.rankCount = 1;
     hccl::NewRankInfo rankInfo{};
     rankInfo.rankId = 0;
-    rankInfo.rankLevelInfos.emplace_back(RankLevelInfo{});
+    rankInfo.rankLevelInfos.emplace_back(hccl::RankLevelInfo{});
     table.ranks.emplace_back(rankInfo);
 
     BinaryStream viaAllowEmpty;
@@ -1575,7 +1575,7 @@ TEST_F(RankTableInfoParserTest, Ut_GetRankDeviceListenPortMap_When_MultiLevelAdd
     hccl::NewRankInfo rank0;
     rank0.rankId = 0;
     rank0.devicePort = 6666;
-    RankLevelInfo rank0Level0;
+    hccl::RankLevelInfo rank0Level0;
     rank0Level0.netLayer = 0;
     hccl::AddressInfo r0a0;
     r0a0.addr = IpAddress("192.168.1.1", AF_INET);
@@ -1585,7 +1585,7 @@ TEST_F(RankTableInfoParserTest, Ut_GetRankDeviceListenPortMap_When_MultiLevelAdd
     r0a1.socketPort_ = 102;
     rank0Level0.rankAddrs.push_back(r0a0);
     rank0Level0.rankAddrs.push_back(r0a1);
-    RankLevelInfo rank0Level1;
+    hccl::RankLevelInfo rank0Level1;
     rank0Level1.netLayer = 1;
     hccl::AddressInfo r0a2;
     r0a2.addr = IpAddress("192.168.1.1", AF_INET);
@@ -1598,7 +1598,7 @@ TEST_F(RankTableInfoParserTest, Ut_GetRankDeviceListenPortMap_When_MultiLevelAdd
     hccl::NewRankInfo rank1;
     rank1.rankId = 1;
     rank1.devicePort = 7777;
-    RankLevelInfo rank1Level0;
+    hccl::RankLevelInfo rank1Level0;
     rank1Level0.netLayer = 0;
     hccl::AddressInfo r1a0;
     r1a0.addr = IpAddress("192.168.2.1", AF_INET);
@@ -1652,7 +1652,7 @@ TEST_F(RankTableInfoParserTest, Ut_GetRankDeviceListenPortMap_When_SameAddrAcros
         hccl::NewRankInfo rankInfo;
         rankInfo.rankId = rankId;
         rankInfo.devicePort = 6000U + rankId;
-        RankLevelInfo level0;
+        hccl::RankLevelInfo level0;
         level0.netLayer = 0;
         hccl::AddressInfo addrInfo;
         addrInfo.addr = IpAddress("10.0.0.1", AF_INET);

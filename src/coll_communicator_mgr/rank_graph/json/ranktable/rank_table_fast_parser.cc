@@ -778,8 +778,8 @@ namespace {
         return HCCL_SUCCESS;
     }
 
-    // 解析rank_addr_list数组，填充Hccl::RankLevelInfo::rankAddrs
-    HcclResult ParseAddrList(JsonCursor& cur, Hccl::RankLevelInfo& levelInfo)
+    // 解析rank_addr_list数组，填充RankLevelInfo::rankAddrs
+    HcclResult ParseAddrList(JsonCursor& cur, RankLevelInfo& levelInfo)
     {
         if (!cur.TryConsume('[')) {
             return HCCL_E_PARA;
@@ -803,7 +803,7 @@ namespace {
         if (!cur.TryConsume(']')) {
             return HCCL_E_PARA;
         }
-        if (levelInfo.rankAddrs.size() > Hccl::MAX_VALUE_RANKADDR_SIZE) {
+        if (levelInfo.rankAddrs.size() > MAX_VALUE_RANKADDR_SIZE) {
             ReportFastFieldInvalid(
                 std::to_string(levelInfo.rankAddrs.size()), kRankTableKeys[RankTableKey::kRankAddrList].name,
                 "valid rank_addr_list count");
@@ -818,18 +818,17 @@ namespace {
         bool hasRankAddrList{false};
     };
 
-    HcclResult
-    ParseLevelScalarField(JsonCursor& cur, Hccl::RankLevelInfo& levelInfo, LevelFieldState& state, bool& handled)
+    HcclResult ParseLevelScalarField(JsonCursor& cur, RankLevelInfo& levelInfo, LevelFieldState& state, bool& handled)
     {
         handled = true;
         if (cur.ParseKey(RankTableKey::kNetLayer)) {
             if (!cur.TryConsume(':') || !cur.ParseU32(levelInfo.netLayer)) {
                 return HCCL_E_PARA;
             }
-            if (levelInfo.netLayer > Hccl::MAX_VALUE_NETLAYER) {
+            if (levelInfo.netLayer > MAX_VALUE_NETLAYER) {
                 ReportFastFieldInvalid(
                     std::to_string(levelInfo.netLayer), kRankTableKeys[RankTableKey::kNetLayer].name,
-                    std::string("net_layer within ") + std::to_string(Hccl::MAX_VALUE_NETLAYER));
+                    std::string("net_layer within ") + std::to_string(MAX_VALUE_NETLAYER));
                 return HCCL_E_PARA;
             }
             state.hasNetLayer = true;
@@ -837,8 +836,7 @@ namespace {
             if (!cur.TryConsume(':') || !cur.ParseString(levelInfo.netInstId)) {
                 return HCCL_E_PARA;
             }
-            if (levelInfo.netInstId.length() < Hccl::MIN_VALUE_NETID
-                || levelInfo.netInstId.length() > Hccl::MAX_VALUE_NETID) {
+            if (levelInfo.netInstId.length() < MIN_VALUE_NETID || levelInfo.netInstId.length() > MAX_VALUE_NETID) {
                 ReportFastFieldInvalid(
                     levelInfo.netInstId, kRankTableKeys[RankTableKey::kNetInstanceId].name,
                     "valid net_instance_id length");
@@ -874,8 +872,7 @@ namespace {
         return HCCL_SUCCESS;
     }
 
-    HcclResult
-    ParseLevelAddrField(JsonCursor& cur, Hccl::RankLevelInfo& levelInfo, LevelFieldState& state, bool& handled)
+    HcclResult ParseLevelAddrField(JsonCursor& cur, RankLevelInfo& levelInfo, LevelFieldState& state, bool& handled)
     {
         handled = cur.ParseKey(RankTableKey::kRankAddrList);
         if (!handled) {
@@ -892,7 +889,7 @@ namespace {
         return HCCL_SUCCESS;
     }
 
-    HcclResult ParseLevelObject(JsonCursor& cur, Hccl::RankLevelInfo& levelInfo, LevelFieldState& state)
+    HcclResult ParseLevelObject(JsonCursor& cur, RankLevelInfo& levelInfo, LevelFieldState& state)
     {
         while (!cur.Is('}')) {
             if (cur.AtEnd()) {
@@ -913,7 +910,7 @@ namespace {
         return HCCL_SUCCESS;
     }
 
-    HcclResult FinalizeLevelInfo(Hccl::RankLevelInfo& levelInfo, const LevelFieldState& state)
+    HcclResult FinalizeLevelInfo(RankLevelInfo& levelInfo, const LevelFieldState& state)
     {
         if (!state.hasNetInstId) {
             ReportFastFieldMissing(kRankTableKeys[RankTableKey::kNetInstanceId].name);
@@ -927,7 +924,7 @@ namespace {
             ReportFastFieldMissing(kRankTableKeys[RankTableKey::kRankAddrList].name);
             return HCCL_E_PARA;
         }
-        // 与Hccl::RankLevelInfo::Deserialize一致：构建port->addr映射（level0链路构建依赖portAddrMap）
+        // 与 RankTableReader::BuildPortAddrMap 一致：构建port->addr映射（level0链路构建依赖portAddrMap）
         for (const auto& rankAddr : levelInfo.rankAddrs) {
             const Hccl::IpAddress& ipAddress = rankAddr.addr;
             for (const auto& port : rankAddr.ports) {
@@ -959,7 +956,7 @@ namespace {
             if (cur.AtEnd() || !cur.TryConsume('{')) {
                 return HCCL_E_PARA;
             }
-            Hccl::RankLevelInfo levelInfo;
+            RankLevelInfo levelInfo;
             levelInfo.rankAddrs.reserve(1); // 常见每层1个地址，避免按8个过度预留
             LevelFieldState state;
             CHK_RET(ParseLevelObject(cur, levelInfo, state));
@@ -2135,7 +2132,7 @@ namespace {
         info.ranks.clear();
         if constexpr (kIsRankTable) {
             info.detour = false;
-            info.logicSuperPodSplitLayer = Hccl::MAX_VALUE_NETLAYER + 1;
+            info.logicSuperPodSplitLayer = MAX_VALUE_NETLAYER + 1;
             info.logicSuperPodGroupIds.clear();
             info.SetSource(Hccl::RankTableSource::RANKTABLE);
         }

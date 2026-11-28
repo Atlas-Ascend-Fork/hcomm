@@ -249,6 +249,6 @@ hccl::RankGraph::GetReachableRanksPerProtocol（默认实现，rank_graph_base.h
 1. WorldTeam 预制链路恒为 RankGraphV2（InitFullMode 硬编码），批量接口非 SUCCESS 由调用方按硬失败处理（无降级路径）。
 2. 虚拟分组视图仅对 myRank 有效（FindLocalVirtualGroup 绑定 myRank_）；GetReachableRanksPerProtocol 以 selfRank==myRank 为过滤前提，非本人查询保持物理口径。
 3. PEER2NET 边契约：sLink（peer→Fabric）的 targetIface 为空（net_instance.h Link 注释）、dLink（Fabric→peer）的 sourceIface 为空（构造见 rank_graph_builder.cc 构建处 peer2netLink/net2peerLink 第四参）；批量配对语义依赖该契约，契约外畸形构图不背书。
-4. graph.h 本批已迁 namespace hccl，legacy 侧改名为 graph_legacy950.h（guard GROUP_LEGACY950_H），全仓唯一 graph.h 为本模块版本，不再存在同名同 guard 镜像。
+4. graph.h 已迁至 hccl:: 命名空间，legacy 侧改名为 graph_legacy950.h（guard GRAPH_LEGACY950_H），全仓唯一 graph.h 为本模块版本，不再存在同名同 guard 镜像。
 5. Link::GetLinkProtocols 返回 const 引用：符号仅本仓包内消费（host+aicpu 全量重编同包发布）；mangled name 不变，调用约定由 sret 变为寄存器返回。
 6. net_instance.cc / rank_graph.cc 存量均超 500 行：新增代码为所在类方法实现，与老路径同文件对照检视，拆分计划另立独立重构任务。

@@ -697,7 +697,7 @@ TEST_F(RankInfoDetectMeshTest, ZeroConnectedRootSpansFailedListViaEmptyFrame)
     peerTable.rankCount = 1;
     hccl::NewRankInfo rankInfo{};
     rankInfo.rankId = 4;
-    rankInfo.rankLevelInfos.emplace_back(RankLevelInfo{});
+    rankInfo.rankLevelInfos.emplace_back(hccl::RankLevelInfo{});
     peerTable.ranks.emplace_back(rankInfo);
     BinaryStream peerStream;
     ASSERT_EQ(peerTable.GetBinStream(true, peerStream), HCCL_SUCCESS);

@@ -33,7 +33,7 @@ public:
     RankTableInfo(BinaryStream& binaryStream);
     std::string version;
     u32 rankCount{0};
-    u32 logicSuperPodSplitLayer{MAX_VALUE_NETLAYER + 1}; // 随快照保存拆分层，越过最大层号表示未配置。
+    u32 logicSuperPodSplitLayer{hccl::MAX_VALUE_NETLAYER + 1}; // 随快照保存拆分层，越过最大层号表示未配置。
     // rankId→原始逻辑ID，改写时填写全表、随快照序列化；恢复建图后用于GetPaths跨组拦截。
     std::map<RankId, std::string> logicSuperPodGroupIds;
     std::vector<hccl::NewRankInfo> ranks;

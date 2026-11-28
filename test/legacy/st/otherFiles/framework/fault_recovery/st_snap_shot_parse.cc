@@ -96,7 +96,7 @@ TEST_F(SnapShotParserTest, SerializeCommonInfoTest)
     newRankInfo_1.localId = 1;
     newRankInfo_1.deviceId = 1;
 
-    RankLevelInfo rankLevelInfo;
+    hccl::RankLevelInfo rankLevelInfo;
 
     AddressInfo test_addr;
     test_addr.ports = {"0/0", "0/1", "0/8"};
@@ -185,7 +185,7 @@ TEST_F(SnapShotParserTest, SerializeSubCommInfoTest)
     newRankInfo_1.localId = 1;
     newRankInfo_1.deviceId = 1;
 
-    RankLevelInfo rankLevelInfo;
+    hccl::RankLevelInfo rankLevelInfo;
 
     AddressInfo test_addr;
     test_addr.ports = {"0/0", "0/1", "0/8"};

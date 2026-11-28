@@ -33,6 +33,9 @@ target_include_directories(hccl_utest_odr_coexist PRIVATE
     # legacy910 侧两份 zero_copy_address_mgr（comm/dev 同 ns 同类名，文件名/guard 区分）
     ${HCCL_CODE_ROOT}/src/legacy/ascend910/framework/communicator/impl/zero_copy
     ${HCCL_CODE_ROOT}/src/legacy/ascend910/framework/device/framework
+    # task_exception_handler_pub_legacy910.h：legacy910 版（同 ns hccl 同类名 TaskExceptionHandler，
+    # 文件名/guard 区分，common 版头文件不在本仓 git 跟踪）。仅 include legacy910 版验证可独立编译。
+    ${HCCL_CODE_ROOT}/src/legacy/ascend910/common/debug/profiling/inc
     # base_comm 侧 exchange_rdma_conn_dto（ns hcomm）+ legacy950 侧（ns Hccl，改名为 _legacy950.h）。
     # 两份头文件所在目录已由上方 ${UT_COMMON_INCLUDE_LIST} 提供，无需重复添加。
 )

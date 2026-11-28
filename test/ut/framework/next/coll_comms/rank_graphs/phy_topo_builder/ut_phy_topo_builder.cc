@@ -141,7 +141,7 @@ std::shared_ptr<hccl::TopoInfo> LoadTopoInfoAlreadyLayered(hccl::PhyTopoBuilder*
 }
 
 // 统计图中双向建链后的总边数
-size_t CountGraphEdges(const std::shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>>& graph)
+size_t CountGraphEdges(const std::shared_ptr<hccl::Graph<hccl::PhyTopo::Node, hccl::PhyTopo::Link>>& graph)
 {
     if (graph == nullptr) {
         return 0;
@@ -155,14 +155,14 @@ size_t CountGraphEdges(const std::shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo:
     return totalEdgeNum;
 }
 
-std::unique_ptr<PhyTopo> PhyTopoBuilderBuildStub(const std::string& topoPath)
+std::unique_ptr<hccl::PhyTopo> PhyTopoBuilderBuildStub(const std::string& topoPath)
 {
     if (topoPath.empty()) {
         THROW<InvalidParamsException>("[hccl::PhyTopoBuilder::%s]Topo path is empty.", __func__);
     }
 
     HCCL_DEBUG("[hccl::PhyTopoBuilder::%s]Start to build physic topo.", __func__);
-    std::unique_ptr<PhyTopo> phyTopo = std::make_unique<PhyTopo>();
+    std::unique_ptr<hccl::PhyTopo> phyTopo = std::make_unique<hccl::PhyTopo>();
     hccl::PhyTopoBuilder phyTopoBuilder;
     auto topoInfo = phyTopoBuilder.LoadTopoInfo(topoPath);
     // 根据topoInfo，按netLayer构造Graph
@@ -211,7 +211,7 @@ TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_EmptyTopoPath_Expect_ThrowInva
 
 TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_EmptyTopoPath_Expect_ReportEI0004WithCorrectArguments)
 {
-    PhyTopo::GetInstance()->Clear();
+    hccl::PhyTopo::GetInstance()->Clear();
     g_reportedErrorCode.clear();
     g_reportedKeys.clear();
     g_reportedValues.clear();
@@ -325,7 +325,7 @@ TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_ValidTopoPath_Expect_ReturnEdg
 {
     std::string topoPath = "./topo_stub";
     MOCKER_CPP(&hccl::PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoStub));
-    std::unique_ptr<PhyTopo> phyTopo = PhyTopoBuilderBuildStub(topoPath);
+    std::unique_ptr<hccl::PhyTopo> phyTopo = PhyTopoBuilderBuildStub(topoPath);
     auto graph = phyTopo->GetTopoGraph(0);
     EXPECT_EQ(CountGraphEdges(graph), 6);
 }
@@ -334,7 +334,7 @@ TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_EdgeRepeat_Expect_ReturnEdgeNu
 {
     std::string topoPath = "./test_topo_stub";
     MOCKER_CPP(&hccl::PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoWithRepeatEdge));
-    std::unique_ptr<PhyTopo> phyTopo = PhyTopoBuilderBuildStub(topoPath);
+    std::unique_ptr<hccl::PhyTopo> phyTopo = PhyTopoBuilderBuildStub(topoPath);
     auto graph = phyTopo->GetTopoGraph(0);
     ASSERT_NE(graph, nullptr);
     EXPECT_EQ(CountGraphEdges(graph), 4);
@@ -344,7 +344,7 @@ TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_DiffProtocols_Expect_ReturnEdg
 {
     std::string topoPath = "./topo_stub";
     MOCKER_CPP(&hccl::PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoWithDiffProtocols));
-    std::unique_ptr<PhyTopo> phyTopo = PhyTopoBuilderBuildStub(topoPath);
+    std::unique_ptr<hccl::PhyTopo> phyTopo = PhyTopoBuilderBuildStub(topoPath);
     auto graph = phyTopo->GetTopoGraph(0);
     EXPECT_EQ(CountGraphEdges(graph), 8);
 }
@@ -352,7 +352,7 @@ TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_DiffProtocols_Expect_ReturnEdg
 // 350L机型拆层复制: 绝对路径命中atlas_850_3.json时, UB CLOS边被复制到layer1, layer0原边保留
 TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_UbxTopoAbsolutePath_Expect_ClosEdgesCopiedToLayer1)
 {
-    PhyTopo::GetInstance()->Clear();
+    hccl::PhyTopo::GetInstance()->Clear();
     hccl::PhyTopoBuilder::ubxClosSplit_ = false;
     MOCKER_CPP(&hccl::PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoUbxClosMixed));
 
@@ -361,17 +361,17 @@ TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_UbxTopoAbsolutePath_Expect_Clo
 
     // 拆层标志置位, layer1图被创建
     EXPECT_TRUE(hccl::PhyTopoBuilder::ubxClosSplit_);
-    EXPECT_NE(PhyTopo::GetInstance()->GetTopoGraph(1), nullptr);
+    EXPECT_NE(hccl::PhyTopo::GetInstance()->GetTopoGraph(1), nullptr);
     // 复制而非搬移: layer0图仍保留全部4条输入边(2条mesh+2条CLOS, 双向建链后8条)
-    EXPECT_EQ(CountGraphEdges(PhyTopo::GetInstance()->GetTopoGraph(0)), 8);
+    EXPECT_EQ(CountGraphEdges(hccl::PhyTopo::GetInstance()->GetTopoGraph(0)), 8);
     // layer1图仅含2条CLOS边(双向建链后4条)
-    EXPECT_EQ(CountGraphEdges(PhyTopo::GetInstance()->GetTopoGraph(1)), 4);
+    EXPECT_EQ(CountGraphEdges(hccl::PhyTopo::GetInstance()->GetTopoGraph(1)), 4);
 }
 
 // 350L机型拆层复制: 无分隔符的相对路径文件名也能命中(验证find_last_of返回npos的分支)
 TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_UbxTopoRelativePath_Expect_ClosEdgesCopiedToLayer1)
 {
-    PhyTopo::GetInstance()->Clear();
+    hccl::PhyTopo::GetInstance()->Clear();
     hccl::PhyTopoBuilder::ubxClosSplit_ = false;
     MOCKER_CPP(&hccl::PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoUbxClosMixed));
 
@@ -379,15 +379,15 @@ TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_UbxTopoRelativePath_Expect_Clo
     EXPECT_EQ(hccl::PhyTopoBuilder::GetInstance().Build(topoPath), HCCL_SUCCESS);
 
     EXPECT_TRUE(hccl::PhyTopoBuilder::ubxClosSplit_);
-    EXPECT_NE(PhyTopo::GetInstance()->GetTopoGraph(1), nullptr);
-    EXPECT_EQ(CountGraphEdges(PhyTopo::GetInstance()->GetTopoGraph(0)), 8);
-    EXPECT_EQ(CountGraphEdges(PhyTopo::GetInstance()->GetTopoGraph(1)), 4);
+    EXPECT_NE(hccl::PhyTopo::GetInstance()->GetTopoGraph(1), nullptr);
+    EXPECT_EQ(CountGraphEdges(hccl::PhyTopo::GetInstance()->GetTopoGraph(0)), 8);
+    EXPECT_EQ(CountGraphEdges(hccl::PhyTopo::GetInstance()->GetTopoGraph(1)), 4);
 }
 
 // 350L机型拆层复制: 反斜杠分隔的路径也能命中文件名(看护find_last_of中'\\'分隔符分支)
 TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_UbxTopoBackslashPath_Expect_ClosEdgesCopiedToLayer1)
 {
-    PhyTopo::GetInstance()->Clear();
+    hccl::PhyTopo::GetInstance()->Clear();
     hccl::PhyTopoBuilder::ubxClosSplit_ = false;
     MOCKER_CPP(&hccl::PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoUbxClosMixed));
 
@@ -395,15 +395,15 @@ TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_UbxTopoBackslashPath_Expect_Cl
     EXPECT_EQ(hccl::PhyTopoBuilder::GetInstance().Build(topoPath), HCCL_SUCCESS);
 
     EXPECT_TRUE(hccl::PhyTopoBuilder::ubxClosSplit_);
-    EXPECT_NE(PhyTopo::GetInstance()->GetTopoGraph(1), nullptr);
-    EXPECT_EQ(CountGraphEdges(PhyTopo::GetInstance()->GetTopoGraph(0)), 8);
-    EXPECT_EQ(CountGraphEdges(PhyTopo::GetInstance()->GetTopoGraph(1)), 4);
+    EXPECT_NE(hccl::PhyTopo::GetInstance()->GetTopoGraph(1), nullptr);
+    EXPECT_EQ(CountGraphEdges(hccl::PhyTopo::GetInstance()->GetTopoGraph(0)), 8);
+    EXPECT_EQ(CountGraphEdges(hccl::PhyTopo::GetInstance()->GetTopoGraph(1)), 4);
 }
 
 // 非350L机型(8PMESH的atlas_850_1.json): 不执行拆层, 无layer1图, 标志不置位
 TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_NonUbxTopoPath_Expect_NoSplitAndFlagNotSet)
 {
-    PhyTopo::GetInstance()->Clear();
+    hccl::PhyTopo::GetInstance()->Clear();
     hccl::PhyTopoBuilder::ubxClosSplit_ = false;
     MOCKER_CPP(&hccl::PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoUbxClosMixed));
 
@@ -411,15 +411,15 @@ TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_NonUbxTopoPath_Expect_NoSplitA
     EXPECT_EQ(hccl::PhyTopoBuilder::GetInstance().Build(topoPath), HCCL_SUCCESS);
 
     EXPECT_FALSE(hccl::PhyTopoBuilder::ubxClosSplit_);
-    EXPECT_EQ(PhyTopo::GetInstance()->GetTopoGraph(1), nullptr);
+    EXPECT_EQ(hccl::PhyTopo::GetInstance()->GetTopoGraph(1), nullptr);
     // 全部4条输入边仍在layer0(双向建链后8条)
-    EXPECT_EQ(CountGraphEdges(PhyTopo::GetInstance()->GetTopoGraph(0)), 8);
+    EXPECT_EQ(CountGraphEdges(hccl::PhyTopo::GetInstance()->GetTopoGraph(0)), 8);
 }
 
 // 原生两层形态(topo.json已含layer1): 不重复拆层, 标志不置位(防止误还原原生多级行为)
 TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_TopoAlreadyLayered_Expect_NoResplitAndFlagNotSet)
 {
-    PhyTopo::GetInstance()->Clear();
+    hccl::PhyTopo::GetInstance()->Clear();
     hccl::PhyTopoBuilder::ubxClosSplit_ = false;
     MOCKER_CPP(&hccl::PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoAlreadyLayered));
 
@@ -428,6 +428,6 @@ TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_TopoAlreadyLayered_Expect_NoRe
 
     // layer1图来自输入数据本身, 但拆层标志未置位
     EXPECT_FALSE(hccl::PhyTopoBuilder::ubxClosSplit_);
-    EXPECT_NE(PhyTopo::GetInstance()->GetTopoGraph(1), nullptr);
-    EXPECT_EQ(CountGraphEdges(PhyTopo::GetInstance()->GetTopoGraph(0)), 4);
+    EXPECT_NE(hccl::PhyTopo::GetInstance()->GetTopoGraph(1), nullptr);
+    EXPECT_EQ(CountGraphEdges(hccl::PhyTopo::GetInstance()->GetTopoGraph(0)), 4);
 }

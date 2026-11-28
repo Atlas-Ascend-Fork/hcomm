@@ -63,7 +63,7 @@ std::unique_ptr<RankGraph> BuildRankGraph(std::string rankTableFilePath, std::st
     }
 
     RankGraphBuilder rankGraphBuilder;
-    PhyTopo::GetInstance()->Clear();
+    hccl::PhyTopo::GetInstance()->Clear();
     return rankGraphBuilder.Build(ranktableData, realTopoFilePath, myRank);
 }
 } // namespace Hccl

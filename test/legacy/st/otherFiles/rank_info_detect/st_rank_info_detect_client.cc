@@ -138,7 +138,7 @@ TEST_F(RankInfoDetectClientTest, st_RecvRankTable_When_Normal_Expect_Success)
     localRankTable.rankCount = 1;
     hccl::NewRankInfo rankInfo{};
     rankInfo.rankId = 0;
-    rankInfo.rankLevelInfos.emplace_back(RankLevelInfo{});
+    rankInfo.rankLevelInfos.emplace_back(hccl::RankLevelInfo{});
     localRankTable.ranks.emplace_back(rankInfo);
 
     BinaryStream binaryStream;

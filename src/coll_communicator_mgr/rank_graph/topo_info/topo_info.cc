@@ -92,7 +92,7 @@ HcclResult TopoInfo::Check()
     for (auto& entry : edges) {
         auto& edgeList = entry.second;
         for (size_t i = 0; i < edgeList.size(); ++i) {
-            Hccl::EdgeInfo& edge = edgeList[i];
+            EdgeInfo& edge = edgeList[i];
             bool localAExist = idSet.count(edge.localA) > 0;
             bool localBExist = idSet.count(edge.localB) > 0;
             if (!localAExist || !localBExist) {
@@ -190,7 +190,7 @@ TopoInfo::TopoInfo(Hccl::BinaryStream& binaryStream)
         binaryStream >> edgeSize;
         HCCL_INFO("[TopoInfo] edges key is [%u], value size is [%u]", edgeInfoIndex, edgeSize);
         for (u32 j = 0; j < edgeSize; j++) { // value
-            Hccl::EdgeInfo edge(binaryStream);
+            EdgeInfo edge(binaryStream);
             edges[edgeInfoIndex].emplace_back(edge);
         }
     }

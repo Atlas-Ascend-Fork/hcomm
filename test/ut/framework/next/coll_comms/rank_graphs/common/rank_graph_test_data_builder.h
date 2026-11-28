@@ -34,10 +34,10 @@ namespace test {
         return address;
     }
 
-    inline RankLevelInfo MakeRankLevel(
+    inline hccl::RankLevelInfo MakeRankLevel(
         u32 netLayer, const std::string& netInstId, NetType netType, const std::vector<hccl::AddressInfo>& rankAddrs)
     {
-        RankLevelInfo level;
+        hccl::RankLevelInfo level;
         level.netLayer = netLayer;
         level.netInstId = netInstId;
         level.netType = netType;
@@ -51,7 +51,7 @@ namespace test {
     }
 
     inline hccl::NewRankInfo MakeRankInfo(
-        u32 rankId, u32 deviceId, u32 localId, const std::vector<RankLevelInfo>& levels,
+        u32 rankId, u32 deviceId, u32 localId, const std::vector<hccl::RankLevelInfo>& levels,
         u32 replacedLocalId = UINT32_MAX)
     {
         hccl::NewRankInfo rank;
@@ -80,12 +80,12 @@ namespace test {
         return peer;
     }
 
-    inline EdgeInfo MakeEdge(
+    inline hccl::EdgeInfo MakeEdge(
         u32 netLayer, LinkType linkType, u32 localA, std::initializer_list<std::string> localAPorts, u32 localB = 0,
         std::initializer_list<std::string> localBPorts = {}, LinkProtocol protocol = LinkProtocol::UB_CTP,
         AddrPosition position = AddrPosition::DEVICE, u32 topoInstId = 0, TopoType topoType = TopoType::CLOS)
     {
-        EdgeInfo edge;
+        hccl::EdgeInfo edge;
         edge.netLayer = netLayer;
         edge.linkType = linkType;
         edge.topoType = topoType;
@@ -99,7 +99,7 @@ namespace test {
         return edge;
     }
 
-    inline hccl::TopoInfo MakeTopoInfo(const std::vector<u32>& localIds, const std::vector<EdgeInfo>& edges)
+    inline hccl::TopoInfo MakeTopoInfo(const std::vector<u32>& localIds, const std::vector<hccl::EdgeInfo>& edges)
     {
         hccl::TopoInfo topo;
         topo.version = "2.0";
@@ -162,7 +162,7 @@ namespace test {
 
     inline hccl::TopoInfo MakeFourPeerBuilderTopo()
     {
-        std::vector<EdgeInfo> edges = {
+        std::vector<hccl::EdgeInfo> edges = {
             MakeEdge(0, LinkType::PEER2PEER, 0, {"0/0"}, 1, {"0/0"}),
             MakeEdge(0, LinkType::PEER2PEER, 0, {"0/1"}, 2, {"0/1"}),
             MakeEdge(0, LinkType::PEER2PEER, 1, {"0/2"}, 3, {"0/2"}),
@@ -179,7 +179,7 @@ namespace test {
 
     inline hccl::TopoInfo MakeTwoByTwoPlusBackupTopo()
     {
-        std::vector<EdgeInfo> edges = {
+        std::vector<hccl::EdgeInfo> edges = {
             MakeEdge(0, LinkType::PEER2PEER, 0, {"0/0"}, 1, {"0/0"}),
             MakeEdge(0, LinkType::PEER2PEER, 0, {"1/0"}, 8, {"1/0"}),
             MakeEdge(0, LinkType::PEER2PEER, 1, {"1/0"}, 9, {"1/0"}),

@@ -195,7 +195,7 @@ TEST_F(RankInfoDetectServiceTest, St_GetRankTable_When_Normal_Expect_Success)
     localRankTable.rankCount = 1;
     hccl::NewRankInfo rankInfo{};
     rankInfo.rankId = 0;
-    rankInfo.rankLevelInfos.emplace_back(RankLevelInfo{});
+    rankInfo.rankLevelInfos.emplace_back(hccl::RankLevelInfo{});
     localRankTable.ranks.emplace_back(rankInfo);
 
     // 把构造好的ranktableinfo转为vector<char> rankInfoMsg
@@ -286,7 +286,7 @@ TEST_F(RankInfoDetectServiceTest, St_ParseRankTable_When_Normal_Expect_Success)
     localRankTable.rankCount = 1;
     hccl::NewRankInfo rankInfo{};
     rankInfo.rankId = 0;
-    rankInfo.rankLevelInfos.emplace_back(RankLevelInfo{});
+    rankInfo.rankLevelInfos.emplace_back(hccl::RankLevelInfo{});
     localRankTable.ranks.emplace_back(rankInfo);
 
     // 把构造好的ranktableinfo转为vector<char> rankInfoMsg

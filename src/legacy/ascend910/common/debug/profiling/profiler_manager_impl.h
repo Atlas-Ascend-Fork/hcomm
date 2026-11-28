@@ -18,7 +18,7 @@
 #include "dlrt_function.h"
 #include "task_profiling_pub.h"
 #include "task_overflow_pub.h"
-#include "task_exception_handler_pub.h"
+#include "task_exception_handler_pub_legacy910.h"
 #include "externalinput_pub.h"
 #include "plugin_runner_pub.h"
 #include "command_handle.h"

@@ -369,7 +369,7 @@ void RankInfoDetectClient::ConstructSingleRank(RankTableInfo& localRankTable)
     hccl::NewRankInfo rankInfo{};
     rankInfo.rankId = rankId_;
     rankInfo.deviceId = devPhyId_;
-    rankInfo.rankLevelInfos.emplace_back(RankLevelInfo{});
+    rankInfo.rankLevelInfos.emplace_back(hccl::RankLevelInfo{});
     CHK_PRT_CONT(GetLocalTlsStatus(rankInfo.tlsStatus), HCCL_WARNING("[GetLocalTlsStatus] Can not get TlsStatus"));
     CHK_PRT_CONT(
         GetLocalHostDpuTlsStatus(rankInfo.hostDpuTlsStatus),
@@ -639,10 +639,10 @@ void RankInfoDetectClient::PrepareNetLayerCheck(const hccl::NewRankInfo& rankInf
     localNetLayerCheck_.explicitSelection = netLayerSelection_.GetMode() != hccl::NetLayerSelectionMode::DEFAULT;
     u32 availableLayers = 0;
     for (const auto& level : rankInfo.rankLevelInfos) {
-        if (level.netLayer > MAX_VALUE_NETLAYER) {
+        if (level.netLayer > hccl::MAX_VALUE_NETLAYER) {
             HCCL_ERROR(
                 "[NetLayerConsistency] invalid netLayer[%u], rank[%u], maximum[%u]", level.netLayer, rankId_,
-                MAX_VALUE_NETLAYER);
+                hccl::MAX_VALUE_NETLAYER);
             localNetLayerCheck_.result = HCCL_E_PARA;
             return;
         }
@@ -840,13 +840,13 @@ HcclResult RankInfoDetectClient::HostListenPortDetect(hccl::NewRankInfo& rankInf
     CHK_RET(HrtGetDevice(devLogicId));
     u32 devPhyId = rankInfo.deviceId;
     for (auto& rankLevelInfo : rankInfo.rankLevelInfos) {
-        shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>> graph
-            = PhyTopo::GetInstance()->GetTopoGraph(rankLevelInfo.netLayer);
+        shared_ptr<hccl::Graph<hccl::PhyTopo::Node, hccl::PhyTopo::Link>> graph
+            = hccl::PhyTopo::GetInstance()->GetTopoGraph(rankLevelInfo.netLayer);
         if (graph == nullptr) {
             HCCL_DEBUG("[RankInfoDetectClient::%s]Can't find the layout %u Graph!", __func__, rankLevelInfo.netLayer);
             continue;
         }
-        std::vector<std::shared_ptr<PhyTopo::Link>> links = graph->GetEdges(rankInfo.localId);
+        std::vector<std::shared_ptr<hccl::PhyTopo::Link>> links = graph->GetEdges(rankInfo.localId);
         for (auto& link : links) {
             if (link->GetSourceIFace()->GetPos() != AddrPosition::HOST) {
                 continue;

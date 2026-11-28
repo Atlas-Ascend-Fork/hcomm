@@ -14,7 +14,7 @@
 #include "hccl/hccl_types.h"
 #include "hccl/base.h"
 #include "profiler_base_pub.h"
-#include "task_exception_handler_pub.h"
+#include "task_exception_handler_pub_legacy910.h"
 #include "task_profiling_pub.h"
 namespace hccl {
 class PluginRunner {

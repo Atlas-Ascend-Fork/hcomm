@@ -15,9 +15,10 @@
  *
  * 本测试为编译级测试（无需运行断言）。已迁 ns 分离的整改对（见下各 include 段）两侧头文件能同时被一个 TU 包含且
  * 编译通过，即证明 namespace/guard 分离生效、同名类已隔离到不同 ns。同 TU 双 include 共存的整改对有：TopoInfo、
- * PeerInfo、PhyTopoBuilder、NewRankInfo、ChangedRankInfo、ExchangeRdmaConnDto、Graph、ControlPlane、AddressInfo（9
- * 对）。 ZeroCopyAddressMgr（同 ns 同类名，文件名/guard 区分）与 RankTableInfo（同 guard 同 ns，靠 include
- * 路径分离）不能在同一 TU 同时 include 两份，仅 include 单份验证可编译，为已知边界（见各处注释）。
+ * PeerInfo、PhyTopoBuilder、NewRankInfo、ChangedRankInfo、ExchangeRdmaConnDto、Graph、ControlPlane、AddressInfo、
+ * EdgeInfo、RankLevelInfo、PhyTopo（12 对）。 ZeroCopyAddressMgr（同 ns 同类名，文件名/guard 区分）、
+ * RankTableInfo（同 guard 同 ns，靠 include 路径分离）与 TaskExceptionHandler（同 ns 同类名，文件名/guard 区分）
+ * 不能在同一 TU 同时 include 两份，仅 include 单份验证可编译，为已知边界（见各处注释）。
  */
 
 // topo_info.h：coll_comm 侧（namespace hccl）+ legacy950 侧（namespace Hccl）
@@ -77,6 +78,26 @@
 // address_info.h：coll_comm 侧（namespace hccl）+ legacy950 侧（namespace Hccl）
 #include "address_info.h"
 #include "address_info_legacy950.h"
+
+// edge_info.h：coll_comm 侧（namespace hccl）+ legacy950 侧 edge_info_legacy950.h（namespace Hccl）
+#include "edge_info.h"
+#include "edge_info_legacy950.h"
+
+// rank_level_info.h：coll_comm 侧（namespace hccl）+ legacy950 侧 rank_level_info_legacy950.h（namespace Hccl）
+#include "rank_level_info.h"
+#include "rank_level_info_legacy950.h"
+
+// phy_topo.h：coll_comm 侧（namespace hccl）+ legacy950 侧 phy_topo_legacy950.h（namespace Hccl）
+#include "phy_topo.h"
+#include "phy_topo_legacy950.h"
+
+// task_exception_handler_pub_legacy910.h：legacy910 版（namespace hccl，同类名 TaskExceptionHandler，
+// 文件名/guard 区分）。注意：同 ns 同类名整改规则要求 ns 不变、仅文件名/guard 区分。两份同类名同 namespace，
+// 同 TU 同时 include 会重定义（guard 区分只能保证不同 TU 各自展开一份，不能保证同 TU 两份共存）。这是同 ns 同类名
+// 整改的已知边界（同 TU 不能共存）。两份声明有差异（legacy910 版多 inline 函数 + Save 签名不同 + 成员名不同），分属
+// 不同 SO 不进程内碰撞；改任一份声明时须评估对侧是否需同步（布局相关字段）。common 版头文件不在本仓 git 跟踪
+// （src/common/ 因仓架构调整移出版本管理），此处仅 include legacy910 版，验证其可独立编译。
+#include "task_exception_handler_pub_legacy910.h"
 
 // 引用两侧符号，确保两侧类型均可见；并断言两侧布局一致（固化"声明对齐"约束，防单边修改导致跨 SO 布局分叉）。
 // 各整改对两份声明逐字一致（仅 ns/guard 不同），用 sizeof== 断言总大小一致 + offsetof 断言序列化成员偏移
@@ -244,6 +265,80 @@ static void UseOdrSymbols()
     static_assert(
         offsetof(hccl::AddressInfo, backupAddrs) == offsetof(Hccl::AddressInfo, backupAddrs),
         "AddressInfo backupAddrs offset must match");
+
+    // EdgeInfo：coll_comm 侧（namespace hccl）+ legacy950 侧（namespace Hccl），ns 不同同 TU 不冲突；
+    // 两份声明逐字一致（仅 ns/guard 不同），断言两侧大小 + 序列化成员偏移一致。
+    // GetBinStream 序列化 netLayer、linkType、topoType、topoInstId、protocols、localA、localB、localAPorts、
+    // localBPorts、position 十项，全覆盖断言。
+    static_assert(sizeof(hccl::EdgeInfo) > 0, "hccl::EdgeInfo must be defined");
+    static_assert(sizeof(Hccl::EdgeInfo) > 0, "Hccl::EdgeInfo must be defined");
+    static_assert(sizeof(hccl::EdgeInfo) == sizeof(Hccl::EdgeInfo), "EdgeInfo layout must match");
+    static_assert(
+        offsetof(hccl::EdgeInfo, netLayer) == offsetof(Hccl::EdgeInfo, netLayer),
+        "EdgeInfo netLayer offset must match");
+    static_assert(
+        offsetof(hccl::EdgeInfo, linkType) == offsetof(Hccl::EdgeInfo, linkType),
+        "EdgeInfo linkType offset must match");
+    static_assert(
+        offsetof(hccl::EdgeInfo, topoType) == offsetof(Hccl::EdgeInfo, topoType),
+        "EdgeInfo topoType offset must match");
+    static_assert(
+        offsetof(hccl::EdgeInfo, topoInstId) == offsetof(Hccl::EdgeInfo, topoInstId),
+        "EdgeInfo topoInstId offset must match");
+    static_assert(
+        offsetof(hccl::EdgeInfo, protocols) == offsetof(Hccl::EdgeInfo, protocols),
+        "EdgeInfo protocols offset must match");
+    static_assert(
+        offsetof(hccl::EdgeInfo, localA) == offsetof(Hccl::EdgeInfo, localA), "EdgeInfo localA offset must match");
+    static_assert(
+        offsetof(hccl::EdgeInfo, localB) == offsetof(Hccl::EdgeInfo, localB), "EdgeInfo localB offset must match");
+    static_assert(
+        offsetof(hccl::EdgeInfo, localAPorts) == offsetof(Hccl::EdgeInfo, localAPorts),
+        "EdgeInfo localAPorts offset must match");
+    static_assert(
+        offsetof(hccl::EdgeInfo, localBPorts) == offsetof(Hccl::EdgeInfo, localBPorts),
+        "EdgeInfo localBPorts offset must match");
+    static_assert(
+        offsetof(hccl::EdgeInfo, position) == offsetof(Hccl::EdgeInfo, position),
+        "EdgeInfo position offset must match");
+
+    // RankLevelInfo：coll_comm 侧（namespace hccl）+ legacy950 侧（namespace Hccl），ns 不同同 TU 不冲突；
+    // 两份声明逐字一致（仅 ns/guard 不同），断言两侧大小 + 序列化成员偏移一致。
+    // GetBinStream 序列化 netLayer、netInstId、netAttr、netType、pcieFallback、rankAddrs 六项，全覆盖断言。
+    static_assert(sizeof(hccl::RankLevelInfo) > 0, "hccl::RankLevelInfo must be defined");
+    static_assert(sizeof(Hccl::RankLevelInfo) > 0, "Hccl::RankLevelInfo must be defined");
+    static_assert(sizeof(hccl::RankLevelInfo) == sizeof(Hccl::RankLevelInfo), "RankLevelInfo layout must match");
+    static_assert(
+        offsetof(hccl::RankLevelInfo, netLayer) == offsetof(Hccl::RankLevelInfo, netLayer),
+        "RankLevelInfo netLayer offset must match");
+    static_assert(
+        offsetof(hccl::RankLevelInfo, netInstId) == offsetof(Hccl::RankLevelInfo, netInstId),
+        "RankLevelInfo netInstId offset must match");
+    static_assert(
+        offsetof(hccl::RankLevelInfo, netType) == offsetof(Hccl::RankLevelInfo, netType),
+        "RankLevelInfo netType offset must match");
+    static_assert(
+        offsetof(hccl::RankLevelInfo, netAttr) == offsetof(Hccl::RankLevelInfo, netAttr),
+        "RankLevelInfo netAttr offset must match");
+    static_assert(
+        offsetof(hccl::RankLevelInfo, pcieFallback) == offsetof(Hccl::RankLevelInfo, pcieFallback),
+        "RankLevelInfo pcieFallback offset must match");
+    static_assert(
+        offsetof(hccl::RankLevelInfo, rankAddrs) == offsetof(Hccl::RankLevelInfo, rankAddrs),
+        "RankLevelInfo rankAddrs offset must match");
+
+    // PhyTopo：coll_comm 侧（namespace hccl）+ legacy950 侧（namespace Hccl），ns 不同同 TU 不冲突；
+    // 两份声明逐字一致（仅 ns/guard/include graph 名不同），断言两侧大小一致。
+    // PhyTopo 不参与跨 SO 序列化（无 GetBinStream），仅断言 sizeof== 校验顶层总大小一致
+    // （不覆盖嵌套类 ConnInterface/Node/Peer/Fabric/LinkAttributes/Link 内部成员增删/换序）。
+    static_assert(sizeof(hccl::PhyTopo) > 0, "hccl::PhyTopo must be defined");
+    static_assert(sizeof(Hccl::PhyTopo) > 0, "Hccl::PhyTopo must be defined");
+    static_assert(sizeof(hccl::PhyTopo) == sizeof(Hccl::PhyTopo), "PhyTopo layout must match");
+
+    // TaskExceptionHandler：同 ns 同类名整改（common 版 + legacy910 版，同 namespace hccl 同类名，文件名/guard 区分），
+    // 同 TU 不能同时 include 两份，仅验证 legacy910 版可编译（已知边界）。两份声明有差异（legacy910 版多 inline 函数 +
+    // Save 签名不同 + 成员名不同），分属不同 SO 不进程内碰撞；改任一份声明时须评估对侧是否需同步。
+    static_assert(sizeof(hccl::TaskExceptionHandler) > 0, "hccl::TaskExceptionHandler must be defined");
 }
 
 int main()

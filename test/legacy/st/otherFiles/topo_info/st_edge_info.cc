@@ -51,9 +51,9 @@ TEST_F(EdgeParserTest, St_Deserialize_When_Normal_Expect_Success)
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-    EdgeInfo edgeInfo;
+    hccl::EdgeInfo edgeInfo;
     EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_SUCCESS);
-    EdgeInfo edge0;
+    hccl::EdgeInfo edge0;
     edge0.netLayer = 0;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
     edge0.linkType = LinkType::PEER2PEER;
@@ -84,9 +84,9 @@ TEST_F(EdgeParserTest, St_Deserialize_When_OptionalFieldsMissing_Expect_Success)
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-    EdgeInfo edgeInfo;
+    hccl::EdgeInfo edgeInfo;
     EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_SUCCESS);
-    EdgeInfo edge0;
+    hccl::EdgeInfo edge0;
     edge0.netLayer = 0;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
     edge0.linkType = LinkType::PEER2PEER;
@@ -119,9 +119,9 @@ TEST_F(EdgeParserTest, St_Deserialize_When_PEER2NET_ExistB_Expect_Warning)
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-    EdgeInfo edgeInfo;
+    hccl::EdgeInfo edgeInfo;
     EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_SUCCESS);
-    EdgeInfo edge0;
+    hccl::EdgeInfo edge0;
     edge0.netLayer = 0;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
     edge0.linkType = LinkType::PEER2NET;
@@ -150,9 +150,9 @@ TEST_F(EdgeParserTest, St_Deserialize_When_NormalPeer2Net_Expect_Success)
 			"local_a_ports": ["0/0"],
 			"position": "DEVICE"
 		})";
-    EdgeInfo edgeInfo;
+    hccl::EdgeInfo edgeInfo;
     EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_SUCCESS);
-    EdgeInfo edge0;
+    hccl::EdgeInfo edge0;
     edge0.netLayer = 0;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
     edge0.linkType = LinkType::PEER2NET;
@@ -176,7 +176,7 @@ TEST_F(EdgeParserTest, St_Deserialize_When_NeededFieldMissing_Expect_Exception)
 			"link_type": "PEER2PEER",
 			"protocols": ["UB_CTP"]  
 		})";
-    EdgeInfo edgeInfo;
+    hccl::EdgeInfo edgeInfo;
     EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
@@ -198,7 +198,7 @@ TEST_F(EdgeParserTest, St_Deserialize_When_InvalidNetLayer_Expect_Exception)
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-    EdgeInfo edgeInfo;
+    hccl::EdgeInfo edgeInfo;
     EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
@@ -220,7 +220,7 @@ TEST_F(EdgeParserTest, St_Deserialize_When_InvalidLinkProtocol_Expect_Exception)
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-    EdgeInfo edgeInfo;
+    hccl::EdgeInfo edgeInfo;
     EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
@@ -242,9 +242,9 @@ TEST_F(EdgeParserTest, St_Deserialize_When_ToManyLinkProtocols_Expect_Success)
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-    EdgeInfo edgeInfo;
+    hccl::EdgeInfo edgeInfo;
     EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_SUCCESS);
-    EdgeInfo edge0;
+    hccl::EdgeInfo edge0;
     edge0.netLayer = 2;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
     edge0.protocols.emplace(LinkProtocol::ROCE);
@@ -278,7 +278,7 @@ TEST_F(EdgeParserTest, St_Deserialize_When_InvalidTopoType_Expect_Exception)
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-    EdgeInfo edgeInfo;
+    hccl::EdgeInfo edgeInfo;
     EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
@@ -300,7 +300,7 @@ TEST_F(EdgeParserTest, St_Deserialize_When_InvalidLinkType_Expect_Exception)
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-    EdgeInfo edgeInfo;
+    hccl::EdgeInfo edgeInfo;
     EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
@@ -322,7 +322,7 @@ TEST_F(EdgeParserTest, St_Deserialize_When_PEER2PEERHasSameEndPoint_Expect_Excep
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-    EdgeInfo edgeInfo;
+    hccl::EdgeInfo edgeInfo;
     EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
@@ -343,7 +343,7 @@ TEST_F(EdgeParserTest, St_Deserialize_When_PEER2PEERlocalBMissing_Expect_Excepti
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-    EdgeInfo edgeInfo;
+    hccl::EdgeInfo edgeInfo;
     EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
@@ -364,7 +364,7 @@ TEST_F(EdgeParserTest, St_Deserialize_When_InvalidLengthOfPort_Expect_Exception)
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-    EdgeInfo edgeInfo;
+    hccl::EdgeInfo edgeInfo;
     EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
@@ -386,13 +386,13 @@ TEST_F(EdgeParserTest, St_Deserialize_When_InvalidPosition_Expect_Exception)
 			"local_b_ports": ["0/1"],
 			"position": "DECADE"
 		})";
-    EdgeInfo edgeInfo;
+    hccl::EdgeInfo edgeInfo;
     EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 TEST_F(EdgeParserTest, St_BinaryStream_When_GetBinStreamToReBuild_Expect_Success)
 {
-    EdgeInfo edge0;
+    hccl::EdgeInfo edge0;
     edge0.netLayer = 0;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
     edge0.linkType = LinkType::PEER2PEER;
@@ -408,6 +408,6 @@ TEST_F(EdgeParserTest, St_BinaryStream_When_GetBinStreamToReBuild_Expect_Success
     BinaryStream binStream;
     edge0.GetBinStream(binStream);
 
-    EdgeInfo edgeInfoRebuild(binStream);
+    hccl::EdgeInfo edgeInfoRebuild(binStream);
     EXPECT_EQ(edgeInfoRebuild.Describe(), edge0.Describe());
 }

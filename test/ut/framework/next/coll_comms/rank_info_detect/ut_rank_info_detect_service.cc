@@ -309,7 +309,7 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetRankTable_When_Normal_Expect_Success)
     localRankTable.rankCount = 1;
     hccl::NewRankInfo rankInfo{};
     rankInfo.rankId = 0;
-    rankInfo.rankLevelInfos.emplace_back(RankLevelInfo{});
+    rankInfo.rankLevelInfos.emplace_back(hccl::RankLevelInfo{});
     localRankTable.ranks.emplace_back(rankInfo);
 
     // 把构造好的ranktableinfo转为vector<char> rankInfoMsg
@@ -396,7 +396,7 @@ TEST_F(RankInfoDetectServiceTest, Ut_ParseRankTable_When_Normal_Expect_Success)
     localRankTable.rankCount = 1;
     hccl::NewRankInfo rankInfo{};
     rankInfo.rankId = 0;
-    rankInfo.rankLevelInfos.emplace_back(RankLevelInfo{});
+    rankInfo.rankLevelInfos.emplace_back(hccl::RankLevelInfo{});
     localRankTable.ranks.emplace_back(rankInfo);
 
     // 使用真实 UpdateRankTable，验证空表仍由原有校验拒绝，正常上报继续处理。
@@ -435,7 +435,7 @@ TEST_F(RankInfoDetectServiceTest, Ut_LogicSuperPod_When_GrowCollect_Expect_RootI
     rankInfo.replacedLocalId = 1;
     rankInfo.deviceId = 1;
     rankInfo.logicSuperPodId = "B";
-    RankLevelInfo level;
+    hccl::RankLevelInfo level;
     level.netInstId = "server_1";
     rankInfo.rankLevelInfos.push_back(level);
     localRankTable.ranks.push_back(rankInfo);
@@ -501,7 +501,7 @@ TEST_F(RankInfoDetectServiceTest, NetLayerCheckCollectsLocalFailureForBroadcast)
     local.version = "1.0";
     local.rankCount = 1;
     hccl::NewRankInfo rank;
-    rank.rankLevelInfos.emplace_back(RankLevelInfo{});
+    rank.rankLevelInfos.emplace_back(hccl::RankLevelInfo{});
     local.ranks.push_back(rank);
     const struct {
         u32 version;
@@ -1125,7 +1125,7 @@ TEST_F(RankInfoDetectServiceTest, Ut_SetupScalable_When_MeshMergeCallbackFail_Ex
     localRankTable.rankCount = 1;
     hccl::NewRankInfo rankInfo{};
     rankInfo.rankId = 0;
-    rankInfo.rankLevelInfos.emplace_back(RankLevelInfo{});
+    rankInfo.rankLevelInfos.emplace_back(hccl::RankLevelInfo{});
     localRankTable.ranks.emplace_back(rankInfo);
     BinaryStream binaryStream;
     ASSERT_EQ(localRankTable.GetBinStream(true, binaryStream), HCCL_SUCCESS);
@@ -1180,7 +1180,7 @@ TEST_F(RankInfoDetectServiceTest, Ut_SetupScalable_When_BroadcastFail_Expect_Err
     localRankTable.rankCount = 1;
     hccl::NewRankInfo rankInfo{};
     rankInfo.rankId = 0;
-    rankInfo.rankLevelInfos.emplace_back(RankLevelInfo{});
+    rankInfo.rankLevelInfos.emplace_back(hccl::RankLevelInfo{});
     localRankTable.ranks.emplace_back(rankInfo);
     BinaryStream binaryStream;
     ASSERT_EQ(localRankTable.GetBinStream(true, binaryStream), HCCL_SUCCESS);
@@ -1305,7 +1305,7 @@ TEST_F(RankInfoDetectServiceTest, Ut_SetupScalable_When_PartialFail_Expect_Survi
     localRankTable.rankCount = 1;
     hccl::NewRankInfo rankInfo{};
     rankInfo.rankId = 0;
-    rankInfo.rankLevelInfos.emplace_back(RankLevelInfo{});
+    rankInfo.rankLevelInfos.emplace_back(hccl::RankLevelInfo{});
     localRankTable.ranks.emplace_back(rankInfo);
     BinaryStream binaryStream;
     ASSERT_EQ(localRankTable.GetBinStream(true, binaryStream), HCCL_SUCCESS);

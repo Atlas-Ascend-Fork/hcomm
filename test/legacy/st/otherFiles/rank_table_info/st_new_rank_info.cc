@@ -88,7 +88,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_Normal_Expect_Success)
     newRankInfo0.devicePort = 6666;
     newRankInfo0.hostPort = 7777;
 
-    RankLevelInfo rankLevelInfo0;
+    hccl::RankLevelInfo rankLevelInfo0;
     rankLevelInfo0.netLayer = 0;
     rankLevelInfo0.netInstId = "superPod0-rack3";
     rankLevelInfo0.netType = NetType::TOPO_FILE_DESC;
@@ -182,7 +182,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_OptionalFieldsMissing_Expect_S
     newRankInfo0.deviceId = 0;
     newRankInfo0.localId = 0;
 
-    RankLevelInfo rankLevelInfo0;
+    hccl::RankLevelInfo rankLevelInfo0;
     rankLevelInfo0.netLayer = 0;
     rankLevelInfo0.netInstId = "superPod0-rack3";
     rankLevelInfo0.netType = NetType::TOPO_FILE_DESC;

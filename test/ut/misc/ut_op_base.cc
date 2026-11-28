@@ -67,7 +67,7 @@
 #include "kernel_tiling/kernel_tiling.h"
 #include "exception_handler.h"
 #include "plugin_runner_pub.h"
-#include "task_exception_handler_pub.h"
+#include "task_exception_handler_pub_legacy910.h"
 #include "hccl_group.h"
 
 using namespace std;

@@ -26,13 +26,12 @@ PhyTopoBuilder& PhyTopoBuilder::GetInstance()
 }
 
 // 根据nodeType和localId创建节点
-std::shared_ptr<Hccl::PhyTopo::Node>
-CreateNode(const Hccl::PhyTopo::Node::NodeType nodeType, const Hccl::LocalId localId)
+std::shared_ptr<PhyTopo::Node> CreateNode(const PhyTopo::Node::NodeType nodeType, const Hccl::LocalId localId)
 {
-    if (nodeType == Hccl::PhyTopo::Node::NodeType::PEER) {
-        return std::make_shared<Hccl::PhyTopo::Peer>(localId);
+    if (nodeType == PhyTopo::Node::NodeType::PEER) {
+        return std::make_shared<PhyTopo::Peer>(localId);
     } else {
-        return std::make_shared<Hccl::PhyTopo::Fabric>();
+        return std::make_shared<PhyTopo::Fabric>();
     }
 }
 
@@ -82,7 +81,7 @@ static bool SplitUbClosEdgesToLayer1(const std::string& topoPath, std::shared_pt
     if (topoInfo->edges.count(1) > 0 || topoInfo->edges.count(0) == 0) {
         return false; // topo.json已拆层或无layer0, 无需处理
     }
-    std::vector<Hccl::EdgeInfo> closEdges;
+    std::vector<EdgeInfo> closEdges;
     for (auto& edge : topoInfo->edges[0]) {
         if (edge.linkType == Hccl::LinkType::PEER2NET && edge.position == Hccl::AddrPosition::DEVICE
             && edge.topoType == Hccl::TopoType::CLOS && IsAllUbProtocol(edge.protocols)) {
@@ -106,8 +105,8 @@ HcclResult PhyTopoBuilder::Build(const std::string& topoPath)
 {
     std::lock_guard<std::mutex> lock(phyTopoMutex);
 
-    if (Hccl::PhyTopo::GetInstance()->IsInitFinished()) {
-        HCCL_INFO("Hccl::PhyTopo has been initialized and does not need to be rebuilt");
+    if (PhyTopo::GetInstance()->IsInitFinished()) {
+        HCCL_INFO("PhyTopo has been initialized and does not need to be rebuilt");
         return HCCL_SUCCESS;
     }
 
@@ -131,29 +130,29 @@ HcclResult PhyTopoBuilder::Build(const std::string& topoPath)
     }
     for (const auto& iter : topoInfo->edges) {
         auto netLayer = iter.first;
-        std::shared_ptr<Graph<Hccl::PhyTopo::Node, Hccl::PhyTopo::Link>> graph = nullptr;
+        std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> graph = nullptr;
         TRY_CATCH_RETURN(graph = CreateGraph(iter.second););
-        CHK_RET(Hccl::PhyTopo::GetInstance()->AddTopoGraph(netLayer, graph));
+        CHK_RET(PhyTopo::GetInstance()->AddTopoGraph(netLayer, graph));
         HCCL_DEBUG("[PhyTopoBuilder::%s]Build netLayer[%u] topo graph success.", __func__, netLayer);
     }
 
-    auto graph = Hccl::PhyTopo::GetInstance()->GetTopoGraph(0);
+    auto graph = PhyTopo::GetInstance()->GetTopoGraph(0);
     if (graph == nullptr) {
         HCCL_INFO("[PhyTopoBuilder::%s] layer0 graph is nullptr, build now", __func__);
-        graph = std::make_shared<Graph<Hccl::PhyTopo::Node, Hccl::PhyTopo::Link>>();
-        CHK_RET(Hccl::PhyTopo::GetInstance()->AddTopoGraph(0, graph));
+        graph = std::make_shared<Graph<PhyTopo::Node, PhyTopo::Link>>();
+        CHK_RET(PhyTopo::GetInstance()->AddTopoGraph(0, graph));
     }
     for (const auto& iter : topoInfo->peers) {
         if (!graph->HasNode(iter.localId)) {
-            auto node = CreateNode(Hccl::PhyTopo::Node::NodeType::PEER, iter.localId);
+            auto node = CreateNode(PhyTopo::Node::NodeType::PEER, iter.localId);
             graph->AddNode(iter.localId, node);
         }
     }
 
-    Hccl::PhyTopo::GetInstance()->InitFinish();
+    PhyTopo::GetInstance()->InitFinish();
 
     HCCL_DEBUG("[PhyTopoBuilder::%s]build physic topo success.", __func__);
-    Hccl::PhyTopo::GetInstance()->Dump();
+    PhyTopo::GetInstance()->Dump();
     return HCCL_SUCCESS;
 }
 
@@ -198,17 +197,17 @@ std::shared_ptr<TopoInfo> PhyTopoBuilder::LoadTopoInfo(const std::string& topoPa
     return topoInfo;
 }
 
-std::shared_ptr<Hccl::PhyTopo::Link> CreatePeer2PeerLink(const LinkParams& params)
+std::shared_ptr<PhyTopo::Link> CreatePeer2PeerLink(const LinkParams& params)
 {
     Hccl::LinkType linkType = Hccl::LinkType::PEER2PEER;
-    auto srcIface = std::make_shared<Hccl::PhyTopo::ConnInterface>(
-        params.localAPorts, params.position, linkType, params.protocols);
-    auto dstIface = std::make_shared<Hccl::PhyTopo::ConnInterface>(
-        params.localBPorts, params.position, linkType, params.protocols);
-    Hccl::PhyTopo::LinkAttributes linkAttrs;
+    auto srcIface
+        = std::make_shared<PhyTopo::ConnInterface>(params.localAPorts, params.position, linkType, params.protocols);
+    auto dstIface
+        = std::make_shared<PhyTopo::ConnInterface>(params.localBPorts, params.position, linkType, params.protocols);
+    PhyTopo::LinkAttributes linkAttrs;
     linkAttrs.linktype = linkType;
     linkAttrs.protocols = params.protocols;
-    auto link = std::make_shared<Hccl::PhyTopo::Link>(
+    auto link = std::make_shared<PhyTopo::Link>(
         params.srcNode, params.dstNode, linkAttrs, params.topoType, params.topoInstanceId);
     link->SetSourceIface(srcIface);
     params.srcNode->AddConnInterface(srcIface);
@@ -217,18 +216,18 @@ std::shared_ptr<Hccl::PhyTopo::Link> CreatePeer2PeerLink(const LinkParams& param
     return {link};
 }
 
-std::shared_ptr<Hccl::PhyTopo::Link> CreatePeer2NetLink(const LinkParams& params)
+std::shared_ptr<PhyTopo::Link> CreatePeer2NetLink(const LinkParams& params)
 {
     Hccl::LinkType linkType = Hccl::LinkType::PEER2NET;
-    auto srcIface = std::make_shared<Hccl::PhyTopo::ConnInterface>(
-        params.localAPorts, params.position, linkType, params.protocols);
+    auto srcIface
+        = std::make_shared<PhyTopo::ConnInterface>(params.localAPorts, params.position, linkType, params.protocols);
     // fabric 没有ports
     std::set<std::string> ports{};
-    auto dstIface = std::make_shared<Hccl::PhyTopo::ConnInterface>(ports, params.position, linkType, params.protocols);
-    Hccl::PhyTopo::LinkAttributes linkAttrs;
+    auto dstIface = std::make_shared<PhyTopo::ConnInterface>(ports, params.position, linkType, params.protocols);
+    PhyTopo::LinkAttributes linkAttrs;
     linkAttrs.linktype = linkType;
     linkAttrs.protocols = params.protocols;
-    auto link = std::make_shared<Hccl::PhyTopo::Link>(
+    auto link = std::make_shared<PhyTopo::Link>(
         params.srcNode, params.dstNode, linkAttrs, params.topoType, params.topoInstanceId);
     link->SetSourceIface(srcIface);
     params.srcNode->AddConnInterface(srcIface);
@@ -238,7 +237,7 @@ std::shared_ptr<Hccl::PhyTopo::Link> CreatePeer2NetLink(const LinkParams& params
 }
 
 // 根据链路类型建链
-std::shared_ptr<Hccl::PhyTopo::Link> CreateLink(const Hccl::LinkType linkType, const LinkParams& params)
+std::shared_ptr<PhyTopo::Link> CreateLink(const Hccl::LinkType linkType, const LinkParams& params)
 {
     if (linkType == Hccl::LinkType::PEER2PEER) {
         return CreatePeer2PeerLink(params);
@@ -247,38 +246,38 @@ std::shared_ptr<Hccl::PhyTopo::Link> CreateLink(const Hccl::LinkType linkType, c
     }
 }
 
-Hccl::NodeId GetNodeId(const Hccl::PhyTopo::Node::NodeType nodeType, Hccl::LocalId localId)
+Hccl::NodeId GetNodeId(const PhyTopo::Node::NodeType nodeType, Hccl::LocalId localId)
 {
     switch (nodeType) {
-        case Hccl::PhyTopo::Node::NodeType::PEER:
-            return Hccl::PhyTopo::Peer::GetId(localId);
-        case Hccl::PhyTopo::Node::NodeType::FABRIC:
-            return Hccl::PhyTopo::Fabric::GetId();
+        case PhyTopo::Node::NodeType::PEER:
+            return PhyTopo::Peer::GetId(localId);
+        case PhyTopo::Node::NodeType::FABRIC:
+            return PhyTopo::Fabric::GetId();
         default:
             Hccl::THROW<Hccl::InvalidParamsException>(Hccl::StringFormat("[PhyTopoBuilder]Invalid NodeType."));
             return 0;
     }
 }
 
-std::shared_ptr<Graph<Hccl::PhyTopo::Node, Hccl::PhyTopo::Link>>
-PhyTopoBuilder::CreateGraph(const std::vector<Hccl::EdgeInfo>& edges) const
+std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>>
+PhyTopoBuilder::CreateGraph(const std::vector<EdgeInfo>& edges) const
 {
-    auto graph = std::make_shared<Graph<Hccl::PhyTopo::Node, Hccl::PhyTopo::Link>>();
+    auto graph = std::make_shared<Graph<PhyTopo::Node, PhyTopo::Link>>();
 
     for (const auto& edgeInfo : edges) {
-        std::shared_ptr<Hccl::PhyTopo::Node> nodeA;
-        std::shared_ptr<Hccl::PhyTopo::Node> nodeB;
+        std::shared_ptr<PhyTopo::Node> nodeA;
+        std::shared_ptr<PhyTopo::Node> nodeB;
 
         // 生成 nodeAId，localA 始终为 PEER 类型
-        Hccl::NodeId nodeAId = GetNodeId(Hccl::PhyTopo::Node::NodeType::PEER, edgeInfo.localA);
+        Hccl::NodeId nodeAId = GetNodeId(PhyTopo::Node::NodeType::PEER, edgeInfo.localA);
         // 获取或创建 nodeA
         if (!graph->HasNode(nodeAId)) {
-            nodeA = CreateNode(Hccl::PhyTopo::Node::NodeType::PEER, edgeInfo.localA);
+            nodeA = CreateNode(PhyTopo::Node::NodeType::PEER, edgeInfo.localA);
             graph->AddNode(nodeAId, nodeA);
             HCCL_DEBUG("[PhyTopoBuilder::%s] Add node[%llu] success.", __func__, nodeAId);
         } else {
             // 使用 TraverseNode 查找 nodeA
-            graph->TraverseNode([&nodeA, nodeAId](Hccl::NodeId id, const std::shared_ptr<Hccl::PhyTopo::Node>& n) {
+            graph->TraverseNode([&nodeA, nodeAId](Hccl::NodeId id, const std::shared_ptr<PhyTopo::Node>& n) {
                 if (id == nodeAId) {
                     nodeA = n;
                 }
@@ -291,11 +290,11 @@ PhyTopoBuilder::CreateGraph(const std::vector<Hccl::EdgeInfo>& edges) const
         }
 
         // 根据 linkType 生成 nodeBId
-        Hccl::PhyTopo::Node::NodeType nodeBType;
+        PhyTopo::Node::NodeType nodeBType;
         if (edgeInfo.linkType == Hccl::LinkType::PEER2PEER) {
-            nodeBType = Hccl::PhyTopo::Node::NodeType::PEER;
+            nodeBType = PhyTopo::Node::NodeType::PEER;
         } else {
-            nodeBType = Hccl::PhyTopo::Node::NodeType::FABRIC;
+            nodeBType = PhyTopo::Node::NodeType::FABRIC;
         }
 
         Hccl::NodeId nodeBId = GetNodeId(nodeBType, edgeInfo.localB);
@@ -306,7 +305,7 @@ PhyTopoBuilder::CreateGraph(const std::vector<Hccl::EdgeInfo>& edges) const
             HCCL_DEBUG("[PhyTopoBuilder::%s] Add node[%llu] success.", __func__, nodeBId);
         } else {
             // 使用 TraverseNode 查找 nodeB
-            graph->TraverseNode([&nodeB, nodeBId](Hccl::NodeId id, const std::shared_ptr<Hccl::PhyTopo::Node>& n) {
+            graph->TraverseNode([&nodeB, nodeBId](Hccl::NodeId id, const std::shared_ptr<PhyTopo::Node>& n) {
                 if (id == nodeBId) {
                     nodeB = n;
                 }
@@ -350,26 +349,26 @@ HcclResult PhyTopoBuilder::RecoverBuild(const TopoInfo& topoInfo)
 {
     std::lock_guard<std::mutex> lock(phyTopoMutex);
 
-    // Hccl::PhyTopo::GetInstance()->ResetInstance();
-    if (Hccl::PhyTopo::GetInstance()->IsInitFinished()) {
+    // PhyTopo::GetInstance()->ResetInstance();
+    if (PhyTopo::GetInstance()->IsInitFinished()) {
         return HCCL_SUCCESS;
     }
     // 根据topoInfo，按netLayer构造hccl::Graph
     for (const auto& iter : topoInfo.edges) {
         auto netLayer = iter.first;
-        std::shared_ptr<Graph<Hccl::PhyTopo::Node, Hccl::PhyTopo::Link>> graph = nullptr;
+        std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> graph = nullptr;
         TRY_CATCH_RETURN(graph = CreateGraph(iter.second););
-        if (Hccl::PhyTopo::GetInstance()->AddTopoGraph(netLayer, graph) != HCCL_SUCCESS) {
+        if (PhyTopo::GetInstance()->AddTopoGraph(netLayer, graph) != HCCL_SUCCESS) {
             HCCL_ERROR("[%s] AddTopoGraph failed, netLayer[%u]", __func__, netLayer);
             return HCCL_E_INTERNAL;
         }
         HCCL_DEBUG("[PhyTopoBuilder::%s]Build netLayer[%u] topo graph success.", __func__, netLayer);
     }
 
-    Hccl::PhyTopo::GetInstance()->InitFinish();
+    PhyTopo::GetInstance()->InitFinish();
 
     HCCL_DEBUG("[PhyTopoBuilder::%s]build physic topo success.", __func__);
-    Hccl::PhyTopo::GetInstance()->Dump();
+    PhyTopo::GetInstance()->Dump();
     return HCCL_SUCCESS;
 }
 

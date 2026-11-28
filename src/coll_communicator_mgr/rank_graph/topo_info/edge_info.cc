@@ -14,32 +14,36 @@
 #include "invalid_params_exception.h"
 #include "exception_util.h"
 
-namespace Hccl {
+namespace hccl {
 
-const unordered_map<string, LinkProtocol> EdgeInfo::strToLinkProtocol = (unordered_map<string, LinkProtocol>{
-    {"UB_CTP", LinkProtocol::UB_CTP},
-    {"UB_TP", LinkProtocol::UB_TP},
-    {"ROCE", LinkProtocol::ROCE},
-    {"HCCS", LinkProtocol::HCCS},
-    {"PCIE", LinkProtocol::PCIE},
-    {"TCP", LinkProtocol::TCP},
-    {"UB_MEM", LinkProtocol::UB_MEM},
-    {"UBOE", LinkProtocol::UBOE},
-    {"UB_RTP", LinkProtocol::UB_RTP},
-    {"UBG", LinkProtocol::UB_RTP}});
+const std::unordered_map<std::string, Hccl::LinkProtocol> EdgeInfo::strToLinkProtocol
+    = (std::unordered_map<std::string, Hccl::LinkProtocol>{
+        {"UB_CTP", Hccl::LinkProtocol::UB_CTP},
+        {"UB_TP", Hccl::LinkProtocol::UB_TP},
+        {"ROCE", Hccl::LinkProtocol::ROCE},
+        {"HCCS", Hccl::LinkProtocol::HCCS},
+        {"PCIE", Hccl::LinkProtocol::PCIE},
+        {"TCP", Hccl::LinkProtocol::TCP},
+        {"UB_MEM", Hccl::LinkProtocol::UB_MEM},
+        {"UBOE", Hccl::LinkProtocol::UBOE},
+        {"UB_RTP", Hccl::LinkProtocol::UB_RTP},
+        {"UBG", Hccl::LinkProtocol::UB_RTP}});
 
-const unordered_map<std::string, TopoType> EdgeInfo::strToTopoType = (unordered_map<string, TopoType>{
-    {"CLOS", TopoType::CLOS},
-    {"1DMESH", TopoType::MESH_1D},
-    {"2DMESH", TopoType::MESH_2D},
-    {"A3_SERVER", TopoType::A3_SERVER},
-    {"A2_AX_SERVER", TopoType::A2_AX_SERVER}});
+const std::unordered_map<std::string, Hccl::TopoType> EdgeInfo::strToTopoType
+    = (std::unordered_map<std::string, Hccl::TopoType>{
+        {"CLOS", Hccl::TopoType::CLOS},
+        {"1DMESH", Hccl::TopoType::MESH_1D},
+        {"2DMESH", Hccl::TopoType::MESH_2D},
+        {"A3_SERVER", Hccl::TopoType::A3_SERVER},
+        {"A2_AX_SERVER", Hccl::TopoType::A2_AX_SERVER}});
 
-const unordered_map<string, LinkType> EdgeInfo::strToLinkType
-    = (unordered_map<string, LinkType>{{"PEER2PEER", LinkType::PEER2PEER}, {"PEER2NET", LinkType::PEER2NET}});
+const std::unordered_map<std::string, Hccl::LinkType> EdgeInfo::strToLinkType
+    = (std::unordered_map<std::string, Hccl::LinkType>{
+        {"PEER2PEER", Hccl::LinkType::PEER2PEER}, {"PEER2NET", Hccl::LinkType::PEER2NET}});
 
-const unordered_map<string, AddrPosition> EdgeInfo::strToAddrPosition
-    = (unordered_map<string, AddrPosition>{{"DEVICE", AddrPosition::DEVICE}, {"HOST", AddrPosition::HOST}});
+const std::unordered_map<std::string, Hccl::AddrPosition> EdgeInfo::strToAddrPosition
+    = (std::unordered_map<std::string, Hccl::AddrPosition>{
+        {"DEVICE", Hccl::AddrPosition::DEVICE}, {"HOST", Hccl::AddrPosition::HOST}});
 
 bool EdgeInfo::operator==(const EdgeInfo& other) const
 {
@@ -58,7 +62,7 @@ bool EdgeInfo::CompareEndpoints(const EdgeInfo& other) const
     }
 
     // 当连接类型是PEER2PEER时，A=other.B && B=other.A时，可视为相同的连接关系
-    if (linkType == other.linkType && linkType == LinkType::PEER2PEER && localA == other.localB
+    if (linkType == other.linkType && linkType == Hccl::LinkType::PEER2PEER && localA == other.localB
         && localAPorts == other.localBPorts && localB == other.localA && localBPorts == other.localAPorts) {
         return true;
     }
@@ -66,52 +70,52 @@ bool EdgeInfo::CompareEndpoints(const EdgeInfo& other) const
     return false;
 }
 
-LinkProtocol EdgeInfo::GetLinkProtocol(string str) const
+Hccl::LinkProtocol EdgeInfo::GetLinkProtocol(std::string str) const
 {
     CHK_PRT_THROW(
         strToLinkProtocol.count(str) == 0,
         HCCL_ERROR("[EdgeInfo::%s] string['%s'] is not type of LinkProtocol.", __func__, str.c_str()),
-        InvalidParamsException, "string is not type of LinkProtocol");
+        Hccl::InvalidParamsException, "string is not type of LinkProtocol");
     return strToLinkProtocol.at(str);
 }
 
-TopoType EdgeInfo::GetTopoType(std::string topoTypeStr) const
+Hccl::TopoType EdgeInfo::GetTopoType(std::string topoTypeStr) const
 {
     if (topoTypeStr.empty()) {
-        return TopoType::CLOS; // 不填写时，取默认值
+        return Hccl::TopoType::CLOS; // 不填写时，取默认值
     }
     CHK_PRT_THROW(
         strToTopoType.count(topoTypeStr) == 0,
         HCCL_ERROR("[EdgeInfo::%s] string['%s'] is not type of TopoType.", __func__, topoTypeStr.c_str()),
-        InvalidParamsException, "string is not type of TopoType");
+        Hccl::InvalidParamsException, "string is not type of TopoType");
     return strToTopoType.at(topoTypeStr);
 }
 
-LinkType EdgeInfo::GetLinkType(std::string linkTypeStr) const
+Hccl::LinkType EdgeInfo::GetLinkType(std::string linkTypeStr) const
 {
     CHK_PRT_THROW(
         strToLinkType.count(linkTypeStr) == 0,
         HCCL_ERROR("[EdgeInfo::%s] string['%s'] is not type of LinkType.", __func__, linkTypeStr.c_str()),
-        InvalidParamsException, "string is not type of LinkType");
+        Hccl::InvalidParamsException, "string is not type of LinkType");
     return strToLinkType.at(linkTypeStr);
 }
 
-AddrPosition EdgeInfo::GetAddrPosition(string str) const
+Hccl::AddrPosition EdgeInfo::GetAddrPosition(std::string str) const
 {
     if (str.empty()) {
         HCCL_WARNING("[EdgeInfo::%s] position is null, [default]position=DEVICE", __func__);
-        return AddrPosition::DEVICE; //  默认取值为DEVICE
+        return Hccl::AddrPosition::DEVICE; //  默认取值为DEVICE
     }
     CHK_PRT_THROW(
         strToAddrPosition.count(str) == 0,
         HCCL_ERROR("[EdgeInfo::%s] string['%s'] is not type of AddrPosition.", __func__, str.c_str()),
-        InvalidParamsException, "string is not type of AddrPosition");
+        Hccl::InvalidParamsException, "string is not type of AddrPosition");
     return strToAddrPosition.at(str);
 }
 
 std::string EdgeInfo::Describe() const
 {
-    stringstream protocolStr;
+    std::stringstream protocolStr;
     protocolStr << "[";
     for (auto it = protocols.begin(); it != protocols.end(); ++it) {
         if (it != protocols.begin()) {
@@ -121,27 +125,27 @@ std::string EdgeInfo::Describe() const
     }
     protocolStr << "]";
 
-    string localAPortsStr = DescribePorts(localAPorts);
-    string localBPortsStr = DescribePorts(localBPorts);
+    std::string localAPortsStr = DescribePorts(localAPorts);
+    std::string localBPortsStr = DescribePorts(localBPorts);
 
     std::string description = "EdgeInfo{";
-    description += StringFormat("netLayer=%u", netLayer);
-    description += StringFormat("topoType=%s", topoType.Describe().c_str());
-    description += StringFormat(", topoInstanceId=%u", topoInstId);
-    description += StringFormat(", protocols=%s", protocolStr.str().c_str());
-    description += StringFormat(", linkType=%s", linkType.Describe().c_str());
-    description += StringFormat(", localA=%u", localA);
-    description += StringFormat(", localAPortsStr=%s", localAPortsStr.c_str());
-    description += StringFormat(", localB=%u", localB);
-    description += StringFormat(", localBPortsStr=%s", localBPortsStr.c_str());
-    description += StringFormat(", position=%s", position.Describe().c_str());
+    description += Hccl::StringFormat("netLayer=%u", netLayer);
+    description += Hccl::StringFormat("topoType=%s", topoType.Describe().c_str());
+    description += Hccl::StringFormat(", topoInstanceId=%u", topoInstId);
+    description += Hccl::StringFormat(", protocols=%s", protocolStr.str().c_str());
+    description += Hccl::StringFormat(", linkType=%s", linkType.Describe().c_str());
+    description += Hccl::StringFormat(", localA=%u", localA);
+    description += Hccl::StringFormat(", localAPortsStr=%s", localAPortsStr.c_str());
+    description += Hccl::StringFormat(", localB=%u", localB);
+    description += Hccl::StringFormat(", localBPortsStr=%s", localBPortsStr.c_str());
+    description += Hccl::StringFormat(", position=%s", position.Describe().c_str());
     description += "}";
     return description;
 }
 
 std::string EdgeInfo::DescribePorts(std::set<std::string> ports) const
 {
-    stringstream portsStr;
+    std::stringstream portsStr;
     portsStr << "[";
     for (auto it = ports.begin(); it != ports.end(); ++it) {
         if (it != ports.begin()) {
@@ -153,38 +157,38 @@ std::string EdgeInfo::DescribePorts(std::set<std::string> ports) const
     return portsStr.str();
 }
 
-void EdgeInfo::GetBinStream(BinaryStream& binaryStream) const
+void EdgeInfo::GetBinStream(Hccl::BinaryStream& binaryStream) const
 {
     binaryStream << netLayer << static_cast<u32>(linkType) << static_cast<u32>(topoType) << topoInstId;
     binaryStream << protocols.size();
-    for (LinkProtocol protocol : protocols) {
+    for (Hccl::LinkProtocol protocol : protocols) {
         binaryStream << static_cast<u32>(protocol);
     }
 
     binaryStream << localA << localB;
 
     binaryStream << localAPorts.size();
-    for (string port : localAPorts) {
+    for (std::string port : localAPorts) {
         binaryStream << port;
     }
 
     binaryStream << localBPorts.size();
-    for (string port : localBPorts) {
+    for (std::string port : localBPorts) {
         binaryStream << port;
     }
 
     binaryStream << static_cast<u32>(position);
 }
 
-EdgeInfo::EdgeInfo(BinaryStream& binaryStream)
+EdgeInfo::EdgeInfo(Hccl::BinaryStream& binaryStream)
 {
     binaryStream >> netLayer;
     u32 linkTypeTmp;
     binaryStream >> linkTypeTmp;
-    linkType = static_cast<LinkType::Value>(linkTypeTmp);
+    linkType = static_cast<Hccl::LinkType::Value>(linkTypeTmp);
     u32 topoTypeTmp;
     binaryStream >> topoTypeTmp;
-    topoType = static_cast<TopoType::Value>(topoTypeTmp);
+    topoType = static_cast<Hccl::TopoType::Value>(topoTypeTmp);
     binaryStream >> topoInstId;
     size_t protocolSize;
     binaryStream >> protocolSize;
@@ -192,7 +196,7 @@ EdgeInfo::EdgeInfo(BinaryStream& binaryStream)
     for (size_t i = 0; i < protocolSize; i++) {
         u32 protocolTmp;
         binaryStream >> protocolTmp;
-        LinkProtocol protocol = static_cast<LinkProtocol::Value>(protocolTmp);
+        Hccl::LinkProtocol protocol = static_cast<Hccl::LinkProtocol::Value>(protocolTmp);
         protocols.emplace(protocol);
     }
 
@@ -202,7 +206,7 @@ EdgeInfo::EdgeInfo(BinaryStream& binaryStream)
     binaryStream >> localAPortsSize;
     localAPorts.clear();
     for (size_t i = 0; i < localAPortsSize; i++) {
-        string port;
+        std::string port;
         binaryStream >> port;
         localAPorts.emplace(port);
     }
@@ -211,14 +215,14 @@ EdgeInfo::EdgeInfo(BinaryStream& binaryStream)
     binaryStream >> localBPortsSize;
     localBPorts.clear();
     for (size_t i = 0; i < localBPortsSize; i++) {
-        string port;
+        std::string port;
         binaryStream >> port;
         localBPorts.emplace(port);
     }
 
     u32 positionTmp;
     binaryStream >> positionTmp;
-    position = static_cast<AddrPosition::Value>(positionTmp);
+    position = static_cast<Hccl::AddrPosition::Value>(positionTmp);
 }
 
-} // namespace Hccl
+} // namespace hccl

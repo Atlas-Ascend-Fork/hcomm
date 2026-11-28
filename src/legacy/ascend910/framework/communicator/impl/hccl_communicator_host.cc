@@ -25,7 +25,7 @@
 #include "stream_active_manager.h"
 #include "device_capacity.h"
 #include "profiling_manager_pub.h"
-#include "task_exception_handler_pub.h"
+#include "task_exception_handler_pub_legacy910.h"
 #include "rank_consistentcy_checker.h"
 #include "hccl_aiv.h"
 #include "adapter_rts_common.h"

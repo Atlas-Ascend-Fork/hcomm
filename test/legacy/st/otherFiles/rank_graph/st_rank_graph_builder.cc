@@ -206,10 +206,10 @@ TEST_F(RankGraphBuilderTest, st_RankGraphBuilderRecoverBuild_When_Invalid_Expect
 
 TEST_F(RankGraphBuilderTest, st_RankGraphBuilderBuild_When_Empty_Expect_InvalidParamsException)
 {
-    PhyTopo::GetInstance()->initFlag = false;
+    hccl::PhyTopo::GetInstance()->initFlag = false;
     std::string rankTable;
     RankGraphBuilder rankGraphBuilder;
     std::string topoPath;
     EXPECT_THROW(rankGraphBuilder.Build(rankTable, topoPath, 0), InvalidParamsException);
-    PhyTopo::GetInstance()->initFlag = true;
+    hccl::PhyTopo::GetInstance()->initFlag = true;
 }

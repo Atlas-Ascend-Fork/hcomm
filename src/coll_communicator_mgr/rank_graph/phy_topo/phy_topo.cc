@@ -11,7 +11,7 @@
 #include "phy_topo.h"
 #include "exception_util.h"
 #include "internal_exception.h"
-namespace Hccl {
+namespace hccl {
 
 std::unique_ptr<PhyTopo>& PhyTopo::GetInstance()
 {
@@ -63,13 +63,13 @@ void PhyTopo::Dump() const
     for (auto& pair : topos) {
         HCCL_DEBUG("netLayer[%u]:", pair.first);
         HCCL_DEBUG("nodes:");
-        std::set<NodeId> nodeIds{};
-        pair.second->TraverseNode([&](NodeId nodeId, std::shared_ptr<PhyTopo::Node> node) {
+        std::set<Hccl::NodeId> nodeIds{};
+        pair.second->TraverseNode([&](Hccl::NodeId nodeId, std::shared_ptr<PhyTopo::Node> node) {
             nodeIds.insert(nodeId);
             HCCL_DEBUG("%s", node->Describe().c_str());
         });
         HCCL_DEBUG("links:");
-        for (NodeId nodeId : nodeIds) {
+        for (Hccl::NodeId nodeId : nodeIds) {
             pair.second->TraverseEdge(nodeId, [&](std::shared_ptr<Link> link) {
                 HCCL_DEBUG("%s", link->Describe().c_str());
             });
@@ -78,8 +78,8 @@ void PhyTopo::Dump() const
 }
 
 PhyTopo::ConnInterface::ConnInterface(
-    const std::set<std::string> inputPorts, const AddrPosition inputPos, const LinkType inputLinkType,
-    const std::set<LinkProtocol> inputLinkProtocols)
+    const std::set<std::string> inputPorts, const Hccl::AddrPosition inputPos, const Hccl::LinkType inputLinkType,
+    const std::set<Hccl::LinkProtocol> inputLinkProtocols)
     : ports(inputPorts),
       pos(inputPos),
       linkType(inputLinkType),
@@ -88,11 +88,11 @@ PhyTopo::ConnInterface::ConnInterface(
 
 std::set<std::string> PhyTopo::ConnInterface::GetPorts() const { return ports; }
 
-AddrPosition PhyTopo::ConnInterface::GetPos() const { return pos; }
+Hccl::AddrPosition PhyTopo::ConnInterface::GetPos() const { return pos; }
 
-LinkType PhyTopo::ConnInterface::GetLinkType() const { return linkType; }
+Hccl::LinkType PhyTopo::ConnInterface::GetLinkType() const { return linkType; }
 
-std::set<LinkProtocol> PhyTopo::ConnInterface::GetLinkProtocols() const { return linkProtocols; }
+std::set<Hccl::LinkProtocol> PhyTopo::ConnInterface::GetLinkProtocols() const { return linkProtocols; }
 
 std::string PhyTopo::ConnInterface::Describe() const
 {
@@ -111,7 +111,7 @@ std::string PhyTopo::ConnInterface::Describe() const
         protocolStr += it->Describe();
     }
 
-    return StringFormat(
+    return Hccl::StringFormat(
         "ConnInterface[ports={%s}, pos=%s, protocols={%s}, linkType=%s]", portsStr.c_str(), pos.Describe().c_str(),
         protocolStr.c_str(), linkType.Describe().c_str());
 }
@@ -142,36 +142,36 @@ PhyTopo::Node::IfaceIterator PhyTopo::Node::IterIfaces() const { return PhyTopo:
 
 std::string PhyTopo::Node::Describe() const { return "PhyTopo::Node[]"; }
 
-PhyTopo::Peer::Peer(const LocalId localId) : Node(PhyTopo::Node::NodeType::PEER), localId(localId) {}
+PhyTopo::Peer::Peer(const Hccl::LocalId localId) : Node(PhyTopo::Node::NodeType::PEER), localId(localId) {}
 
-LocalId PhyTopo::Peer::GetLocalId() const { return localId; }
+Hccl::LocalId PhyTopo::Peer::GetLocalId() const { return localId; }
 
-NodeId PhyTopo::Peer::GetId(const LocalId localId) { return static_cast<NodeId>(localId); }
+Hccl::NodeId PhyTopo::Peer::GetId(const Hccl::LocalId localId) { return static_cast<Hccl::NodeId>(localId); }
 
-std::string PhyTopo::Peer::Describe() const { return StringFormat("PhyTopo::Peer[localId=%u]", localId); }
+std::string PhyTopo::Peer::Describe() const { return Hccl::StringFormat("PhyTopo::Peer[localId=%u]", localId); }
 
 PhyTopo::Fabric::Fabric() : Node(PhyTopo::Node::NodeType::FABRIC) {}
 
 constexpr s32 FABRIC_ID_OFFSET = 32;
-NodeId PhyTopo::Fabric::GetId()
+Hccl::NodeId PhyTopo::Fabric::GetId()
 {
-    NodeId res = static_cast<NodeId>(0);
+    Hccl::NodeId res = static_cast<Hccl::NodeId>(0);
     res |= (1ULL << FABRIC_ID_OFFSET);
     return res;
 }
 
-std::string PhyTopo::Fabric::Describe() const { return StringFormat("PhyTopo::Fabric[NodeId=%llu]", GetId()); }
+std::string PhyTopo::Fabric::Describe() const { return Hccl::StringFormat("PhyTopo::Fabric[NodeId=%llu]", GetId()); }
 
 PhyTopo::Link::Link(
     std::shared_ptr<PhyTopo::Node> inputSource, std::shared_ptr<PhyTopo::Node> inputTarget,
-    const LinkAttributes& properties, const TopoType inputTopoType, const u32 inputTopoInstId)
+    const LinkAttributes& properties, const Hccl::TopoType inputTopoType, const u32 inputTopoInstId)
     : sourceIface(nullptr),
       targetIface(nullptr),
       source(inputSource),
       target(inputTarget),
       linkProtocols(properties.protocols),
       linkType(properties.linktype),
-      direction(LinkDirection::BOTH),
+      direction(Hccl::LinkDirection::BOTH),
       topoType(inputTopoType),
       topoInstId(inputTopoInstId),
       hop{1}
@@ -187,13 +187,13 @@ void PhyTopo::Link::SetTargetIface(std::shared_ptr<PhyTopo::ConnInterface> input
     targetIface = inputTargetIface;
 }
 
-LinkType PhyTopo::Link::GetType() const { return linkType; }
+Hccl::LinkType PhyTopo::Link::GetType() const { return linkType; }
 
-std::set<LinkProtocol> PhyTopo::Link::GetLinkProtocols() const { return linkProtocols; }
+std::set<Hccl::LinkProtocol> PhyTopo::Link::GetLinkProtocols() const { return linkProtocols; }
 
-LinkDirection PhyTopo::Link::GetLinkDirection() const { return direction; }
+Hccl::LinkDirection PhyTopo::Link::GetLinkDirection() const { return direction; }
 
-TopoType PhyTopo::Link::GetTopoType() const { return topoType; }
+Hccl::TopoType PhyTopo::Link::GetTopoType() const { return topoType; }
 
 u32 PhyTopo::Link::GetTopoInstId() const { return topoInstId; }
 
@@ -226,9 +226,9 @@ std::string PhyTopo::Link::Describe() const
         protocolStr += it->Describe();
     }
 
-    return StringFormat(
+    return Hccl::StringFormat(
         "PhyTopo::Link[type=%s, protocol=%s, source=%s, target=%s%s, topoInstId=%u, topoType=%d]",
         linkType.Describe().c_str(), protocolStr.c_str(), source->Describe().c_str(), target->Describe().c_str(),
         iFace.str().c_str(), topoInstId, topoType);
 }
-} // namespace Hccl
+} // namespace hccl

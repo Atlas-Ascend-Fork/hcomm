@@ -123,10 +123,10 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_Normal_Expect_Success)
     expectTopoInfo.peers.emplace_back(peer2);
 
     expectTopoInfo.edgeCount = 5;
-    expectTopoInfo.edges[0] = std::vector<EdgeInfo>();
-    expectTopoInfo.edges[1] = std::vector<EdgeInfo>();
-    expectTopoInfo.edges[2] = std::vector<EdgeInfo>();
-    EdgeInfo edge0;
+    expectTopoInfo.edges[0] = std::vector<hccl::EdgeInfo>();
+    expectTopoInfo.edges[1] = std::vector<hccl::EdgeInfo>();
+    expectTopoInfo.edges[2] = std::vector<hccl::EdgeInfo>();
+    hccl::EdgeInfo edge0;
     edge0.netLayer = 0;
     edge0.linkType = LinkType::PEER2PEER;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
@@ -139,7 +139,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_Normal_Expect_Success)
     edge0.position = AddrPosition::DEVICE;
     expectTopoInfo.edges[0].emplace_back(edge0);
 
-    EdgeInfo edge1;
+    hccl::EdgeInfo edge1;
     edge1.netLayer = 0;
     edge1.linkType = LinkType::PEER2PEER;
     edge1.protocols.emplace(LinkProtocol::UB_MEM);
@@ -152,7 +152,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_Normal_Expect_Success)
     edge1.position = AddrPosition::DEVICE;
     expectTopoInfo.edges[0].emplace_back(edge1);
 
-    EdgeInfo edge2;
+    hccl::EdgeInfo edge2;
     edge2.netLayer = 0;
     edge2.linkType = LinkType::PEER2NET;
     edge2.protocols.emplace(LinkProtocol::UB_CTP);
@@ -163,7 +163,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_Normal_Expect_Success)
     edge2.position = AddrPosition::HOST;
     expectTopoInfo.edges[0].emplace_back(edge2);
 
-    EdgeInfo edge3;
+    hccl::EdgeInfo edge3;
     edge3.netLayer = 1;
     edge3.linkType = LinkType::PEER2PEER;
     edge3.protocols.emplace(LinkProtocol::UB_TP);
@@ -176,7 +176,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_Normal_Expect_Success)
     edge3.position = AddrPosition::DEVICE;
     expectTopoInfo.edges[1].emplace_back(edge3);
 
-    EdgeInfo edge4;
+    hccl::EdgeInfo edge4;
     edge4.netLayer = 2;
     edge4.linkType = LinkType::PEER2NET;
     edge4.protocols.emplace(LinkProtocol::ROCE);
@@ -633,10 +633,10 @@ TEST_F(TopoParserTest, Ut_BinaryStream_When_GetBinStreamToReBuild_Expect_Success
     expectTopoInfo.peers.emplace_back(peer2);
 
     expectTopoInfo.edgeCount = 5;
-    expectTopoInfo.edges[0] = std::vector<EdgeInfo>();
-    expectTopoInfo.edges[1] = std::vector<EdgeInfo>();
-    expectTopoInfo.edges[2] = std::vector<EdgeInfo>();
-    EdgeInfo edge0;
+    expectTopoInfo.edges[0] = std::vector<hccl::EdgeInfo>();
+    expectTopoInfo.edges[1] = std::vector<hccl::EdgeInfo>();
+    expectTopoInfo.edges[2] = std::vector<hccl::EdgeInfo>();
+    hccl::EdgeInfo edge0;
     edge0.netLayer = 0;
     edge0.linkType = LinkType::PEER2PEER;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
@@ -649,7 +649,7 @@ TEST_F(TopoParserTest, Ut_BinaryStream_When_GetBinStreamToReBuild_Expect_Success
     edge0.position = AddrPosition::DEVICE;
     expectTopoInfo.edges[0].emplace_back(edge0);
 
-    EdgeInfo edge1;
+    hccl::EdgeInfo edge1;
     edge1.netLayer = 0;
     edge1.linkType = LinkType::PEER2PEER;
     edge1.protocols.emplace(LinkProtocol::UB_MEM);
@@ -662,7 +662,7 @@ TEST_F(TopoParserTest, Ut_BinaryStream_When_GetBinStreamToReBuild_Expect_Success
     edge1.position = AddrPosition::DEVICE;
     expectTopoInfo.edges[0].emplace_back(edge1);
 
-    EdgeInfo edge2;
+    hccl::EdgeInfo edge2;
     edge2.netLayer = 0;
     edge2.linkType = LinkType::PEER2NET;
     edge2.protocols.emplace(LinkProtocol::UB_CTP);
@@ -673,7 +673,7 @@ TEST_F(TopoParserTest, Ut_BinaryStream_When_GetBinStreamToReBuild_Expect_Success
     edge2.position = AddrPosition::HOST;
     expectTopoInfo.edges[0].emplace_back(edge2);
 
-    EdgeInfo edge3;
+    hccl::EdgeInfo edge3;
     edge3.netLayer = 1;
     edge3.linkType = LinkType::PEER2PEER;
     edge3.protocols.emplace(LinkProtocol::UB_TP);
@@ -686,7 +686,7 @@ TEST_F(TopoParserTest, Ut_BinaryStream_When_GetBinStreamToReBuild_Expect_Success
     edge3.position = AddrPosition::DEVICE;
     expectTopoInfo.edges[1].emplace_back(edge3);
 
-    EdgeInfo edge4;
+    hccl::EdgeInfo edge4;
     edge4.netLayer = 2;
     edge4.linkType = LinkType::PEER2NET;
     edge4.protocols.emplace(LinkProtocol::ROCE);

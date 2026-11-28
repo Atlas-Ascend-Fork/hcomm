@@ -8,8 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef HCCL_TASK_EXCEPTION_HANDLER_PUB_H
-#define HCCL_TASK_EXCEPTION_HANDLER_PUB_H
+#ifndef HCCL_TASK_EXCEPTION_HANDLER_PUB_LEGACY910_H
+#define HCCL_TASK_EXCEPTION_HANDLER_PUB_LEGACY910_H
 #include <map>
 #include <queue>
 #include <mutex>
@@ -20,6 +20,13 @@
 #include "acl/acl_rt.h"
 #include "profiler_base_pub.h"
 #include "aicpu_operator_pub.h"
+// 两份.h 必须一起改：改本文件时同步改 common 侧
+// src/common/debug/profiling/inc/task_exception_handler_pub.h（guard HCCL_TASK_EXCEPTION_HANDLER_PUB_H）。
+// 注：common 版未在 git 跟踪（本仓 src/common/ 因仓架构调整 b2463988e 移出版本管理，本地存在但 git ls-tree 为空，
+// CI checkout 后不存在）。如需对照请查历史版本（git log --all -- src/common/.../task_exception_handler_pub.h）。
+// 两份同 namespace hccl 同类名 TaskExceptionHandler:public ProfilerBase，各配独立 .cc，靠文件名/guard 区分
+// （ns 不变）。两份声明有差异（本版多 inline 函数 + Save 签名不同 + 成员名不同），分属不同 SO 不进程内碰撞；
+// 改任一份声明时须评估对侧是否需同步（布局相关字段）。
 namespace hccl {
 inline void PrintBaseErrorLog(const std::string& stageErrInfo, const std::string& baseInfo)
 {
@@ -252,4 +259,4 @@ extern void UnregisterGetAicpuTaskExceptionCallBack(s32 streamId, u32 deviceLogi
 #endif // __cplusplus
 } // namespace hccl
 
-#endif
+#endif // HCCL_TASK_EXCEPTION_HANDLER_PUB_LEGACY910_H

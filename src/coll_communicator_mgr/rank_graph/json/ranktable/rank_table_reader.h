@@ -37,7 +37,7 @@ public:
 
     // 子模型入口：供本类内部复用，也供单测直接验证。
     HcclResult ReadRank(const nlohmann::json& newRankInfoJson, NewRankInfo& out) const;
-    HcclResult ReadLevel(const nlohmann::json& rankLevelInfoJson, Hccl::RankLevelInfo& out) const;
+    HcclResult ReadLevel(const nlohmann::json& rankLevelInfoJson, RankLevelInfo& out) const;
     HcclResult ReadAddress(const nlohmann::json& addressInfoJson, AddressInfo& out) const;
     HcclResult ReadControlPlane(const nlohmann::json& controlPlaneJson, ControlPlane& out) const;
 
@@ -54,9 +54,9 @@ private:
     HcclResult ReadRankIdAndLocalId(const nlohmann::json& json, NewRankInfo& out) const;
     HcclResult ReadDeviceIdAndPort(const nlohmann::json& json, NewRankInfo& out) const;
     HcclResult ReadLevelList(const nlohmann::json& json, NewRankInfo& out) const;
-    HcclResult ReadNetLayerInfo(const nlohmann::json& rankLevelInfoJson, Hccl::RankLevelInfo& out) const;
-    HcclResult ReadRankAddrs(const nlohmann::json& rankLevelInfoJson, Hccl::RankLevelInfo& out) const;
-    void BuildPortAddrMap(Hccl::RankLevelInfo& out) const;
+    HcclResult ReadNetLayerInfo(const nlohmann::json& rankLevelInfoJson, RankLevelInfo& out) const;
+    HcclResult ReadRankAddrs(const nlohmann::json& rankLevelInfoJson, RankLevelInfo& out) const;
+    void BuildPortAddrMap(RankLevelInfo& out) const;
     HcclResult ReadAddrTypeAndAddr(const nlohmann::json& addressInfoJson, AddressInfo& out) const;
     HcclResult ReadPorts(const nlohmann::json& addressInfoJson, AddressInfo& out) const;
     HcclResult
@@ -81,7 +81,7 @@ inline HcclResult ReadJson<NewRankInfo>(const nlohmann::json& json, NewRankInfo&
 }
 
 template <>
-inline HcclResult ReadJson<Hccl::RankLevelInfo>(const nlohmann::json& json, Hccl::RankLevelInfo& info)
+inline HcclResult ReadJson<RankLevelInfo>(const nlohmann::json& json, RankLevelInfo& info)
 {
     RankTableReader reader;
     return reader.ReadLevel(json, info);

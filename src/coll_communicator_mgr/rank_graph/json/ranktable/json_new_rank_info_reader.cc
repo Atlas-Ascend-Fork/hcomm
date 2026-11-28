@@ -136,7 +136,7 @@ HcclResult RankTableReader::ReadLevelList(const nlohmann::json& json, NewRankInf
     CHK_RET(CheckLevelJsonsSize(levelJsons->size()));
     out.rankLevelInfos.reserve(levelJsons->size());
     for (const auto& levelJson : *levelJsons) {
-        Hccl::RankLevelInfo levelInfo;
+        RankLevelInfo levelInfo;
         CHK_RET(ReadLevel(levelJson, levelInfo));
         for (auto& addrsInfo : levelInfo.rankAddrs) {
             addrsInfo.socketPort_ = out.devicePort;

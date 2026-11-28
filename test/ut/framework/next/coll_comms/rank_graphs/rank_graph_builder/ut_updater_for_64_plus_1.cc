@@ -30,7 +30,7 @@ TEST_F(UpdaterFor64Plus1Test, Ut_SaveReplaceInfo_When_BackupRank_Expect_RecordRe
     rank.rankId = 1;
     rank.localId = BACKUP_LOCAL_ID;
     rank.replacedLocalId = 1;
-    RankLevelInfo levelInfo;
+    hccl::RankLevelInfo levelInfo;
     levelInfo.netLayer = 0;
     levelInfo.netInstId = "az0-rack0";
     rank.rankLevelInfos.emplace_back(levelInfo);

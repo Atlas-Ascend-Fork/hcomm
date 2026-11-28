@@ -427,10 +427,11 @@ HcclResult RankTableInfo::BuildLogicSuperPodNetInstId(
         newNetInstId = originNetInstId;
         return HCCL_SUCCESS;
     }
-    if (originNetInstId.size() >= MAX_VALUE_NETID || logicId.size() > MAX_VALUE_NETID - originNetInstId.size() - 1) {
+    if (originNetInstId.size() >= hccl::MAX_VALUE_NETID
+        || logicId.size() > hccl::MAX_VALUE_NETID - originNetInstId.size() - 1) {
         HCCL_ERROR(
             "[%s] appended netInstId exceeds limit, originIdLen[%zu] logicIdLen[%zu] limit[%u]", __func__,
-            originNetInstId.size(), logicId.size(), MAX_VALUE_NETID);
+            originNetInstId.size(), logicId.size(), hccl::MAX_VALUE_NETID);
         return HCCL_E_PARA;
     }
     newNetInstId = originNetInstId + "_" + logicId;

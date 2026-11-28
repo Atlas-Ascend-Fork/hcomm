@@ -69,7 +69,7 @@ HcclResult TopoInfoReader::ReadJson(const nlohmann::json& topoInfoJson, TopoInfo
         return ret;
     }
     for (auto& edgeJson : edgeJsons) {
-        Hccl::EdgeInfo edge;
+        EdgeInfo edge;
         CHK_RET(ReadEdge(edgeJson, edge));
         out.edges[edge.netLayer].emplace_back(std::move(edge));
     }

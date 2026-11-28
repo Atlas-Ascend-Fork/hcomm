@@ -168,7 +168,7 @@ HcclResult Hccl::DiffRankUpdater(const char* changeInfo, RankTableInfo& rankTabl
     CHK_RET(ParseChangeInfo(changeInfo, changeTable));
 
     // 根据快照保存的拆分层号和逻辑ID，为替换rank在该层的实例ID追加逻辑ID后缀。
-    if (rankTableInfo.logicSuperPodSplitLayer <= MAX_VALUE_NETLAYER) {
+    if (rankTableInfo.logicSuperPodSplitLayer <= hccl::MAX_VALUE_NETLAYER) {
         for (auto& rank : changeTable.ranks) {
             const auto group = rankTableInfo.logicSuperPodGroupIds.find(rank.rankId);
             if (group == rankTableInfo.logicSuperPodGroupIds.end() || group->second.empty()) {

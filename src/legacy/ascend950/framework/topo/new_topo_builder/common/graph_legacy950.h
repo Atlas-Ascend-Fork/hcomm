@@ -8,8 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef GROUP_LEGACY950_H
-#define GROUP_LEGACY950_H
+#ifndef GRAPH_LEGACY950_H
+#define GRAPH_LEGACY950_H
 
 // 两份.h 必须一起改：改本文件时同步改 coll_comm 侧 src/coll_communicator_mgr/rank_graph/common/graph.h。
 
@@ -150,4 +150,4 @@ private:
 };
 } // namespace Hccl
 
-#endif // GROUP_LEGACY950_H
+#endif // GRAPH_LEGACY950_H

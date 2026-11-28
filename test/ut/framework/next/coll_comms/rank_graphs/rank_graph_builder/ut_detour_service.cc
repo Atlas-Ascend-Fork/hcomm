@@ -63,9 +63,9 @@ DetourData
 MakeDetourData(const std::shared_ptr<NetInstance::Peer>& srcPeer, const std::shared_ptr<NetInstance::Peer>& dstPeer)
 {
     DetourData data;
-    data.srcPhyPeerId = PhyTopo::Peer::GetId(0);
-    data.detourPhyPeerId = PhyTopo::Peer::GetId(8);
-    data.dstPhyPeerId = PhyTopo::Peer::GetId(1);
+    data.srcPhyPeerId = hccl::PhyTopo::Peer::GetId(0);
+    data.detourPhyPeerId = hccl::PhyTopo::Peer::GetId(8);
+    data.dstPhyPeerId = hccl::PhyTopo::Peer::GetId(1);
     data.srcNetInstPeer = srcPeer;
     data.dstNetInstPeer = dstPeer;
     return data;
@@ -74,9 +74,9 @@ MakeDetourData(const std::shared_ptr<NetInstance::Peer>& srcPeer, const std::sha
 
 class DetourLinkPortTest : public testing::Test {
 protected:
-    void SetUp() override { PhyTopo::GetInstance()->Clear(); }
+    void SetUp() override { hccl::PhyTopo::GetInstance()->Clear(); }
 
-    void TearDown() override { PhyTopo::GetInstance()->Clear(); }
+    void TearDown() override { hccl::PhyTopo::GetInstance()->Clear(); }
 
     void RecoverDetourTopo()
     {
@@ -98,7 +98,8 @@ TEST_F(DetourLinkPortTest, Ut_AddDetourLink_When_SrcPortMissing_Expect_E_Para)
     InnerNetInstance netInst(0, "az0-rack0");
 
     EXPECT_EQ(
-        AddDetourLink(&netInst, MakeDetourData(srcPeer, dstPeer), PhyTopo::GetInstance()->GetTopoGraph(0), nullptr),
+        AddDetourLink(
+            &netInst, MakeDetourData(srcPeer, dstPeer), hccl::PhyTopo::GetInstance()->GetTopoGraph(0), nullptr),
         HCCL_E_PARA);
     EXPECT_TRUE(srcPeer->GetPortAddrMapLayer0().empty());
 }
@@ -113,7 +114,8 @@ TEST_F(DetourLinkPortTest, Ut_AddDetourLink_When_SrcPortAddrEmpty_Expect_E_Para)
     InnerNetInstance netInst(0, "az0-rack0");
 
     EXPECT_EQ(
-        AddDetourLink(&netInst, MakeDetourData(srcPeer, dstPeer), PhyTopo::GetInstance()->GetTopoGraph(0), nullptr),
+        AddDetourLink(
+            &netInst, MakeDetourData(srcPeer, dstPeer), hccl::PhyTopo::GetInstance()->GetTopoGraph(0), nullptr),
         HCCL_E_PARA);
     EXPECT_EQ(srcPeer->GetPortAddrMapLayer0().size(), 1U);
     EXPECT_TRUE(srcPeer->GetPortAddrMapLayer0().begin()->second.empty());
@@ -128,7 +130,8 @@ TEST_F(DetourLinkPortTest, Ut_AddDetourLink_When_DstPortMissing_Expect_E_Para)
     InnerNetInstance netInst(0, "az0-rack0");
 
     EXPECT_EQ(
-        AddDetourLink(&netInst, MakeDetourData(srcPeer, dstPeer), PhyTopo::GetInstance()->GetTopoGraph(0), nullptr),
+        AddDetourLink(
+            &netInst, MakeDetourData(srcPeer, dstPeer), hccl::PhyTopo::GetInstance()->GetTopoGraph(0), nullptr),
         HCCL_E_PARA);
     EXPECT_TRUE(dstPeer->GetPortAddrMapLayer0().empty());
     EXPECT_EQ(srcPeer->GetPortAddrMapLayer0().size(), 1U);
@@ -144,7 +147,8 @@ TEST_F(DetourLinkPortTest, Ut_AddDetourLink_When_DstPortAddrEmpty_Expect_E_Para)
     InnerNetInstance netInst(0, "az0-rack0");
 
     EXPECT_EQ(
-        AddDetourLink(&netInst, MakeDetourData(srcPeer, dstPeer), PhyTopo::GetInstance()->GetTopoGraph(0), nullptr),
+        AddDetourLink(
+            &netInst, MakeDetourData(srcPeer, dstPeer), hccl::PhyTopo::GetInstance()->GetTopoGraph(0), nullptr),
         HCCL_E_PARA);
     EXPECT_EQ(dstPeer->GetPortAddrMapLayer0().size(), 1U);
     EXPECT_TRUE(dstPeer->GetPortAddrMapLayer0().begin()->second.empty());
@@ -159,9 +163,11 @@ TEST_F(DetourLinkPortTest, Ut_AddDetourLink_When_PeerNullptr_Expect_E_Ptr)
     InnerNetInstance netInst(0, "az0-rack0");
 
     EXPECT_EQ(
-        AddDetourLink(&netInst, MakeDetourData(nullptr, dstPeer), PhyTopo::GetInstance()->GetTopoGraph(0), nullptr),
+        AddDetourLink(
+            &netInst, MakeDetourData(nullptr, dstPeer), hccl::PhyTopo::GetInstance()->GetTopoGraph(0), nullptr),
         HCCL_E_PTR);
     EXPECT_EQ(
-        AddDetourLink(&netInst, MakeDetourData(dstPeer, nullptr), PhyTopo::GetInstance()->GetTopoGraph(0), nullptr),
+        AddDetourLink(
+            &netInst, MakeDetourData(dstPeer, nullptr), hccl::PhyTopo::GetInstance()->GetTopoGraph(0), nullptr),
         HCCL_E_PTR);
 }

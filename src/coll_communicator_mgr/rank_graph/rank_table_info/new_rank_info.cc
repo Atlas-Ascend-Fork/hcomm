@@ -35,7 +35,7 @@ NewRankInfo::NewRankInfo(Hccl::BinaryStream& binStream)
     size_t rankLevelNum;
     binStream >> rankLevelNum;
     for (u32 i = 0; i < rankLevelNum; i++) {
-        Hccl::RankLevelInfo levelInfo(binStream);
+        RankLevelInfo levelInfo(binStream);
         rankLevelInfos.emplace_back(std::move(levelInfo));
     }
     ControlPlane controlPlanes(binStream);

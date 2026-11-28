@@ -17,7 +17,7 @@
 #include <runtime/rt_error_codes.h>
 #define private public
 #define protected public
-#include "task_exception_handler_pub.h"
+#include "task_exception_handler_pub_legacy910.h"
 #include "heartbeat.h"
 #undef protected
 #undef private

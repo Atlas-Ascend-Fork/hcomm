@@ -28,7 +28,7 @@ TEST_F(PhyTopoConnInterfaceTest, Ut_PhyTopoConnInterface_When_ValidParameter_Exp
     AddrPosition pos = AddrPosition::DEVICE;
     LinkType linkType = LinkType::PEER2PEER;
     std::set<LinkProtocol> linkProtocol = {LinkProtocol::UB_CTP};
-    PhyTopo::ConnInterface conn(ports, pos, linkType, linkProtocol);
+    hccl::PhyTopo::ConnInterface conn(ports, pos, linkType, linkProtocol);
     EXPECT_EQ(conn.GetPorts(), ports);
     EXPECT_EQ(conn.GetPos(), pos);
     EXPECT_EQ(conn.GetLinkType(), linkType);
@@ -42,8 +42,8 @@ TEST_F(PhyTopoConnInterfaceTest, Ut_PhyTopoConnInterfaceOperatorEqual_When_Ports
     AddrPosition pos = AddrPosition::DEVICE;
     LinkType linkType = LinkType::PEER2PEER;
     std::set<LinkProtocol> linkProtocol = {LinkProtocol::UB_CTP};
-    PhyTopo::ConnInterface conn(ports1, pos, linkType, linkProtocol);
-    PhyTopo::ConnInterface conn1(ports2, pos, linkType, linkProtocol);
+    hccl::PhyTopo::ConnInterface conn(ports1, pos, linkType, linkProtocol);
+    hccl::PhyTopo::ConnInterface conn1(ports2, pos, linkType, linkProtocol);
     EXPECT_EQ(conn == conn1, true);
 }
 
@@ -54,8 +54,8 @@ TEST_F(PhyTopoConnInterfaceTest, Ut_PhyTopoConnInterfaceOperatorNotEqual_When_Pa
     AddrPosition pos = AddrPosition::DEVICE;
     LinkType linkType = LinkType::PEER2PEER;
     std::set<LinkProtocol> linkProtocol = {LinkProtocol::UB_CTP};
-    PhyTopo::ConnInterface conn(ports1, pos, linkType, linkProtocol);
-    PhyTopo::ConnInterface conn1(ports2, pos, linkType, linkProtocol);
+    hccl::PhyTopo::ConnInterface conn(ports1, pos, linkType, linkProtocol);
+    hccl::PhyTopo::ConnInterface conn1(ports2, pos, linkType, linkProtocol);
     EXPECT_EQ(conn != conn1, true);
 }
 
@@ -67,8 +67,8 @@ protected:
 
 TEST_F(PhyTopoNodeTest, Ut_PhyTopoNode_When_ValidParameter_Expect_ReturnIsNodeType)
 {
-    PhyTopo::Node::NodeType nodeType = PhyTopo::Node::NodeType::PEER;
-    PhyTopo::Node node(nodeType);
+    hccl::PhyTopo::Node::NodeType nodeType = hccl::PhyTopo::Node::NodeType::PEER;
+    hccl::PhyTopo::Node node(nodeType);
     EXPECT_EQ(node.GetType(), nodeType);
 }
 
@@ -81,24 +81,24 @@ protected:
 TEST_F(PhyTopoPeerTest, Ut_PhyTopoNode_When_ValidParameter_Expect_ReturnIsPeer)
 {
     LocalId localId = 0;
-    PhyTopo::Peer peer(localId);
+    hccl::PhyTopo::Peer peer(localId);
     EXPECT_EQ(peer.GetLocalId(), localId);
-    EXPECT_EQ(peer.GetType(), PhyTopo::Node::NodeType::PEER);
+    EXPECT_EQ(peer.GetType(), hccl::PhyTopo::Node::NodeType::PEER);
 }
 
 TEST_F(PhyTopoPeerTest, Ut_PhyTopoNode_When_ValidParameter_Expect_ReturnIsLocalId)
 {
     LocalId localId = 0;
-    PhyTopo::Peer peer(localId);
+    hccl::PhyTopo::Peer peer(localId);
     EXPECT_EQ(peer.GetLocalId(), localId);
-    EXPECT_EQ(peer.GetType(), PhyTopo::Node::NodeType::PEER);
+    EXPECT_EQ(peer.GetType(), hccl::PhyTopo::Node::NodeType::PEER);
 }
 
 TEST_F(PhyTopoPeerTest, Ut_PhyTopoNode_When_ValidParameter_Expect_ReturnIsInputLocalId)
 {
     LocalId localId = 0;
     NodeId nodeId = 0;
-    EXPECT_EQ(PhyTopo::Peer::GetId(localId), nodeId);
+    EXPECT_EQ(hccl::PhyTopo::Peer::GetId(localId), nodeId);
 }
 
 class PhyTopoFabricTest : public ::testing::Test {
@@ -109,15 +109,15 @@ protected:
 
 TEST_F(PhyTopoFabricTest, Ut_PhyTopoNode_When_ValidParameter_Expect_ReturnIsNodeType)
 {
-    PhyTopo::Fabric fabric;
-    EXPECT_EQ(fabric.GetType(), PhyTopo::Node::NodeType::FABRIC);
+    hccl::PhyTopo::Fabric fabric;
+    EXPECT_EQ(fabric.GetType(), hccl::PhyTopo::Node::NodeType::FABRIC);
 }
 
 TEST_F(PhyTopoFabricTest, Ut_PhyTopoNode_When_ValidParameter_Expect_ReturnIsNodeId)
 {
     NodeId nodeId = 0;
     nodeId |= (1ULL << 32);
-    EXPECT_EQ(PhyTopo::Fabric::GetId(), nodeId);
+    EXPECT_EQ(hccl::PhyTopo::Fabric::GetId(), nodeId);
 }
 
 class PhyTopoLinkTest : public ::testing::Test {
@@ -128,14 +128,16 @@ protected:
 
 TEST_F(PhyTopoLinkTest, Ut_PhyTopoLink_When_ValidParameter_Expect_ConstructSuccess)
 {
-    std::shared_ptr<PhyTopo::Node> sourceNode = std::make_shared<PhyTopo::Node>(PhyTopo::Node::NodeType::PEER);
-    std::shared_ptr<PhyTopo::Node> targetNode = std::make_shared<PhyTopo::Node>(PhyTopo::Node::NodeType::PEER);
-    PhyTopo::LinkAttributes linkAttrs;
+    std::shared_ptr<hccl::PhyTopo::Node> sourceNode
+        = std::make_shared<hccl::PhyTopo::Node>(hccl::PhyTopo::Node::NodeType::PEER);
+    std::shared_ptr<hccl::PhyTopo::Node> targetNode
+        = std::make_shared<hccl::PhyTopo::Node>(hccl::PhyTopo::Node::NodeType::PEER);
+    hccl::PhyTopo::LinkAttributes linkAttrs;
     linkAttrs.linktype = LinkType::PEER2PEER;
     linkAttrs.protocols = {LinkProtocol::UB_CTP};
     TopoType topoType = TopoType::CLOS;
     u32 topoInstId = 0;
-    PhyTopo::Link link(sourceNode, targetNode, linkAttrs, topoType, topoInstId);
+    hccl::PhyTopo::Link link(sourceNode, targetNode, linkAttrs, topoType, topoInstId);
 
     EXPECT_EQ(link.GetType(), linkAttrs.linktype);
     EXPECT_EQ(link.GetLinkProtocols(), linkAttrs.protocols);
@@ -147,78 +149,86 @@ TEST_F(PhyTopoLinkTest, Ut_PhyTopoLink_When_ValidParameter_Expect_ConstructSucce
 
 TEST_F(PhyTopoLinkTest, Ut_PhyTopoLink_When_ValidInterface_Expect_ReturnIsSourceIface)
 {
-    std::shared_ptr<PhyTopo::Node> sourceNode = std::make_shared<PhyTopo::Node>(PhyTopo::Node::NodeType::PEER);
-    std::shared_ptr<PhyTopo::Node> targetNode = std::make_shared<PhyTopo::Node>(PhyTopo::Node::NodeType::PEER);
-    PhyTopo::LinkAttributes linkAttrs;
+    std::shared_ptr<hccl::PhyTopo::Node> sourceNode
+        = std::make_shared<hccl::PhyTopo::Node>(hccl::PhyTopo::Node::NodeType::PEER);
+    std::shared_ptr<hccl::PhyTopo::Node> targetNode
+        = std::make_shared<hccl::PhyTopo::Node>(hccl::PhyTopo::Node::NodeType::PEER);
+    hccl::PhyTopo::LinkAttributes linkAttrs;
     linkAttrs.linktype = LinkType::PEER2PEER;
     linkAttrs.protocols = {LinkProtocol::UB_CTP};
     TopoType topoType = TopoType::CLOS;
     u32 topoInstId = 0;
-    PhyTopo::Link link(sourceNode, targetNode, linkAttrs, topoType, topoInstId);
+    hccl::PhyTopo::Link link(sourceNode, targetNode, linkAttrs, topoType, topoInstId);
 
     std::set<std::string> ports = {"0/1"};
     AddrPosition pos = AddrPosition::DEVICE;
-    std::shared_ptr<PhyTopo::ConnInterface> sourceIface
-        = std::make_shared<PhyTopo::ConnInterface>(ports, pos, linkAttrs.linktype, linkAttrs.protocols);
+    std::shared_ptr<hccl::PhyTopo::ConnInterface> sourceIface
+        = std::make_shared<hccl::PhyTopo::ConnInterface>(ports, pos, linkAttrs.linktype, linkAttrs.protocols);
     link.SetTargetIface(sourceIface);
     EXPECT_EQ(link.GetTargetIFace(), sourceIface);
 }
 
 TEST_F(PhyTopoLinkTest, Ut_PhyTopoLink_When_ValidInterface_Expect_ReturnIsTargetIface)
 {
-    std::shared_ptr<PhyTopo::Node> sourceNode = std::make_shared<PhyTopo::Node>(PhyTopo::Node::NodeType::PEER);
-    std::shared_ptr<PhyTopo::Node> targetNode = std::make_shared<PhyTopo::Node>(PhyTopo::Node::NodeType::PEER);
-    PhyTopo::LinkAttributes linkAttrs;
+    std::shared_ptr<hccl::PhyTopo::Node> sourceNode
+        = std::make_shared<hccl::PhyTopo::Node>(hccl::PhyTopo::Node::NodeType::PEER);
+    std::shared_ptr<hccl::PhyTopo::Node> targetNode
+        = std::make_shared<hccl::PhyTopo::Node>(hccl::PhyTopo::Node::NodeType::PEER);
+    hccl::PhyTopo::LinkAttributes linkAttrs;
     linkAttrs.linktype = LinkType::PEER2PEER;
     linkAttrs.protocols = {LinkProtocol::UB_CTP};
     TopoType topoType = TopoType::CLOS;
     u32 topoInstId = 0;
-    PhyTopo::Link link(sourceNode, targetNode, linkAttrs, topoType, topoInstId);
+    hccl::PhyTopo::Link link(sourceNode, targetNode, linkAttrs, topoType, topoInstId);
     std::set<std::string> ports = {"0/1"};
     AddrPosition pos = AddrPosition::DEVICE;
-    std::shared_ptr<PhyTopo::ConnInterface> targetIface
-        = std::make_shared<PhyTopo::ConnInterface>(ports, pos, linkAttrs.linktype, linkAttrs.protocols);
+    std::shared_ptr<hccl::PhyTopo::ConnInterface> targetIface
+        = std::make_shared<hccl::PhyTopo::ConnInterface>(ports, pos, linkAttrs.linktype, linkAttrs.protocols);
     link.SetTargetIface(targetIface);
     EXPECT_EQ(link.GetTargetIFace(), targetIface);
 }
 
 TEST_F(PhyTopoLinkTest, Ut_PhyTopoLink_When_LinkDirectionSet_Expect_ReturnIsBOTH)
 {
-    std::shared_ptr<PhyTopo::Node> sourceNode = std::make_shared<PhyTopo::Node>(PhyTopo::Node::NodeType::PEER);
-    std::shared_ptr<PhyTopo::Node> targetNode = std::make_shared<PhyTopo::Node>(PhyTopo::Node::NodeType::PEER);
-    PhyTopo::LinkAttributes linkAttrs;
+    std::shared_ptr<hccl::PhyTopo::Node> sourceNode
+        = std::make_shared<hccl::PhyTopo::Node>(hccl::PhyTopo::Node::NodeType::PEER);
+    std::shared_ptr<hccl::PhyTopo::Node> targetNode
+        = std::make_shared<hccl::PhyTopo::Node>(hccl::PhyTopo::Node::NodeType::PEER);
+    hccl::PhyTopo::LinkAttributes linkAttrs;
     linkAttrs.linktype = LinkType::PEER2PEER;
     linkAttrs.protocols = {LinkProtocol::UB_CTP};
     TopoType topoType = TopoType::CLOS;
     u32 topoInstId = 0;
-    PhyTopo::Link link(sourceNode, targetNode, linkAttrs, topoType, topoInstId);
+    hccl::PhyTopo::Link link(sourceNode, targetNode, linkAttrs, topoType, topoInstId);
     EXPECT_EQ(link.GetLinkDirection(), LinkDirection::BOTH);
 }
 
 TEST_F(PhyTopoLinkTest, Ut_PhyTopoLink_When_HopSet_Expect_ReturnIs1)
 {
-    std::shared_ptr<PhyTopo::Node> sourceNode = std::make_shared<PhyTopo::Node>(PhyTopo::Node::NodeType::PEER);
-    std::shared_ptr<PhyTopo::Node> targetNode = std::make_shared<PhyTopo::Node>(PhyTopo::Node::NodeType::PEER);
-    PhyTopo::LinkAttributes linkAttrs;
+    std::shared_ptr<hccl::PhyTopo::Node> sourceNode
+        = std::make_shared<hccl::PhyTopo::Node>(hccl::PhyTopo::Node::NodeType::PEER);
+    std::shared_ptr<hccl::PhyTopo::Node> targetNode
+        = std::make_shared<hccl::PhyTopo::Node>(hccl::PhyTopo::Node::NodeType::PEER);
+    hccl::PhyTopo::LinkAttributes linkAttrs;
     linkAttrs.linktype = LinkType::PEER2PEER;
     linkAttrs.protocols = {LinkProtocol::UB_CTP};
     TopoType topoType = TopoType::CLOS;
     u32 topoInstId = 0;
-    PhyTopo::Link link(sourceNode, targetNode, linkAttrs, topoType, topoInstId);
+    hccl::PhyTopo::Link link(sourceNode, targetNode, linkAttrs, topoType, topoInstId);
     EXPECT_EQ(link.GetHop(), 1);
 }
 
 class PhyTopoTest : public ::testing::Test {
 protected:
-    PhyTopo phyTopo;
+    hccl::PhyTopo phyTopo;
     void SetUp() override {}
     void TearDown() override {}
 };
 
 TEST_F(PhyTopoTest, Ut_AddTopoGraph_When_TopoNotNullAndNetLayerNotExist_Expect_ReturnTopo)
 {
-    std::shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>> topo
-        = std::make_shared<hccl::Graph<PhyTopo::Node, PhyTopo::Link>>();
+    std::shared_ptr<hccl::Graph<hccl::PhyTopo::Node, hccl::PhyTopo::Link>> topo
+        = std::make_shared<hccl::Graph<hccl::PhyTopo::Node, hccl::PhyTopo::Link>>();
     u32 netLayer = 1;
     (void)phyTopo.AddTopoGraph(netLayer, topo);
     EXPECT_EQ(phyTopo.GetTopoGraph(netLayer), topo);
@@ -226,10 +236,10 @@ TEST_F(PhyTopoTest, Ut_AddTopoGraph_When_TopoNotNullAndNetLayerNotExist_Expect_R
 
 TEST_F(PhyTopoTest, Ut_GetTopoGraph_When_NetLayerExist_Expect_ReturnTopo)
 {
-    std::shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>> topo1
-        = std::make_shared<hccl::Graph<PhyTopo::Node, PhyTopo::Link>>();
-    std::shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>> topo2
-        = std::make_shared<hccl::Graph<PhyTopo::Node, PhyTopo::Link>>();
+    std::shared_ptr<hccl::Graph<hccl::PhyTopo::Node, hccl::PhyTopo::Link>> topo1
+        = std::make_shared<hccl::Graph<hccl::PhyTopo::Node, hccl::PhyTopo::Link>>();
+    std::shared_ptr<hccl::Graph<hccl::PhyTopo::Node, hccl::PhyTopo::Link>> topo2
+        = std::make_shared<hccl::Graph<hccl::PhyTopo::Node, hccl::PhyTopo::Link>>();
     u32 netLayer1 = 1;
     u32 netLayer2 = 2;
     (void)phyTopo.AddTopoGraph(netLayer1, topo1);
@@ -240,8 +250,8 @@ TEST_F(PhyTopoTest, Ut_GetTopoGraph_When_NetLayerExist_Expect_ReturnTopo)
 
 TEST_F(PhyTopoTest, Ut_GetTopoGraph_When_NetLayerNoExist_Expect_ReturnNullptr)
 {
-    std::shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>> topo1
-        = std::make_shared<hccl::Graph<PhyTopo::Node, PhyTopo::Link>>();
+    std::shared_ptr<hccl::Graph<hccl::PhyTopo::Node, hccl::PhyTopo::Link>> topo1
+        = std::make_shared<hccl::Graph<hccl::PhyTopo::Node, hccl::PhyTopo::Link>>();
     u32 netLayer1 = 1;
     u32 netLayer2 = 2;
     (void)phyTopo.AddTopoGraph(netLayer1, topo1);

@@ -46,7 +46,7 @@ HcclResult RankTableReader::Read(const std::string& jsonString, Hccl::RankTableI
 
 HcclResult RankTableReader::ReadJson(const nlohmann::json& json, Hccl::RankTableInfo& out) const
 {
-    out.logicSuperPodSplitLayer = Hccl::MAX_VALUE_NETLAYER + 1;
+    out.logicSuperPodSplitLayer = MAX_VALUE_NETLAYER + 1;
     out.logicSuperPodGroupIds.clear();
     out.SetSource(source_);
     out.version.clear();

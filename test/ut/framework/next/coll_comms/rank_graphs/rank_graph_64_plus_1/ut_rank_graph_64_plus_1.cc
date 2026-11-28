@@ -38,7 +38,7 @@ protected:
 
     virtual void SetUp()
     {
-        PhyTopo::GetInstance()->Clear(); // PhyTopo是单例，每个用例开始前需要重置
+        hccl::PhyTopo::GetInstance()->Clear(); // hccl::PhyTopo是单例，每个用例开始前需要重置
         MOCKER_CPP(&DetourService::InsertDetourLinks)
             .stubs()
             .will(returnValue(HcclResult::HCCL_SUCCESS)); // 64+1场景暂时不涉及绕路，将绕路接口打桩成空函数
@@ -47,7 +47,7 @@ protected:
 
     virtual void TearDown()
     {
-        PhyTopo::GetInstance()->Clear();
+        hccl::PhyTopo::GetInstance()->Clear();
         GlobalMockObject::verify();
         cout << "A Test case in RankGraph64Plus1Test TearDown" << endl;
     }

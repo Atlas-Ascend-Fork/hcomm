@@ -10,5 +10,5 @@
 
 #ifndef HCCL_TASK_EXCEPTION_HANDLER_H
 #define HCCL_TASK_EXCEPTION_HANDLER_H
-#include "task_exception_handler_pub.h"
+#include "task_exception_handler_pub_legacy910.h"
 #endif // HCCL_SRC_ADAPTER_H

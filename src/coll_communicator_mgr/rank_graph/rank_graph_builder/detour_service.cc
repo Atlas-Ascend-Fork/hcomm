@@ -23,20 +23,20 @@ constexpr u32 DETOUR_NODE_NUM_4P = 4;
 
 DetourService& DetourService::GetInstance()
 {
-    static DetourService detourService(PhyTopo::GetInstance().get());
+    static DetourService detourService(hccl::PhyTopo::GetInstance().get());
     return detourService;
 }
 
-DetourService::DetourService(const PhyTopo* phyTopo) { this->phyTopo = phyTopo; }
+DetourService::DetourService(const hccl::PhyTopo* phyTopo) { this->phyTopo = phyTopo; }
 
-vector<shared_ptr<PhyTopo::Link>>
-GetLinks(NodeId srcId, NodeId dstId, const shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>>& phyTopoGraph)
+vector<shared_ptr<hccl::PhyTopo::Link>> GetLinks(
+    NodeId srcId, NodeId dstId, const shared_ptr<hccl::Graph<hccl::PhyTopo::Node, hccl::PhyTopo::Link>>& phyTopoGraph)
 {
-    vector<shared_ptr<PhyTopo::Link>> links;
+    vector<shared_ptr<hccl::PhyTopo::Link>> links;
     if (phyTopoGraph == nullptr) {
         THROW<NullPtrException>(StringFormat("[GetLinks] phyTopoGraph is nullptr"));
     }
-    phyTopoGraph->TraverseEdge(srcId, dstId, [&](shared_ptr<PhyTopo::Link> link) {
+    phyTopoGraph->TraverseEdge(srcId, dstId, [&](shared_ptr<hccl::PhyTopo::Link> link) {
         if (link != nullptr) {
             links.emplace_back(link);
             return;
@@ -48,7 +48,7 @@ GetLinks(NodeId srcId, NodeId dstId, const shared_ptr<hccl::Graph<PhyTopo::Node,
 
 HcclResult AddDetourLink(
     NetInstance* innerNetInst, const DetourData& data,
-    const shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>>& phyTopoGraph,
+    const shared_ptr<hccl::Graph<hccl::PhyTopo::Node, hccl::PhyTopo::Link>>& phyTopoGraph,
     [[maybe_unused]] const RankTableInfo* rankTable)
 {
     // peer 为空时下游会直接解引用（GetPortAddrMapLayer0/AddConnInterface），在建链前 fail-fast
@@ -58,9 +58,9 @@ HcclResult AddDetourLink(
             static_cast<const void*>(data.srcNetInstPeer.get()), static_cast<const void*>(data.dstNetInstPeer.get()));
         return HCCL_E_PTR;
     }
-    vector<shared_ptr<PhyTopo::Link>> src2detVec;
+    vector<shared_ptr<hccl::PhyTopo::Link>> src2detVec;
     TRY_CATCH_RETURN(src2detVec = GetLinks(data.srcPhyPeerId, data.detourPhyPeerId, phyTopoGraph););
-    vector<shared_ptr<PhyTopo::Link>> det2dstVec;
+    vector<shared_ptr<hccl::PhyTopo::Link>> det2dstVec;
     TRY_CATCH_RETURN(det2dstVec = GetLinks(data.detourPhyPeerId, data.dstPhyPeerId, phyTopoGraph););
     if (src2detVec.size() == 0 || det2dstVec.size() == 0) {
         return HCCL_SUCCESS;
@@ -314,7 +314,7 @@ HcclResult GetDetourTableAndTableIds(
 }
 
 HcclResult AddDetourLinks(
-    const PhyTopo* phyTopo, RankGraph* rankGraph,
+    const hccl::PhyTopo* phyTopo, RankGraph* rankGraph,
     std::unordered_map<LocalId, unordered_map<LocalId, vector<LocalId>>>& detourTable,
     std::unordered_map<LocalId, u32>& tableIds, const RankTableInfo* rankTable)
 {
@@ -345,9 +345,9 @@ HcclResult AddDetourLinks(
 
                 // 插入detourlink
                 DetourData detourData;
-                detourData.detourPhyPeerId = PhyTopo::Peer::GetId(detourLocalId); // 绕路可能没有绕路节点的rankid
-                detourData.srcPhyPeerId = PhyTopo::Peer::GetId(srcLocalId);
-                detourData.dstPhyPeerId = PhyTopo::Peer::GetId(dstLocalId);
+                detourData.detourPhyPeerId = hccl::PhyTopo::Peer::GetId(detourLocalId); // 绕路可能没有绕路节点的rankid
+                detourData.srcPhyPeerId = hccl::PhyTopo::Peer::GetId(srcLocalId);
+                detourData.dstPhyPeerId = hccl::PhyTopo::Peer::GetId(dstLocalId);
                 detourData.srcNetInstPeer = rankGraph->GetPeer(srcRankId);
                 detourData.dstNetInstPeer = rankGraph->GetPeer(dstRankId);
 

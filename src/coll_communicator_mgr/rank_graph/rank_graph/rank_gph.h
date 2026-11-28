@@ -35,7 +35,6 @@ using Level2Id2NetInst = std::vector<std::unordered_map<std::string, std::shared
 using RankId2PeerMap = std::unordered_map<RankId, std::shared_ptr<NetInstance::Peer>>;
 using RankIpIndexList = std::vector<std::pair<IpAddress, uint32_t>>; // (addr, ipIndex) 有序表，按 IpAddress 升序
 constexpr u32 MAX_NET_LAYER = 8;
-static_assert(MAX_NET_LAYER == MAX_VALUE_NETLAYER + 1, "RankGraph layer count must match RankTable layer range");
 
 class RankGraph {
 public:

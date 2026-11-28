@@ -18,16 +18,16 @@
 
 namespace hccl {
 
-HcclResult RankTableReader::ReadLevel(const nlohmann::json& rankLevelInfoJson, Hccl::RankLevelInfo& out) const
+HcclResult RankTableReader::ReadLevel(const nlohmann::json& rankLevelInfoJson, RankLevelInfo& out) const
 {
-    out = Hccl::RankLevelInfo{};
+    out = RankLevelInfo{};
     CHK_RET(ReadNetLayerInfo(rankLevelInfoJson, out));
     CHK_RET(ReadRankAddrs(rankLevelInfoJson, out));
     BuildPortAddrMap(out);
     return HCCL_SUCCESS;
 }
 
-HcclResult RankTableReader::ReadNetLayerInfo(const nlohmann::json& rankLevelInfoJson, Hccl::RankLevelInfo& out) const
+HcclResult RankTableReader::ReadNetLayerInfo(const nlohmann::json& rankLevelInfoJson, RankLevelInfo& out) const
 {
     HcclResult ret
         = GetJsonPropertyUInt(rankLevelInfoJson, kRankTableKeys[RankTableKey::kNetLayer].name, true, 0, out.netLayer);
@@ -42,13 +42,13 @@ HcclResult RankTableReader::ReadNetLayerInfo(const nlohmann::json& rankLevelInfo
             rankLevelInfoJson, kRankTableKeys[RankTableKey::kNetInstanceId].name, "non-empty string", source_);
         return ret;
     }
-    if (out.netLayer > Hccl::MAX_VALUE_NETLAYER) {
+    if (out.netLayer > MAX_VALUE_NETLAYER) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
             std::vector<std::string>({std::to_string(out.netLayer), "net_layer", "[0, 7]"}));
         return HCCL_E_PARA;
     }
-    if (out.netInstId.length() < Hccl::MIN_VALUE_NETID || out.netInstId.length() > Hccl::MAX_VALUE_NETID) {
+    if (out.netInstId.length() < MIN_VALUE_NETID || out.netInstId.length() > MAX_VALUE_NETID) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
             std::vector<std::string>({out.netInstId, "net_instance_id", "length [1, 1024]"}));
@@ -75,7 +75,7 @@ HcclResult RankTableReader::ReadNetLayerInfo(const nlohmann::json& rankLevelInfo
     return HCCL_SUCCESS;
 }
 
-HcclResult RankTableReader::ReadRankAddrs(const nlohmann::json& rankLevelInfoJson, Hccl::RankLevelInfo& out) const
+HcclResult RankTableReader::ReadRankAddrs(const nlohmann::json& rankLevelInfoJson, RankLevelInfo& out) const
 {
     const nlohmann::json* rankAddrs = nullptr;
     HcclResult ret
@@ -85,7 +85,7 @@ HcclResult RankTableReader::ReadRankAddrs(const nlohmann::json& rankLevelInfoJso
             rankLevelInfoJson, kRankTableKeys[RankTableKey::kRankAddrList].name, "array", source_);
         return ret;
     }
-    if (rankAddrs->size() > Hccl::MAX_VALUE_RANKADDR_SIZE) {
+    if (rankAddrs->size() > MAX_VALUE_RANKADDR_SIZE) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
             std::vector<std::string>({std::to_string(rankAddrs->size()), "rank_addr_list size", "[0, 24]"}));
@@ -100,7 +100,7 @@ HcclResult RankTableReader::ReadRankAddrs(const nlohmann::json& rankLevelInfoJso
     return HCCL_SUCCESS;
 }
 
-void RankTableReader::BuildPortAddrMap(Hccl::RankLevelInfo& out) const
+void RankTableReader::BuildPortAddrMap(RankLevelInfo& out) const
 {
     for (auto& rankAddr : out.rankAddrs) {
         const Hccl::IpAddress ipAddress = rankAddr.addr;

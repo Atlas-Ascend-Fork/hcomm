@@ -62,13 +62,13 @@ protected:
 
     virtual void SetUp()
     {
-        PhyTopo::GetInstance()->Clear();
+        hccl::PhyTopo::GetInstance()->Clear();
         std::cout << "A Test case in SnapShotParserTest SetUP" << std::endl;
     }
 
     virtual void TearDown()
     {
-        PhyTopo::GetInstance()->Clear();
+        hccl::PhyTopo::GetInstance()->Clear();
         GlobalMockObject::verify();
         std::cout << "A Test case in SnapShotParserTest TearDown" << std::endl;
     }
@@ -363,7 +363,7 @@ TEST_F(SnapShotParserTest, SerializeCommonInfoTest)
     newRankInfo_1.localId = 1;
     newRankInfo_1.deviceId = 1;
 
-    RankLevelInfo rankLevelInfo;
+    hccl::RankLevelInfo rankLevelInfo;
 
     hccl::AddressInfo test_addr;
     test_addr.ports = {"0/0", "0/1", "0/8"};
@@ -453,7 +453,7 @@ TEST_F(SnapShotParserTest, SerializeSubCommInfoTest)
     newRankInfo_1.localId = 1;
     newRankInfo_1.deviceId = 1;
 
-    RankLevelInfo rankLevelInfo;
+    hccl::RankLevelInfo rankLevelInfo;
 
     hccl::AddressInfo test_addr;
     test_addr.ports = {"0/0", "0/1", "0/8"};
@@ -861,7 +861,7 @@ TEST_F(SnapShotParserTest, CurrentAndLegacySnapshotPolicyRoundTrip)
         rank.localId = 0;
         rank.deviceId = 0;
         rank.replacedLocalId = 0;
-        RankLevelInfo level{};
+        hccl::RankLevelInfo level{};
         level.netLayer = 0;
         level.netInstId = "server0";
         level.netType = NetType::TOPO_FILE_DESC;

@@ -62,9 +62,9 @@ TEST_F(RankLevelInfoParserTest, Ut_Deserialize_When_Normal_Expect_Success)
             ]
           }
     )";
-    RankLevelInfo rankLevelInfo;
+    hccl::RankLevelInfo rankLevelInfo;
     EXPECT_EQ(hccl::ParseJsonString(rankLevelString, rankLevelInfo), HCCL_SUCCESS);
-    RankLevelInfo rankLevelInfo0;
+    hccl::RankLevelInfo rankLevelInfo0;
     rankLevelInfo0.netLayer = 0;
     rankLevelInfo0.netInstId = "superPod0-rack3";
     rankLevelInfo0.netType = NetType::TOPO_FILE_DESC;
@@ -126,9 +126,9 @@ TEST_F(RankLevelInfoParserTest, Ut_Deserialize_When_OptionalFieldsMissing_Expect
             ]
           }
     )";
-    RankLevelInfo rankLevelInfo;
+    hccl::RankLevelInfo rankLevelInfo;
     EXPECT_EQ(hccl::ParseJsonString(rankLevelString, rankLevelInfo), HCCL_SUCCESS);
-    RankLevelInfo rankLevelInfo0;
+    hccl::RankLevelInfo rankLevelInfo0;
     rankLevelInfo0.netLayer = 0;
     rankLevelInfo0.netInstId = "superPod0-rack3";
     rankLevelInfo0.netType = NetType::TOPO_FILE_DESC;
@@ -163,7 +163,7 @@ TEST_F(RankLevelInfoParserTest, Ut_Deserialize_When_OptionalFieldsMissing_Expect
 
     BinaryStream binStream;
     EXPECT_EQ(rankLevelInfo.GetBinStream(binStream), HcclResult::HCCL_SUCCESS);
-    RankLevelInfo rankLevelInfo1(binStream);
+    hccl::RankLevelInfo rankLevelInfo1(binStream);
     EXPECT_EQ(rankLevelInfo1.netLayer, rankLevelInfo.netLayer);
     EXPECT_EQ(rankLevelInfo1.netInstId, rankLevelInfo.netInstId);
     EXPECT_EQ(rankLevelInfo1.netType, rankLevelInfo.netType);
@@ -195,7 +195,7 @@ TEST_F(RankLevelInfoParserTest, Ut_Deserialize_When_InvalidNetLayer_Expect_Excep
             ]
           }
     )";
-    RankLevelInfo rankLevelInfo;
+    hccl::RankLevelInfo rankLevelInfo;
 
     EXPECT_EQ(hccl::ParseJsonString(rankLevelString, rankLevelInfo), HCCL_E_PARA);
 }
@@ -225,7 +225,7 @@ TEST_F(RankLevelInfoParserTest, Ut_Deserialize_When_InvalidId_Expect_Exception)
             ]
           }
     )";
-    RankLevelInfo rankLevelInfo;
+    hccl::RankLevelInfo rankLevelInfo;
 
     EXPECT_EQ(hccl::ParseJsonString(rankLevelString, rankLevelInfo), HCCL_E_PARA);
 }
@@ -255,7 +255,7 @@ TEST_F(RankLevelInfoParserTest, Ut_Deserialize_When_InvalidNetType_Expect_Except
             ]
           }
     )";
-    RankLevelInfo rankLevelInfo;
+    hccl::RankLevelInfo rankLevelInfo;
 
     EXPECT_EQ(hccl::ParseJsonString(rankLevelString, rankLevelInfo), HCCL_E_PARA);
 }
@@ -285,7 +285,7 @@ TEST_F(RankLevelInfoParserTest, Ut_Deserialize_When_InvalidPortstoAddr_Expect_Su
             ]
           }
     )";
-    RankLevelInfo rankLevelInfo;
+    hccl::RankLevelInfo rankLevelInfo;
 
     EXPECT_EQ(hccl::ParseJsonString(rankLevelString, rankLevelInfo), HCCL_SUCCESS);
 }
@@ -330,7 +330,7 @@ TEST_F(RankLevelInfoParserTest, Ut_Deserialize_When_InvalidList_Expect_Exception
     ]
   }
 )";
-    RankLevelInfo rankLevelInfo;
+    hccl::RankLevelInfo rankLevelInfo;
 
     EXPECT_EQ(hccl::ParseJsonString(rankLevelString, rankLevelInfo), HCCL_E_PARA);
 }

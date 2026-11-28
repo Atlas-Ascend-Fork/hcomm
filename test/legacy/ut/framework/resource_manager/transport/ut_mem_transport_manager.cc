@@ -114,13 +114,13 @@ protected:
 
     virtual void SetUp()
     {
-        PhyTopo::GetInstance()->Clear();
+        hccl::PhyTopo::GetInstance()->Clear();
         std::cout << "A Test case in MemTransportManager SetUP" << std::endl;
     }
 
     virtual void TearDown()
     {
-        PhyTopo::GetInstance()->Clear();
+        hccl::PhyTopo::GetInstance()->Clear();
         std::cout << "A Test case in MemTransportManager TearDown" << std::endl;
         GlobalMockObject::verify();
     }

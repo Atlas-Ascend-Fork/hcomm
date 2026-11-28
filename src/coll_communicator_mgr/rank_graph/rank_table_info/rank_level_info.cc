@@ -13,22 +13,21 @@
 #include <string>
 #include <unordered_map>
 
-namespace Hccl {
-using namespace std;
+namespace hccl {
 
-string RankLevelInfo::Describe() const
+std::string RankLevelInfo::Describe() const
 {
-    return StringFormat(
+    return Hccl::StringFormat(
         "RankLevelInfo[net_layer=%u, net_instance_id=%s, netType=%s, rankAddrs size=%d]", netLayer, netInstId.c_str(),
         netType.Describe().c_str(), rankAddrs.size());
 }
 
-RankLevelInfo::RankLevelInfo(BinaryStream& binStream)
+RankLevelInfo::RankLevelInfo(Hccl::BinaryStream& binStream)
 {
     binStream >> netLayer >> netInstId >> netAttr;
     u32 netTypeInt{0};
     binStream >> netTypeInt;
-    netType = static_cast<NetType::Value>(netTypeInt);
+    netType = static_cast<Hccl::NetType::Value>(netTypeInt);
     u32 pcieFallbackInt{0};
     binStream >> pcieFallbackInt;
     pcieFallback = (pcieFallbackInt != 0);
@@ -43,12 +42,12 @@ RankLevelInfo::RankLevelInfo(BinaryStream& binStream)
     }
 
     for (auto& rankAddr : rankAddrs) {
-        IpAddress ipAddress = rankAddr.addr;
+        Hccl::IpAddress ipAddress = rankAddr.addr;
         for (auto& port : rankAddr.ports) {
             if (portAddrMap.find(port) != portAddrMap.end()) {
                 portAddrMap[port].push_back(ipAddress);
             } else {
-                std::vector<IpAddress> ipAddrList;
+                std::vector<Hccl::IpAddress> ipAddrList;
                 ipAddrList.push_back(ipAddress);
                 portAddrMap[port] = ipAddrList;
             }
@@ -56,7 +55,7 @@ RankLevelInfo::RankLevelInfo(BinaryStream& binStream)
     }
 }
 
-HcclResult RankLevelInfo::GetBinStream(BinaryStream& binStream) const
+HcclResult RankLevelInfo::GetBinStream(Hccl::BinaryStream& binStream) const
 {
     binStream << netLayer << netInstId << netAttr << static_cast<u32>(netType);
     binStream << static_cast<u32>(pcieFallback);
@@ -72,4 +71,4 @@ HcclResult RankLevelInfo::GetBinStream(BinaryStream& binStream) const
     }
     return HCCL_SUCCESS;
 }
-} // namespace Hccl
+} // namespace hccl

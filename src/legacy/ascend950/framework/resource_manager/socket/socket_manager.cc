@@ -249,13 +249,13 @@ void SocketManager::ServerInitAll(hccl::NewRankInfo& rankInfo)
     u32 localId = rankInfo.localId;
     u32 devicePhyId = rankInfo.deviceId;
     for (auto& rankLevelInfo : rankInfo.rankLevelInfos) {
-        shared_ptr<hccl::Graph<PhyTopo::Node, PhyTopo::Link>> graph
-            = PhyTopo::GetInstance()->GetTopoGraph(rankLevelInfo.netLayer);
+        shared_ptr<hccl::Graph<hccl::PhyTopo::Node, hccl::PhyTopo::Link>> graph
+            = hccl::PhyTopo::GetInstance()->GetTopoGraph(rankLevelInfo.netLayer);
         if (graph == nullptr) {
             HCCL_DEBUG("[SocketManager::%s]Can't find the layout %u Graph!", __func__, rankLevelInfo.netLayer);
             continue;
         }
-        std::vector<std::shared_ptr<PhyTopo::Link>> links = graph->GetEdges(localId);
+        std::vector<std::shared_ptr<hccl::PhyTopo::Link>> links = graph->GetEdges(localId);
         for (auto& link : links) {
             if (link->GetSourceIFace()->GetPos() == AddrPosition::HOST) {
                 continue;

@@ -18,7 +18,7 @@
 #include <string>
 
 #include "types.h"
-#include "rank_level_info.h"
+#include "rank_level_info_legacy950.h"
 #include "control_plane_legacy950.h"
 #include "orion_adapter_hccp.h"
 namespace Hccl {
@@ -44,7 +44,7 @@ public:
     u32 replacedLocalId{0};
     u32 devicePort{DEFAULT_VALUE_TCPPORT};
     u32 hostPort{DEFAULT_VALUE_TCPPORT};
-    std::vector<Hccl::RankLevelInfo> rankLevelInfos{};
+    std::vector<RankLevelInfo> rankLevelInfos{};
     ControlPlane controlPlane{};
     Hccl::TlsStatus tlsStatus{Hccl::TlsStatus::UNKNOWN};
     Hccl::TlsStatus hostDpuTlsStatus{Hccl::TlsStatus::UNKNOWN};
