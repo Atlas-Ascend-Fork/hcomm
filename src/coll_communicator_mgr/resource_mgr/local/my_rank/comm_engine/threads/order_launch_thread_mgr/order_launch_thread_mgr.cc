@@ -17,6 +17,7 @@
 #include "local_notify.h" // GE保序notify以LocalNotify对象管理（所有权转移模型，正常路径创建/销毁）
 #include "coll_comm.h"
 #include "sal_pub.h"
+#include "task_info.h"
 #include "comm_engine/thread/dfx/thread_dfx_pub.h"
 #include "dfx/prof_utils_pub.h"
 #include "comm_engine/thread/thread_c_adpt_pub.h"
@@ -478,10 +479,8 @@ HcclResult OrderLaunchThreadMgr::RegisterDfx(
     } else {
         std::function<HcclResult(u32, u32, const Hccl::TaskParam&, u64)> dfxCallback
             = [](u32 streamId, u32 taskId, const Hccl::TaskParam& taskParam, u64 handle) {
-                  (void)streamId;
-                  (void)taskId;
-                  (void)taskParam;
                   (void)handle;
+                  Hccl::PrintTaskLog(streamId, taskId, taskParam, Hccl::INVALID_VALUE_RANKID);
                   return HCCL_SUCCESS;
               };
         int ret = HcommThreadRegisterDfx(thread, dfxCallback);
