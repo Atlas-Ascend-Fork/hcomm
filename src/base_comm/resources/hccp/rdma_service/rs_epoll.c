@@ -686,10 +686,6 @@ STATIC void *RsConnectHandle(void *arg)
 
     hccp_run_info("pthread[%s] is alive!", gConnectThreadInfo.pthreadName);
     while (1) {
-        if (rsCb == NULL) {
-            return NULL;
-        }
-
         if (rsCb->connFlag == 0) {
             break;
         }
