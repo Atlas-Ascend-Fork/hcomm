@@ -232,6 +232,15 @@ typedef struct {
 } CommMem;
 
 /**
+ * @enum HcommMemMapType
+ * @brief Host内存映射方式
+ */
+typedef enum {
+    HCOMM_MEM_MAP_DEFAULT = 0, ///< 映射为Device可访问（默认）
+    HCOMM_MEM_MAP_PINNED = 1,  ///< 映射并将非锁页内存转为锁页，仅ACL路径支持
+} HcommMemMapType;
+
+/**
  * @brief 内存注册标签（memTag）长度上限，HcommMemReg 入参校验使用
  */
 static const uint32_t HCOMM_RES_TAG_MAX_LEN = 255U;

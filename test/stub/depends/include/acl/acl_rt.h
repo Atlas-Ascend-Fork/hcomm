@@ -55,6 +55,11 @@ extern "C" {
 #define ACL_DEV_FEATURE_SUPPORT 0x00000001
 #define ACL_DEV_FEATURE_NOT_SUPPORT 0x00000000
 
+// for host-device connect type（取值与 CANN 9.2.0 acl/acl_rt.h 一致）
+#define ACL_HOST_DEVICE_CONNECT_TYPE_PCIE 0 // PCIe connection
+#define ACL_HOST_DEVICE_CONNECT_TYPE_HCCS 1 // HCCS connection
+#define ACL_HOST_DEVICE_CONNECT_TYPE_UB 2   // UB connection
+
 #define ACL_RT_NOTIFY_EXPORT_FLAG_DEFAULT 0x0UL
 #define ACL_RT_NOTIFY_EXPORT_FLAG_DISABLE_PID_VALIDATION 0x02UL
 
@@ -139,6 +144,12 @@ typedef enum aclrtMemMallocPolicy {
 typedef enum {
     ACL_HOST_REGISTER_MAPPED = 0,
 } aclrtHostRegisterType;
+
+// Host register flags for aclrtHostRegisterV2（取值与 CANN 8.5.0/9.2.0 acl/acl_rt.h 一致）
+#define ACL_HOST_REG_MAPPED 0x2UL        // Map host memory to device address
+#define ACL_HOST_REG_IOMEMORY 0x4UL      // Register as IO memory
+#define ACL_HOST_REG_READONLY 0x8UL      // Register as read-only memory
+#define ACL_HOST_REG_PINNED 0x10000000UL // Pin memory to prevent swapping
 
 typedef enum {
     ACL_RT_MEM_ATTR_RSV = 0,
@@ -484,6 +495,7 @@ typedef enum {
     ACL_DEV_ATTR_SUPER_POD_ID = 405U,        // super pod id
     ACL_DEV_ATTR_CUST_OP_PRIVILEGE = 406U,   // indicates whether the custom operator privilege is enabled
     ACL_DEV_ATTR_MAINBOARD_ID = 407U,        // mainborad id
+    ACL_DEV_ATTR_HD_CONNECT_TYPE = 408U,     // host-device connect type
 
     ACL_DEV_ATTR_IS_VIRTUAL = 501U, // whether it is in compute power splitting mode
 } aclrtDevAttr;
@@ -1513,6 +1525,32 @@ ACL_FUNC_VISIBILITY aclError aclrtPointerGetAttributes(const void* ptr, aclrtPtr
  * @retval OtherValues Failure
  */
 ACL_FUNC_VISIBILITY aclError aclrtHostRegister(void* ptr, uint64_t size, aclrtHostRegisterType type, void** devPtr);
+
+/**
+ * @ingroup AscendCL
+ * @brief register an existing host memory range
+ *
+ * @param ptr [IN]     host pointer to memory to page-lock
+ * @param size [IN]    size in bytes of the address range to page-lock in bytes
+ * @param flag [IN]    flag for allocation request
+ *
+ * @retval ACL_SUCCESS The function is successfully executed.
+ * @retval OtherValues Failure
+ */
+ACL_FUNC_VISIBILITY aclError aclrtHostRegisterV2(void* ptr, uint64_t size, uint32_t flag);
+
+/**
+ * @ingroup AscendCL
+ * @brief return device pointer of mapped host memory registered by aclrtHostRegister or aclrtHostRegisterV2
+ *
+ * @param pHost [IN]      requested host pointer mapping
+ * @param pDevice [OUT]   return device pointer for mapped memory
+ * @param flag [IN]       flag for extensions (must be 0 for now)
+ *
+ * @retval ACL_SUCCESS The function is successfully executed.
+ * @retval OtherValues Failure
+ */
+ACL_FUNC_VISIBILITY aclError aclrtHostGetDevicePointer(void* pHost, void** pDevice, uint32_t flag);
 
 /**
  * @ingroup AscendCL

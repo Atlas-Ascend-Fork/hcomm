@@ -72,6 +72,32 @@ extern HcommResult HcommMemAlloc(void** ptr, size_t size);
 
 extern HcommResult HcommMemFree(void* ptr);
 
+/**
+ * @brief 将Host DDR内存映射为Device侧可访问的dVA
+ * @param[in] hostMem Host侧内存描述，type须为COMM_MEM_TYPE_HOST，addr为Host hVA
+ * @param[out] devMem 返回映射后的Device侧内存描述，addr为dVA，type为COMM_MEM_TYPE_DEVICE
+ * @param[in] mapType Host内存映射方式，参见HcommMemMapType；
+ * HCOMM_MEM_MAP_PINNED仅非ATU（ACL）路径支持，ATU场景返回HCCL_E_NOT_SUPPORT
+ * @return HcommResult 执行结果状态码
+ * @note PCIe H2D协议且芯片为950/960时使用PCIe ATU方式注册；
+ * 其余场景使用aclrtHostRegisterV2注册，并通过aclrtHostGetDevicePointer获取dVA
+ * @note 调用前需通过aclrtSetDevice设置当前Device；hostMem->addr需4K页对齐
+ * @note 映射得到的dVA供Device侧访问Host内存使用，不能用于内存拷贝操作
+ * @note 映射得到的dVA仅在完成映射的进程/Device上下文内有效，不能跨进程或跨Device传递
+ * @note Host内存的生命周期由调用方保证，需与HcommMemHostUnmapFromDev在同一Device上下文中成对调用
+ */
+extern HcommResult HcommMemHostMap2Dev(const CommMem* hostMem, CommMem* devMem, HcommMemMapType mapType);
+
+/**
+ * @brief 解除Host DDR内存到Device侧dVA的映射
+ * @param[in] hostMem Host侧内存描述，须与HcommMemHostMap2Dev的入参一致，type为COMM_MEM_TYPE_HOST，addr为Host hVA
+ * @return HcommResult 执行结果状态码
+ * @note 需与HcommMemHostMap2Dev成对调用，传入映射时的hostMem
+ * @note 需与HcommMemHostMap2Dev在同一Device上下文中调用
+ * @note 注销成功后，映射得到的dVA失效，不能再被Device侧访问
+ */
+extern HcommResult HcommMemHostUnmapFromDev(const CommMem* hostMem);
+
 #ifdef __cplusplus
 }
 #endif // __cplusplus

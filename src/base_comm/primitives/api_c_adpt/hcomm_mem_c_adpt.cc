@@ -179,3 +179,10 @@ HcommResult HcommMemGetAllMemHandles(EndpointHandle endpointHandle, void** memHa
 HcommResult HcommMemAlloc(void** ptr, size_t size) { return hcomm::MemAlloc(ptr, size); }
 
 HcommResult HcommMemFree(void* ptr) { return hcomm::MemFree(ptr); }
+
+HcommResult HcommMemHostMap2Dev(const CommMem* hostMem, CommMem* devMem, HcommMemMapType mapType)
+{
+    return hcomm::MemHostMap2Dev(hostMem, devMem, mapType);
+}
+
+HcommResult HcommMemHostUnmapFromDev(const CommMem* hostMem) { return hcomm::MemHostUnmapFromDev(hostMem); }

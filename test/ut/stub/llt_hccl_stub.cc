@@ -1771,6 +1771,24 @@ aclError aclrtHostRegister(void* ptr, uint64_t size, aclrtHostRegisterType type,
     return ACL_SUCCESS;
 }
 
+aclError aclrtHostRegisterV2(void* ptr, uint64_t size, uint32_t flag)
+{
+    (void)ptr;
+    (void)size;
+    (void)flag;
+    return ACL_SUCCESS;
+}
+
+aclError aclrtHostGetDevicePointer(void* pHost, void** pDevice, uint32_t flag)
+{
+    (void)flag;
+    if (pDevice == nullptr) {
+        return ACL_ERROR_RT_PARAM_INVALID;
+    }
+    *pDevice = pHost;
+    return ACL_SUCCESS;
+}
+
 aclError aclrtHostUnregister(void* ptr) { return ACL_SUCCESS; }
 
 aclError aclrtGetOpTimeOutInterval(uint64_t* interval) { return ACL_SUCCESS; }
@@ -2148,6 +2166,23 @@ rtError_t rtGetSocVersion(char* chipVer, u32 maxLen)
     } else if (gBoardId == 0x2000) { // 临时定义的 board id
         sal_memcpy(chipVer, sizeof("Ascend310P3"), "Ascend310P3", sizeof("Ascend310P3"));
     }
+    return RT_ERROR_NONE;
+}
+
+extern "C" rtError_t rtHostRegisterByPciAtu(void* ptr, uint64_t size, uint32_t flag, void** devPtr)
+{
+    (void)size;
+    (void)flag;
+    if (devPtr == nullptr) {
+        return ACL_ERROR_RT_PARAM_INVALID;
+    }
+    *devPtr = ptr;
+    return RT_ERROR_NONE;
+}
+
+extern "C" rtError_t rtHostUnRegisterByPciAtu(void* ptr)
+{
+    (void)ptr;
     return RT_ERROR_NONE;
 }
 

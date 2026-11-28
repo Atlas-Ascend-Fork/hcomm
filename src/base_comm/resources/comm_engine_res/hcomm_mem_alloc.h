@@ -20,6 +20,12 @@ HcommResult MemAlloc(void** ptr, size_t size);
 
 // 释放 MemAlloc 申请的内存，ptr 为空时直接返回成功
 HcommResult MemFree(void* ptr);
+
+// 将 Host DDR 的 hVA 映射为 Device 侧（cp1 进程）dVA
+HcommResult MemHostMap2Dev(const CommMem* hostMem, CommMem* devMem, HcommMemMapType mapType);
+
+// 解除 Host DDR 到 Device 侧 dVA 的映射，hostMem 须与映射时的入参一致
+HcommResult MemHostUnmapFromDev(const CommMem* hostMem);
 } // namespace hcomm
 
 #endif // HCOMM_MEM_ALLOC_H

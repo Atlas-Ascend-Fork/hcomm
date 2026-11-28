@@ -390,6 +390,8 @@ global:
     HcommMemAlloc;
     HcommMemExport;
     HcommMemFree;
+    HcommMemHostMap2Dev;
+    HcommMemHostUnmapFromDev;
     HcommMemImport;
     HcommMemReg;
     HcommMemUnimport;

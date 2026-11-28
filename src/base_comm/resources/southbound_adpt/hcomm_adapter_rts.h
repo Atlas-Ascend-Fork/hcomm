@@ -11,10 +11,21 @@
 #ifndef HCOMM_ADAPTER_RTS_H
 #define HCOMM_ADAPTER_RTS_H
 
+#include <cstddef>
+#include <cstdint>
+
 #include "acl/acl_rt.h"
 #include "rt_external.h"
 
 #include "hccl_types.h"
+
+// rtHostRegisterByPciAtu/rtHostUnRegisterByPciAtu 为新增runtime接口，低版本runtime未提供声明与符号，使用弱符号兼容。
+// 声明签名必须与 Runtime pkg_inc/runtime/rt_external_mem.h 保持一致，否则会与官方声明冲突。
+// 注：rtHostUnRegisterByPciAtu 的入参为注册时的Host基地址（hVA），不是 map 产出的 dVA。
+extern "C" {
+__attribute__((weak)) rtError_t rtHostRegisterByPciAtu(void* ptr, uint64_t size, uint32_t flag, void** devPtr);
+__attribute__((weak)) rtError_t rtHostUnRegisterByPciAtu(void* ptr);
+}
 
 namespace hcomm {
 

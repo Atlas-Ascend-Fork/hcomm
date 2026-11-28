@@ -54,6 +54,8 @@ set(src_to_test_list
     comms/api_c_adpt/ut_hcomm_endpoint_uboe_test.cc
     comms/api_c_adpt/ut_hcomm_endpoint_ub_rtp_test.cc
     comms/api_c_adpt/ut_hcomm_mem_test.cc
+    comms/api_c_adpt/ut_hcomm_mem_host_map2dev.cc
+    comms/api_c_adpt/ut_hcomm_mem_host_unmap_from_dev.cc
     comms/api_c_adpt/ut_hcomm_channel_test.cc
     comms/api_c_adpt/ut_hcomm_channel_config_test.cc
     comms/api_c_adpt/ut_hcomm_res_ccu_entity_test.cc

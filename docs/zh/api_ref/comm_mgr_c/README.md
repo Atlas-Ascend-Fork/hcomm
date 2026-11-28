@@ -31,6 +31,8 @@
   - [HcclGetErrorString](HcclGetErrorString.md)
   - [HcommMemAlloc](HcommMemAlloc.md)
   - [HcommMemFree](HcommMemFree.md)
+  - [HcommMemHostMap2Dev](HcommMemHostMap2Dev.md)
+  - [HcommMemHostUnmapFromDev](HcommMemHostUnmapFromDev.md)
   - [HcclCommShrink](HcclCommShrink.md)
   - [HcclCommGrow](HcclCommGrow.md)
   - [HcclCommGetRootInfo](HcclCommGetRootInfo.md)
