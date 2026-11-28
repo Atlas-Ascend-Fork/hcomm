@@ -377,6 +377,7 @@ TEST_F(SharedJettyConnAdaptTest, Ut_DetachTpOwnership_When_CallbackBuildThrows_E
     // DetachTpOwnership 成功已翻转标志，构造失败后经 Restore 还原为析构释放（旧行为回退）
     EXPECT_TRUE(conn->releaseTpOnDestroy_);
     GlobalMockObject::verify();
+    GlobalMockObject::reset();
 
     // 回滚后可重新移交：真实构造路径恢复，回调正常产出
     std::function<HcclResult()> releaseTp2 = nullptr;

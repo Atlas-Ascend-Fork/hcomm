@@ -70,7 +70,6 @@ public:
      *        状态机据此跳过 JETTY_CREATING 直接进入 JETTY_CREATED。
      * @note 架构说明：本组方法属 base_comm 共享 jetty 特性（IS_SHARED_QUEUE）的实现细节，
      *       base_comm 侧通过 shared_jetty_connection_adapter 适配层调用，不直接依赖本类。
-     *       在迁移完成前，本目录仅作过渡技术债承载，禁止继续扩展共享 jetty 新特性。
      */
     HcclResult SetSharedJettyFields(
         JettyHandle jettyHdl, void* jettyHdlPtr, uint32_t jId, uint64_t sqVa, uint64_t db, const uint8_t* qpKey,
@@ -88,6 +87,9 @@ public:
 
     /**
      * @brief TP 引用所有权集合，DetachTpOwnership 输出，供调用方构造释放回调。
+     * @note 过渡桥接：本组接口（TpOwnership/DetachTpOwnership/RestoreTpOwnershipOnDestroy）为共享 jetty
+     *       迁移期跨二进制导出桥接，TP 引用生命周期管理下沉 base_comm 后删除本组符号，
+     *       禁止新增消费方。
      */
     struct TpOwnership {
         int32_t devLogicId{0};

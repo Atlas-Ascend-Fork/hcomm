@@ -294,6 +294,13 @@ libhccl_v2.so 内的单例跨二进制搬不动，只锚定不入树；锚定只
 
 新增 legacy 依赖时在对应锚定点补一行首触（设备级单例补进 `AnchorDeviceSingletons` 即可）。
 
+例外登记：`Hccl::TpManager` / `Hccl::RdmaHandleManager` 在锚定之上叠加进程级 intentional leak
+（`GetInstance` 内 new 后不析构，存活覆盖整个进程含静态析构窗口，口径见 tp_manager.cc /
+rdma_handle_manager.cc）：`~JettyContext` 等晚期调用方（经 `IsHandleValid` 探测、TP 释放回调链）
+可能落在静态析构窗口内，函数级 static 逆序析构后命中已析构实例、加锁即 UB，永不析构使探测
+行为良定义，从根上消除跨翻译单元静态析构顺序问题。二者资源回收不经析构：句柄由设备复位
+回调按设备 DeInit（base_comm_mgr.cc），TP 引用经释放回调归还，残留随进程回收。
+
 #### R9 越界回落兜底
 
 设备级访问器保持"越界/转换失败回落兜底"语义；入参键型与原 GetInstance 一致：
@@ -357,3 +364,23 @@ BaseCommResPerDev 值成员）。
   使用方；挂在 CCU 子树下会让非 CCU 使用方被迫依赖 CCU 节点。
 - 迁移保持窄访问器签名与语义不变（`GetTpMgr(devPhyId)`，含 R9 越界回落口径），
   调用点无需改动；归属变化在 R3 声明序登记与本节记录。
+
+## 共享 Jetty 上下文（resources/endpoints/comm_queue_context/）
+
+`CommQueueContext` 基类仅定义 Endpoint 与队列类资源的挂载契约（虚析构），具体资源由派生类聚合；
+`JettyContext` 以引用计数 + condition_variable 管理同 Endpoint 下多 Channel 对共享 jetty
+（jetty 句柄 / QP key / PI·CI device 内存 / JFC / CQ 信息 / 远端 jetty 缓存）的复用，
+Endpoint 派生类经 `GetCommQueueContext()` 延迟创建并持有：
+
+- 获取：`Acquire` 三段式——持锁等待/复用或抢占创建权（等待上限 32s，`JETTY_CREATE_TIMEOUT_SECONDS`）
+  → 无锁执行 provider 创建回调（临时 connection 建 jetty 后移交所有权；失败/异常清 creating 标记，
+  并在锁外兜底执行已移交的 TP 释放回调）→ 持锁发布缓存（失败回滚销毁）。
+- 释放：`Release` 使 refCount 递减，归零销毁 jetty/JFC/PI·CI 并清空缓存；TP 释放回调一律移出在
+  锁外执行（回调链经适配层进入 TpManager 信息锁域，持 mtx_ 执行会跨模块锁嵌套）。
+- 远端缓存：`AcquireSharedRemoteJetty` / `PublishSharedRemoteJetty` 按 remoteQpKey 预约/发布，
+  避免同对端 jetty 重复 import。
+- 数据契约：`Ctx` 与 `Inner` 共享字段一一对应，新增字段须同步 Ctx、Inner、`InnerToCtx`、
+  `PublishCreatedCtx` 四处；Inner 多出的 refCount/valid/creating/remoteJettys/tpReleaseCb 为内部状态。
+  TP 引用释放回调经 `Acquire` 独立出参移交（`JettyContext::TpReleaseCb`），Ctx 视图不承载所有权。
+- 已知限制：析构时 refCount 非零仅告警并保留资源（防 use-after-free）；设备复位回调已回收
+  rdmaHandle 时跳过 device 销毁（防失效句柄崩溃），TP 回调仍锁外释放。

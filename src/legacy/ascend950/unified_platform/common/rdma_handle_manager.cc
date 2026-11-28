@@ -33,12 +33,9 @@ RdmaHandleManager::~RdmaHandleManager() { DECTOR_TRY_CATCH("RdmaHandleManager", 
 
 RdmaHandleManager& RdmaHandleManager::GetInstance()
 {
-    // intentional leak：与 TpManager::GetInstance 同口径。函数级 static 对象在进程退出静态析构阶段
-    // 按首次使用逆序析构，~JettyContext 等晚期调用方经 IsHandleValid 探测时可能拿到已析构实例
-    // （managerMutex/activeHandles_ 已销毁，加锁即 UB）。new 后不析构使实例存活期覆盖整个进程
-    // （含静态析构窗口），探测行为良定义；句柄回收由显式 DeInit（hcomm_res_mgr.cc 按设备调用）驱动，
-    // 原由析构兜底的 DestroyAll 不再于静态析构期执行（残留句柄随进程回收，内核侧自行清理），
-    // 进程内建链/断链行为不变。
+    // intentional leak：函数级 static 会在进程退出时析构，~JettyContext 晚期经 IsHandleValid 探测
+    // 已析构实例会 UB，故 new 后不析构存活全进程（同 TpManager::GetInstance）；
+    // 句柄回收仅由设备复位回调驱动，残留句柄随进程回收。
     static RdmaHandleManager* rdmaHandleManager = new RdmaHandleManager();
     return *rdmaHandleManager;
 }

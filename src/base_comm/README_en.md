@@ -396,6 +396,19 @@ differ in guarantee strength:
 When adding a legacy dependency, add one first-touch line at the corresponding anchor
 point (device-level singletons go into `AnchorDeviceSingletons` only).
 
+Exception registration: `Hccl::TpManager` / `Hccl::RdmaHandleManager` add a process-level
+intentional leak on top of anchoring (created via new inside GetInstance and never
+destructed; lifetime covers the whole process including the static-destruction window;
+rationale in tp_manager.cc / rdma_handle_manager.cc). Late callers such as
+`~JettyContext` (probing via `IsHandleValid`, or through the TP release callback chain)
+may run inside the static-destruction window; a function-level static destroyed in
+reverse order would leave them touching a destructed instance (locking is UB). Never
+destructing makes such probing well-defined and eliminates cross-translation-unit
+static-destruction ordering at the root. Resource reclamation for both bypasses
+destruction: handles are DeInited per device by the device reset callback
+(base_comm_mgr.cc), TP references are returned via release callbacks, and leftovers
+are reclaimed with the process.
+
 #### R9 Out-of-range ids fall back to reserve instances
 
 Device-level accessors keep the "out-of-range / conversion failure falls back to a
@@ -481,3 +494,34 @@ and only clear local tables (first instance: CcuComponent::ReleaseAllTpInfos).
 - The migration keeps the narrow accessor signature and semantics unchanged
   (`GetTpMgr(devPhyId)`, including the R9 out-of-range fallback), so call sites need no
   change; the ownership change is registered in R3 and recorded in this section.
+
+## Shared Jetty Context (resources/endpoints/comm_queue_context/)
+
+The `CommQueueContext` base class defines only the mounting contract between an Endpoint
+and queue-type resources (virtual destructor); concrete resources are aggregated by
+derived classes. `JettyContext` manages the reuse of the shared jetty (jetty handle /
+QP key / PI·CI device memory / JFC / CQ information / remote jetty cache) among multiple
+channels under the same Endpoint with reference counting plus a condition_variable;
+Endpoint derived classes create and hold it lazily via `GetCommQueueContext()`:
+
+- Acquisition: `Acquire` runs in three phases -- wait/reuse under the lock or claim the
+  creation right (32s wait bound, `JETTY_CREATE_TIMEOUT_SECONDS`) -- execute the provider
+  creation callback without the lock (the temp connection creates the jetty and then
+  transfers ownership; on failure/exception the creating flag is cleared and the
+  transferred TP release callback is executed outside the lock as fallback) -- publish
+  the cache under the lock (rollback and destroy on failure).
+- Release: `Release` decrements refCount; when it reaches zero, the jetty/JFC/PI·CI are
+  destroyed and the cache cleared; the TP release callback is always moved out and
+  executed outside the lock (the callback chain enters the TpManager information-lock
+  domain through the adapter; executing while holding mtx_ causes cross-module lock nesting).
+- Remote cache: `AcquireSharedRemoteJetty` / `PublishSharedRemoteJetty` reserve/publish by
+  remoteQpKey, avoiding repeated import of the jetty for the same peer.
+- Data contract: `Ctx` and `Inner` share a one-to-one field correspondence; adding a field
+  must be synchronized in Ctx, Inner, `InnerToCtx`, and `PublishCreatedCtx`; the extra
+  refCount/valid/creating/remoteJettys/tpReleaseCb in Inner are internal state. The TP
+  release callback is transferred via a separate out-parameter of `Acquire`
+  (`JettyContext::TpReleaseCb`); the Ctx view carries no ownership.
+- Known limitations: if refCount is non-zero at destruction, resources are kept with only
+  a warning (avoiding use-after-free); if the device reset callback has reclaimed the
+  rdmaHandle, device destruction is skipped (avoiding crashes on invalid handles), while
+  the TP callback is still released outside the lock.

@@ -81,7 +81,7 @@ protected:
 TEST_F(JettyContextTest, Acquire_FirstCreate_Success)
 {
     JettyContext::Ctx out;
-    auto provideCtx = [](JettyContext::Ctx& c) -> HcclResult {
+    auto provideCtx = [](JettyContext::Ctx& c, JettyContext::TpReleaseCb&) -> HcclResult {
         c = MakeValidCtx();
         return HCCL_SUCCESS;
     };
@@ -98,14 +98,14 @@ TEST_F(JettyContextTest, Acquire_FirstCreate_Success)
 TEST_F(JettyContextTest, Acquire_Reuse_When_AlreadyValid)
 {
     JettyContext::Ctx out;
-    auto provideCtx = [](JettyContext::Ctx& c) -> HcclResult {
+    auto provideCtx = [](JettyContext::Ctx& c, JettyContext::TpReleaseCb&) -> HcclResult {
         c = MakeValidCtx();
         return HCCL_SUCCESS;
     };
     ASSERT_EQ(ctx.Acquire(provideCtx, out), HCCL_SUCCESS);
 
     JettyContext::Ctx out2;
-    auto provideCtx2 = [](JettyContext::Ctx&) -> HcclResult {
+    auto provideCtx2 = [](JettyContext::Ctx&, JettyContext::TpReleaseCb&) -> HcclResult {
         ADD_FAILURE() << "provideCtx should not be called on reuse";
         return HCCL_SUCCESS;
     };
@@ -117,7 +117,7 @@ TEST_F(JettyContextTest, Acquire_Reuse_When_AlreadyValid)
 TEST_F(JettyContextTest, Acquire_When_ProvideCtxFails_ReturnsError)
 {
     JettyContext::Ctx out;
-    auto provideCtx = [](JettyContext::Ctx&) -> HcclResult {
+    auto provideCtx = [](JettyContext::Ctx&, JettyContext::TpReleaseCb&) -> HcclResult {
         return HCCL_E_INTERNAL;
     };
     EXPECT_EQ(ctx.Acquire(provideCtx, out), HCCL_E_INTERNAL);
@@ -135,8 +135,8 @@ TEST_F(JettyContextTest, Acquire_When_ProvideCtxFailsAfterTpCbFilled_ExecutesTpR
     // 本用例固化兜底契约，防止未来 provider 违反顺序不变量时 useCnt 漏扣回归无法被 CI 捕获。
     JettyContext::Ctx out;
     int invokeCount = 0;
-    auto provideCtx = [&invokeCount](JettyContext::Ctx& c) -> HcclResult {
-        c.tpReleaseCb = [&invokeCount]() -> HcclResult {
+    auto provideCtx = [&invokeCount](JettyContext::Ctx&, JettyContext::TpReleaseCb& tpReleaseCb) -> HcclResult {
+        tpReleaseCb = [&invokeCount]() -> HcclResult {
             invokeCount++;
             return HCCL_SUCCESS;
         };
@@ -150,7 +150,7 @@ TEST_F(JettyContextTest, Acquire_When_ProvideCtxFailsAfterTpCbFilled_ExecutesTpR
 
     // 失败后状态干净，同 endpoint 可重新创建（creating 已清、Inner 无残留回调）
     JettyContext::Ctx out2;
-    auto provideCtx2 = [](JettyContext::Ctx& c) -> HcclResult {
+    auto provideCtx2 = [](JettyContext::Ctx& c, JettyContext::TpReleaseCb&) -> HcclResult {
         c = MakeValidCtx();
         return HCCL_SUCCESS;
     };
@@ -164,12 +164,42 @@ TEST_F(JettyContextTest, Acquire_When_ProvideCtxThrows_PropagatesException)
     // ThrowAbnormalStatus/CheckRequestResult THROW，生产侧 EXCEPTION_CATCH 仅包连接构造、
     // 不覆盖该轮询），异常穿出时 creating 已清理，见 ClearsCreatingAndRetrySucceeds 用例
     JettyContext::Ctx out;
-    auto provideCtx = [](JettyContext::Ctx&) -> HcclResult {
+    auto provideCtx = [](JettyContext::Ctx&, JettyContext::TpReleaseCb&) -> HcclResult {
         throw std::runtime_error("mock throw");
     };
     EXPECT_THROW(ctx.Acquire(provideCtx, out), std::runtime_error);
     EXPECT_FALSE(ctx.inner_.creating);
     EXPECT_FALSE(ctx.inner_.valid);
+}
+
+TEST_F(JettyContextTest, Acquire_When_ProvideCtxThrowsAfterTpCbFilled_ExecutesTpReleaseCbFallback)
+{
+    // 异常路径兜底：provider 在填充 tpReleaseCb 后抛异常——回调是已移交 TP 引用的唯一释放路径
+    // （临时 connection 已置 releaseTpOnDestroy_=false），RunProvideCtx 须在清 creating 后
+    // 锁外兜底执行恰一次再原样上抛（不吞异常），防止 TpManager useCnt 永久漏扣
+    JettyContext::Ctx out;
+    int invokeCount = 0;
+    auto provideCtx = [&invokeCount](JettyContext::Ctx&, JettyContext::TpReleaseCb& tpReleaseCb) -> HcclResult {
+        tpReleaseCb = [&invokeCount]() -> HcclResult {
+            invokeCount++;
+            return HCCL_SUCCESS;
+        };
+        throw std::runtime_error("mock throw after tp cb filled");
+    };
+    EXPECT_THROW(ctx.Acquire(provideCtx, out), std::runtime_error);
+    EXPECT_EQ(invokeCount, 1);
+    EXPECT_TRUE(ctx.inner_.tpReleaseCb == nullptr);
+    EXPECT_FALSE(ctx.inner_.creating);
+    EXPECT_FALSE(ctx.inner_.valid);
+
+    // 异常后状态干净可重建，重建路径不重复执行回调
+    JettyContext::Ctx out2;
+    auto provideCtx2 = [](JettyContext::Ctx& c, JettyContext::TpReleaseCb&) -> HcclResult {
+        c = MakeValidCtx();
+        return HCCL_SUCCESS;
+    };
+    EXPECT_EQ(ctx.Acquire(provideCtx2, out2), HCCL_SUCCESS);
+    EXPECT_EQ(invokeCount, 1);
 }
 
 TEST_F(JettyContextTest, Acquire_When_ProvideCtxThrows_ClearsCreatingAndRetrySucceeds)
@@ -179,7 +209,7 @@ TEST_F(JettyContextTest, Acquire_When_ProvideCtxThrows_ClearsCreatingAndRetrySuc
     // 等满 32s 超时（共享 jetty 槽位在 Endpoint 生命周期内永久失效）；异常后可重试创建成功
     JettyContext::Ctx out;
     int callCount = 0;
-    auto provideCtx = [&callCount](JettyContext::Ctx& c) -> HcclResult {
+    auto provideCtx = [&callCount](JettyContext::Ctx& c, JettyContext::TpReleaseCb&) -> HcclResult {
         callCount++;
         if (callCount == 1) {
             throw std::runtime_error("mock provider throw");
@@ -212,7 +242,7 @@ TEST_F(JettyContextTest, Acquire_When_Creating_BlocksUntilCreatingCleared)
     auto fut = std::async(std::launch::async, [&]() {
         // 手动清除 creating 并 notify 后，等待线程被唤醒并抢占创建权，
         // 此时 provideCtx 会被正常调用完成首次创建，因此这里不应当断言失败。
-        auto provideCtx = [](JettyContext::Ctx& c) -> HcclResult {
+        auto provideCtx = [](JettyContext::Ctx& c, JettyContext::TpReleaseCb&) -> HcclResult {
             c = MakeValidCtx();
             return HCCL_SUCCESS;
         };
@@ -243,7 +273,7 @@ TEST_F(JettyContextTest, Acquire_Concurrent_Waiters_ReuseAfterCreate)
 {
     // 多线程并发 Acquire：首个创建成功后，其余线程应复用（不重复调 provideCtx）
     std::atomic<int> provideCallCount(0);
-    auto provideCtx = [&provideCallCount](JettyContext::Ctx& c) -> HcclResult {
+    auto provideCtx = [&provideCallCount](JettyContext::Ctx& c, JettyContext::TpReleaseCb&) -> HcclResult {
         provideCallCount++;
         c = MakeValidCtx();
         return HCCL_SUCCESS;
@@ -275,7 +305,7 @@ TEST_F(JettyContextTest, Release_When_NotValid_Skips)
 TEST_F(JettyContextTest, Release_Decrement_RefCount)
 {
     JettyContext::Ctx out;
-    auto provideCtx = [](JettyContext::Ctx& c) -> HcclResult {
+    auto provideCtx = [](JettyContext::Ctx& c, JettyContext::TpReleaseCb&) -> HcclResult {
         c = MakeValidCtx();
         return HCCL_SUCCESS;
     };
@@ -291,7 +321,7 @@ TEST_F(JettyContextTest, Release_ToZero_DestroysResources)
 {
     // MakeValidCtx 的 PI/CI 为真实 hrtMalloc 内存，归 0 销毁时 hrtFree 安全释放，不会段错误
     JettyContext::Ctx out;
-    auto provideCtx = [](JettyContext::Ctx& c) -> HcclResult {
+    auto provideCtx = [](JettyContext::Ctx& c, JettyContext::TpReleaseCb&) -> HcclResult {
         c = MakeValidCtx();
         return HCCL_SUCCESS;
     };
@@ -324,9 +354,9 @@ TEST_F(JettyContextTest, Acquire_FirstCreate_StoresTpReleaseCb)
     // provider 填充的 tpReleaseCb 应存入 Inner 保管；channel 视图（InnerToCtx 产物）不携带该字段
     JettyContext::Ctx out;
     bool invoked = false;
-    auto provideCtx = [&invoked](JettyContext::Ctx& c) -> HcclResult {
+    auto provideCtx = [&invoked](JettyContext::Ctx& c, JettyContext::TpReleaseCb& tpReleaseCb) -> HcclResult {
         c = MakeValidCtx();
-        c.tpReleaseCb = [&invoked]() -> HcclResult {
+        tpReleaseCb = [&invoked]() -> HcclResult {
             invoked = true;
             return HCCL_SUCCESS;
         };
@@ -334,8 +364,7 @@ TEST_F(JettyContextTest, Acquire_FirstCreate_StoresTpReleaseCb)
     };
     EXPECT_EQ(ctx.Acquire(provideCtx, out), HCCL_SUCCESS);
     EXPECT_TRUE(ctx.inner_.tpReleaseCb != nullptr);
-    EXPECT_TRUE(out.tpReleaseCb == nullptr); // InnerToCtx 不回填
-    EXPECT_FALSE(invoked);                   // Acquire 阶段不触发执行
+    EXPECT_FALSE(invoked); // Acquire 阶段不触发执行
 }
 
 TEST_F(JettyContextTest, Release_LastRef_InvokesTpReleaseCbOnce)
@@ -343,9 +372,9 @@ TEST_F(JettyContextTest, Release_LastRef_InvokesTpReleaseCbOnce)
     // 引用归零销毁共享资源时执行 TP 释放回调，且仅执行一次（执行后清空）
     JettyContext::Ctx out;
     int invokeCount = 0;
-    auto provideCtx = [&invokeCount](JettyContext::Ctx& c) -> HcclResult {
+    auto provideCtx = [&invokeCount](JettyContext::Ctx& c, JettyContext::TpReleaseCb& tpReleaseCb) -> HcclResult {
         c = MakeValidCtx();
-        c.tpReleaseCb = [&invokeCount]() -> HcclResult {
+        tpReleaseCb = [&invokeCount]() -> HcclResult {
             invokeCount++;
             return HCCL_SUCCESS;
         };
@@ -369,9 +398,9 @@ TEST_F(JettyContextTest, Release_When_TpReleaseCbFails_ReturnsError)
     // 避免键漂移类缺陷静默泄漏；回调仍恰好执行一次且 Inner 不残留
     JettyContext::Ctx out;
     int invokeCount = 0;
-    auto provideCtx = [&invokeCount](JettyContext::Ctx& c) -> HcclResult {
+    auto provideCtx = [&invokeCount](JettyContext::Ctx& c, JettyContext::TpReleaseCb& tpReleaseCb) -> HcclResult {
         c = MakeValidCtx();
-        c.tpReleaseCb = [&invokeCount]() -> HcclResult {
+        tpReleaseCb = [&invokeCount]() -> HcclResult {
             invokeCount++;
             return HCCL_E_NOT_FOUND;
         };
@@ -396,9 +425,10 @@ TEST_F(JettyContextTest, Release_LastRef_ExecutesTpReleaseCbOutsideMtx)
     // 重入是 UB），join 后断言成功——实现若回退为持锁执行，本用例即失败，为该语义提供 CI 防线
     JettyContext::Ctx out;
     bool lockAcquired = false;
-    auto provideCtx = [this, &lockAcquired](JettyContext::Ctx& c) -> HcclResult {
+    auto provideCtx
+        = [this, &lockAcquired](JettyContext::Ctx& c, JettyContext::TpReleaseCb& tpReleaseCb) -> HcclResult {
         c = MakeValidCtx();
-        c.tpReleaseCb = [this, &lockAcquired]() -> HcclResult {
+        tpReleaseCb = [this, &lockAcquired]() -> HcclResult {
             std::thread probe([this, &lockAcquired]() {
                 lockAcquired = ctx.mtx_.try_lock();
                 if (lockAcquired) {
@@ -421,9 +451,9 @@ TEST_F(JettyContextTest, Release_RefRemain_KeepsTpReleaseCb)
     // 引用未归零不销毁资源，TP 释放回调保持保管状态
     JettyContext::Ctx out;
     int invokeCount = 0;
-    auto provideCtx = [&invokeCount](JettyContext::Ctx& c) -> HcclResult {
+    auto provideCtx = [&invokeCount](JettyContext::Ctx& c, JettyContext::TpReleaseCb& tpReleaseCb) -> HcclResult {
         c = MakeValidCtx();
-        c.tpReleaseCb = [&invokeCount]() -> HcclResult {
+        tpReleaseCb = [&invokeCount]() -> HcclResult {
             invokeCount++;
             return HCCL_SUCCESS;
         };
@@ -444,9 +474,9 @@ TEST_F(JettyContextTest, Acquire_When_MemcpyFail_RollbackInvokesTpReleaseCbOnce)
     // 回滚走 DestroyJettyResources 须执行回调恰好一次并清空，不泄漏已移交的 TP 引用
     JettyContext::Ctx out;
     int invokeCount = 0;
-    auto provideCtx = [&invokeCount, this](JettyContext::Ctx& c) -> HcclResult {
+    auto provideCtx = [&invokeCount, this](JettyContext::Ctx& c, JettyContext::TpReleaseCb& tpReleaseCb) -> HcclResult {
         c = MakeValidCtx();
-        c.tpReleaseCb = [&invokeCount, this]() -> HcclResult {
+        tpReleaseCb = [&invokeCount, this]() -> HcclResult {
             invokeCount++;
             // 回调执行时 jetty/JFC 已销毁清零（DestroyJettyResources 先销毁资源后释放 TP）
             EXPECT_EQ(ctx.inner_.handle, 0ULL);
@@ -468,9 +498,9 @@ TEST_F(JettyContextTest, Release_LastRef_TpReleaseCbThrows_DoesNotTerminate)
     // 回调抛异常须被捕获（不能穿出导致 Release 路径崩溃/terminate），并翻译为 HCCL_E_INTERNAL
     // 告警码返回（异常与失败码同口径可审计）；~JettyContext 链内捕获语义由析构用例覆盖
     JettyContext::Ctx out;
-    auto provideCtx = [](JettyContext::Ctx& c) -> HcclResult {
+    auto provideCtx = [](JettyContext::Ctx& c, JettyContext::TpReleaseCb& tpReleaseCb) -> HcclResult {
         c = MakeValidCtx();
-        c.tpReleaseCb = []() -> HcclResult {
+        tpReleaseCb = []() -> HcclResult {
             throw std::runtime_error("mock tp release throw");
         };
         return HCCL_SUCCESS;
@@ -576,7 +606,7 @@ TEST_F(JettyContextTest, AcquireSharedRemoteJetty_FirstReserve_NeedImport)
 {
     // 先 Acquire 让 inner_.valid = true
     JettyContext::Ctx out;
-    auto provideCtx = [](JettyContext::Ctx& c) -> HcclResult {
+    auto provideCtx = [](JettyContext::Ctx& c, JettyContext::TpReleaseCb&) -> HcclResult {
         c = MakeValidCtx();
         return HCCL_SUCCESS;
     };
@@ -598,7 +628,7 @@ TEST_F(JettyContextTest, AcquireSharedRemoteJetty_FirstReserve_NeedImport)
 TEST_F(JettyContextTest, AcquireSharedRemoteJetty_When_Ready_ReuseHandle)
 {
     JettyContext::Ctx out;
-    auto provideCtx = [](JettyContext::Ctx& c) -> HcclResult {
+    auto provideCtx = [](JettyContext::Ctx& c, JettyContext::TpReleaseCb&) -> HcclResult {
         c = MakeValidCtx();
         return HCCL_SUCCESS;
     };
@@ -631,7 +661,7 @@ TEST_F(JettyContextTest, AcquireSharedRemoteJetty_When_Ready_ReuseHandle)
 TEST_F(JettyContextTest, AcquireSharedRemoteJetty_When_NotReady_Wait)
 {
     JettyContext::Ctx out;
-    auto provideCtx = [](JettyContext::Ctx& c) -> HcclResult {
+    auto provideCtx = [](JettyContext::Ctx& c, JettyContext::TpReleaseCb&) -> HcclResult {
         c = MakeValidCtx();
         return HCCL_SUCCESS;
     };
@@ -693,7 +723,7 @@ TEST_F(JettyContextTest, PublishSharedRemoteJetty_When_NotFound_ReturnsNotFound)
 TEST_F(JettyContextTest, PublishSharedRemoteJetty_Success)
 {
     JettyContext::Ctx out;
-    auto provideCtx = [](JettyContext::Ctx& c) -> HcclResult {
+    auto provideCtx = [](JettyContext::Ctx& c, JettyContext::TpReleaseCb&) -> HcclResult {
         c = MakeValidCtx();
         return HCCL_SUCCESS;
     };

@@ -189,9 +189,8 @@ TEST_F(SharedJettyChannelHelperTest, Ut_AcquireSharedJettyForChannel_When_TempCo
     JettyContext::Ctx outCtx;
     ASSERT_EQ(AcquireSharedJettyForChannel(&endpoint, conn.get(), factory, outCtx), HCCL_SUCCESS);
     EXPECT_EQ(factoryCallCount, 1U);
-    // TP 释放回调已移交 JettyContext；channel 视图（outCtx）不携带
+    // TP 释放回调已移交 JettyContext 保管（Ctx 视图不承载所有权，结构性保证）
     EXPECT_TRUE(endpoint.jettyContext_->inner_.tpReleaseCb != nullptr);
-    EXPECT_TRUE(outCtx.tpReleaseCb == nullptr);
 
     // Release 归零销毁共享资源并执行回调（stub 环境 ReleaseUbConnectionTp 恒成功），返回 SUCCESS
     EXPECT_EQ(endpoint.jettyContext_->Release(), HCCL_SUCCESS);

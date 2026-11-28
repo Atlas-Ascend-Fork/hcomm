@@ -38,15 +38,14 @@ public:
         bool ready{false};
     };
 
+    /** TP 引用释放回调：provider 经独立出参产出（Ctx 视图不承载所有权），Acquire 存入 Inner 保管 */
+    using TpReleaseCb = std::function<HcclResult()>;
+
     /**
      * @brief jetty 资源字段集合。channel 通过 Acquire 取得 Ctx 视图，
      *        读取 PI/CI 指针绑给 transport，不持有资源 ownership。
      * @note tpHandle 不在此共享：一对多场景下各主 connection 到不同对端需各自申请 tpHandle，
      *       否则对端 import 时 peerTpHandle 路由不匹配。仅 jetty/SQ/JFC/CQ/psn 共享。
-     * @note 同步约束：本结构与 Inner 的共享字段一一对应，新增/修改字段须同步四处：
-     *       Ctx、Inner、InnerToCtx（jetty_context.cc）、Acquire 第三段（PublishCreatedCtx）逐字段拷贝，
-     *       漏改会静默丢字段。例外：tpReleaseCb 仅 provider→Inner 单向传递（Acquire 第三段），
-     *       InnerToCtx 不回填——channel 视图不消费该字段。
      */
     struct Ctx {
         Hccl::JettyHandle handle{0};
@@ -67,9 +66,6 @@ public:
         Hccl::CqCreateInfo cqInfo{};
         uint32_t localPsn{0}; // 共享 jetty 统一 psn：临时 connection 生成后存入，主 connection 复用，避免多 connection
                               // 各自 GenerateLocalPsn 导致 import 同一 TP 对时 psn 互相覆盖
-        std::function<HcclResult()> tpReleaseCb{nullptr}; // 首建临时 connection 移交的 TP 引用释放回调，
-                                                          // 由 provider 填充、Acquire 存入 Inner 保管；
-                                                          // 返回释放结果（NOT_FOUND 等失败为键漂移审计信号）
     };
 
     JettyContext() = default;
@@ -81,10 +77,11 @@ public:
     /**
      * @brief 获取或创建共享 jetty。命中复用 refCount++；未命中调 provideCtx 创建并缓存。
      *        用 condition_variable 等待并发创建者，替代 sleep 轮询。
-     * @param[in] provideCtx 创建回调（首次时调用，回调内创建 jetty 并填入 ctx）
+     * @param[in] provideCtx 创建回调（首次时调用，回调内创建 jetty 并填入 ctx，
+     *            TP 引用释放回调经独立出参移交，由本类存入 Inner 保管）
      * @param[out] outCtx 输出的 jetty 上下文视图
      */
-    HcclResult Acquire(const std::function<HcclResult(Ctx&)>& provideCtx, Ctx& outCtx);
+    HcclResult Acquire(const std::function<HcclResult(Ctx&, TpReleaseCb&)>& provideCtx, Ctx& outCtx);
 
     /** 释放共享 jetty 引用，refCount-- 归 0 时销毁 jetty 并清空 ctx */
     HcclResult Release();
@@ -103,8 +100,9 @@ public:
         const uint8_t* remoteQpKey, uint32_t keySize, uint64_t handle, void* handlePtr, uint32_t tpn);
 
 private:
-    // @note 同步约束：共享字段与 Ctx 一一对应（见 Ctx 的同步注释），多出的 refCount/valid/creating/remoteJettys
-    // 为内部状态
+    // @note 同步约束：共享字段与 Ctx 一一对应（字段同步契约见 src/base_comm/README.md 数据契约），多出的
+    // refCount/valid/creating/remoteJettys/tpReleaseCb 为内部状态（TP 释放回调经 Acquire 独立出参移交，
+    // Ctx 视图不承载所有权）
     struct Inner {
         Hccl::JettyHandle handle{0};
         void* handlePtr{nullptr};
@@ -146,17 +144,40 @@ private:
     /**
      * @brief Acquire 第三段实现（内部持 mtx_）：把 createdCtx 字段搬运入 Inner 并发布
      *        （valid/creating/refCount/cv_.notify_all）。
+     * @param[in] inTpReleaseCb provider 产出的 TP 引用释放回调，由本方法 move 存入 Inner；
+     *             失败回滚时经 outTpReleaseCb 移出、由调用方在锁作用域外执行。
      * @param[out] outTpReleaseCb 失败回滚时经 DestroyJettyResources 移出的 TP 释放回调，
      *             由调用方在锁作用域外执行——回调链经适配层进入 TpManager 信息锁域，禁止持 mtx_ 执行。
      * @note 失败路径统一走 RollbackCreatedInnerLocked 后返回错误码，本方法不执行回调。
      */
-    HcclResult PublishCreatedCtx(Ctx& createdCtx, Ctx& outCtx, std::function<HcclResult()>& outTpReleaseCb);
+    HcclResult PublishCreatedCtx(Ctx& createdCtx, TpReleaseCb& inTpReleaseCb, Ctx& outCtx, TpReleaseCb& outTpReleaseCb);
 
     /**
      * @brief Acquire 第三段失败回滚（假定调用方持 mtx_）：销毁已写入的 device 资源
      *        （TP 释放回调移出至 outTpReleaseCb）、清空 Inner、清 creating 标记并唤醒等待方。
      */
     void RollbackCreatedInnerLocked(std::function<HcclResult()>& outTpReleaseCb);
+
+    /**
+     * @brief Acquire 第一段（持锁）：等待共享 jetty 创建完成。
+     *        已创建则 InnerToCtx + refCount++ 填入 outCtx（needCreate=false）；未创建则标记
+     *        creating、置 needCreate=true 由调用方执行创建；等待超时返回 HCCL_E_TIMEOUT。
+     */
+    HcclResult WaitReuseOrCreateClaim(Ctx& outCtx, bool& needCreate);
+
+    /** @brief 失败路径清理 creating 标记并唤醒等待方（持 mtx_），避免创建权滞留令槽位失效。 */
+    void ClearCreatingAndNotify();
+
+    /**
+     * @brief Acquire 第二段（无锁）：执行 provideCtx 首次创建回调（含网络建链 I/O）。
+     */
+    HcclResult RunProvideCtx(
+        const std::function<HcclResult(Ctx&, TpReleaseCb&)>& provideCtx, Ctx& createdCtx, TpReleaseCb& outTpReleaseCb);
+
+    /**
+     * @brief Acquire 第三段：PublishCreatedCtx 写入缓存并发布，回滚 TP 回调移出后在锁外执行。
+     */
+    HcclResult PublishCreatedAndAudit(Ctx& createdCtx, TpReleaseCb& tpReleaseCb, Ctx& outCtx);
 
     mutable std::mutex mtx_;
     std::condition_variable cv_;

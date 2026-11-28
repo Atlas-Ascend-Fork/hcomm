@@ -96,78 +96,83 @@ JettyContext::~JettyContext()
     (void)ExecuteTpReleaseCb(std::move(tpReleaseCb));
 }
 
-HcclResult JettyContext::Acquire(const std::function<HcclResult(Ctx&)>& provideCtx, Ctx& outCtx)
+HcclResult JettyContext::Acquire(const std::function<HcclResult(Ctx&, TpReleaseCb&)>& provideCtx, Ctx& outCtx)
 {
-    // 第一段（持锁）：检查是否已创建或正在创建。已创建则 refCount++ 返回；未创建则标记 creating。
-    // 超时上限 32s（覆盖 provideCtx 内部 16s jetty 创建 + 余量），避免创建线程异常崩溃后其他线程永久阻塞。
-    {
-        std::unique_lock<std::mutex> lk(mtx_);
-        if (!cv_.wait_for(lk, std::chrono::seconds(JETTY_CREATE_TIMEOUT_SECONDS), [this] {
-                return inner_.valid || !inner_.creating;
-            })) {
-            HCCL_ERROR("[JettyContext][Acquire] wait for shared jetty creation timeout[32s].");
-            return HCCL_E_TIMEOUT;
-        }
-        if (inner_.valid) {
-            CHK_RET(InnerToCtx(inner_, outCtx));
-            inner_.refCount++;
-            HCCL_INFO(
-                "[JettyContext][Acquire] reuse shared jetty, handle[%llu], refCount[%u]",
-                static_cast<unsigned long long>(outCtx.handle), inner_.refCount);
-            return HCCL_SUCCESS;
-        }
-        // 抢占创建权
-        inner_.creating = true;
+    // 三段式编排：持锁等待/复用或抢占创建权 → 无锁执行创建回调（失败清理 creating 并兜底 TP 回调）→
+    // 持锁发布缓存。各段职责与契约防御（超时上限、异常清理、TP 回调锁外执行）
+    bool needCreate = false;
+    HcclResult waitRet = WaitReuseOrCreateClaim(outCtx, needCreate);
+    if (waitRet != HCCL_SUCCESS || !needCreate) {
+        return waitRet;
     }
-
-    // 第二段（无锁）：执行首次创建回调（含网络建链 I/O，可能耗时数秒）。
-    // 创建期间不持锁，其他线程的 Acquire 在 cv_ 上等待，Release 不被阻塞。
-    // provideCtx 抛异常（如 WaitForJettyCreated 轮询 GetStatus 触发的 ThrowAbnormalStatus/
-    // CheckRequestResult THROW 经连接状态机上抛）时：先持锁清理 creating 并唤醒等待方再原样上抛，
-    // 否则 creating 永久滞留，同 endpoint 后续 Acquire 每次等满 32s 超时（共享 jetty 槽位失效）
     Ctx createdCtx;
+    TpReleaseCb createdTpReleaseCb{nullptr};
+    HcclResult createRet = RunProvideCtx(provideCtx, createdCtx, createdTpReleaseCb);
+    if (createRet != HCCL_SUCCESS) {
+        return createRet;
+    }
+    return PublishCreatedAndAudit(createdCtx, createdTpReleaseCb, outCtx);
+}
+
+HcclResult JettyContext::WaitReuseOrCreateClaim(Ctx& outCtx, bool& needCreate)
+{
+    // 第一段（持锁）：检查是否已创建或正在创建。
+    needCreate = false;
+    std::unique_lock<std::mutex> lk(mtx_);
+    if (!cv_.wait_for(lk, std::chrono::seconds(JETTY_CREATE_TIMEOUT_SECONDS), [this] {
+            return inner_.valid || !inner_.creating;
+        })) {
+        HCCL_ERROR("[JettyContext][Acquire] wait for shared jetty creation timeout[32s].");
+        return HCCL_E_TIMEOUT;
+    }
+    if (inner_.valid) {
+        CHK_RET(InnerToCtx(inner_, outCtx));
+        inner_.refCount++;
+        HCCL_INFO(
+            "[JettyContext][Acquire] reuse shared jetty, handle[%llu], refCount[%u]",
+            static_cast<unsigned long long>(outCtx.handle), inner_.refCount);
+        return HCCL_SUCCESS;
+    }
+    // 抢占创建权
+    inner_.creating = true;
+    needCreate = true;
+    return HCCL_SUCCESS;
+}
+
+void JettyContext::ClearCreatingAndNotify()
+{
+    std::lock_guard<std::mutex> lk(mtx_);
+    inner_.creating = false;
+    cv_.notify_all();
+}
+
+HcclResult JettyContext::RunProvideCtx(
+    const std::function<HcclResult(Ctx&, TpReleaseCb&)>& provideCtx, Ctx& createdCtx, TpReleaseCb& outTpReleaseCb)
+{
+    // 第二段（无锁）：执行首次创建回调（含网络建链 I/O，可能耗时数秒）。
     HcclResult createRet;
     try {
-        createRet = provideCtx(createdCtx);
+        createRet = provideCtx(createdCtx, outTpReleaseCb);
     } catch (...) {
-        {
-            std::lock_guard<std::mutex> lk(mtx_);
-            inner_.creating = false;
-            cv_.notify_all();
-        }
-        // 与错误码路径同口径的契约防御：provider 若在填充 tpReleaseCb 后抛异常，回调是已移交
-        // TP 引用的唯一释放路径（临时 connection 已置 releaseTpOnDestroy_=false），锁外兜底执行
-        // 恰一次后上抛（ExecuteTpReleaseCb 内部全量捕获，不影响异常传播）
-        ExecuteTpReleaseCb(std::move(createdCtx.tpReleaseCb));
+        ClearCreatingAndNotify();
+        ExecuteTpReleaseCb(std::move(outTpReleaseCb));
         throw;
     }
     if (createRet != HCCL_SUCCESS) {
-        {
-            std::lock_guard<std::mutex> lk(mtx_);
-            inner_.creating = false;
-            cv_.notify_all();
-            HCCL_ERROR("[JettyContext][Acquire] provideCtx failed, ret[%d].", createRet);
-        }
-        // 契约防御：provider 在填充 tpReleaseCb 后失败的场景（当前 helper 保证移交是 provideCtx 的
-        // 最后一步、失败路径回调为空，本兜底恒为 no-op）——回调是已移交 TP 引用的唯一释放路径
-        // （临时 connection 已置 releaseTpOnDestroy_=false），随 createdCtx 析构直接丢弃将令
-        // TpManager useCnt 永久漏扣，故锁外兜底执行恰一次（与 Release/第三段回滚口径一致）。
-        // 回调自身失败叠加审计日志（createRet 已为错误码，保持原错误码返回）
-        (void)ExecuteTpReleaseCb(std::move(createdCtx.tpReleaseCb));
+        ClearCreatingAndNotify();
+        HCCL_ERROR("[JettyContext][Acquire] provideCtx failed, ret[%d].", createRet);
+        (void)ExecuteTpReleaseCb(std::move(outTpReleaseCb));
         return createRet;
     }
+    return HCCL_SUCCESS;
+}
 
-    // 第三段（持锁，委托 PublishCreatedCtx）：写入缓存，清除 creating 标记，设置 refCount=1。
-    // 失败回滚的 TP 释放回调先移出到 rollbackTpReleaseCb，待锁作用域结束再执行：回调链经适配层进入
-    // TpManager 信息锁域，持 mtx_ 执行会把单 endpoint 临界区与全设备同协议 TP 信息操作串行化，
-    // 放大其他 channel 的 Acquire 等待方至 32s 超时风险（本特性目标恰是高频建链/销毁场景）。
+HcclResult JettyContext::PublishCreatedAndAudit(Ctx& createdCtx, TpReleaseCb& tpReleaseCb, Ctx& outCtx)
+{
+    // 第三段（持锁）：写入缓存，清除 creating 标记，设置 refCount=1。
     std::function<HcclResult()> rollbackTpReleaseCb;
-    HcclResult publishRet = PublishCreatedCtx(createdCtx, outCtx, rollbackTpReleaseCb);
-    HcclResult tpRet = ExecuteTpReleaseCb(std::move(rollbackTpReleaseCb));
-    if (publishRet == HCCL_SUCCESS && tpRet != HCCL_SUCCESS) {
-        // 成功路径回调恒为空（no-op），本分支防御性保留：发布成功但回调执行失败时以告警码返回
-        return tpRet;
-    }
+    HcclResult publishRet = PublishCreatedCtx(createdCtx, tpReleaseCb, outCtx, rollbackTpReleaseCb);
+    (void)ExecuteTpReleaseCb(std::move(rollbackTpReleaseCb));
     if (publishRet != HCCL_SUCCESS) {
         return publishRet;
     }
@@ -176,15 +181,16 @@ HcclResult JettyContext::Acquire(const std::function<HcclResult(Ctx&)>& provideC
     return HCCL_SUCCESS;
 }
 
-HcclResult JettyContext::PublishCreatedCtx(Ctx& createdCtx, Ctx& outCtx, std::function<HcclResult()>& outTpReleaseCb)
+HcclResult
+JettyContext::PublishCreatedCtx(Ctx& createdCtx, TpReleaseCb& inTpReleaseCb, Ctx& outCtx, TpReleaseCb& outTpReleaseCb)
 {
     std::lock_guard<std::mutex> lk(mtx_);
     // tpReleaseCb 先于其他字段写入：后续 memcpy_s/InnerToCtx 失败回滚走 DestroyJettyResources，
     // 届时已移交的 TP 引用随之释放，不泄漏。
     // 用 std::move 赋值（noexcept）：拷贝赋值 lambda 捕获 TpOwnership（含 IpAddress）必然堆分配、
     // 可能 bad_alloc，异常穿出时 creating 尚未清除（同 endpoint 后续 Acquire 等满 32s 超时），
-    // 且回调随 createdCtx 析构丢弃、已移交的 TP 引用泄漏
-    inner_.tpReleaseCb = std::move(createdCtx.tpReleaseCb);
+    // 且回调随出参析构丢弃、已移交的 TP 引用泄漏
+    inner_.tpReleaseCb = std::move(inTpReleaseCb);
     inner_.handle = createdCtx.handle;
     inner_.handlePtr = createdCtx.handlePtr;
     inner_.jettyId = createdCtx.jettyId;

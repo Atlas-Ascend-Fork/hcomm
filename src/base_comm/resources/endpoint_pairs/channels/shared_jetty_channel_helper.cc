@@ -63,8 +63,9 @@ static HcclResult AllocAndZeroQueueIndex(void** ptr, uint64_t size, const char* 
 }
 
 // 首次创建共享 jetty：用临时 connection 走完整 jetty 创建流程，分配共享 PI/CI device 内存
-static HcclResult
-ProvideSharedJettyCtx(const TempConnFactory& tempConnFactory, uint64_t sharedQueueIndexMemSize, JettyContext::Ctx& ctx)
+static HcclResult ProvideSharedJettyCtx(
+    const TempConnFactory& tempConnFactory, uint64_t sharedQueueIndexMemSize, JettyContext::Ctx& ctx,
+    JettyContext::TpReleaseCb& outTpReleaseCb)
 {
     std::unique_ptr<Hccl::DevUbConnection> tempConn = tempConnFactory();
     CHK_SMART_PTR_NULL(tempConn);
@@ -131,13 +132,13 @@ ProvideSharedJettyCtx(const TempConnFactory& tempConnFactory, uint64_t sharedQue
     // 顺序不变量：本移交必须是 provideCtx 的最后一步，其后不得再插入可失败步骤——回调一旦填充，
     // TP 引用的释放责任随之移交（connection 已置 releaseTpOnDestroy_=false）；若未来违反该顺序，
     // 由 JettyContext::Acquire 第二段失败路径的回调兜底执行保护（见 jetty_context.cc 契约防御）。
-    HcclResult tpDetachRet = DetachConnTpOwnership(tempConn.get(), ctx.tpReleaseCb);
+    HcclResult tpDetachRet = DetachConnTpOwnership(tempConn.get(), outTpReleaseCb);
     if (tpDetachRet != HCCL_SUCCESS) {
         HCCL_WARNING(
             "[%s] DetachConnTpOwnership ret[%d], tp ownership not transferred, tp ref falls back to release by "
             "temp conn destroy.",
             __func__, tpDetachRet);
-        ctx.tpReleaseCb = nullptr;
+        outTpReleaseCb = nullptr;
     }
     // 临时 connection 析构：jetty/JFC 与 TP 引用所有权均已移交，ReleaseResource 均跳过销毁/释放
     return HCCL_SUCCESS;
@@ -155,8 +156,9 @@ HcclResult AcquireSharedJettyForChannel(
     // 同 endpoint 下多 channel 共用这块 PI/CI device 内存，避免各 channel 各自分配指向同一 SQ
     // 导致生产者索引无法协调前进、WQE 互相覆盖、doorbell 不前进、notify 超时。
     constexpr uint64_t sharedQueueIndexMemSize = sizeof(void*);
-    auto provideCtx = [&tempConnFactory, sharedQueueIndexMemSize](JettyContext::Ctx& ctx) -> HcclResult {
-        return ProvideSharedJettyCtx(tempConnFactory, sharedQueueIndexMemSize, ctx);
+    auto provideCtx = [&tempConnFactory, sharedQueueIndexMemSize](
+                          JettyContext::Ctx& ctx, JettyContext::TpReleaseCb& tpReleaseCb) -> HcclResult {
+        return ProvideSharedJettyCtx(tempConnFactory, sharedQueueIndexMemSize, ctx, tpReleaseCb);
     };
 
     JettyContext::Ctx ctx{};
