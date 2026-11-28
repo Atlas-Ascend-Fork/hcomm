@@ -918,6 +918,7 @@ void RankInfoDetectClient::SetupHostListenPort(
         portRange = frontHalf;
     }
 
+    HccpPeerManager::GetInstance().Init(devLogicId); // 进行dpu端口抢占，需要peer模式，与探测时分开计数。
     SocketHandle hostSocketHandle = HostSocketHandleManager::GetInstance().Create(devPhyId, hostIp);
     hostSocket_ = std::make_shared<Socket>(
         hostSocketHandle, hostIp, HCCL_INVALID_PORT, hostIp, "hostport_preempt", SocketRole::SERVER,
